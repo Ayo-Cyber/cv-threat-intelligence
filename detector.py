@@ -643,9 +643,16 @@ def predict_with_model(
     imgsz: int,
     threat_classes: set[str],
     source_model: str,
+    use_tracking: bool = False,
 ) -> list[Detection]:
     if model.kind == "ultralytics":
-        results = model.runner.predict(frame, conf=conf, imgsz=imgsz, verbose=False)
+        if use_tracking:
+            results = model.runner.track(
+                frame, conf=conf, imgsz=imgsz, verbose=False,
+                tracker="bytetrack.yaml", persist=True,
+            )
+        else:
+            results = model.runner.predict(frame, conf=conf, imgsz=imgsz, verbose=False)
         detections = extract_detections(results[0], model.names, threat_classes)
     elif model.kind == "yolov5":
         model.runner.conf = conf
@@ -1255,6 +1262,7 @@ def main() -> None:
                 imgsz=args.imgsz,
                 threat_classes=threat_classes,
                 source_model="default",
+                use_tracking=True,
             )
             if person_model is not None:
                 person_detections = predict_with_model(
@@ -1264,6 +1272,7 @@ def main() -> None:
                     imgsz=args.imgsz,
                     threat_classes=threat_classes,
                     source_model="person",
+                    use_tracking=True,
                 )
                 detections = merge_detections(detections, person_detections)
             if weapon_model is not None:
