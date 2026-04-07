@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI-Powered Real-Time Threat Detection System — Technical Proposal</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f4f6f9;
+      color: #1a1a2e;
+      line-height: 1.7;
+    }
+
+    /* Cover Page */
+    .cover {
+      background: linear-gradient(135deg, #0f3460 0%, #16213e 60%, #0d1b2a 100%);
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 60px 40px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cover::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(circle at 30% 40%, rgba(229, 57, 53, 0.08) 0%, transparent 50%),
+                  radial-gradient(circle at 70% 60%, rgba(21, 101, 192, 0.12) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    .cover-badge {
+      background: rgba(229, 57, 53, 0.15);
+      border: 1px solid rgba(229, 57, 53, 0.4);
+      color: #ef9a9a;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      padding: 8px 20px;
+      border-radius: 20px;
+      margin-bottom: 40px;
+    }
+
+    .cover h1 {
+      font-size: 42px;
+      font-weight: 800;
+      line-height: 1.2;
+      max-width: 750px;
+      margin-bottom: 24px;
+      letter-spacing: -0.5px;
+    }
+
+    .cover h1 span {
+      color: #ef5350;
+    }
+
+    .cover .subtitle {
+      font-size: 18px;
+      color: #90caf9;
+      max-width: 600px;
+      margin-bottom: 60px;
+      font-weight: 300;
+    }
+
+    .cover-divider {
+      width: 60px;
+      height: 3px;
+      background: linear-gradient(90deg, #ef5350, #42a5f5);
+      border-radius: 2px;
+      margin: 0 auto 60px;
+    }
+
+    .cover-meta {
+      display: flex;
+      gap: 60px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .cover-meta-item {
+      text-align: center;
+    }
+
+    .cover-meta-item .label {
+      font-size: 11px;
+      color: #78909c;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 6px;
+    }
+
+    .cover-meta-item .value {
+      font-size: 15px;
+      color: #e0e0e0;
+      font-weight: 500;
+    }
+
+    .cover-footer {
+      position: absolute;
+      bottom: 30px;
+      font-size: 12px;
+      color: #546e7a;
+    }
+
+    /* Page break simulation */
+    .page-break {
+      page-break-before: always;
+    }
+
+    /* Main Content */
+    .main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 60px 40px;
+    }
+
+    /* Section Headers */
+    .section {
+      margin-bottom: 60px;
+    }
+
+    .section-number {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #ef5350;
+      margin-bottom: 8px;
+    }
+
+    .section h2 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #0f3460;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #e8eaf6;
+    }
+
+    .section h3 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1a237e;
+      margin: 28px 0 12px;
+    }
+
+    .section p {
+      font-size: 15px;
+      color: #37474f;
+      margin-bottom: 14px;
+    }
+
+    /* Executive Summary Box */
+    .exec-summary {
+      background: linear-gradient(135deg, #e8f4fd, #e3f2fd);
+      border-left: 5px solid #1565c0;
+      border-radius: 8px;
+      padding: 28px 32px;
+      margin-bottom: 32px;
+    }
+
+    .exec-summary p {
+      font-size: 16px;
+      color: #0d47a1;
+      line-height: 1.8;
+      margin: 0;
+    }
+
+    /* Cards Grid */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+      margin: 24px 0;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+      border-top: 4px solid #1565c0;
+      transition: transform 0.2s;
+    }
+
+    .card.red { border-top-color: #ef5350; }
+    .card.green { border-top-color: #43a047; }
+    .card.orange { border-top-color: #fb8c00; }
+    .card.purple { border-top-color: #8e24aa; }
+    .card.teal { border-top-color: #00897b; }
+
+    .card .card-icon {
+      font-size: 28px;
+      margin-bottom: 12px;
+    }
+
+    .card h4 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 8px;
+    }
+
+    .card p {
+      font-size: 13px;
+      color: #607d8b;
+      margin: 0;
+    }
+
+    /* Architecture Diagram */
+    .architecture {
+      background: #0f3460;
+      border-radius: 12px;
+      padding: 40px;
+      margin: 24px 0;
+      color: white;
+      font-family: 'Courier New', monospace;
+    }
+
+    .arch-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin: 12px 0;
+      flex-wrap: wrap;
+    }
+
+    .arch-box {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 12px 20px;
+      text-align: center;
+      font-size: 13px;
+      min-width: 140px;
+    }
+
+    .arch-box.highlight {
+      background: rgba(229, 57, 53, 0.2);
+      border-color: rgba(229, 57, 53, 0.5);
+    }
+
+    .arch-box .box-label {
+      font-size: 10px;
+      color: #78909c;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+
+    .arch-box .box-title {
+      font-weight: 600;
+      font-size: 13px;
+      color: #e0e0e0;
+    }
+
+    .arch-arrow {
+      color: #42a5f5;
+      font-size: 18px;
+      font-weight: bold;
+    }
+
+    /* Table */
+    .styled-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      background: white;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    }
+
+    .styled-table thead {
+      background: #0f3460;
+      color: white;
+    }
+
+    .styled-table th {
+      padding: 14px 18px;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .styled-table td {
+      padding: 13px 18px;
+      font-size: 14px;
+      color: #37474f;
+      border-bottom: 1px solid #eceff1;
+    }
+
+    .styled-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .styled-table tr:hover td {
+      background: #f8f9ff;
+    }
+
+    /* Status badges */
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-green { background: #e8f5e9; color: #2e7d32; }
+    .badge-yellow { background: #fff8e1; color: #f57f17; }
+    .badge-red { background: #ffebee; color: #c62828; }
+    .badge-blue { background: #e3f2fd; color: #1565c0; }
+
+    /* List styles */
+    .check-list {
+      list-style: none;
+      padding: 0;
+      margin: 16px 0;
+    }
+
+    .check-list li {
+      padding: 8px 0 8px 28px;
+      position: relative;
+      font-size: 14px;
+      color: #37474f;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .check-list li:last-child { border-bottom: none; }
+
+    .check-list li::before {
+      content: '✓';
+      position: absolute;
+      left: 0;
+      color: #43a047;
+      font-weight: bold;
+    }
+
+    /* Highlight Box */
+    .highlight-box {
+      background: #fff8e1;
+      border-left: 4px solid #ffb300;
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 14px;
+      color: #5d4037;
+    }
+
+    .info-box {
+      background: #e8f5e9;
+      border-left: 4px solid #43a047;
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 14px;
+      color: #1b5e20;
+    }
+
+    .warning-box {
+      background: #ffebee;
+      border-left: 4px solid #ef5350;
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 14px;
+      color: #b71c1c;
+    }
+
+    /* Performance Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+
+    .stat-card {
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      text-align: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+
+    .stat-card .stat-value {
+      font-size: 32px;
+      font-weight: 800;
+      color: #0f3460;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .stat-card .stat-label {
+      font-size: 12px;
+      color: #90a4ae;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* Roadmap */
+    .roadmap {
+      position: relative;
+      margin: 24px 0;
+    }
+
+    .roadmap-item {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    .roadmap-left {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 50px;
+    }
+
+    .roadmap-dot {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: #0f3460;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .roadmap-dot.phase1 { background: #1565c0; }
+    .roadmap-dot.phase2 { background: #6a1b9a; }
+    .roadmap-dot.phase3 { background: #00838f; }
+    .roadmap-dot.phase4 { background: #2e7d32; }
+
+    .roadmap-line {
+      width: 2px;
+      flex: 1;
+      background: #e0e0e0;
+      margin: 4px 0;
+    }
+
+    .roadmap-content {
+      background: white;
+      border-radius: 10px;
+      padding: 20px 24px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      flex: 1;
+      margin-bottom: 4px;
+    }
+
+    .roadmap-content h4 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f3460;
+      margin-bottom: 6px;
+    }
+
+    .roadmap-content .phase-tag {
+      font-size: 11px;
+      color: #90a4ae;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 10px;
+      display: block;
+    }
+
+    .roadmap-content p {
+      font-size: 13px;
+      color: #607d8b;
+      margin: 0;
+    }
+
+    /* Two-column layout */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin: 20px 0;
+    }
+
+    .col-box {
+      background: white;
+      border-radius: 10px;
+      padding: 24px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    }
+
+    .col-box h4 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f3460;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e8eaf6;
+    }
+
+    /* Footer */
+    .doc-footer {
+      background: #0f3460;
+      color: #90a4ae;
+      text-align: center;
+      padding: 40px;
+      margin-top: 60px;
+      font-size: 13px;
+    }
+
+    .doc-footer .footer-title {
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    /* TOC */
+    .toc {
+      background: white;
+      border-radius: 12px;
+      padding: 32px;
+      margin: 40px 0;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    }
+
+    .toc h3 {
+      font-size: 18px;
+      color: #0f3460;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e8eaf6;
+    }
+
+    .toc ol {
+      padding-left: 20px;
+    }
+
+    .toc li {
+      padding: 7px 0;
+      font-size: 14px;
+      color: #455a64;
+      border-bottom: 1px dashed #eceff1;
+    }
+
+    .toc li:last-child { border-bottom: none; }
+
+    .toc a {
+      color: #1565c0;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .toc a:hover { text-decoration: underline; }
+
+    @media print {
+      body { background: white; }
+      .cover { min-height: auto; padding: 80px 40px; }
+    }
+
+    @media (max-width: 600px) {
+      .cover h1 { font-size: 26px; }
+      .two-col { grid-template-columns: 1fr; }
+      .arch-row { flex-direction: column; }
+      .arch-arrow { transform: rotate(90deg); }
+      .main { padding: 40px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- COVER PAGE -->
+  <div class="cover">
+    <div class="cover-badge">Technical Proposal &nbsp;|&nbsp; Confidential</div>
+    <h1>AI-Powered <span>Real-Time Threat Detection</span> System</h1>
+    <p class="subtitle">Integrating Computer Vision Intelligence into Existing Security Camera Infrastructure</p>
+    <div class="cover-divider"></div>
+    <div class="cover-meta">
+      <div class="cover-meta-item">
+        <div class="label">Prepared For</div>
+        <div class="value">Business Partner Review</div>
+      </div>
+      <div class="cover-meta-item">
+        <div class="label">Document Type</div>
+        <div class="value">Technical Feasibility Proposal</div>
+      </div>
+      <div class="cover-meta-item">
+        <div class="label">Date</div>
+        <div class="value">March 2026</div>
+      </div>
+      <div class="cover-meta-item">
+        <div class="label">Version</div>
+        <div class="value">1.0</div>
+      </div>
+    </div>
+    <div class="cover-footer">Proprietary &amp; Confidential — Not for Public Distribution</div>
+  </div>
+
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+
+    <!-- TABLE OF CONTENTS -->
+    <div class="toc">
+      <h3>Table of Contents</h3>
+      <ol>
+        <li><a href="#executive-summary">Executive Summary</a></li>
+        <li><a href="#problem-statement">Problem Statement &amp; Opportunity</a></li>
+        <li><a href="#solution-overview">Solution Overview</a></li>
+        <li><a href="#how-it-works">How It Works — System Architecture</a></li>
+        <li><a href="#integration">Integration with Existing Cameras</a></li>
+        <li><a href="#real-time">Real-Time Performance &amp; Latency</a></li>
+        <li><a href="#threat-detection">Threat Detection Capabilities</a></li>
+        <li><a href="#tech-stack">Technology Stack</a></li>
+        <li><a href="#use-cases">Target Use Cases &amp; Sectors</a></li>
+        <li><a href="#challenges">Challenges &amp; Mitigations</a></li>
+        <li><a href="#roadmap">Implementation Roadmap</a></li>
+        <li><a href="#conclusion">Conclusion &amp; Next Steps</a></li>
+      </ol>
+    </div>
+
+
+    <!-- 1. EXECUTIVE SUMMARY -->
+    <div class="section" id="executive-summary">
+      <div class="section-number">Section 01</div>
+      <h2>Executive Summary</h2>
+      <div class="exec-summary">
+        <p>
+          In this document, I assess the technical and commercial feasibility of deploying an
+          AI-powered, real-time threat detection system on top of existing security camera
+          infrastructure. My view is that the concept is feasible today, especially for use cases
+          such as unauthorized intrusion, perimeter breach, loitering, and vehicle violations.
+          More complex detections such as weapons, violence, or watchlist matching are possible,
+          but I would treat them as later-phase capabilities that require tighter validation,
+          stronger governance, and site-specific tuning before they are presented as core features.
+        </p>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value">&lt;3s</div>
+          <div class="stat-label">Alert Latency</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">RTSP/ONVIF</div>
+          <div class="stat-label">Primary Integration Path</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">Site-Based</div>
+          <div class="stat-label">Capacity Sizing</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">24/7</div>
+          <div class="stat-label">Automated Monitoring</div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- 2. PROBLEM STATEMENT -->
+    <div class="section" id="problem-statement">
+      <div class="section-number">Section 02</div>
+      <h2>Problem Statement &amp; Opportunity</h2>
+
+      <p>
+        I see a clear gap in the traditional security model: it depends heavily on human operators
+        manually monitoring camera feeds for long periods, which is both expensive and unreliable.
+        In practice, attention drops over time, incidents are often reviewed after the fact, and
+        response teams do not always get actionable information quickly enough.
+      </p>
+
+      <div class="two-col">
+        <div class="col-box">
+          <h4>Current Challenges</h4>
+          <ul class="check-list" style="list-style:none;">
+            <li style="padding-left:28px; position:relative;">
+              <span style="position:absolute;left:0;color:#ef5350;">✗</span>
+              Human operators cannot monitor dozens of feeds simultaneously
+            </li>
+            <li style="padding-left:28px; position:relative;">
+              <span style="position:absolute;left:0;color:#ef5350;">✗</span>
+              Reactive, not proactive — incidents are reviewed after the fact
+            </li>
+            <li style="padding-left:28px; position:relative;">
+              <span style="position:absolute;left:0;color:#ef5350;">✗</span>
+              High cost of 24/7 security personnel
+            </li>
+            <li style="padding-left:28px; position:relative;">
+              <span style="position:absolute;left:0;color:#ef5350;">✗</span>
+              Existing cameras generate footage that is rarely analyzed in real time
+            </li>
+            <li style="padding-left:28px; position:relative;">
+              <span style="position:absolute;left:0;color:#ef5350;">✗</span>
+              Delayed response times increase risk and damage
+            </li>
+          </ul>
+        </div>
+        <div class="col-box">
+          <h4>The Opportunity</h4>
+          <ul class="check-list">
+            <li>Existing camera infrastructure already in place at most sites</li>
+            <li>AI models can process multiple streams simultaneously, 24/7</li>
+            <li>Alerts dispatched within seconds, not minutes</li>
+            <li>Potential to reduce monitoring workload and improve guard efficiency</li>
+            <li>Growing demand in real estate, retail, logistics, and public safety</li>
+          </ul>
+        </div>
+      </div>
+
+      <p>
+        From a commercial perspective, I believe this is a strong opportunity because most sites
+        already have camera infrastructure in place, while demand is increasing for automation,
+        faster response, and better use of existing surveillance spend. The main value is not
+        replacing guards entirely; it is helping a smaller team respond faster and more consistently.
+      </p>
+    </div>
+
+
+    <!-- 3. SOLUTION OVERVIEW -->
+    <div class="section" id="solution-overview">
+      <div class="section-number">Section 03</div>
+      <h2>Solution Overview</h2>
+
+      <p>
+        I am proposing an AI inference layer that sits on top of existing camera infrastructure.
+        In many environments, this can be integrated without replacing cameras, although I would
+        still expect to audit stream access, camera placement, lighting quality, and network
+        reliability before making deployment commitments.
+      </p>
+
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-icon">&#128247;</div>
+          <h4>Non-Invasive Integration</h4>
+          <p>Connects to existing IP camera streams via standard RTSP or ONVIF workflows, with no camera replacement in the common case.</p>
+        </div>
+        <div class="card red">
+          <div class="card-icon">&#128683;</div>
+          <h4>Real-Time Detection</h4>
+          <p>Processes live video feeds continuously and flags configured threat patterns quickly enough to support active response.</p>
+        </div>
+        <div class="card green">
+          <div class="card-icon">&#128276;</div>
+          <h4>Instant Alerts</h4>
+          <p>Automatically notifies the relevant team through SMS, push notification, email, or dashboard based on the escalation flow I define.</p>
+        </div>
+        <div class="card orange">
+          <div class="card-icon">&#128202;</div>
+          <h4>Incident Logging</h4>
+          <p>Automatically captures snapshots, clips, and event metadata for review, evidence handling, and later model tuning.</p>
+        </div>
+        <div class="card purple">
+          <div class="card-icon">&#9883;&#65039;</div>
+          <h4>Scalable Architecture</h4>
+          <p>Camera capacity depends on model size, resolution, frame rate, and hardware, so I would size deployments per site rather than promise a fixed number upfront.</p>
+        </div>
+        <div class="card teal">
+          <div class="card-icon">&#128187;</div>
+          <h4>Dashboard &amp; Reporting</h4>
+          <p>Centralized dashboard for live monitoring, alert history, operator acknowledgement, analytics, and reporting.</p>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- 4. HOW IT WORKS -->
+    <div class="section" id="how-it-works">
+      <div class="section-number">Section 04</div>
+      <h2>How It Works — System Architecture</h2>
+
+      <p>
+        My proposed pipeline moves from camera feed to verified alert in a straightforward sequence.
+        Each stage adds context before an event is escalated, which helps reduce noisy alerts and
+        makes the output more usable for a security team.
+      </p>
+
+      <div class="architecture">
+        <div style="text-align:center; color:#90caf9; font-size:13px; letter-spacing:2px; text-transform:uppercase; margin-bottom:24px;">
+          System Data Flow
+        </div>
+
+        <div class="arch-row">
+          <div class="arch-box">
+            <div class="box-label">Input Layer</div>
+            <div class="box-title">Existing IP Cameras</div>
+          </div>
+          <div class="arch-arrow">&#8594;</div>
+          <div class="arch-box">
+            <div class="box-label">Transport</div>
+            <div class="box-title">RTSP / HTTP Stream</div>
+          </div>
+          <div class="arch-arrow">&#8594;</div>
+          <div class="arch-box highlight">
+            <div class="box-label">Core Processing</div>
+            <div class="box-title">AI Inference Engine</div>
+          </div>
+        </div>
+
+        <div class="arch-row" style="justify-content:flex-end; padding-right: 60px;">
+          <div class="arch-arrow" style="transform:rotate(90deg);">&#8594;</div>
+        </div>
+
+        <div class="arch-row" style="flex-direction:row-reverse;">
+          <div class="arch-box">
+            <div class="box-label">Notification</div>
+            <div class="box-title">Alert System</div>
+          </div>
+          <div class="arch-arrow">&#8592;</div>
+          <div class="arch-box">
+            <div class="box-label">Decision</div>
+            <div class="box-title">Threat Classifier</div>
+          </div>
+          <div class="arch-arrow">&#8592;</div>
+          <div class="arch-box highlight">
+            <div class="box-label">Detection</div>
+            <div class="box-title">Object / Behavior Model</div>
+          </div>
+        </div>
+
+        <div class="arch-row" style="justify-content:flex-start; padding-left: 60px;">
+          <div class="arch-arrow" style="transform:rotate(90deg);">&#8594;</div>
+        </div>
+
+        <div class="arch-row">
+          <div class="arch-box">
+            <div class="box-label">Output</div>
+            <div class="box-title">Security Dashboard</div>
+          </div>
+          <div class="arch-arrow">&#8594;</div>
+          <div class="arch-box">
+            <div class="box-label">Evidence</div>
+            <div class="box-title">Incident Log &amp; Clips</div>
+          </div>
+          <div class="arch-arrow">&#8594;</div>
+          <div class="arch-box">
+            <div class="box-label">Personnel</div>
+            <div class="box-title">SMS / App / Email Alert</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>Processing Pipeline Detail</h3>
+      <table class="styled-table">
+        <thead>
+          <tr>
+            <th>Stage</th>
+            <th>Description</th>
+            <th>Technology</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>1. Stream Acquisition</strong></td>
+            <td>Connect to camera RTSP/HTTP feed and decode video frames</td>
+            <td>OpenCV, GStreamer, FFmpeg</td>
+          </tr>
+          <tr>
+            <td><strong>2. Pre-processing</strong></td>
+            <td>Resize, normalize, and prepare frames for model input</td>
+            <td>NumPy, OpenCV</td>
+          </tr>
+          <tr>
+            <td><strong>3. Object Detection</strong></td>
+            <td>Identify people, vehicles, objects of interest in each frame</td>
+            <td>YOLOv8 / YOLOv11</td>
+          </tr>
+          <tr>
+            <td><strong>4. Threat Classification</strong></td>
+            <td>Classify detected objects/behaviors against threat criteria</td>
+            <td>Custom classifier, Pose estimation</td>
+          </tr>
+          <tr>
+            <td><strong>5. Alert Triggering</strong></td>
+            <td>Dispatch notification when confidence threshold exceeded</td>
+            <td>FastAPI, Firebase, Twilio</td>
+          </tr>
+          <tr>
+            <td><strong>6. Incident Storage</strong></td>
+            <td>Save frame snapshot and clip to secure storage with metadata</td>
+            <td>AWS S3 / Local NAS</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+
+    <!-- 5. INTEGRATION -->
+    <div class="section" id="integration">
+      <div class="section-number">Section 05</div>
+      <h2>Integration with Existing Cameras</h2>
+
+      <p>
+        One of the biggest advantages of this approach is that it can usually work with
+        <strong>existing camera hardware</strong>. The AI layer connects to the current video stream
+        rather than replacing the cameras themselves, although I would still treat compatibility as
+        a site audit item rather than a blanket assumption.
+      </p>
+
+      <div class="info-box">
+        The camera's role is to capture and stream video. The intelligence sits in the processing
+        layer I am proposing, which means I can add detection and alerting with minimal disruption
+        to the existing security setup.
+      </div>
+
+      <h3>Integration Methods</h3>
+      <table class="styled-table">
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>Description</th>
+            <th>Best For</th>
+            <th>Complexity</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Direct RTSP</strong></td>
+            <td>Connect directly to camera's RTSP stream URL over LAN</td>
+            <td>Most IP camera deployments</td>
+            <td><span class="badge badge-green">Low</span></td>
+          </tr>
+          <tr>
+            <td><strong>NVR/DVR API</strong></td>
+            <td>Pull streams from the central recorder unit via its API</td>
+            <td>Sites with existing NVR systems</td>
+            <td><span class="badge badge-blue">Medium</span></td>
+          </tr>
+          <tr>
+            <td><strong>VMS Plugin</strong></td>
+            <td>Integrate as a plugin within VMS software (Milestone, Genetec)</td>
+            <td>Enterprise security deployments</td>
+            <td><span class="badge badge-blue">Medium</span></td>
+          </tr>
+          <tr>
+            <td><strong>Edge AI Gateway</strong></td>
+            <td>Physical device placed inline, intercepts and processes stream</td>
+            <td>Offline / low-connectivity sites</td>
+            <td><span class="badge badge-yellow">Medium-High</span></td>
+          </tr>
+          <tr>
+            <td><strong>Analog + Capture Card</strong></td>
+            <td>Digitize analog cameras via hardware encoder, then treat as IP</td>
+            <td>Older analog camera systems</td>
+            <td><span class="badge badge-yellow">Medium</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Camera Compatibility Requirements</h3>
+      <p>
+        In most commercial and residential environments, the camera estate should be compatible if
+        it exposes a usable stream and meets a basic quality threshold. These are the minimum
+        requirements I would validate during discovery:
+      </p>
+      <table class="styled-table">
+        <thead>
+          <tr><th>Requirement</th><th>Minimum Spec</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Protocol</td>
+            <td>RTSP, HTTP, ONVIF</td>
+            <td>Common across most modern IP camera deployments</td>
+          </tr>
+          <tr>
+            <td>Resolution</td>
+            <td>720p (1280x720)</td>
+            <td>1080p recommended for better accuracy</td>
+          </tr>
+          <tr>
+            <td>Frame Rate</td>
+            <td>10 FPS minimum</td>
+            <td>15–30 FPS ideal for behavior detection</td>
+          </tr>
+          <tr>
+            <td>Network Access</td>
+            <td>LAN / VPN accessible</td>
+            <td>Camera must be reachable by processing server</td>
+          </tr>
+          <tr>
+            <td>Lighting</td>
+            <td>Adequate for camera sensor</td>
+            <td>IR/night-vision cameras supported</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="highlight-box">
+        <strong>Supported Camera Brands (non-exhaustive):</strong> Hikvision, Dahua, Axis, Bosch,
+        Hanwha, Reolink, Amcrest, Uniview, Vivotek, Samsung, Sony, Pelco, and other
+        ONVIF-compliant IP cameras, subject to stream access and quality validation.
+      </div>
+    </div>
+
+
+    <!-- 6. REAL-TIME PERFORMANCE -->
+    <div class="section" id="real-time">
+      <div class="section-number">Section 06</div>
+      <h2>Real-Time Performance &amp; Latency</h2>
+
+      <p>
+        For this project, I would define "real-time" as detecting an event and issuing an alert
+        within roughly <strong>1 to 3 seconds</strong> of the triggering activity under expected
+        operating conditions. Sub-second performance is achievable in controlled environments, but
+        I would not present that as the default promise without benchmarking the target setup.
+      </p>
+
+      <h3>End-to-End Latency Breakdown</h3>
+      <table class="styled-table">
+        <thead>
+          <tr><th>Stage</th><th>Typical Latency</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Camera frame capture (at 30 FPS)</td><td>~33 ms</td></tr>
+          <tr><td>Network transmission (LAN)</td><td>~10–50 ms</td></tr>
+          <tr><td>AI model inference (GPU)</td><td>~5–20 ms</td></tr>
+          <tr><td>Threat classification &amp; decision</td><td>~5–10 ms</td></tr>
+          <tr><td>Alert dispatch (push/SMS)</td><td>~100–500 ms</td></tr>
+          <tr style="font-weight:bold; background:#e8f4fd;">
+            <td><strong>Total End-to-End</strong></td>
+            <td><strong>~1 to 3 seconds target in production</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="info-box">
+        Actual performance will depend on camera resolution, frame rate, stream stability, model
+        size, concurrency, and whether alerts require multi-frame confirmation. I would benchmark
+        these numbers during the pilot instead of treating them as fixed guarantees.
+      </div>
+
+      <h3>Performance by Hardware Configuration</h3>
+      <table class="styled-table">
+        <thead>
+          <tr><th>Hardware</th><th>Model</th><th>Processing Speed</th><th>Suitability</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>GPU Server (RTX 3060+)</td>
+            <td>YOLOv8 Medium</td>
+            <td>60–100 FPS</td>
+            <td><span class="badge badge-green">Excellent</span></td>
+          </tr>
+          <tr>
+            <td>GPU Server (RTX 3060+)</td>
+            <td>YOLOv8 Nano</td>
+            <td>100–200 FPS</td>
+            <td><span class="badge badge-green">Excellent</span></td>
+          </tr>
+          <tr>
+            <td>CPU Server (Modern)</td>
+            <td>YOLOv8 Nano</td>
+            <td>15–30 FPS</td>
+            <td><span class="badge badge-green">Good</span></td>
+          </tr>
+          <tr>
+            <td>NVIDIA Jetson (Edge)</td>
+            <td>YOLOv8 Nano</td>
+            <td>30–60 FPS</td>
+            <td><span class="badge badge-green">Good</span></td>
+          </tr>
+          <tr>
+            <td>Raspberry Pi 4</td>
+            <td>YOLOv8 Nano</td>
+            <td>3–8 FPS</td>
+            <td><span class="badge badge-yellow">Limited Use</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Multi-Camera Scalability</h3>
+      <p>I would treat multi-camera capacity as a sizing estimate that must be validated against the deployment profile:</p>
+      <div class="cards-grid">
+        <div class="card">
+          <h4>Entry Level (1x GPU)</h4>
+          <p>4–8 cameras at full 30 FPS with high accuracy models. Ideal for small estates or single buildings.</p>
+        </div>
+        <div class="card green">
+          <h4>Mid Level (1x High-End GPU)</h4>
+          <p>10–20 cameras at 15–30 FPS. Suitable for medium commercial sites or residential estates.</p>
+        </div>
+        <div class="card orange">
+          <h4>Enterprise (Multi-GPU)</h4>
+          <p>30–50+ cameras with batching and model optimization. Suitable for large commercial campuses.</p>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- 7. THREAT DETECTION CAPABILITIES -->
+    <div class="section" id="threat-detection">
+      <div class="section-number">Section 07</div>
+      <h2>Threat Detection Capabilities</h2>
+
+      <p>
+        The system can be configured to detect a range of threat types, from physical intrusions to
+        behavioral anomalies. In practice, I would enable or disable categories per camera and
+        start with the lowest-ambiguity use cases before expanding into more difficult detections.
+      </p>
+
+      <table class="styled-table">
+        <thead>
+          <tr><th>Threat Category</th><th>Detection Method</th><th>Application</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Unauthorized Intrusion</strong></td>
+            <td>Person detection in restricted/after-hours zones</td>
+            <td>Security, Real Estate</td>
+          </tr>
+          <tr>
+            <td><strong>Weapon Detection</strong></td>
+            <td>Object detection — firearms, knives, blunt objects</td>
+            <td>Security, Public Safety</td>
+          </tr>
+          <tr>
+            <td><strong>Perimeter Breach</strong></td>
+            <td>Virtual boundary crossing detection (geo-fencing)</td>
+            <td>Estates, Warehouses</td>
+          </tr>
+          <tr>
+            <td><strong>Loitering Detection</strong></td>
+            <td>Person presence beyond configurable time threshold</td>
+            <td>Retail, Residential</td>
+          </tr>
+          <tr>
+            <td><strong>Violence / Fighting</strong></td>
+            <td>Pose estimation + motion analysis for aggressive behavior</td>
+            <td>Security, Events</td>
+          </tr>
+          <tr>
+            <td><strong>Abandoned Objects</strong></td>
+            <td>Static object detection — bags, packages left unattended</td>
+            <td>Transport, Public Space</td>
+          </tr>
+          <tr>
+            <td><strong>Crowd Anomalies</strong></td>
+            <td>Crowd density estimation; sudden dispersal or gathering</td>
+            <td>Events, Public Safety</td>
+          </tr>
+          <tr>
+            <td><strong>Watchlist Matching</strong></td>
+            <td>Facial recognition against a configured person database</td>
+            <td>Access Control (with consent)</td>
+          </tr>
+          <tr>
+            <td><strong>Vehicle Intrusion</strong></td>
+            <td>Unauthorized vehicle in pedestrian or restricted zones</td>
+            <td>Estates, Facilities</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="warning-box">
+        <strong>Deployment Prioritization:</strong> For an initial rollout, I would prioritize
+        intrusion, perimeter breach, loitering, and unauthorized vehicle detection because they are
+        easier to validate and operationalize. Weapon detection, violence detection, and watchlist
+        matching should be treated as advanced features that require stronger testing, tighter
+        governance, and a more conservative go-live threshold.
+      </div>
+
+      <div class="warning-box">
+        <strong>Important Note on Facial Recognition:</strong> Facial recognition capabilities are
+        subject to applicable privacy laws (e.g., GDPR, Nigeria Data Protection Act). Deployment
+        requires clear signage, consent mechanisms, and data governance policies. I would require a
+        legal review before enabling this feature in any production setting.
+      </div>
+    </div>
+
+
+    <!-- 8. TECH STACK -->
+    <div class="section" id="tech-stack">
+      <div class="section-number">Section 08</div>
+      <h2>Technology Stack</h2>
+
+      <p>
+        I would build the system on a mix of proven open-source and enterprise-grade technologies.
+        The stack should stay flexible enough to support on-premise, cloud, or hybrid deployment
+        depending on privacy, latency, and budget requirements.
+      </p>
+
+      <table class="styled-table">
+        <thead>
+          <tr><th>Layer</th><th>Component</th><th>Technology Options</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Video Ingestion</strong></td>
+            <td>Stream acquisition &amp; decoding</td>
+            <td>OpenCV, GStreamer, FFmpeg</td>
+          </tr>
+          <tr>
+            <td><strong>AI / ML Models</strong></td>
+            <td>Object detection, classification</td>
+            <td>YOLOv8/v11, RT-DETR, MediaPipe</td>
+          </tr>
+          <tr>
+            <td><strong>Model Training</strong></td>
+            <td>Custom model fine-tuning</td>
+            <td>PyTorch, Ultralytics, Roboflow</td>
+          </tr>
+          <tr>
+            <td><strong>Inference Optimization</strong></td>
+            <td>GPU-accelerated inference</td>
+            <td>TensorRT, ONNX Runtime, OpenVINO</td>
+          </tr>
+          <tr>
+            <td><strong>Backend API</strong></td>
+            <td>System integration &amp; alert dispatch</td>
+            <td>FastAPI (Python), Node.js</td>
+          </tr>
+          <tr>
+            <td><strong>Alert Delivery</strong></td>
+            <td>Notifications to personnel</td>
+            <td>Firebase, Twilio (SMS), SendGrid</td>
+          </tr>
+          <tr>
+            <td><strong>Frontend Dashboard</strong></td>
+            <td>Live monitoring interface</td>
+            <td>React.js + WebSockets</td>
+          </tr>
+          <tr>
+            <td><strong>Storage</strong></td>
+            <td>Incident clips &amp; image storage</td>
+            <td>AWS S3, Azure Blob, or Local NAS</td>
+          </tr>
+          <tr>
+            <td><strong>Database</strong></td>
+            <td>Incident logs, configuration</td>
+            <td>PostgreSQL, MongoDB</td>
+          </tr>
+          <tr>
+            <td><strong>Edge Hardware</strong></td>
+            <td>On-site processing devices</td>
+            <td>NVIDIA Jetson, Intel NUC, Coral AI</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+
+    <!-- 9. USE CASES -->
+    <div class="section" id="use-cases">
+      <div class="section-number">Section 09</div>
+      <h2>Target Use Cases &amp; Sectors</h2>
+
+      <div class="two-col">
+        <div class="col-box">
+          <h4>Security Industry</h4>
+          <ul class="check-list">
+            <li>Banks &amp; financial institutions</li>
+            <li>Shopping malls &amp; retail centers</li>
+            <li>Corporate office buildings</li>
+            <li>Warehouses &amp; logistics facilities</li>
+            <li>Government buildings &amp; public spaces</li>
+            <li>Event venues &amp; stadiums</li>
+          </ul>
+        </div>
+        <div class="col-box">
+          <h4>Real Estate Sector</h4>
+          <ul class="check-list">
+            <li>Gated residential estates</li>
+            <li>Apartment complexes</li>
+            <li>Commercial property management</li>
+            <li>Construction site monitoring</li>
+            <li>Serviced office buildings</li>
+            <li>Short-let / Airbnb properties</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>Example Deployment — Residential Estate</h3>
+      <div class="exec-summary">
+        <p>
+          In a mid-sized gated estate with 40 existing IP cameras, I would start with an AI
+          processing server focused on perimeter breaches, after-hours intrusions, loitering at
+          entry points, and unauthorized vehicles. The estate manager and security team would
+          receive mobile alerts with supporting clips, while all incidents would be logged for
+          review. My expectation is that this setup can reduce monitoring workload and improve
+          response speed, but I would only quantify cost savings and detection accuracy after a
+          measured pilot in the actual environment.
+        </p>
+      </div>
+    </div>
+
+
+    <!-- 10. CHALLENGES -->
+    <div class="section" id="challenges">
+      <div class="section-number">Section 10</div>
+      <h2>Challenges &amp; Mitigations</h2>
+
+      <table class="styled-table">
+        <thead>
+          <tr><th>Challenge</th><th>Impact</th><th>Mitigation Strategy</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>False Positives</strong></td>
+            <td>Alert fatigue, reduced trust</td>
+            <td>Confidence thresholds, multi-frame confirmation, human-in-loop verification</td>
+          </tr>
+          <tr>
+            <td><strong>Lighting Variability</strong></td>
+            <td>Reduced accuracy at night or in shadows</td>
+            <td>Train on diverse lighting datasets; leverage IR camera feeds</td>
+          </tr>
+          <tr>
+            <td><strong>Camera Angle / Occlusion</strong></td>
+            <td>Missed detections</td>
+            <td>Camera placement audit during setup; multi-camera overlap strategy</td>
+          </tr>
+          <tr>
+            <td><strong>Network Reliability</strong></td>
+            <td>Stream drops causing gaps</td>
+            <td>Auto-reconnect logic; edge processing for offline resilience</td>
+          </tr>
+          <tr>
+            <td><strong>Privacy &amp; Legal</strong></td>
+            <td>Regulatory non-compliance</td>
+            <td>Legal review, privacy impact assessment, consent notices, data retention policies</td>
+          </tr>
+          <tr>
+            <td><strong>Hardware Cost</strong></td>
+            <td>High upfront investment</td>
+            <td>GPU server shared across many cameras; SaaS/subscription model to spread cost</td>
+          </tr>
+          <tr>
+            <td><strong>Model Accuracy</strong></td>
+            <td>Environment-specific errors</td>
+            <td>Fine-tune model on site-specific training data; continuous improvement pipeline</td>
+          </tr>
+          <tr>
+            <td><strong>Cybersecurity</strong></td>
+            <td>Unauthorized access to cameras, alerts, or stored evidence</td>
+            <td>Network segmentation, VPN access, credential rotation, encrypted storage, audit logs</td>
+          </tr>
+          <tr>
+            <td><strong>Operational Response</strong></td>
+            <td>Good detections but weak on-ground follow-through</td>
+            <td>Define escalation paths, acknowledgement workflow, response SLAs, and operator training</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+
+    <!-- 11. ROADMAP -->
+    <div class="section" id="roadmap">
+      <div class="section-number">Section 11</div>
+      <h2>Implementation Roadmap</h2>
+
+      <p>
+        I would use a phased implementation approach to reduce risk and validate the system at each
+        stage before scaling.
+      </p>
+
+      <div class="roadmap">
+
+        <div class="roadmap-item">
+          <div class="roadmap-left">
+            <div class="roadmap-dot phase1">1</div>
+            <div class="roadmap-line"></div>
+          </div>
+          <div class="roadmap-content">
+            <span class="phase-tag">Phase 1 &nbsp;|&nbsp; Weeks 1–3</span>
+            <h4>Proof of Concept</h4>
+            <p>
+              Build a working prototype using a test camera or webcam. Implement RTSP stream
+              ingestion, run YOLOv8 detection, and validate the first threat categories.
+              Confirm latency on target hardware and define baseline metrics for precision, recall,
+              and false-alert rate. Deliverable: live demo plus an initial evaluation report.
+            </p>
+          </div>
+        </div>
+
+        <div class="roadmap-item">
+          <div class="roadmap-left">
+            <div class="roadmap-dot phase2">2</div>
+            <div class="roadmap-line"></div>
+          </div>
+          <div class="roadmap-content">
+            <span class="phase-tag">Phase 2 &nbsp;|&nbsp; Weeks 4–8</span>
+            <h4>Pilot Deployment</h4>
+            <p>
+              Deploy at a single pilot site (estate or commercial building). Connect to 4–10
+              existing cameras. Implement alert system and basic dashboard. Collect real-world
+              performance data. Refine detection rules and thresholds based on feedback from the
+              actual operators who will respond to the alerts.
+            </p>
+          </div>
+        </div>
+
+        <div class="roadmap-item">
+          <div class="roadmap-left">
+            <div class="roadmap-dot phase3">3</div>
+            <div class="roadmap-line"></div>
+          </div>
+          <div class="roadmap-content">
+            <span class="phase-tag">Phase 3 &nbsp;|&nbsp; Weeks 9–14</span>
+            <h4>Product Hardening</h4>
+            <p>
+              Improve model accuracy with site-specific training data. Build full web dashboard
+              with incident logging, analytics, and reporting. Implement user management,
+              multi-site support, and role-based access. Conduct cybersecurity, privacy, and
+              audit-readiness review.
+            </p>
+          </div>
+        </div>
+
+        <div class="roadmap-item">
+          <div class="roadmap-left">
+            <div class="roadmap-dot phase4">4</div>
+          </div>
+          <div class="roadmap-content">
+            <span class="phase-tag">Phase 4 &nbsp;|&nbsp; Month 4+</span>
+            <h4>Commercial Rollout</h4>
+            <p>
+              Package as a scalable SaaS or on-premise product. Onboard first paying clients.
+              Establish support, monitoring, retraining, and continuous improvement pipelines.
+              Expand to additional use cases (retail, logistics, public safety).
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+
+    <!-- 12. CONCLUSION -->
+    <div class="section" id="conclusion">
+      <div class="section-number">Section 12</div>
+      <h2>Conclusion &amp; Next Steps</h2>
+
+      <p>
+        My conclusion is that applying AI-powered computer vision to existing security camera
+        infrastructure is technically feasible and commercially credible if the rollout is scoped
+        properly. The technology is mature enough for targeted use cases, but the deployment still
+        has to be grounded in site conditions, alert workflows, and compliance requirements.
+      </p>
+
+      <p>
+        I believe the strongest value proposition is turning passive camera infrastructure into an
+        active decision-support layer without forcing clients to replace their existing hardware.
+        The most credible path is to start with a narrow MVP, validate it with live operators, and
+        expand only after the numbers support wider rollout.
+      </p>
+
+      <div class="info-box">
+        <strong>Recommended Immediate Next Steps:</strong><br><br>
+        1. Agree on the priority use case (e.g., residential estate vs. commercial security) to focus the initial build.<br>
+        2. Identify a pilot deployment site for Phase 1 validation.<br>
+        3. Define the specific threat categories to detect for the initial prototype.<br>
+        4. Assess available hardware (GPU server vs. edge device preference).<br>
+        5. Initiate a brief legal/privacy review relevant to the target market jurisdiction.
+      </div>
+
+      <p>
+        This proposal is my starting framework. Once the target use case and deployment scope are
+        agreed, I can turn it into a more detailed technical specification, cost model, and pilot
+        execution plan.
+      </p>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="doc-footer">
+    <div class="footer-title">AI-Powered Real-Time Threat Detection System</div>
+    <p>Technical Feasibility Proposal &nbsp;|&nbsp; March 2026 &nbsp;|&nbsp; Version 1.0</p>
+    <p style="margin-top:10px;">Proprietary &amp; Confidential — For Internal Review Only</p>
+  </div>
+
+</body>
+</html>
