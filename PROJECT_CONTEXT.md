@@ -485,3 +485,9 @@ Important packaging decision:
 Current blocker:
 - automated GitHub repo creation from the environment failed with a GitHub API owner/auth issue
 - local push prep can still be completed, but the empty GitHub repository may need to be created manually from the browser before the first `git push`
+
+Local git status after prep:
+- initial commit created successfully
+- default branch renamed to `main`
+- remote configured as `https://github.com/DEMILADE07/cv-threat-intelligence.git`
+- first push attempt failed with `Repository not found`, which confirms the current blocker is repository existence on GitHub, not a local git issue
