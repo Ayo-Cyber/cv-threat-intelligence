@@ -43,13 +43,113 @@ So the fastest path is:
 - do not block the POC on Jetson or Jetson-like deployment work
 
 ## Quick Start
-### 1. Create a virtual environment
+
+### Windows
+
 ```powershell
+# 1. Clone the repo
+git clone https://github.com/DEMILADE07/cv-threat-intelligence.git
+cd cv-threat-intelligence
+
+# 2. Create and activate virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
+
+# 3. Install dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
+pip install -r external/yolov5/requirements.txt
+
+# 4. Run the demo
+python detector.py `
+  --source 0 `
+  --weights rtdetr-l.pt `
+  --person-weights rtdetr-l.pt `
+  --pose-weights yolov8n-pose.pt `
+  --person-classes person `
+  --weapon-classes knife,gun `
+  --threat-classes knife,gun `
+  --weapon-conf 0.80 `
+  --min-threat-frames 2 `
+  --violence-min-frames 3 `
+  --debug-weapon `
+  --debug-violence `
+  --show
 ```
+
+> **Note:** If ByteTrack causes a crash, add `--no-track` to the command.
+
+### Mac
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/DEMILADE07/cv-threat-intelligence.git
+cd cv-threat-intelligence
+
+# 2. Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install -r external/yolov5/requirements.txt
+
+# 4. Grant camera permission
+# System Settings → Privacy & Security → Camera → enable Terminal
+# Restart Terminal after granting, then re-run: source .venv/bin/activate
+
+# 5. Run the demo
+python3 detector.py \
+  --source 0 \
+  --weights rtdetr-l.pt \
+  --person-weights rtdetr-l.pt \
+  --pose-weights yolov8n-pose.pt \
+  --person-classes person \
+  --weapon-classes knife,gun \
+  --threat-classes knife,gun \
+  --weapon-conf 0.80 \
+  --min-threat-frames 2 \
+  --violence-min-frames 3 \
+  --debug-weapon \
+  --debug-violence \
+  --show
+```
+
+> **Note:** `rtdetr-l.pt` downloads automatically (~63MB) on first run.  
+> If it runs slowly on your machine, swap to `--weights yolov8n.pt --person-weights yolov8n.pt` instead.
+
+### Run on a video file instead of webcam
+
+```bash
+# Windows
+python detector.py --source "demo\clip_b_armed.mp4" ...
+
+# Mac
+python3 detector.py --source "demo/clip_b_armed.mp4" ...
+```
+
+### What you should see on startup
+
+```
+Loading model...
+Loaded default model from: rtdetr-l.pt (ultralytics)
+Loaded dedicated person model: rtdetr-l.pt (ultralytics)
+Loaded pose model: yolov8n-pose.pt (ultralytics)
+ByteTrack person tracking: ON
+Starting inference loop. Press 'q' to quit.
+```
+
+### Troubleshooting
+
+| Error | Fix |
+|---|---|
+| `No module named 'torch'` | Virtual environment not active — run `source .venv/bin/activate` (Mac) or `.\.venv\Scripts\Activate.ps1` (Windows) |
+| `ModuleNotFoundError: pandas` | `pip install -r external/yolov5/requirements.txt` |
+| `Unable to open source: 0` on Mac | Grant camera access: System Settings → Privacy & Security → Camera → enable Terminal, then restart Terminal |
+| `Unable to open source: 0` on Windows | Try `--source 1` — different camera index |
+| ByteTrack crash | Add `--no-track` to the command |
+| Weapon model not found | Confirm `models/weapon_best.pt` exists in the repo root |
 
 ### 2. Run a smoke test with your webcam
 This proves the live pipeline works.

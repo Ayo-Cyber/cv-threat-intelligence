@@ -338,6 +338,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print exact violence heuristic signals when they change.",
     )
+    parser.add_argument(
+        "--no-track",
+        action="store_true",
+        help="Disable ByteTrack person tracking and use plain predict instead. Use this if tracking causes crashes.",
+    )
     return parser.parse_args()
 
 
@@ -1224,6 +1229,8 @@ def main() -> None:
         print(f"Loaded dedicated weapon model: {weapon_model.source_path} ({weapon_model.kind})")
     if pose_model is not None:
         print(f"Loaded pose model: {pose_model.source_path} ({pose_model.kind})")
+    tracking_enabled = not args.no_track and default_model.kind == "ultralytics"
+    print(f"ByteTrack person tracking: {'ON' if tracking_enabled else 'OFF (use --no-track to disable)'}")
 
     capture = open_capture(source)
     source_name = str(source)
@@ -1255,6 +1262,9 @@ def main() -> None:
                 print("Stream ended or frame could not be read.")
                 break
 
+            # Only one model should own the ByteTrack state at a time.
+            # If a dedicated person model is set, it handles tracking.
+            # The default model falls back to plain predict to avoid two trackers fighting.
             detections = predict_with_model(
                 default_model,
                 frame,
@@ -1262,7 +1272,7 @@ def main() -> None:
                 imgsz=args.imgsz,
                 threat_classes=threat_classes,
                 source_model="default",
-                use_tracking=True,
+                use_tracking=tracking_enabled and person_model is None,
             )
             if person_model is not None:
                 person_detections = predict_with_model(
@@ -1272,7 +1282,7 @@ def main() -> None:
                     imgsz=args.imgsz,
                     threat_classes=threat_classes,
                     source_model="person",
-                    use_tracking=True,
+                    use_tracking=tracking_enabled,
                 )
                 detections = merge_detections(detections, person_detections)
             if weapon_model is not None:

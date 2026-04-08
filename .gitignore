@@ -17,3 +17,7 @@ external/Weapon-Detection-System/
 *.log
 Thumbs.db
 desktop.ini
+
+# Downloaded model weights (auto-downloaded on first run)
+rtdetr-l.pt
+rtdetr-x.pt
