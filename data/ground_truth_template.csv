@@ -1,0 +1,17 @@
+clip,threat_class,has_threat
+# WEAPONS (knife / gun visible)
+knife_demo_01.mp4,weapons,1
+gun_visible_01.mp4,weapons,1
+empty_desk_01.mp4,weapons,0
+kitchen_normal_01.mp4,weapons,0
+# VIOLENCE (fighting / assault)
+fight_rwf_01.mp4,violence,1
+fight_rwf_02.mp4,violence,1
+crowd_walking_01.mp4,violence,0
+street_normal_01.mp4,violence,0
+# THEFT (shoplifting / stealing)
+shoplifting_01.mp4,theft,1
+store_browse_01.mp4,theft,0
+# LOITERING (person standing idle in sensitive zone)
+loitering_01.mp4,loitering,1
+person_waiting_bus_01.mp4,loitering,0

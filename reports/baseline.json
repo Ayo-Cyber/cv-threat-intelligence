@@ -1,0 +1,65 @@
+{
+  "config": {
+    "clips_dir": "data/test_clips",
+    "ground_truth": "data/ground_truth.csv",
+    "weights": "yolov8n.pt",
+    "weapon_weights": "models/weapon_best.pt",
+    "pose_weights": "yolov8n-pose.pt",
+    "conf": 0.35,
+    "weapon_conf": 0.35,
+    "min_detect_frames": 1,
+    "min_threat_frames": 3
+  },
+  "per_class": [
+    {
+      "threat_class": "violence",
+      "tp": 1,
+      "fp": 0,
+      "fn": 1,
+      "tn": 0,
+      "precision": "1.000",
+      "recall": "0.500",
+      "fpr": "n/a",
+      "f1": "0.667"
+    }
+  ],
+  "overall": {
+    "threat_class": "OVERALL",
+    "tp": 1,
+    "fp": 0,
+    "fn": 1,
+    "tn": 0,
+    "precision": "1.000",
+    "recall": "0.500",
+    "fpr": "n/a",
+    "f1": "0.667"
+  },
+  "clips": [
+    {
+      "clip": "stabbing_event.mp4",
+      "threat_class": "violence",
+      "has_threat": true,
+      "detected": false,
+      "result": "FN",
+      "threat_frames": 0,
+      "total_frames": 7,
+      "threats_seen": [],
+      "elapsed_seconds": 0.62
+    },
+    {
+      "clip": "violence_suspected.mp4",
+      "threat_class": "violence",
+      "has_threat": true,
+      "detected": true,
+      "result": "TP",
+      "threat_frames": 3,
+      "total_frames": 7,
+      "threats_seen": [
+        "POSSIBLE ARMED ASSAULT",
+        "POSSIBLE STABBING",
+        "VIOLENCE SUSPECTED"
+      ],
+      "elapsed_seconds": 0.56
+    }
+  ]
+}

@@ -62,6 +62,7 @@ class PosePersonState:
     left_wrist: tuple[float, float] | None
     right_wrist: tuple[float, float] | None
     max_wrist_speed: float
+    max_wrist_accel: float
     max_arm_extension_ratio: float
     weapon_labels: list[str]
 
@@ -297,6 +298,24 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.35,
         help="Minimum normalized arm extension used for armed-assault heuristics.",
+    )
+    parser.add_argument(
+        "--violence-wrist-accel",
+        type=float,
+        default=800.0,
+        help="Minimum wrist acceleration (px/s²) that counts as an aggressive motion signature.",
+    )
+    parser.add_argument(
+        "--violence-gate-window",
+        type=int,
+        default=8,
+        help="Rolling frame window for the violence temporal gate.",
+    )
+    parser.add_argument(
+        "--violence-gate-votes",
+        type=int,
+        default=3,
+        help="Minimum active-frame votes within the window before violence alert is confirmed.",
     )
     parser.add_argument(
         "--weapon-hand-distance-ratio",
@@ -563,6 +582,7 @@ def extract_pose_people(model: LoadedModel, frame: Any, conf: float, imgsz: int)
                 left_wrist=left_wrist,
                 right_wrist=right_wrist,
                 max_wrist_speed=0.0,
+                max_wrist_accel=0.0,
                 max_arm_extension_ratio=max(
                     compute_arm_extension_ratio(left_shoulder, left_wrist, (x1, y1, x2, y2)),
                     compute_arm_extension_ratio(right_shoulder, right_wrist, (x1, y1, x2, y2)),
@@ -615,9 +635,33 @@ def enrich_pose_people_with_history(
                 if speed_distance is not None:
                     wrist_speeds.append(speed_distance / dt)
             person.max_wrist_speed = max(wrist_speeds, default=0.0)
+            person.max_wrist_accel = (person.max_wrist_speed - previous.max_wrist_speed) / dt
         history = track_history.setdefault(person.track_id, deque(maxlen=6))
         history.append(person)
     return current_people
+
+
+class ViolenceTemporalGate:
+    """Rolling-window majority vote — fires only when min_votes of the last window frames were active."""
+
+    def __init__(self, window: int = 8, min_votes: int = 3) -> None:
+        self._history: deque[bool] = deque(maxlen=window)
+        self.min_votes = min_votes
+
+    def update(self, assessment: ThreatAssessment) -> ThreatAssessment:
+        self._history.append(assessment.active)
+        if sum(self._history) >= self.min_votes:
+            return assessment
+        if assessment.active:
+            return ThreatAssessment(
+                active=False,
+                title="CLEAR",
+                level="none",
+                reasons=assessment.reasons,
+                weapon_labels=assessment.weapon_labels,
+                explicit_labels=assessment.explicit_labels,
+            )
+        return assessment
 
 
 def attach_weapons_to_pose_people(
@@ -1010,6 +1054,7 @@ def assess_violence(
     violence_wrist_speed: float,
     violence_arm_extension_ratio: float,
     weapon_hand_distance_ratio: float,
+    violence_wrist_accel: float = 800.0,
 ) -> ThreatAssessment:
     if len(pose_people) < 2:
         return ThreatAssessment(
@@ -1048,6 +1093,7 @@ def assess_violence(
             attacker_aggressive = (
                 attacker.max_wrist_speed >= violence_wrist_speed
                 or attacker.max_arm_extension_ratio >= violence_arm_extension_ratio
+                or attacker.max_wrist_accel >= violence_wrist_accel
             )
             if not attacker_aggressive:
                 continue
@@ -1079,21 +1125,32 @@ def assess_violence(
                 )
 
     for left_person, right_person, distance_ratio in close_pairs:
-        if (
-            left_person.max_wrist_speed >= violence_wrist_speed
-            or right_person.max_wrist_speed >= violence_wrist_speed
-        ):
+        peak_speed = max(left_person.max_wrist_speed, right_person.max_wrist_speed)
+        peak_accel = max(left_person.max_wrist_accel, right_person.max_wrist_accel)
+        if peak_speed >= violence_wrist_speed or peak_accel >= violence_wrist_accel:
             return ThreatAssessment(
                 active=True,
                 title="VIOLENCE SUSPECTED",
                 level="warning",
                 reasons=[
                     f"Two people in close contact ratio={distance_ratio:.2f}",
-                    f"Peak wrist speed={max(left_person.max_wrist_speed, right_person.max_wrist_speed):.1f}px/s",
+                    f"Peak wrist speed={peak_speed:.1f}px/s accel={peak_accel:.1f}px/s²",
                 ],
                 weapon_labels=summarize_labels(weapon_detections),
                 explicit_labels=[],
             )
+
+    # Close pair present but motion below aggression thresholds — monitoring state
+    if close_pairs:
+        _, _, distance_ratio = close_pairs[0]
+        return ThreatAssessment(
+            active=False,
+            title="PROXIMITY ALERT",
+            level="monitor",
+            reasons=[f"Two persons in close proximity ratio={distance_ratio:.2f} — monitoring"],
+            weapon_labels=[],
+            explicit_labels=[],
+        )
 
     return ThreatAssessment(
         active=False,
@@ -1246,13 +1303,16 @@ def main() -> None:
     time_anchor = time.time()
     threat_visible_last_frame = False
     object_threat_frames = 0
-    violence_threat_frames = 0
     consecutive_threat_frames = 0
     last_weapon_debug_signature = ""
     last_violence_debug_signature = ""
     previous_pose_people: list[PosePersonState] = []
     pose_track_history: dict[int, deque[PosePersonState]] = {}
     next_pose_track_id = 1
+    violence_gate = ViolenceTemporalGate(
+        window=args.violence_gate_window,
+        min_votes=args.violence_gate_votes,
+    )
 
     print("Starting inference loop. Press 'q' to quit.")
     try:
@@ -1349,27 +1409,19 @@ def main() -> None:
                 violence_wrist_speed=args.violence_wrist_speed,
                 violence_arm_extension_ratio=args.violence_arm_extension_ratio,
                 weapon_hand_distance_ratio=args.weapon_hand_distance_ratio,
+                violence_wrist_accel=args.violence_wrist_accel,
             )
 
             if raw_object_assessment.active:
                 object_threat_frames += 1
             else:
                 object_threat_frames = 0
-            if raw_violence_assessment.active:
-                violence_threat_frames += 1
-            else:
-                violence_threat_frames = 0
-
             object_assessment = gate_assessment(
                 raw_object_assessment,
                 consecutive_threat_frames=object_threat_frames,
                 min_threat_frames=max(1, args.min_threat_frames),
             )
-            violence_assessment = gate_assessment(
-                raw_violence_assessment,
-                consecutive_threat_frames=violence_threat_frames,
-                min_threat_frames=max(1, args.violence_min_frames),
-            )
+            violence_assessment = violence_gate.update(raw_violence_assessment)
             assessment = choose_assessment(object_assessment, violence_assessment)
             threat_detected = assessment.active
 
