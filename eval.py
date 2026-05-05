@@ -43,6 +43,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from detector import (
     PosePersonState,
     ThreatAssessment,
+    TheftDetector,
+    ViolenceTemporalGate,
     assess_threat,
     assess_violence,
     assign_pose_tracks,
@@ -194,6 +196,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--violence-distance-ratio", type=float, default=1.1)
     parser.add_argument("--violence-wrist-speed", type=float, default=120.0)
     parser.add_argument("--violence-arm-extension-ratio", type=float, default=0.35)
+    parser.add_argument("--violence-wrist-accel", type=float, default=800.0)
+    parser.add_argument("--violence-gate-window", type=int, default=8)
+    parser.add_argument("--violence-gate-votes", type=int, default=3)
+    parser.add_argument("--theft-acquire-frames", type=int, default=8)
+    parser.add_argument("--theft-depart-frames", type=int, default=6)
+    parser.add_argument("--theft-approach-ratio", type=float, default=2.0)
     parser.add_argument("--weapon-hand-distance-ratio", type=float, default=0.20)
     parser.add_argument("--weapon-min-area-ratio", type=float, default=0.002)
     parser.add_argument("--weapon-max-area-ratio", type=float, default=0.18)
@@ -311,10 +319,18 @@ def run_clip(
     threat_frame_count = 0
     threats_seen: set[str] = set()
     object_threat_frames = 0
-    violence_threat_frames = 0
     previous_pose_people: list[PosePersonState] = []
     pose_track_history: dict[int, deque[PosePersonState]] = {}
     next_pose_track_id = 1
+    violence_gate = ViolenceTemporalGate(
+        window=args.violence_gate_window,
+        min_votes=args.violence_gate_votes,
+    )
+    theft_detector = TheftDetector(
+        acquire_frames=args.theft_acquire_frames,
+        depart_frames=args.theft_depart_frames,
+        approach_ratio=args.theft_approach_ratio,
+    )
     t0 = time.time()
 
     try:
@@ -391,28 +407,26 @@ def run_clip(
                 violence_wrist_speed=args.violence_wrist_speed,
                 violence_arm_extension_ratio=args.violence_arm_extension_ratio,
                 weapon_hand_distance_ratio=args.weapon_hand_distance_ratio,
+                violence_wrist_accel=args.violence_wrist_accel,
             )
 
             if raw_object.active:
                 object_threat_frames += 1
             else:
                 object_threat_frames = 0
-            if raw_violence.active:
-                violence_threat_frames += 1
-            else:
-                violence_threat_frames = 0
 
             obj_assessment = gate_assessment(
                 raw_object,
                 consecutive_threat_frames=object_threat_frames,
                 min_threat_frames=max(1, args.min_threat_frames),
             )
-            vio_assessment = gate_assessment(
-                raw_violence,
-                consecutive_threat_frames=violence_threat_frames,
-                min_threat_frames=max(1, args.violence_min_frames),
+            vio_assessment = violence_gate.update(raw_violence)
+            theft_assessment = theft_detector.update(
+                pose_people=pose_people,
+                detections=detections,
+                timestamp=time.time() - t0,
             )
-            assessment = choose_assessment(obj_assessment, vio_assessment)
+            assessment = choose_assessment(obj_assessment, vio_assessment, theft_assessment)
 
             if assessment.active:
                 threat_frame_count += 1

@@ -318,6 +318,29 @@ def parse_args() -> argparse.Namespace:
         help="Minimum active-frame votes within the window before violence alert is confirmed.",
     )
     parser.add_argument(
+        "--theft-acquire-frames",
+        type=int,
+        default=8,
+        help="Frames a wrist must stay near an object to count as an acquisition.",
+    )
+    parser.add_argument(
+        "--theft-depart-frames",
+        type=int,
+        default=6,
+        help="Frames person must stay in DEPART state before a theft alert fires.",
+    )
+    parser.add_argument(
+        "--theft-approach-ratio",
+        type=float,
+        default=2.0,
+        help="Max center-distance ratio between person and object to enter APPROACH state.",
+    )
+    parser.add_argument(
+        "--debug-theft",
+        action="store_true",
+        help="Print theft state machine transitions (IDLE→APPROACH→ACQUIRE→DEPART) as they happen.",
+    )
+    parser.add_argument(
         "--weapon-hand-distance-ratio",
         type=float,
         default=0.20,
@@ -361,6 +384,15 @@ def parse_args() -> argparse.Namespace:
         "--no-track",
         action="store_true",
         help="Disable ByteTrack person tracking and use plain predict instead. Use this if tracking causes crashes.",
+    )
+    parser.add_argument(
+        "--mode",
+        default="all",
+        choices=("all", "theft", "violence", "weapons"),
+        help=(
+            "Detection mode: 'all' runs everything, 'theft' only runs the theft state machine, "
+            "'violence' only runs pose heuristics, 'weapons' only runs object/weapon detection."
+        ),
     )
     return parser.parse_args()
 
@@ -948,12 +980,246 @@ def gate_assessment(
     )
 
 
+THEFT_OBJECT_CLASSES: frozenset[str] = frozenset({
+    "backpack", "handbag", "suitcase", "bottle", "laptop", "cell phone", "book", "umbrella",
+})
+
+
+@dataclass
+class TrackedObject:
+    obj_id: int
+    label: str
+    bbox: tuple[int, int, int, int]
+    origin_bbox: tuple[int, int, int, int]
+    last_seen: float
+
+
+@dataclass
+class TheftPersonState:
+    state: str = "IDLE"
+    target_obj_id: int | None = None
+    state_frames: int = 0
+    acquire_frames: int = 0
+
+
+class TheftDetector:
+    """Per-person IDLE→APPROACH→ACQUIRE→DEPART theft state machine."""
+
+    IDLE = "IDLE"
+    APPROACH = "APPROACH"
+    ACQUIRE = "ACQUIRE"
+    DEPART = "DEPART"
+
+    def __init__(
+        self,
+        acquire_frames: int = 8,
+        depart_frames: int = 6,
+        approach_ratio: float = 2.0,
+        object_classes: frozenset[str] = THEFT_OBJECT_CLASSES,
+        object_max_age: float = 2.0,
+        debug: bool = False,
+    ) -> None:
+        self._person_states: dict[int, TheftPersonState] = {}
+        self._objects: dict[int, TrackedObject] = {}
+        self._next_obj_id = 1
+        self.acquire_frames = acquire_frames
+        self.depart_frames = depart_frames
+        self.approach_ratio = approach_ratio
+        self.object_classes = object_classes
+        self.object_max_age = object_max_age
+        self.debug = debug
+
+    def _match_objects(self, detections: list[Detection], timestamp: float) -> None:
+        relevant = [d for d in detections if normalize_label(d.label) not in {"person"}]
+        for det in relevant:
+            best_id: int | None = None
+            best_dist = 1.5
+            for obj_id, obj in self._objects.items():
+                if normalize_label(obj.label) != normalize_label(det.label):
+                    continue
+                dist = center_distance_ratio(obj.bbox, det.bbox)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_id = obj_id
+            if best_id is not None:
+                self._objects[best_id].bbox = det.bbox
+                self._objects[best_id].last_seen = timestamp
+            else:
+                self._objects[self._next_obj_id] = TrackedObject(
+                    obj_id=self._next_obj_id,
+                    label=normalize_label(det.label),
+                    bbox=det.bbox,
+                    origin_bbox=det.bbox,
+                    last_seen=timestamp,
+                )
+                self._next_obj_id += 1
+        self._objects = {
+            oid: obj for oid, obj in self._objects.items()
+            if timestamp - obj.last_seen <= self.object_max_age
+        }
+
+    def _wrist_near_object(self, person: PosePersonState, obj: TrackedObject) -> bool:
+        return any(
+            wrist is not None and point_in_expanded_bbox(wrist, obj.bbox, margin_ratio=0.25)
+            for wrist in (person.left_wrist, person.right_wrist)
+        )
+
+    def _nearest_object(self, person: PosePersonState) -> tuple[int, TrackedObject] | None:
+        best: tuple[int, TrackedObject] | None = None
+        best_dist = self.approach_ratio
+        for obj_id, obj in self._objects.items():
+            dist = center_distance_ratio(person.bbox, obj.bbox)
+            if dist < best_dist:
+                best_dist = dist
+                best = (obj_id, obj)
+        return best
+
+    def update(
+        self,
+        pose_people: list[PosePersonState],
+        detections: list[Detection],
+        timestamp: float,
+    ) -> ThreatAssessment:
+        self._match_objects(detections, timestamp)
+        alerts: list[tuple[int, str]] = []
+
+        for person in pose_people:
+            pid = person.track_id
+            prev_state = self._person_states.get(pid, TheftPersonState()).state
+            state = self._person_states.setdefault(pid, TheftPersonState())
+
+            if state.state == self.IDLE:
+                nearest = self._nearest_object(person)
+                if nearest is not None:
+                    state.state = self.APPROACH
+                    state.target_obj_id = nearest[0]
+                    state.state_frames = 1
+
+            elif state.state == self.APPROACH:
+                obj = self._objects.get(state.target_obj_id) if state.target_obj_id is not None else None
+                if obj is None:
+                    state.state, state.target_obj_id, state.state_frames = self.IDLE, None, 0
+                elif self._wrist_near_object(person, obj):
+                    state.state, state.state_frames, state.acquire_frames = self.ACQUIRE, 1, 1
+                elif center_distance_ratio(person.bbox, obj.bbox) > self.approach_ratio:
+                    state.state, state.target_obj_id, state.state_frames = self.IDLE, None, 0
+                else:
+                    state.state_frames += 1
+
+            elif state.state == self.ACQUIRE:
+                obj = self._objects.get(state.target_obj_id) if state.target_obj_id is not None else None
+                if obj is None:
+                    # Object vanished while hand was on it — strongest theft signal
+                    state.state = self.DEPART
+                    state.state_frames = self.depart_frames
+                else:
+                    if self._wrist_near_object(person, obj):
+                        state.acquire_frames += 1
+                        state.state_frames += 1
+                    else:
+                        if state.acquire_frames >= self.acquire_frames:
+                            # Key fix: check if the OBJECT moved from its origin (taken with person)
+                            # rather than checking if the person moved
+                            obj_moved = center_distance_ratio(obj.bbox, obj.origin_bbox) > 0.4
+                            person_left_area = center_distance_ratio(person.bbox, obj.origin_bbox) > 0.8
+                            if obj_moved or person_left_area:
+                                state.state, state.state_frames = self.DEPART, 1
+                            else:
+                                state.state, state.state_frames, state.acquire_frames = self.IDLE, 0, 0
+                        else:
+                            state.state, state.state_frames = self.APPROACH, 1
+
+            elif state.state == self.DEPART:
+                state.state_frames += 1
+                if state.state_frames >= self.depart_frames:
+                    obj = self._objects.get(state.target_obj_id) if state.target_obj_id is not None else None
+                    obj_label = obj.label if obj else "unknown"
+                    alerts.append((pid, obj_label))
+                    state.state, state.target_obj_id = self.IDLE, None
+                    state.state_frames, state.acquire_frames = 0, 0
+
+            if self.debug and state.state != prev_state:
+                obj = self._objects.get(state.target_obj_id) if state.target_obj_id is not None else None
+                obj_info = f" target={obj.label}#{state.target_obj_id}" if obj else ""
+                print(f"[THEFT] person={pid} {prev_state} → {state.state}{obj_info}")
+
+        active_ids = {p.track_id for p in pose_people}
+        for pid in list(self._person_states.keys()):
+            if pid not in active_ids:
+                del self._person_states[pid]
+
+        if alerts:
+            pid, obj_label = alerts[0]
+            return ThreatAssessment(
+                active=True,
+                title="POSSIBLE THEFT",
+                level="warning",
+                reasons=[
+                    f"Person {pid} completed APPROACH→ACQUIRE→DEPART sequence",
+                    f"Object: {obj_label}",
+                ],
+                weapon_labels=[],
+                explicit_labels=[],
+            )
+
+        return ThreatAssessment(
+            active=False, title="CLEAR", level="none",
+            reasons=[], weapon_labels=[], explicit_labels=[],
+        )
+
+    @property
+    def person_states(self) -> dict[int, TheftPersonState]:
+        return self._person_states
+
+    @property
+    def tracked_objects(self) -> dict[int, TrackedObject]:
+        return self._objects
+
+
+def draw_theft_states(
+    frame: Any,
+    pose_people: list[PosePersonState],
+    theft_detector: TheftDetector,
+) -> Any:
+    STATE_COLORS = {
+        "IDLE":     (180, 180, 180),
+        "APPROACH": (0,   220, 255),
+        "ACQUIRE":  (0,   140, 255),
+        "DEPART":   (0,   0,   255),
+    }
+    for person in pose_people:
+        state = theft_detector.person_states.get(person.track_id)
+        if state is None or state.state == "IDLE":
+            continue
+        x1, y1, x2, y2 = person.bbox
+        color = STATE_COLORS.get(state.state, (255, 255, 255))
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
+        label = state.state
+        if state.state == "ACQUIRE":
+            label = f"ACQUIRE ({state.acquire_frames}f)"
+        elif state.state == "DEPART":
+            label = f"DEPART ({state.state_frames}f)"
+        cv2.putText(frame, label, (x1, max(20, y1 - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
+
+    for obj in theft_detector.tracked_objects.values():
+        ox1, oy1, ox2, oy2 = obj.bbox
+        cv2.rectangle(frame, (ox1, oy1), (ox2, oy2), (255, 200, 0), 2)
+        cv2.putText(frame, f"{obj.label}#{obj.obj_id}",
+                    (ox1, max(15, oy1 - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1, cv2.LINE_AA)
+    return frame
+
+
 def choose_assessment(
     object_assessment: ThreatAssessment,
     violence_assessment: ThreatAssessment,
+    theft_assessment: ThreatAssessment | None = None,
 ) -> ThreatAssessment:
     if violence_assessment.active or violence_assessment.level == "pending":
         return violence_assessment
+    if theft_assessment is not None and theft_assessment.active:
+        return theft_assessment
     return object_assessment
 
 
@@ -1313,6 +1579,12 @@ def main() -> None:
         window=args.violence_gate_window,
         min_votes=args.violence_gate_votes,
     )
+    theft_detector = TheftDetector(
+        acquire_frames=args.theft_acquire_frames,
+        depart_frames=args.theft_depart_frames,
+        approach_ratio=args.theft_approach_ratio,
+        debug=args.debug_theft,
+    )
 
     print("Starting inference loop. Press 'q' to quit.")
     try:
@@ -1416,13 +1688,27 @@ def main() -> None:
                 object_threat_frames += 1
             else:
                 object_threat_frames = 0
-            object_assessment = gate_assessment(
-                raw_object_assessment,
-                consecutive_threat_frames=object_threat_frames,
-                min_threat_frames=max(1, args.min_threat_frames),
+            _clear = ThreatAssessment(active=False, title="CLEAR", level="none",
+                                      reasons=[], weapon_labels=[], explicit_labels=[])
+            object_assessment = (
+                gate_assessment(raw_object_assessment,
+                                consecutive_threat_frames=object_threat_frames,
+                                min_threat_frames=max(1, args.min_threat_frames))
+                if args.mode in ("all", "weapons") else _clear
             )
-            violence_assessment = violence_gate.update(raw_violence_assessment)
-            assessment = choose_assessment(object_assessment, violence_assessment)
+            violence_assessment = (
+                violence_gate.update(raw_violence_assessment)
+                if args.mode in ("all", "violence") else _clear
+            )
+            theft_assessment = (
+                theft_detector.update(
+                    pose_people=pose_people,
+                    detections=detections,
+                    timestamp=time.time() - time_anchor,
+                )
+                if args.mode in ("all", "theft") else _clear
+            )
+            assessment = choose_assessment(object_assessment, violence_assessment, theft_assessment)
             threat_detected = assessment.active
 
             weapon_detections_for_debug = validated_weapon_detections
@@ -1466,6 +1752,8 @@ def main() -> None:
                 active_event=active_event,
                 assessment=assessment,
             )
+            if args.debug_theft:
+                annotated = draw_theft_states(annotated, pose_people, theft_detector)
 
             new_threat_event = threat_detected and not threat_visible_last_frame
             if (
