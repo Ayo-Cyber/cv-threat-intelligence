@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scene_context.schema.json",
+  "title": "SceneContext",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "camera_id",
+    "source_type",
+    "environment_type",
+    "scene_description",
+    "expected_actors",
+    "zones",
+    "confidence",
+    "generated_at",
+    "source_frame_path"
+  ],
+  "properties": {
+    "camera_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["webcam", "rtsp", "video_file", "image_file"]
+    },
+    "environment_type": {
+      "type": "string",
+      "enum": [
+        "estate_gate",
+        "estate_street",
+        "perimeter_fence",
+        "retail_shop",
+        "mall_corridor",
+        "office_lobby",
+        "office_floor",
+        "parking_lot",
+        "banking_hall",
+        "atm_area",
+        "warehouse_floor",
+        "generator_area",
+        "residential_interior",
+        "residential_exterior",
+        "unknown"
+      ]
+    },
+    "scene_description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected_actors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "role", "bbox"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "entry",
+              "exit",
+              "transition",
+              "safe",
+              "restricted",
+              "merchandise",
+              "checkout",
+              "parking",
+              "perimeter",
+              "asset",
+              "unknown"
+            ]
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 4,
+            "maxItems": 4
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_frame_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

@@ -7,6 +7,14 @@ __pycache__/
 runs/
 outputs/
 
+# Agent Mapper eval — keep folder structure + .gitkeep + README, ignore the clip binaries and result CSVs
+tests/agent_mapper/clips/**/*.mp4
+tests/agent_mapper/clips/**/*.mov
+tests/agent_mapper/clips/**/*.avi
+tests/agent_mapper/clips/**/*.mkv
+tests/agent_mapper/clips/**/*.webm
+tests/agent_mapper/results/eval_*.csv
+
 .cursor/
 .idea/
 .vscode/

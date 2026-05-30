@@ -491,3 +491,514 @@ Local git status after prep:
 - default branch renamed to `main`
 - remote configured as `https://github.com/DEMILADE07/cv-threat-intelligence.git`
 - first push attempt failed with `Repository not found`, which confirms the current blocker is repository existence on GitHub, not a local git issue
+
+## Checkpoint 2026-04-08 GitHub Push Completed
+GitHub collaboration setup is now live.
+
+Final collaboration state:
+- repository exists on GitHub at `https://github.com/DEMILADE07/cv-threat-intelligence`
+- local branch `main` is tracking `origin/main`
+- local repository is currently clean after push
+
+Implication:
+- a collaborator can now be invited directly on GitHub and clone the project without any extra packaging work
+- the repo already includes the current POC code, documentation, local model weights, and vendored `external/yolov5` runtime needed for the legacy weapon checkpoint path
+
+## Checkpoint 2026-04-08 Clip Violence Integration
+A new same-day clip-based violence layer has now been integrated into `detector.py`.
+
+What was added:
+- optional `torchvision` video-model support via `--clip-violence-model r3d_18`
+- a rolling frame buffer in the main loop
+- periodic clip classification using the pretrained `r3d_18` Kinetics-400 action model
+- threat fusion between:
+  - person detection
+  - validated weapon detection
+  - pose heuristics
+  - clip-level violence predictions
+
+Current clip-model label mapping:
+- `sword fighting` + visible `knife` + multiple people -> `POSSIBLE STABBING`
+- `punching person (boxing)` + multiple people -> `PHYSICAL FIGHT`
+- `wrestling` + multiple people -> `PHYSICAL FIGHT`
+- fight-like clip labels + visible `gun` -> `POSSIBLE ARMED ASSAULT`
+
+Why this path was chosen:
+- the environment already has `torch` and `torchvision` installed
+- this is much faster than standing up MMAction2 or training a custom video model tonight
+- it gives the POC a real motion-based signal instead of relying only on per-frame pose heuristics
+
+Honest limitation:
+- this is still generic pretrained Kinetics-400 action recognition, not local fine-tuning
+- it is appropriate as a same-day demo accelerator, but not yet the final business-grade violence model
+
+## Checkpoint 2026-04-25 Collaborator Repo Verified
+The local repository is now confirmed to be wired to two GitHub remotes:
+- `origin` -> `https://github.com/DEMILADE07/cv-threat-intelligence.git`
+- `ayo` -> `https://github.com/Ayo-Cyber/cv-threat-intelligence.git`
+
+Repository verification completed:
+- `git ls-remote ayo` succeeded, which confirms the collaborator repository exists and is reachable
+- `git fetch ayo` succeeded, so the collaborator branch can be inspected directly from this workspace
+- local branch remains `main`
+
+Current remote comparison:
+- local `main` / `origin/main` are still at commit `4bbd17a`
+- collaborator `ayo/main` is at commit `a7b048d`
+- the collaborator branch is ahead by 2 commits:
+  - `263f5f2` on `2026-04-07`: `feat: add ByteTrack support to detector and include project planning documentation`
+  - `a7b048d` on `2026-04-08`: `feat: add ByteTrack tracking, RT-DETR support, and full setup guide`
+
+Meaningful additions observed in the collaborator repo:
+- `detector.py` adds ByteTrack-based person tracking through Ultralytics `track(...)`
+- `detector.py` adds a `--no-track` flag as a fallback if tracking is unstable or crashes
+- `README.md` is expanded with fuller setup guidance for both Windows and Mac
+- `README.md` now includes a recommended `RT-DETR` demo path and startup expectations
+- new file `48HR_PLAN.md` adds a concrete 48-hour demo execution plan, fallback rules, and demo narrative guidance
+- an `ayo_README.md` file also exists in the collaborator branch but appears empty
+
+Practical implication:
+- the project is no longer represented fully by the `DEMILADE07` repo alone
+- the `Ayo-Cyber` repo should be treated as an active parallel collaboration branch with real implementation changes
+- future context, planning, and merge decisions should account for both remotes rather than assuming a single GitHub source of truth
+
+Merge-risk note:
+- the collaborator detector changes are narrow but meaningful because they change runtime behavior around tracking
+- if these changes are merged later, they should be tested specifically for:
+  - webcam stability
+  - RT-DETR performance on available hardware
+  - ByteTrack failure cases
+  - interaction with the existing weapon and pose pipeline
+
+## Checkpoint 2026-04-25 Founder Demo Branch Clarified
+The collaborator branch should also be treated as the branch that powered the founder-facing demo path.
+
+Clarified team understanding:
+- the version in `Ayo-Cyber/cv-threat-intelligence` is the version reported to have worked well enough for presentation to the founder
+- that branch was used as a practical demo-hardening path rather than as a separate product direction
+
+What made that branch useful for the presentation:
+- ByteTrack-based person tracking likely made person state handling more stable during the demo
+- the README in that branch gave a more operational runbook for setup and troubleshooting
+- `48HR_PLAN.md` provided a concrete demo narrative, fallback rules, and clip-based presentation structure
+- the branch explicitly documented an `RT-DETR` first option with fallback to `yolov8n.pt`
+
+Important correction:
+- the collaborator repo does not include a separate or newer `PROJECT_CONTEXT.md`
+- the collaborator branch carries operational demo improvements, not a separate written project history
+
+Current interpretation:
+- the project history should recognize that the founder demo relied in part on the collaborator branch
+- the main unresolved task is not understanding product direction; it is reconciling the working demo path, current local changes, and the source-of-truth branch strategy
+
+## Checkpoint 2026-05-16 Architecture + GTM Direction Added
+Two new product-planning documents now exist in the local workspace:
+- `architecture.md`
+- `AI_Threat_Detection_GTM_Research.docx`
+
+These documents materially sharpen both the technical north star and the go-to-market wedge.
+
+### Architecture direction now defined
+`architecture.md` formalizes a four-part runtime pattern:
+- `Agent Mapper`
+  - infrequent VLM-based scene understanding
+  - outputs `scene_context.json`
+- `Detection Core`
+  - frame-by-frame CV pipeline
+  - outputs `raw_events.json`
+- `Customization Engine`
+  - applies `user_config.json` rules to raw events
+  - produces candidate alerts
+- `Verification Gate`
+  - VLM confirms or rejects candidate alerts before final escalation
+
+Important architectural implication:
+- the long-term product is no longer just a detector with hardcoded alert logic
+- it is a context-aware threat platform with:
+  - perception
+  - raw event generation
+  - customer-specific threat policy
+  - final AI verification to reduce false positives
+
+### GTM direction now defined
+`AI_Threat_Detection_GTM_Research.docx` makes the commercial beachhead much more explicit.
+
+Recommended starting market:
+- real estate first
+  - gated residential estates
+  - commercial real estate
+  - malls
+  - offices
+  - banks / mixed-use as adjacent extensions
+
+Reasoning captured in the GTM document:
+- largest addressable market among the options considered
+- lowest deployment friction for a software-only product
+- existing camera infrastructure already present
+- concentrated buyers with recurring security budgets
+
+Important strategic simplification:
+- the long-term vision still supports deep customer customization
+- but the GTM document recommends that V1 should ship as:
+  - one core engine
+  - three property presets
+  - a fixed 12-rule starter product
+- true open-ended custom rule building should be deferred until a later phase
+
+### The 12 rules that the GTM document says must ship in V1
+This is now a critical product requirement and should be treated as the V1 rule target set:
+1. `Loitering detection`
+2. `Perimeter intrusion / fence climbing`
+3. `After-hours presence`
+4. `Crowd formation`
+5. `Running detection`
+6. `Tailgating`
+7. `Abandoned object`
+8. `Unauthorized vehicle / wrong-way movement`
+9. `Camera tampering / obstruction`
+10. `Person down / fall detection`
+11. `Mask / face-covering during business hours`
+12. `Power-outage + motion combo`
+
+Important note:
+- these 12 rules are now the most important GTM-aligned V1 scope
+- the product may eventually support wider rule libraries and full customization
+- but V1 success is now strongly tied to shipping these 12 property-security rules
+
+### Mapping against the local codebase
+Local `main` remains materially behind this architecture and GTM direction.
+
+What local `main` already aligns with:
+- working `Detection Core` conceptually exists
+- webcam / RTSP / file ingestion already exists
+- object / person / pose / clip-violence pipeline exists
+- raw heuristic threat logic exists (`assess_threat`, `assess_violence`)
+- evidence saving exists
+
+What local `main` does not yet align with:
+- no `ByteTrack` tracking in the active local detector path
+- no `TheftDetector`
+- no `eval.py` baseline evaluation workflow
+- no `Customization Engine`
+- no `user_config.json` rule application layer
+- no `Verification Gate`
+- no `Agent Mapper`
+- no scene-context schema or zone model
+- no implementation of the GTM 12-rule V1 set beyond a few loosely related primitives
+
+Practical interpretation:
+- local `main` is still mostly a POC detector branch with clip-based violence work
+- it should not be treated as the best representation of current product direction
+
+### Mapping against the collaborator repo
+The collaborator branch `ayo/main` is much closer to the intended architecture than local `main`, but it is still incomplete relative to both docs.
+
+What `ayo/main` already aligns with:
+- stronger `Detection Core`
+  - ByteTrack support
+  - `ViolenceTemporalGate`
+  - `TheftDetector`
+  - evaluation harness (`eval.py`)
+  - ground-truth clips and reports
+- explicit product thinking about:
+  - RT-DETR as a stronger detector path
+  - VLM / Grounding-DINO style verification
+  - architecture beyond raw detection
+- early theft state-machine work that begins to resemble the event-layer idea in `architecture.md`
+
+What `ayo/main` still does not have:
+- no actual `Agent Mapper` implementation
+- no `scene_context.json` generation path
+- no `Customization Engine` that reads user rule configs
+- no `user_config.json` pipeline
+- no VLM `Verification Gate` implementation
+- no frontend-to-backend threat policy contract
+- no explicit zone engine
+
+### Mapping the GTM 12-rule V1 against current implementation
+Current reality: the 12 GTM rules are mostly not yet implemented as first-class product rules.
+
+Closest existing building blocks:
+- `Loitering detection`
+  - not implemented as a formal rule yet
+  - could be built from person tracking + dwell time + zone logic
+- `After-hours presence`
+  - not implemented as a formal rule yet
+  - could be built from zone logic + schedules
+- `Crowd formation`
+  - not implemented
+  - could be built from tracked person counts + clustering
+- `Person down / fall detection`
+  - not implemented
+  - pose pipeline could support a first pass
+- `Perimeter intrusion / fence climbing`
+  - not implemented
+  - would need zone + motion logic
+- `Tailgating`
+  - not implemented
+  - would need gate zone + tracking + gate event logic
+- `Abandoned object`
+  - not implemented
+  - would need tracked object persistence + unattended timer
+- `Unauthorized vehicle / wrong-way movement`
+  - not implemented
+  - would need vehicle classes + directional path logic
+- `Camera tampering / obstruction`
+  - not implemented
+  - would need camera-health checks / frame-quality heuristics
+- `Mask / face-covering during business hours`
+  - not implemented
+  - would need face/covering classifier or VLM gate
+- `Power-outage + motion combo`
+  - not implemented
+  - would need integration with lighting/outage state or local brightness heuristics + motion
+- `Running detection`
+  - not implemented as a standalone rule
+  - some motion primitives exist but not as a formal product rule
+
+### New current understanding
+The project now has a clearer split between:
+- long-term architecture:
+  - context-aware, customizable, VLM-assisted threat intelligence
+- near-term GTM:
+  - real-estate-first
+  - fixed 12-rule V1
+  - presets before full custom rule building
+
+This resolves an earlier ambiguity:
+- the product should be engineered for customization
+- but the first sellable version should not be an open-ended infinite rule builder
+- it should be a disciplined V1 focused on the GTM 12-rule property-security set
+
+### Recommended execution interpretation from this checkpoint
+Near-term priority should now be:
+1. treat the collaborator branch as closer to the active product direction than local `main`
+2. use the architecture document as the technical north star
+3. treat the GTM document's 12 rules as the V1 product contract
+4. build missing product layers in this order:
+   - schemas / contracts
+   - verification gate
+   - minimal customization engine
+   - zone / dwell / directional event primitives
+   - implementation of the GTM 12 rules
+5. keep full free-form customer rule authoring as a later phase after the curated V1 rules work reliably
+
+## Checkpoint 2026-05-24 Agent Mapper v1 Landed
+Step 1 of the architecture build order is materially complete locally (not yet committed — these files are untracked on local `main`).
+
+### What now exists in the repo
+- `schemas/scene_context.schema.json`
+  - JSON Schema draft 2020-12, `additionalProperties: false`, 11 required fields
+  - bounded enums for `environment_type` (15 values), `suggested_preset` (4), `risk_hints` (15), zone `role` (11)
+  - the `risk_hints` enum is a direct 1:1 mirror of the GTM-12 rule universe plus `theft` and `weapon_presence`
+- `prompts/agent_mapper_prompt.txt`
+  - bounded-vocabulary, JSON-only prompt
+  - lists every allowed enum value and the exact output shape
+  - explicit "be conservative; structured correctness over creativity" tail
+- `docs/AGENT_MAPPER_PLAN.md`
+  - frames v1 as scene classifier + preset recommender + risk-hint generator + JSON artifact producer
+  - explicitly NOT a per-frame component, NOT an alert decider
+  - clarifies that online / local clip testing is a first-class workflow, not just live-camera
+- `agent_mapper.py`
+  - full v1 implementation, not just a skeleton
+  - all 9 modules from the plan present
+  - source handling for webcam / RTSP / video file / image file
+  - frame sampling: evenly spaced via `CAP_PROP_POS_FRAMES` for seekable video, sequential fallback for live streams
+  - representative frame selection via brightness + Laplacian-blur scoring
+  - three providers: `mock` (heuristic JSON keyed off camera-id substrings for offline tests), `anthropic` (Claude Vision via raw `urllib`), `openai_compatible` (data-URL image)
+  - defensive parsing: `extract_first_json_object` recovers JSON wrapped in prose, hand-rolled normalizers snap invalid enums back to `unknown` / `Unknown`
+  - risk hints capped at 5, zones capped at 4, bbox values coerced to non-negative ints
+  - outputs land in `runs/context/<camera_id>/{source_frame.jpg, scene_context.json, raw_response.txt}`
+- `agent_mapper_smoke.jpg` exists in repo root, suggesting a smoke run has been executed
+
+### Known gaps in the current Agent Mapper v1
+- The schema file is loaded but not actually enforced (`_ = schema  # contract parity`) — validation is hand-rolled, so the schema doc and code can drift
+- `save_frame=True or args.save_frame` makes the `--save-frame` flag dead code (always saves)
+- Hand-validator does not strip unknown keys, so a VLM that returns extra fields will persist them into `scene_context.json` despite `additionalProperties: false` in the schema
+- Anthropic provider defaults to `claude-3-5-sonnet-latest`; current Claude 4.x (`claude-sonnet-4-6`) would be both stronger and cheaper for this task
+- Nothing consumes `scene_context.json` yet — no Customization Engine, no Verification Gate
+
+### Build-order inversion vs the original plan
+The architecture doc recommended: schemas → Verification Gate → Customization Engine → Agent Mapper (last).
+The actual local sequence executed: schemas → Agent Mapper (first).
+
+This is defensible — the Agent Mapper is a cleanly isolated component with a stable JSON output contract — but the highest-FPR-leverage piece (Verification Gate) and the GTM-rule-bearing piece (Customization Engine) are still unbuilt.
+
+## Checkpoint 2026-05-24 Customization-As-Source-Of-Truth Clarified
+The product framing of the Agent Mapper + Customization Engine pair has been sharpened. This is a meaningful clarification, not just a restatement of `architecture.md`.
+
+### The clarification
+- **Agent Mapper is a proposal layer.** It maps the environment, suggests a preset, and emits risk hints. Its output is a *recommendation*, not a verdict.
+- **The user's `user_config.json` is the source of truth.** The customer defines their own environment and their own definition of what counts as a threat *in that business context*. The system enforces that definition, not a generic AI judgment.
+- **False-positive reduction comes from narrowing.** A generic CCTV AI tries to interpret "is this dangerous?" against the entire universe of possible threats — that is exactly why it over-fires. By contrast, when the user has explicitly said "in my retail shop, the threat surface is: concealment, after-hours presence, abandoned bag at the door," the system only fires on those configured threats. Everything else is by definition not a threat in this deployment.
+
+### Why this matters as a product principle
+- it inverts the framing from "the AI decides what's a threat" to "the user decides; the AI helps detect what the user defined"
+- it makes the Customization Engine the structural heart of the product, not a polish layer
+- it explains why the GTM-12-rule starter set is enough to ship V1 — the user picks from a curated, well-defined surface rather than trusting an open-ended classifier
+- it gives the Verification Gate a sharper job: confirm/reject *only against the user's declared rule that fired*, not against a fuzzy general notion of "is this bad?"
+
+### Implication for the next build phase
+The Customization Engine is now the right next deliverable, ahead of (or alongside) the Verification Gate, because:
+- without it, `scene_context.json` is an orphan artifact with no consumer
+- without it, the GTM-12 rules cannot be represented as first-class product objects
+- without it, the Verification Gate has no candidate alerts to verify
+- the Agent Mapper's `suggested_preset` and `risk_hints` are designed to *seed* a `user_config.json`, but only the Customization Engine turns that seed into running policy
+
+### Concrete near-term deliverables implied by this clarification
+- `schemas/user_config.schema.json` — lock the rule contract before code is written against it
+- a tiny rule evaluator that reads `user_config.json` and matches `raw_events` against rule triggers
+- a clear UX flow: Agent Mapper proposes preset + rule pack → user accepts / edits → result is persisted as `user_config.json` → engine enforces
+- the 3 property presets from the GTM doc (Estate Guard, Retail Watch, Office Sentinel) materialised as default `user_config.json` files seeded from the Agent Mapper output
+
+## Checkpoint 2026-05-24 Agent Mapper Stripped To Descriptive-Only
+Acted on the principle from the previous checkpoint and Ayo's feedback: the Agent Mapper was emitting threat semantics (`risk_hints`, `suggested_preset`) that belong downstream. Putting threat language in the most upstream layer causes data-quality issues, couples the Mapper to the GTM rule library, and pre-empts the user's authority over their own threat definition.
+
+### What changed
+- `schemas/scene_context.schema.json`
+  - removed `risk_hints` and `suggested_preset` from `required`
+  - removed the `risk_hints` array property (15-value enum gone)
+  - removed the `suggested_preset` string property (4-value enum gone)
+  - the schema is now purely descriptive: id, source type, environment, description, expected actors, zones, confidence, timestamps, notes
+- `prompts/agent_mapper_prompt.txt`
+  - removed the "Allowed suggested_preset values" block
+  - removed the "Allowed risk_hints values" block
+  - removed prompt instructions 4 and 5 (preset choice and risk-hint suggestion)
+  - removed `suggested_preset` and `risk_hints` from the example JSON shape
+  - added an explicit "Your job is purely descriptive. Do not infer, guess, or list any threats, risks, suspicious behaviors, or threat policy. Threat definitions are handled by other layers and by the user, not by you." block at the top
+- `agent_mapper.py`
+  - removed `ALLOWED_PRESETS` and `ALLOWED_RISK_HINTS` constants
+  - removed `normalize_risk_hints()` function
+  - removed preset / risk handling from `parse_and_validate_scene_context()`
+  - added defensive `payload.pop("risk_hints", None)` and `payload.pop("suggested_preset", None)` so a non-compliant VLM that still emits these fields gets silently stripped
+  - removed risk and preset logic from `mock_scene_context_json()`
+  - dropped `suggested_preset` from the CLI summary print
+- `docs/AGENT_MAPPER_PLAN.md`
+  - rewrote the Purpose section to say what the Mapper deliberately does NOT do
+  - removed the Suggested Presets and Risk Hints vocabulary sections
+  - removed `risk_hints` and `suggested_preset` from the expected output shape
+  - reframed Near-term integration to introduce a separate deterministic Preset Recommender component (no VLM) that maps `environment_type` → preset → default rule pack
+  - updated the Summary to say "scene classifier + describer + zone suggester," explicitly NOT a preset recommender or risk-hint generator
+
+### Validated post-strip
+- `agent_mapper.py` compiles cleanly under `python -m py_compile`
+- end-to-end smoke run against `agent_mapper_smoke.jpg` with `--provider mock` produced a clean stripped `scene_context.json` containing only descriptive fields
+
+### Architectural implication
+The right next product layer is now a **deterministic Preset Recommender** (not a VLM call) that consumes `scene_context.json` and a static `presets.json` lookup table and emits a *suggested* `user_config.json` draft for the user to accept or edit. The chain becomes: Agent Mapper (descriptive AI) → Preset Recommender (deterministic lookup) → User (authoritative edits) → Customization Engine (enforcement). Each layer does one job; the threat taxonomy lives in `presets.json`, not in the Mapper.
+
+## Checkpoint 2026-05-24 VLM Testing Phase Set Up
+Open-source VLM evaluation harness now exists in `tests/agent_mapper/`. Goal: pick the smallest local VLM that crosses the quality bar for descriptive scene mapping so the project does not depend on a paid API for the Mapper layer.
+
+### Candidate models surfaced by 2026 research
+Top open-source multimodal candidates as of 2026-05:
+- **Qwen2.5-VL** family (3B / 7B / 32B / 72B) — strong JSON-following, well-tested with Ollama, can produce stable structured output and bounding boxes. Sweet spot for Agent Mapper is 7B.
+- **Gemma 3** multimodal (4B / 12B / 27B) — Google's open multimodal line, SigLIP vision encoder, 128K context, strong on document/scene understanding. 12B at Q4_K_M needs ~10 GB VRAM; 27B at Q4_K_M fits a 24 GB GPU.
+- **GLM-4.1V-9B-Thinking** and **GLM-4.5V / 4.6V** — Z.ai's newer multimodal line; strong recent leaderboard performance, worth benchmarking if Qwen and Gemma plateau.
+- **InternVL 2.5 / 3** — strong vision, sometimes weaker JSON adherence.
+- **Pixtral 12B**, **MiniCPM-V 2.6**, **LLaMA 3.2 Vision**, **Phi-4** — fallback candidates for resource-constrained or specialty cases.
+
+Starting set chosen for this project: **Qwen2.5-VL 7B** and **Gemma 3 12B**, run locally via Ollama through the existing `openai_compatible` provider in `agent_mapper.py` (zero code changes — Ollama exposes an OpenAI-compatible endpoint on `http://localhost:11434/v1`).
+
+### Harness layout
+```
+tests/agent_mapper/
+  clips/<env>/<clip_id>.mp4     # user-supplied ground-truth clips (gitignored)
+  labels.json                   # one entry per clip with expected env + acceptable alternates
+  eval.py                       # multi-model runner; imports agent_mapper.py directly
+  results/eval_<run_id>.csv     # per (model, clip) row — gitignored
+  README.md                     # one-page setup + runbook
+```
+
+### What the harness measures
+For each (model, clip) pair, the CSV captures: `valid_json`, `env_match` (exact), `env_acceptable` (in the alternates list), `latency_s`, `leaked_terms_count` and `leaked_terms` (threat-vocabulary tokens that should never appear in a descriptive output — direct check on whether the model is respecting the strip), `scene_description`, `notes`, `error`.
+
+The leak detector uses a hard-coded vocabulary (`threat`, `danger`, `loiter`, `intrud`, `theft`, `weapon`, `assault`, `violence`, `fight`, `tailgat`, `tamper`, `abandoned`, etc.) so violations of the descriptive-only contract surface as a real metric, not just an eyeball pass.
+
+### How to pick a winner
+Per the harness README, in priority order:
+1. `valid_json` rate — must be ~100% (fundamental contract)
+2. `leaked_terms_count` — must be ~0 across the test set (descriptive-only contract)
+3. `env_acceptable` rate — should be high; exact `env_match` is the stretch goal
+4. `scene_description` quality — manual eyeball pass on a sample
+5. Latency and VRAM — only tiebreakers
+
+The Agent Mapper call is infrequent (once per session / every ~5 min per camera), so latency is forgiving. Do **not** default to the biggest model.
+
+### What the user still needs to do
+1. Install Ollama for Windows from <https://ollama.com/download/windows>
+2. `ollama pull qwen2.5vl:7b` and `ollama pull gemma3:12b`
+3. `$env:OLLAMA_API_KEY = "ollama"` (any non-empty string; Ollama doesn't validate)
+4. Drop labeled clips into `tests/agent_mapper/clips/<environment_type>/` and add matching entries to `tests/agent_mapper/labels.json`
+5. Run `python tests\agent_mapper\eval.py --models qwen2.5vl:7b,gemma3:12b`
+
+End-to-end harness path was smoke-tested with the `mock` provider and runs cleanly (file-not-found on the placeholder clip is the expected behavior until real clips are added).
+
+## Checkpoint 2026-05-24 VLM Candidate Set Corrected
+The initial VLM candidate set (Qwen2.5-VL 7B + Gemma 3 12B) was stale. User flagged they had Ollama already installed and access to the much newer Gemma 4 and Qwen 3.5 / 3.6 lines. Re-research with version-specific queries surfaced the actual 2026-current options.
+
+### Updated candidate set (Ollama-supported, vision-capable, local)
+- **`qwen3-vl:4b` / `qwen3-vl:8b` / `qwen3-vl:32b`** — dedicated vision-language line, vision properly wired in Ollama. 4B ~2.5 GB Q4 laptop-friendly; 8B is the practical sweet spot at 12-16 GB VRAM; 32B for 24 GB+ machines. 256K native context (extensible to 1M).
+- **`gemma4:26b`** — Google's April 2026 multimodal MoE (Gemma 4 26B-A4B, ~3.8B active params over 128 experts), 256K context, vision-native, 140+ languages. Runs at near-4B-dense speed but the weights footprint is ~13-15 GB at Q4.
+- **`gemma4:e4b` / `gemma4:e2b`** — edge variants for lower VRAM budgets.
+
+### Models in user's Ollama list that are NOT viable for Mapper testing
+- **`qwen3.6`** — vision is **broken in Ollama** right now. The `mmproj` projector ships as a separate file and Ollama's GGUF flow does not wire it up. Text-only would work but image input fails. Would require running via llama.cpp directly with mmproj explicitly loaded, or MLX-VLM on Apple Silicon.
+- **`kimi-k2.6:cloud`, `glm-5.1:cloud`, `nemotron-3-super:cloud`, `gemma4:31b-cloud`** — cloud-only Ollama variants. Defeats the "no paid API for Mapper layer" goal of this testing phase.
+- **`glm-5.1`** — 754B params, coding/agentic-focused (not vision-first), and the open variant requires far more hardware than a single consumer GPU.
+
+### Revised recommended starting command
+```
+python tests\agent_mapper\eval.py --models qwen3-vl:8b,gemma4:26b
+```
+
+### What changed in the repo
+- `tests/agent_mapper/README.md` — model pull commands rewritten with the corrected candidates, explicit warning about Qwen 3.6 vision being broken in Ollama, explicit list of cloud-only Ollama entries that are out of scope, updated example run command.
+- No code changes — the harness itself is model-agnostic; only the recommended model names and the README guidance needed updating.
+
+### Lesson logged
+Saved as a feedback memory: when researching frontier ML model recommendations, version-specific queries beat "best models 2026" roundups. ML models ship monthly; summary articles lag the actual frontier by 6-12 months. Always assume the user is on the bleeding edge.
+
+## Checkpoint 2026-05-30 Agent Mapper Validated Live On Gemma 4 (OpenRouter)
+The Agent Mapper pipeline has now been run end-to-end against a real VLM for the first time, not just the `mock` provider. The decision this session was to wire up OpenRouter + Gemma 4 and prove the path works, deferring real footage until the Mapper itself is confirmed working.
+
+### Hosting / model setup
+- Provider path: existing `openai_compatible` provider in `agent_mapper.py`, pointed at OpenRouter (`https://openrouter.ai/api/v1`).
+- Model: `google/gemma-4-26b-a4b-it:free` (the validated Gemma 4 26B-A4B MoE, ~3.8B active params).
+- API key set as a User env var `OPENROUTER_API_KEY`. Note: a User-scope env var is **not** inherited by an already-running shell, so runs export the key inline in the same process before invoking python.
+
+### OpenRouter account reality
+- Account is free-tier with `total_credits: 0`.
+- Paid Gemma 4 variant (`google/gemma-4-26b-a4b-it`, no `:free`) returns **HTTP 402 Payment Required** — needs credits.
+- The `:free` variant intermittently returns **HTTP 429 Too Many Requests** — this is transient shared-pool saturation, **not** a daily-cap or auth problem (verified: `usage_daily: 0`, auth passes).
+- Key finding: **free tier + retries is a viable dev/eval path. Credits are NOT required to proceed.** A ~$5 top-up is purely a "remove the flakiness / unlock paid routing" upgrade.
+
+### Comparable free vision models probed (same size class)
+Queried the live OpenRouter models list for free + vision-capable models and tested each against the smoke image:
+- `google/gemma-4-26b-a4b-it:free` — **works** (most responsive of the set)
+- `google/gemma-4-31b-it:free` — 429
+- `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` — responds but empty content
+- `nvidia/nemotron-nano-12b-v2-vl:free` — failed
+- `moonshotai/kimi-k2.6:free` — 429
+
+Conclusion: no substitute needed — the originally chosen model is also the best free option currently available.
+
+### Code changes landed in `agent_mapper.py`
+- `call_openai_compatible` now has **retry/backoff** (default 3 retries) on 429 and 5xx, respecting `Retry-After`; fails fast on terminal 4xx (401/402). This is what makes the flaky free tier usable.
+- Added `read_http_error_body()` helper so HTTP failures surface OpenRouter's actual JSON `error.message` instead of an opaque `HTTP 429`.
+- Added OpenRouter routing headers (`http-referer`, `x-title`) — ignored by other backends.
+- **Bug fixed:** `camera_id`, `source_type`, `source_frame_path`, and `generated_at` are now **caller-authoritative** — previously the code kept any value the VLM returned, and Gemma 4 hallucinated `generated_at: 2025-01-24T12:00:00Z`. These are facts the caller owns; the timestamp is now system-stamped (verified correct at `2026-05-30T...Z`).
+- `agent_mapper.py` compiles clean after all changes.
+
+### What the live run proved (against `agent_mapper_smoke.jpg`)
+Even though the smoke image is a placeholder (grey background + black rectangle), the run validated the full contract on a real model:
+- valid JSON parse
+- correct `environment_type = unknown` (nothing identifiable)
+- accurate descriptive `scene_description`
+- empty `expected_actors` / `zones`, `confidence = 0.0`
+- **zero threat-vocabulary leak** — the descriptive-only contract from the 2026-05-24 strip holds against the live VLM, not just the mock provider
+
+### Still pending (unchanged from prior checkpoints)
+- **Real footage** — deferred by user decision this session; only the placeholder image has been run. Real env-classification accuracy numbers require labeled clips in `tests/agent_mapper/clips/<env>/` plus matching `labels.json` entries.
+- Nothing downstream consumes `scene_context.json` yet (no Preset Recommender / Customization Engine / Verification Gate).
+- The eval harness (`tests/agent_mapper/eval.py`) is ready to run against Gemma 4 via OpenRouter the moment footage lands — same provider/base-url/key/model flags as the validated single-image run.
