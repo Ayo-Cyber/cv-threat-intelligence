@@ -1,0 +1,11 @@
+{
+  "_doc": "Ground-truth labels for Agent Mapper eval. One entry per clip file under tests/agent_mapper/clips/<env>/. Use environment_type values from schemas/scene_context.schema.json. The acceptable_environment_types array lets a prediction count as correct if it falls in a list of close alternates (e.g. estate_gate vs estate_street).",
+  "clips": [
+    {
+      "clip_path": "tests/agent_mapper/clips/estate_gate/example_estate_gate_01.mp4",
+      "expected_environment_type": "estate_gate",
+      "acceptable_environment_types": ["estate_gate", "estate_street", "perimeter_fence"],
+      "notes": "Replace this entry with real labeled clips. Drop MP4 files into tests/agent_mapper/clips/<env>/ and add matching entries here."
+    }
+  ]
+}
