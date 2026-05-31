@@ -1,0 +1,31 @@
+{
+  "use_case_id": "banking_v1",
+  "rules": [
+    {
+      "name": "armed_robbery",
+      "trigger": {"detector": "weapons"},
+      "priority": "critical"
+    },
+    {
+      "name": "assault_at_branch",
+      "trigger": {"detector": "violence", "level": "high"},
+      "priority": "critical"
+    },
+    {
+      "name": "theft_attempt",
+      "trigger": {"detector": "theft", "state": "ACQUIRE"},
+      "priority": "high"
+    },
+    {
+      "name": "card_skimming_suspect",
+      "trigger": {"detector": "theft", "state": "DEPART"},
+      "priority": "high"
+    },
+    {
+      "name": "after_hours_presence",
+      "trigger": {"detector": "violence"},
+      "time_filter": "18:00-08:00",
+      "priority": "critical"
+    }
+  ]
+}

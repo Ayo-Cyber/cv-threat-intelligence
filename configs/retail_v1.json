@@ -1,0 +1,31 @@
+{
+  "use_case_id": "retail_v1",
+  "rules": [
+    {
+      "name": "shoplifting",
+      "trigger": {"detector": "theft", "state": "DEPART"},
+      "priority": "high"
+    },
+    {
+      "name": "violence_in_store",
+      "trigger": {"detector": "violence", "level": "high"},
+      "priority": "critical"
+    },
+    {
+      "name": "weapon_sighting",
+      "trigger": {"detector": "weapons"},
+      "priority": "critical"
+    },
+    {
+      "name": "after_hours_intrusion",
+      "trigger": {"detector": "violence"},
+      "time_filter": "22:00-06:00",
+      "priority": "critical"
+    },
+    {
+      "name": "loitering_near_merchandise",
+      "trigger": {"detector": "theft", "state": "ACQUIRE"},
+      "priority": "medium"
+    }
+  ]
+}

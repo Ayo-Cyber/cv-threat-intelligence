@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from customization import CustomizationEngine, assessments_to_events
+
 import cv2
 import torch
 from ultralytics import YOLO
@@ -393,6 +395,12 @@ def parse_args() -> argparse.Namespace:
             "Detection mode: 'all' runs everything, 'theft' only runs the theft state machine, "
             "'violence' only runs pose heuristics, 'weapons' only runs object/weapon detection."
         ),
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to user_config.json (Customization Engine rules). Example: configs/retail_v1.json",
     )
     return parser.parse_args()
 
@@ -1030,7 +1038,11 @@ class TheftDetector:
         self.debug = debug
 
     def _match_objects(self, detections: list[Detection], timestamp: float) -> None:
-        relevant = [d for d in detections if normalize_label(d.label) not in {"person"}]
+        relevant = [
+            d for d in detections
+            if normalize_label(d.label) not in {"person"}
+            and normalize_label(d.label) in self.object_classes
+        ]
         for det in relevant:
             best_id: int | None = None
             best_dist = 1.5
@@ -1585,6 +1597,8 @@ def main() -> None:
         approach_ratio=args.theft_approach_ratio,
         debug=args.debug_theft,
     )
+    customization_engine = CustomizationEngine(args.config)
+    last_alert_rule: str | None = None
 
     print("Starting inference loop. Press 'q' to quit.")
     try:
@@ -1710,6 +1724,26 @@ def main() -> None:
             )
             assessment = choose_assessment(object_assessment, violence_assessment, theft_assessment)
             threat_detected = assessment.active
+
+            # Customization Engine — evaluate user rules against this frame's events
+            if args.config:
+                raw_events = assessments_to_events(
+                    object_assessment, violence_assessment, theft_assessment,
+                    timestamp=time.time() - time_anchor,
+                    theft_detector=theft_detector,
+                )
+                candidate_alerts = customization_engine.evaluate(raw_events)
+                for alert in candidate_alerts:
+                    rule_sig = f"{alert.rule_name}:{alert.title}"
+                    if rule_sig != last_alert_rule:
+                        print(
+                            f"[RULE MATCH] {alert.rule_name} ({alert.priority.upper()}) "
+                            f"— {alert.title}"
+                            + (f" [obj: {alert.object_label}]" if alert.object_label else "")
+                        )
+                        last_alert_rule = rule_sig
+                if not candidate_alerts and last_alert_rule is not None:
+                    last_alert_rule = None
 
             weapon_detections_for_debug = validated_weapon_detections
             if args.debug_weapon:
