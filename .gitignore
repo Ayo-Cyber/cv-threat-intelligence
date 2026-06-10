@@ -29,3 +29,10 @@ desktop.ini
 # Downloaded model weights (auto-downloaded on first run)
 rtdetr-l.pt
 rtdetr-x.pt
+
+CamNuvem Robbery Dataset/
+CamNuvem_Robbery_Dataset/
+data/classify/
+
+# Large model weights (not pre-trained bases)
+yolov8s-cls.pt

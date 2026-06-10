@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from customization import CustomizationEngine, assessments_to_events
+from verification_gate import VerificationGate
 
 import cv2
 import torch
@@ -190,7 +191,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--threat-classes",
-        default="person",
+        default="gun,knife",
         help="Comma-separated explicit class names that should trigger an alert.",
     )
     parser.add_argument(
@@ -401,6 +402,36 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Path to user_config.json (Customization Engine rules). Example: configs/retail_v1.json",
+    )
+    parser.add_argument(
+        "--classifier-weights",
+        type=str,
+        default="",
+        help="Path to fine-tuned YOLOv8s-cls weights for violence/theft/normal classification. "
+             "Example: runs/classify/runs/classify/robbery_v18/weights/best.pt",
+    )
+    parser.add_argument(
+        "--classifier-conf",
+        type=float,
+        default=0.55,
+        help="Minimum confidence threshold for classifier to fire an alert. Default: 0.55",
+    )
+    parser.add_argument(
+        "--context-file",
+        type=str,
+        default=None,
+        help="Path to scene_context.json produced by agent_mapper.py. Passed to the Customization Engine and Verification Gate.",
+    )
+    parser.add_argument(
+        "--gate-provider",
+        default="mock",
+        choices=("mock", "anthropic"),
+        help="VLM provider for the Verification Gate. 'mock' confirms all alerts for testing. 'anthropic' calls Claude Vision.",
+    )
+    parser.add_argument(
+        "--gate-api-key-env",
+        default="ANTHROPIC_API_KEY",
+        help="Environment variable name containing the Anthropic API key for the Verification Gate.",
     )
     return parser.parse_args()
 
@@ -1223,6 +1254,34 @@ def draw_theft_states(
     return frame
 
 
+def run_classifier(
+    classifier: Any,
+    frame: Any,
+    conf_threshold: float,
+) -> ThreatAssessment:
+    """Run the fine-tuned YOLOv8s-cls classifier on a frame and return a ThreatAssessment."""
+    result = classifier.runner.predict(frame, verbose=False, imgsz=224)[0]
+    pred_cls = result.names[int(result.probs.top1)]
+    confidence = float(result.probs.top1conf)
+
+    if pred_cls == "normal" or confidence < conf_threshold:
+        return ThreatAssessment(
+            active=False, title="CLEAR", level="none",
+            reasons=[], weapon_labels=[], explicit_labels=[],
+        )
+
+    level = "high" if pred_cls == "violence" else "warning"
+    title = "VIOLENCE SUSPECTED" if pred_cls == "violence" else "POSSIBLE THEFT"
+    return ThreatAssessment(
+        active=True,
+        title=title,
+        level=level,
+        reasons=[f"Classifier: {pred_cls} ({confidence:.0%} confidence)"],
+        weapon_labels=[],
+        explicit_labels=[pred_cls],
+    )
+
+
 def choose_assessment(
     object_assessment: ThreatAssessment,
     violence_assessment: ThreatAssessment,
@@ -1551,6 +1610,7 @@ def main() -> None:
         else None
     )
     pose_model = load_ultralytics_model(args.pose_weights) if args.pose_weights else None
+    classifier_model = load_ultralytics_model(args.classifier_weights) if args.classifier_weights else None
     label_map = default_model.names
 
     print(f"Configured threat classes: {sorted(threat_classes)}")
@@ -1564,6 +1624,8 @@ def main() -> None:
         print(f"Loaded dedicated weapon model: {weapon_model.source_path} ({weapon_model.kind})")
     if pose_model is not None:
         print(f"Loaded pose model: {pose_model.source_path} ({pose_model.kind})")
+    if classifier_model is not None:
+        print(f"Loaded classifier: {classifier_model.source_path} (conf≥{args.classifier_conf})")
     tracking_enabled = not args.no_track and default_model.kind == "ultralytics"
     print(f"ByteTrack person tracking: {'ON' if tracking_enabled else 'OFF (use --no-track to disable)'}")
 
@@ -1599,6 +1661,25 @@ def main() -> None:
     )
     customization_engine = CustomizationEngine(args.config)
     last_alert_rule: str | None = None
+
+    scene_context: dict | None = None
+    if args.context_file:
+        context_path = Path(args.context_file)
+        if context_path.exists():
+            scene_context = json.loads(context_path.read_text())
+            print(f"[SceneContext] Loaded: {scene_context.get('environment_type', 'unknown')} — {scene_context.get('scene_description', '')[:80]}")
+        else:
+            print(f"[SceneContext] Warning: context file not found: {context_path}")
+
+    verification_gate = VerificationGate(
+        provider=args.gate_provider,
+        api_key_env=args.gate_api_key_env,
+        save_dir=output_root / "gate" if args.gate_provider != "mock" else None,
+    )
+    if args.gate_provider != "mock":
+        print(f"[VerificationGate] Provider: {args.gate_provider} — alerts will be confirmed by Claude Vision before recording.")
+    else:
+        print("[VerificationGate] Provider: mock (all alerts auto-confirmed). Use --gate-provider anthropic for real verification.)")
 
     print("Starting inference loop. Press 'q' to quit.")
     try:
@@ -1722,28 +1803,49 @@ def main() -> None:
                 )
                 if args.mode in ("all", "theft") else _clear
             )
+
+            # Classifier — overrides pose heuristic when loaded
+            if classifier_model is not None:
+                cls_assessment = run_classifier(classifier_model, frame, args.classifier_conf)
+                if cls_assessment.active:
+                    if "theft" in cls_assessment.explicit_labels:
+                        theft_assessment = cls_assessment
+                    else:
+                        violence_assessment = cls_assessment
+
             assessment = choose_assessment(object_assessment, violence_assessment, theft_assessment)
             threat_detected = assessment.active
 
-            # Customization Engine — evaluate user rules against this frame's events
+            # Customization Engine + Verification Gate
             if args.config:
                 raw_events = assessments_to_events(
                     object_assessment, violence_assessment, theft_assessment,
                     timestamp=time.time() - time_anchor,
                     theft_detector=theft_detector,
                 )
-                candidate_alerts = customization_engine.evaluate(raw_events)
-                for alert in candidate_alerts:
-                    rule_sig = f"{alert.rule_name}:{alert.title}"
+                candidate_alerts = customization_engine.evaluate(raw_events, scene_context=scene_context)
+                top_alert = candidate_alerts[0] if candidate_alerts else None
+                if top_alert is not None:
+                    rule_sig = f"{top_alert.rule_name}:{top_alert.title}"
                     if rule_sig != last_alert_rule:
-                        print(
-                            f"[RULE MATCH] {alert.rule_name} ({alert.priority.upper()}) "
-                            f"— {alert.title}"
-                            + (f" [obj: {alert.object_label}]" if alert.object_label else "")
-                        )
+                        gate_result = verification_gate.verify(frame, top_alert, scene_context)
+                        if gate_result.confirmed:
+                            print(
+                                f"[CONFIRMED] {top_alert.rule_name} ({top_alert.priority.upper()}) "
+                                f"— {top_alert.title}"
+                                + (f" [obj: {top_alert.object_label}]" if top_alert.object_label else "")
+                                + f" | confidence={gate_result.confidence:.2f} | {gate_result.reason}"
+                            )
+                            threat_detected = True
+                        else:
+                            print(
+                                f"[REJECTED]  {top_alert.rule_name} — {gate_result.reason}"
+                            )
+                            threat_detected = False
                         last_alert_rule = rule_sig
-                if not candidate_alerts and last_alert_rule is not None:
-                    last_alert_rule = None
+                else:
+                    if last_alert_rule is not None:
+                        last_alert_rule = None
 
             weapon_detections_for_debug = validated_weapon_detections
             if args.debug_weapon:
