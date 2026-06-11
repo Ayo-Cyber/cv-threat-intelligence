@@ -1,0 +1,8 @@
+{
+  "_comment": "Example zone RULES for the retail demo clip (pairs with configs/retail_zones.theft_shop_01.json geometry). Demonstrates loitering (dwell) and after-hours presence on a shelf zone.",
+  "use_case_id": "retail_zones_rules",
+  "rules": [
+    {"name": "shelf_loitering", "trigger": {"detector": "presence"}, "context_filter": "zone == 'shelf_right' and dwell_seconds >= 6", "priority": "medium"},
+    {"name": "after_hours_shelf", "trigger": {"detector": "presence"}, "time_filter": "20:00-06:00", "context_filter": "zone == 'shelf_right'", "priority": "high"}
+  ]
+}

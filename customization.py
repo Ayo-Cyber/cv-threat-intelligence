@@ -207,6 +207,42 @@ def _match_context_filter(
 # Converter: ThreatAssessment → RawEvent (used by detector.py)
 # ---------------------------------------------------------------------------
 
+def zone_states_to_events(zone_states: list[Any], timestamp: float = 0.0) -> list[RawEvent]:
+    """Bridge RetailZoneMonitor output -> 'presence' RawEvents for the Customization Engine.
+
+    This is the wiring that lets rules reason about ZONE + TIME + DWELL — i.e. the GTM
+    property rules (loitering, after-hours presence, perimeter intrusion) and examples like
+    "anyone in the vault zone after 8pm is a threat". Each (person, occupied-zone) pair
+    becomes one active 'presence' event carrying `zone`, `dwell_seconds` and `loitering` in
+    `extra`, so a rule's context_filter can read e.g. `zone == 'vault'` or
+    `zone == 'aisle' and dwell_seconds >= 8`, and its time_filter can scope it to after hours.
+
+    Accepts any objects exposing `.tracker_id`, `.zones` (list[str]),
+    `.dwell_seconds` (dict[str,float]) and `.loitering` (bool) — i.e. retail_zones.PersonZoneState —
+    without importing it, to keep this module free of CV dependencies.
+    """
+    events: list[RawEvent] = []
+    for state in zone_states:
+        tid = getattr(state, "tracker_id", None)
+        zones = getattr(state, "zones", []) or []
+        dwell_map = getattr(state, "dwell_seconds", {}) or {}
+        loitering = bool(getattr(state, "loitering", False))
+        for zone in zones:
+            dwell = float(dwell_map.get(zone, 0.0))
+            events.append(
+                RawEvent(
+                    detector="presence",
+                    active=True,
+                    title=f"PERSON IN ZONE {zone.upper()}",
+                    level="low",
+                    person_id=tid,
+                    timestamp=timestamp,
+                    extra={"zone": zone, "dwell_seconds": dwell, "loitering": loitering},
+                )
+            )
+    return events
+
+
 def assessments_to_events(
     object_assessment: ThreatAssessment | None,
     violence_assessment: ThreatAssessment | None,

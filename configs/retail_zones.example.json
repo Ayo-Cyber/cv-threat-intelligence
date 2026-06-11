@@ -1,0 +1,27 @@
+{
+  "_comment": "Polygon zones are CAMERA-SPECIFIC: coordinates are pixels at the camera's resolution (frame_wh below, for documentation only). Define one config per physical camera. Draw shelf zones over merchandise, an exit zone over the door. 'anchors' decides which point of a person's box must fall inside the polygon to count as present (BOTTOM_CENTER = feet, good for 'standing at the shelf'). 'dwell_alert_seconds' is an optional loiter threshold per zone.",
+  "camera_id": "demo-cam-01",
+  "frame_wh": [1280, 720],
+  "zones": [
+    {
+      "name": "shelf_left",
+      "kind": "shelf",
+      "anchors": ["BOTTOM_CENTER"],
+      "dwell_alert_seconds": 8.0,
+      "polygon": [[40, 120], [520, 120], [520, 680], [40, 680]]
+    },
+    {
+      "name": "shelf_right",
+      "kind": "shelf",
+      "anchors": ["BOTTOM_CENTER"],
+      "dwell_alert_seconds": 8.0,
+      "polygon": [[760, 120], [1240, 120], [1240, 680], [760, 680]]
+    },
+    {
+      "name": "exit",
+      "kind": "exit",
+      "anchors": ["BOTTOM_CENTER"],
+      "polygon": [[540, 520], [740, 520], [740, 700], [540, 700]]
+    }
+  ]
+}

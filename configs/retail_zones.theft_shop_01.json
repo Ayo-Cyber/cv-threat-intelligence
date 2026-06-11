@@ -1,0 +1,11 @@
+{
+  "_comment": "Zones sized for the bundled demo clip data/test_clips/theft_shop_01.mp4 (360x640 portrait). CENTER anchor because the caption banner occludes feet. Use this to try the shelf-zone + loitering demo out of the box.",
+  "camera_id": "theft_shop_01",
+  "frame_wh": [360, 640],
+  "zones": [
+    {"name": "shelf_right", "kind": "shelf", "anchors": ["CENTER"], "dwell_alert_seconds": 8.0,
+     "polygon": [[60, 130], [330, 130], [330, 430], [60, 430]]},
+    {"name": "shelf_left", "kind": "shelf", "anchors": ["CENTER"], "dwell_alert_seconds": 8.0,
+     "polygon": [[0, 100], [58, 100], [58, 430], [0, 430]]}
+  ]
+}

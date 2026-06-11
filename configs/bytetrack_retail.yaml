@@ -1,0 +1,13 @@
+# Retail-tuned ByteTrack config for the theft pipeline.
+# Goal: keep ONE stable id on a shopper who lingers at a shelf, despite brief
+# occlusion (caption banners, other shoppers, reflections). Based on Ultralytics'
+# default bytetrack.yaml; only the fragmentation-relevant fields are changed.
+
+tracker_type: bytetrack
+track_high_thresh: 0.30   # raised: cleaner first-stage matches, fewer flicker tracks
+track_low_thresh: 0.10    # default: still recover weak detections in stage two
+new_track_thresh: 0.50    # raised: weak/mannequin detections do NOT spawn new ids
+track_buffer: 120         # raised (30->120 = ~4s @30fps): a shopper occluded for a
+                          #   few seconds reclaims her ORIGINAL id instead of a new one
+match_thresh: 0.80        # default association threshold
+fuse_score: True

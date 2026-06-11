@@ -1002,3 +1002,136 @@ Even though the smoke image is a placeholder (grey background + black rectangle)
 - **Real footage** — deferred by user decision this session; only the placeholder image has been run. Real env-classification accuracy numbers require labeled clips in `tests/agent_mapper/clips/<env>/` plus matching `labels.json` entries.
 - Nothing downstream consumes `scene_context.json` yet (no Preset Recommender / Customization Engine / Verification Gate).
 - The eval harness (`tests/agent_mapper/eval.py`) is ready to run against Gemma 4 via OpenRouter the moment footage lands — same provider/base-url/key/model flags as the validated single-image run.
+
+## Checkpoint 2026-06-10 Retail Shoplifting Named As Lead Use Case + Veesion Research
+The founder direction sharpened this session: make the product **scalable for supermarkets / shops to detect shoplifting** — specifically "a customer takes a product from a shelf, conceals it in a bag, the system records the event and triggers an alert." Explicitly positioned against **Veesion.io**. This session was research + codebase audit + approach proposal; no code written yet.
+
+### Veesion / landscape research findings (cited briefing produced this session)
+- **Veesion does gesture/action recognition, NOT product-into-bag object tracking.** It classifies the *motion signature* of concealment (reaching to body, stuffing into a bag, tag tampering) on existing CCTV. Confirmed across independent sources (Silicon Republic, White Star Capital), not just their marketing. Detects "10+" concealment gestures; deploys as a small on-prem appliance over RTSP (Hikvision/Dahua/etc.); alerts = short clip to a mobile app for human review; explicitly **no facial recognition / no biometrics**.
+- **The "follow the product from shelf into bag" framing is the brittle object-tracking paradigm.** The item is occluded by hand/body/bag exactly when concealment happens (~60% of missed detections are occlusion). Pure item-tracking only works in instrumented stores (smart carts, dense overhead arrays — Amazon Go / Trigo / Caper). **For retrofit on existing CCTV, gesture/action recognition is the approach that actually works.**
+- **The only defensible product shape is: record event → surface a short clip → human verifies/decides.** No credible vendor claims autonomous accusation; vision cannot read intent ("concealed it" vs "put it in their own bag while still shopping" can be motion-identical). Human-in-the-loop is mandatory, not optional.
+- Field tech stack: video action recognition (SlowFast / X3D / VideoMAE), optionally pose-based (PoseLift / Shopformer — privacy-friendly but only ~60-67% AUC on the one real-store benchmark, i.e. immature). Datasets are thin: UCF-Crime shoplifting subset ~50 clips; DCSASS and PoseLift mostly staged.
+- Comparables: **Everseen** (self-checkout non-scan / ticket-switch, vision+POS, ~3s alerts), **Trigo** (verified-loss via MOT + virtual basket vs POS), **Standard AI**, **Caper** (smart carts). Veesion is the closest analog to the stated goal.
+- Legal flag (low relevance for Nigeria GTM, noted): French Conseil d'État ruling CE-495153 (2024-06-21) found Veesion's real-time behavioral detection violated GDPR Art. 21. Behavioral surveillance carries regulatory risk in some markets.
+
+### Codebase audit — theft assets already exist on `ayo/main` (NOT on `agent-mapper`)
+- **`TheftDetector`** in `detector.py`: per-person **IDLE → APPROACH → ACQUIRE → DEPART** state machine. Uses ByteTrack person tracking + YOLO-Pose wrists + object tracking. Fires `POSSIBLE THEFT` when, after ACQUIRE (wrist inside object bbox for `--theft-acquire-frames`), the object **vanishes while the hand is on it** (strongest signal) or the object moves from its `origin_bbox` / the person leaves the area, then persists in DEPART for `--theft-depart-frames`.
+- **Critical limitation:** it tracks only generic COCO classes (`THEFT_OBJECT_CLASSES = backpack, handbag, suitcase, bottle, laptop, cell phone, book, umbrella`) — **not real store merchandise** (small/varied/non-COCO, YOLO won't detect it). No shelf zone, no bag-as-destination concept; "object vanished" is a crude occlusion proxy. This is the brittle object-tracking paradigm. Fine as a **demo/V0 candidate generator**, will not generalize across real supermarkets.
+- **`CustomizationEngine`** (`customization.py`) + **`configs/retail_v1.json`** already exist: retail config has a `shoplifting` rule (`trigger: detector=theft, state=DEPART`, priority high) and `loitering_near_merchandise` (`state=ACQUIRE`). Rule-policy layer for retail is skeletoned. `assessments_to_events()` bridges Detection Core → RawEvents → CandidateAlerts. CLI `--mode {all,theft,violence,weapons}` already isolates the theft path.
+- **`eval.py`** + `data/test_clips/` already include `theft_shop_01.mp4`, `theft_shop_02.mp4`, `theft_yt_01.mp4` with `data/ground_truth.csv`. Caveat: `week2_baseline.json` theft precision/recall = 1.0 is computed on **one** theft clip — not statistically meaningful.
+
+### Proposed approach (pending founder sign-off — not started)
+Do **not** double down on item-into-bag tracking. Layer it the way the 4-layer architecture already implies and the way Veesion effectively works:
+1. **Candidate generator (cheap, high-recall):** keep + harden `TheftDetector` as the first-pass trigger (tune for recall). Add a **bag/container + shelf-zone** concept so the trigger is "ACQUIRE → concealment-toward-body," not "COCO object disappeared."
+2. **Concealment-gesture signal (the real discriminator):** near-term, reuse the already-validated **VLM (Gemma 4 via OpenRouter / Claude Vision)** to classify the candidate clip zero-shot ("did this person conceal merchandise?") — no training data needed yet. Later (Phase 2): fine-tune a video-action model (X3D / VideoMAE) on Nigeria-relevant staged footage (matches the existing Phase-2 data plan).
+3. **Verification Gate = the false-positive killer + human-in-the-loop**, exactly the architecture's existing layer: candidate is the cheap trigger; VLM confirms/rejects against the specific fired rule; only confirmed events escalate.
+4. **Output is always a recorded clip for staff review** — never autonomous accusation. `EventRecorder` already saves clips; wire candidate → clip → Verification Gate → alert.
+5. **Scalability, both senses:** (a) generalization across stores via Customization Engine presets + VLM verification, not hardcoded thresholds; (b) fleet scale across many RTSP cameras works because the expensive VLM runs only on candidate events (a few/camera/hour), not every frame — the cheap-trigger/expensive-verify asymmetry is the key to multi-camera cost.
+
+### Prerequisite decision flagged to founder
+The theft core lives on `ayo/main`; the working branch `agent-mapper` only has the Agent Mapper. Step zero is branch reconciliation. Recommendation: branch a new `theft-retail` off `ayo/main` (richer base) and graft the Agent Mapper work on top, rather than the reverse. Awaiting founder decision on branch strategy + whether to anchor V1 on the VLM-verification path vs investing in a trained action-recognition model.
+
+## Checkpoint 2026-06-10 Decisions Locked + Ayo b992813 Synced + Supervision Adopted
+Founder confirmed both decisions: **branch off `ayo/main`** and **anchor V1 on the VLM-verification path** (trained action model deferred to Phase 2). Created local branch **`theft-retail`** off `ayo/main`; restored the 3 planning docs `ayo/main` had deleted (GTM `.docx`, plan `.xlsx`, `docs/OPENROUTER_COSTS.md`). Note: `theft-retail` tracks `ayo/main` — repoint to `origin` before any push.
+
+### Ayo shipped a major commit the same day: `b992813` (2026-06-10) — synced into `theft-retail`
+"feat: wire classifier + verification gate into detector, add training pipeline." The **4-layer architecture is now live end-to-end for the first time**: Detection Core → (optional) classifier override → Customization Engine → Verification Gate → record/alert. The Agent Mapper's `scene_context.json` is finally *consumed* (loaded in `detector.py`, passed to both the engine and the gate) — no longer an orphan artifact.
+- **`verification_gate.py`** (new, 306 lines): `VerificationGate` with `mock` + `anthropic` (Claude Vision, `claude-sonnet-4-6`) providers; per-rule question templates (`shoplifting`, `violence_in_store`, …); defensive brace-depth JSON extraction + safe fallback; saves per-call artifacts (frame/alert/verdict/raw). Cost-controlled: only fires when the rule signature *changes*, not every frame.
+- **Classifier**: `train_classifier.py` fine-tunes **YOLOv8s-cls** on **CamNuvem** (`theft/violence/normal`, 224px) + `download_training_data.py` (yt-dlp) + `infer_video.py`. Reported **FPR 0.67 → 0.034** (mostly a violence win). Wired via `--classifier-weights`.
+
+### Audit findings on `b992813` (what matters for theft)
+1. **Everything theft-related is single-frame** — both `run_classifier` (one frame, 224px) and `gate.verify(frame, …)` (one frame to Claude). Concealment is a *motion*; a single frame cannot see it. This is the exact gap the action-recognition layer fills — confirms the plan is aimed right.
+2. **The classifier OVERRIDES the state machine** (`detector.py` ~L1811): a single-frame "theft" guess replaces the temporal IDLE→ACQUIRE→DEPART result. Backwards for theft. When the action model lands, **fuse** these signals, don't let one stomp the other.
+3. **The gate verifies the frame at the instant the rule first fires** — not necessarily the frame that best shows concealment (grab earlier, conceal later). A **clip/buffer-based gate** (multiple frames; Claude Vision accepts multi-image messages) is a straightforward, high-value upgrade.
+4. **Two divergent VLM paths**: `agent_mapper.py` uses OpenRouter/Gemma 4 (`openai_compatible`, *with* retry/backoff); `verification_gate.py` uses Anthropic/Claude (*no* retry). Different keys (`OPENROUTER_API_KEY` vs `ANTHROPIC_API_KEY`). Unify later; not urgent.
+
+### Supervision adopted (the X-post lead — roboflow/supervision, 40k stars)
+Decided to use **Supervision 0.28.0** for spatial primitives (zones, annotation), taking *tracking from Ultralytics* (`sv.ByteTrack` is deprecated in 0.28, removed in 0.30). Added `supervision>=0.28.0` to `requirements.txt`. New scaffolding (untracked, this branch):
+- **`retail_zones.py`** — `RetailZoneMonitor`: Ultralytics detect+track → `sv.Detections.from_ultralytics` → named `sv.PolygonZone` membership + per-track **dwell** accounting (enter/leave timestamps, optional per-zone loiter threshold) + annotation. Class-agnostic; CLI demo filters to persons. This is the **spatial foundation the action model plugs into** ("WHO is WHERE, for HOW LONG" — it does NOT decide theft).
+- **`configs/retail_zones.example.json`** — example shelf/exit polygons; documents that zones are camera-specific pixel coords.
+- **`tests/test_retail_zones.py`** — 6 checks (presence, dwell accumulate+alert, reset-on-leave, untracked handling, config load, annotate). **All passing** on a torch-free venv (synthetic `sv.Detections`), so the Supervision API usage is verified without needing YOLO installed.
+
+### Validated on real footage (2026-06-10)
+Installed `ultralytics` 8.4.64 + torch 2.8.0 (MPS available) into the Mac `.venv` and ran `retail_zones.py` end-to-end on `data/test_clips/theft_shop_01.mp4` (360×640 portrait CCTV, 931 frames, 30fps — a woman lingering at a wig/hair-product shelf for the full 31s). The full pipeline works: detect → ByteTrack (auto-installed `lap`) → `sv.Detections.from_ultralytics` → `PolygonZone` membership → dwell → annotation. Annotated frames render zones, tracked boxes, dwell labels, and in-zone counts correctly.
+
+**Two real-world findings (tuning items, not blockers):**
+1. **Mannequin heads / wig displays get detected as `person`** by `yolov8n` → spurious in-zone detections (`shelf_right` presence_frames=1001 > 931 total frames means ≥2 "people" in zone on many frames). Mitigations: higher conf, person size/aspect filtering, a stronger model (yolov8s/m), or restrict the zone to the floor-standing area.
+2. **ByteTrack ID fragmentation**: ~1 real shopper produced **19 unique track ids** (occlusion by the caption banner + reflections + mannequins). Because dwell resets on ID change, the 8s loiter alert never fired despite 31s of real presence (max unbroken dwell only 6.1s). Mitigations: raise `track_buffer` in `bytetrack.yaml`, a stronger detector, or make dwell "sticky" (bridge brief track-loss gaps / re-associate). **This matters for the action model too** — fragmented tracks break any per-person temporal window, so track stability is a prerequisite, not a nicety.
+
+(The demo zone config used was clip-specific, `/tmp/zones_theft01.json`, CENTER anchor because the caption banner occludes feet; the committed `configs/retail_zones.example.json` stays the generic template.)
+
+## Checkpoint 2026-06-10 Track-Stability Pass (gates the action model)
+Did a measured tuning pass to fix the ID-fragmentation found above, because stable per-person tracks are a prerequisite for any temporal action model. Three levers, all landed in `retail_zones.py` + configs:
+1. **Retail-tuned tracker** `configs/bytetrack_retail.yaml` — `track_buffer` 30→120 (~4s; a shopper occluded briefly reclaims her original id), `new_track_thresh` 0.25→0.50 (weak/mannequin detections don't spawn ids), `track_high_thresh` 0.30.
+2. **Person-plausibility filter** `filter_person_detections()` — drops boxes that are too small or not taller-than-wide (mannequin heads, wig displays, reflections). Defaults: min area 1.2% of frame, min aspect h/w 1.10.
+3. **Sticky dwell** — `RetailZoneMonitor(dwell_grace_seconds=…)` bridges brief zone/track dropouts (boundary jitter, 1-frame loss) so dwell doesn't reset on a flicker. Default grace 1.5s in the demo.
+
+### Measured before/after on `theft_shop_01.mp4` (931 frames, 31s, one real shoplifter)
+| metric | BEFORE (yolov8n, default bytetrack, conf 0.3) | AFTER (tuned bytetrack + filter + grace 1.5s, conf 0.4) |
+|---|---|---|
+| unique track ids | 19 | **9** |
+| shelf_right presence_frames | 1001 (>931 = mannequins counted) | 679 (<931, plausible) |
+| shelf_right max_dwell | 6.1s | **9.3s** |
+| loiter alert (8s threshold) | never fired (0) | **fired (40 frames)** |
+
+The loiter signal now actually fires on the real clip. Mannequin false positives are gone (person filter). IDs roughly halved.
+
+### Tracker comparison logged
+- Tuned **ByteTrack** (`bytetrack_retail.yaml`): 9 ids, max_dwell 9.3s, loiter fired — **chosen default** (lighter for edge).
+- Default BoT-SORT: *worse* (12 ids, 7.9s, loiter didn't fire) — its defaults aren't tuned and ReID is off.
+- Tuned **BoT-SORT + ReID** (`configs/botsort_retail.yaml`, GMC off for fixed CCTV): 9 ids, max_dwell 10.0s, loiter 59 frames — marginally better dwell continuity, more compute. Kept as the higher-accuracy option.
+- **Remaining ~9 ids is detector-bound, not tracker-bound.** Pushing toward single-id needs a stronger detector (`yolov8s/m`); deferred — current stability is enough for the loiter signal and to proceed.
+
+### Tests
+`tests/test_retail_zones.py` now 9/9 passing (added: sticky-dwell-bridges-gap, dwell-resets-after-grace, person-filter-drops-mannequin). All torch-free (synthetic detections).
+
+## Checkpoint 2026-06-10 Action Layer v1 — Pose-Based Concealment Detector
+Built the action-recognition layer (`concealment.py`), the piece that makes the theft signal *temporal* (Veesion-style gesture recognition) instead of single-frame. Per the locked V1 decision (VLM anchor, training deferred to Phase 2), this is a **transparent heuristic over a per-person skeleton sequence — NOT a trained model** — and a recall-oriented **candidate generator** for the Verification Gate, NOT a final verdict.
+
+### How it works
+- Per-track rolling window (1.2s) of skeletons (uses the now-stable tracks from the track-stability pass + `yolov8n-pose.pt`; adds **hip** keypoints, which detector.py's violence pose code lacks — essential for the hand-to-waist signal).
+- Three normalised temporal features (scale-invariant via shoulder↔hip body scale):
+  - `f_waist` — nearest hand got close to the hip/waist line
+  - `f_retract` — a hand reached OUT laterally then pulled IN to the torso and ended low (the conceal motion). Uses lateral offset from the torso centerline (a corrected feature — raw shoulder-to-wrist distance does NOT separate "reach out" from "hand at waist", since reaching to your own hip is also a long span).
+  - `f_dwell` — a hand lingered at the waist (stuffing into pocket/waistband)
+- Weighted score (0.40/0.30/0.30) → persistence gate (`min_candidate_frames`) → `candidate` bool with human-readable reasons.
+- **The seam:** `score_window()` is the swappable head — replace its body with a trained pose-sequence classifier (LSTM/1D-CNN/transformer) on the same feature vectors in Phase 2, nothing else changes.
+- Graceful occlusion handling: if hips are never visible, sets a `limited` flag and degrades the score rather than firing blind.
+
+### Validated
+- `tests/test_concealment.py` — 5/5 passing, torch-free synthetic skeletons: concealment-motion fires (score 0.91), normal browsing stays at 0.00, occluded-hips degrades to 0.09+`limited`, empty window = 0, per-track state cleanup.
+- **Real clip `theft_shop_01.mp4`:** the detector **correctly fired `CONCEAL-CANDIDATE` on the actual shoplifting motion** — track #1 ramped 0.30→0.60→sustained 0.6–0.85 (peak ~0.85), with `f_waist` up to 0.84, `f_retract` up to 0.81, `f_dwell` 1.0, and interpretable reasons. (YOLO-pose estimated hip positions even partly behind the caption banner, so the waist signal survived.)
+
+### Honest caveats (do not overstate)
+- This is **one positive clip**. The detector firing here is encouraging, NOT validation. **No normal/negative clips have been run through it**, so precision / false-positive rate is unmeasured. A "hands at waist for a while" heuristic will also fire on adjusting clothes, phone-at-waist, hands-in-pockets — which is exactly why the **VLM Verification Gate must filter these**; precision is the gate's job, recall is this layer's job.
+- Depends on `yolov8n-pose` hip estimates, which are noisy under occlusion. A stronger pose model would help.
+
+### Files added this session (untracked on `theft-retail`, nothing committed yet)
+`retail_zones.py`, `concealment.py`, `configs/retail_zones.example.json`, `configs/bytetrack_retail.yaml`, `configs/botsort_retail.yaml`, `tests/test_retail_zones.py`, `tests/test_concealment.py`; `requirements.txt` gains `supervision>=0.28.0`; restored planning docs; `PROJECT_CONTEXT.md` updated. A `.venv` exists locally (gitignored) with ultralytics+torch+supervision.
+
+### Next phase (integration — needs go-ahead)
+Wire the three V1 pieces into one trigger in `detector.py`: **shelf-zone interaction (`retail_zones`) + concealment candidate (`concealment`) + the existing TheftDetector state machine → fused candidate → rolling clip buffer → multi-frame Verification Gate (upgrade `verification_gate.verify` from 1 frame to a short clip) → alert**. Then measure precision on normal-shopper clips (need negative footage) and recall on more theft clips. Also revisit: fuse (don't let the single-frame classifier override the temporal signal); unify the two VLM code paths.
+
+## Checkpoint 2026-06-11 Zone→Customization Wiring + Bag/Trolley Robustness
+Founder gave two build directives and an important conceptual question. Conceptual clarification logged: the standalone scripts (`concealment.py`, `retail_zones.py`) each exercise ONE module in isolation — running `concealment.py` only shows concealment because that's all it loads. The full system is `detector.py` (the "orchestra") which runs weapons + violence + theft + (soon) concealment + zones every frame and feeds the Customization Engine → Verification Gate.
+
+### Part A — Zone → Customization wiring (unlocks the bank example + GTM property rules)
+The architecture always envisioned zone+time+dwell rules (architecture.md even has `loitering_at_atm` / `after_hours_intrusion`), but zone data never flowed into the engine. Closed that gap:
+- **`customization.py` → `zone_states_to_events()`**: bridges `RetailZoneMonitor` output into `presence` RawEvents carrying `zone`, `dwell_seconds`, `loitering` in `extra` (duck-typed, no CV import). Now a rule's `context_filter` can read `zone == 'vault'` / `zone == 'aisle' and dwell_seconds >= 8`, and `time_filter` scopes it to after-hours.
+- **Configs**: `configs/bank_zones.example.json` (geometry: vault + atm) and `configs/banking_zones_v1.json` (rules) implement the founder's exact example — `vault_after_hours` = presence in vault zone + `time_filter 20:00-06:00` → CRITICAL. Plus `configs/retail_zones_rules.example.json` for the retail demo.
+- **`retail_zones.py` demo** gained `--rules` and `--simulate-time HH:MM`: loads the engine, converts zone presence to events per frame, prints `[RULE FIRED]`. **Verified live** on `theft_shop_01.mp4` at simulated 21:00 → `after_hours_shelf (HIGH)` and `shelf_loitering (MEDIUM)` fired.
+- **`tests/test_zone_customization.py`** (4/4): vault rule fires at 9pm and is silent at noon (time filter), atm loitering needs 75s not 20s (dwell), unconfigured zone fires nothing.
+- **Customization answer to founder:** YES, the system is genuinely customizable and the bank example works now at the logic level. Same engine serves every vertical — bank uses zone+time rules, supermarket uses concealment+zone rules, all from `user_config.json`. Remaining for a *non-developer*: a frontend to "draw the box" (today the box is JSON, which is exactly the contract that UI would emit). This same wiring unlocks most GTM-12 property rules (loitering, after-hours, intrusion) at once.
+
+### Part B — Robust concealment: destination classification (bag vs pocket vs trolley)
+Founder's insight: concealment is a *destination* problem — pocket/bag = threat, trolley = normal (they pay at the counter). v1 was waist/pocket-biased. Extended `concealment.py`:
+- Added **`f_bag`** feature + `hand_to_bag`/`hand_at_bag` via point-to-bbox distance to detected **personal-bag** boxes (COCO `backpack`/`handbag`/`suitcase`, ids 24/26/28). Concealment destination = `max(f_waist, f_bag)`; assessment now carries `destination ∈ {waist, bag, None}`.
+- **Trolley is safe by construction**: a shopping cart/basket is NOT a COCO bag class, so it never produces a bag bbox and never fires `f_bag` — putting goods in a trolley yields no destination. Documented explicitly.
+- `update(pose_frames, ts, bag_bboxes=...)` (backward-compatible default None); demo loads a second YOLO object model (`--object-weights`, `--no-bags`) and feeds bag boxes; overlay shows `CONCEAL>BAG` / `CONCEAL>WAIST`.
+- **Honest limit**: the hard pocket-vs-bag-vs-trolley *edge cases* (reusable shopping bag they'll pay for; basket misdetected as handbag) are still the **VLM gate's** job — pose = recall, gate = precision. And "are personal bags a threat here?" is itself a per-business `user_config` setting (boutique vs cash-and-carry).
+- **`tests/test_concealment.py`** now 7/7: bag concealment fires (`dest=bag`, 0.88), trolley stays safe (`dest=None`, 0.05), pocket still fires (`dest=waist`).
+
+### Status: 20/20 unit tests passing (concealment 7, retail_zones 9, zone_customization 4). All modules compile; demos run on real video. New/changed this session: `customization.py` (+zone bridge), `concealment.py` (+bag/destination, +viz overlay, +bag demo), `retail_zones.py` (+--rules/--simulate-time), configs `bank_zones.example.json` / `banking_zones_v1.json` / `retail_zones_rules.example.json` / `retail_zones.theft_shop_01.json`, `tests/test_zone_customization.py`. Still nothing committed (all on `theft-retail`, untracked/modified).
+
+### Next (needs go-ahead): full `detector.py` integration
+Wire zones + concealment (with destination) + state machine into one fused trigger → rolling clip → multi-frame Verification Gate → alert, driven by `user_config.json`. Then measure precision on normal-shopper footage (still needed). — make the theft signal temporal (pose-sequence first, or video model), feeding off the `RetailZoneMonitor` shelf-interaction trigger + a rolling clip buffer → fused with the state machine → Verification Gate (upgraded to multi-frame). This is the piece that makes the product genuinely Veesion-like rather than a frame-guesser.

@@ -1,0 +1,11 @@
+{
+  "_comment": "ZONE GEOMETRY for a bank branch camera (the 'draw a bounding box' part — today expressed as JSON; a frontend would generate this). Pixel coords at frame_wh. Pair this with a user_config rules file (configs/banking_zones_v1.json) that references these zone names.",
+  "camera_id": "bank-branch-cam-01",
+  "frame_wh": [1280, 720],
+  "zones": [
+    {"name": "vault", "kind": "restricted", "anchors": ["BOTTOM_CENTER"],
+     "polygon": [[900, 140], [1240, 140], [1240, 660], [900, 660]]},
+    {"name": "atm", "kind": "atm", "anchors": ["BOTTOM_CENTER"], "dwell_alert_seconds": 60.0,
+     "polygon": [[80, 200], [380, 200], [380, 680], [80, 680]]}
+  ]
+}

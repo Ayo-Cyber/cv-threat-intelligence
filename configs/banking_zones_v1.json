@@ -1,0 +1,19 @@
+{
+  "_comment": "USER RULES for a bank, demonstrating zone + time + dwell customization. Pair with the zone geometry in configs/bank_zones.example.json. These rules consume 'presence' events from zone_states_to_events(). This is your exact example: 'anyone in the vault zone after 8pm is a threat' = vault_after_hours.",
+  "use_case_id": "banking_zones_v1",
+  "rules": [
+    {
+      "name": "vault_after_hours",
+      "trigger": {"detector": "presence"},
+      "time_filter": "20:00-06:00",
+      "context_filter": "zone == 'vault'",
+      "priority": "critical"
+    },
+    {
+      "name": "atm_loitering",
+      "trigger": {"detector": "presence"},
+      "context_filter": "zone == 'atm' and dwell_seconds >= 60",
+      "priority": "medium"
+    }
+  ]
+}
