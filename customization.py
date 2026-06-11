@@ -243,6 +243,34 @@ def zone_states_to_events(zone_states: list[Any], timestamp: float = 0.0) -> lis
     return events
 
 
+def concealment_to_events(assessments: list[Any], timestamp: float = 0.0) -> list[RawEvent]:
+    """Bridge ConcealmentDetector output -> 'concealment' RawEvents for the engine.
+
+    Only firing candidates become active events (the engine skips inactive ones). Each
+    carries the concealment `destination` (waist | bag) and `score` in `extra`, so a rule
+    can scope on them if desired. Accepts concealment.ConcealmentAssessment objects
+    (duck-typed) without importing them.
+    """
+    events: list[RawEvent] = []
+    for a in assessments:
+        destination = getattr(a, "destination", None)
+        title = "POSSIBLE CONCEALMENT"
+        if destination:
+            title += f" ({destination})"
+        events.append(
+            RawEvent(
+                detector="concealment",
+                active=bool(getattr(a, "candidate", False)),
+                title=title,
+                level="high" if getattr(a, "candidate", False) else "none",
+                person_id=getattr(a, "track_id", None),
+                timestamp=timestamp,
+                extra={"destination": destination, "score": float(getattr(a, "score", 0.0))},
+            )
+        )
+    return events
+
+
 def assessments_to_events(
     object_assessment: ThreatAssessment | None,
     violence_assessment: ThreatAssessment | None,

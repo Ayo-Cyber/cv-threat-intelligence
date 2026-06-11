@@ -1,0 +1,17 @@
+{
+  "_comment": "User rules for the full retail pipeline (retail_pipeline.py). 'shoplifting' fires on a concealment candidate and is named so the Verification Gate asks the right question; 'shelf_loitering' fires on sustained dwell in a shelf zone. The gate confirms/rejects before an alert is raised.",
+  "use_case_id": "retail_pipeline_v1",
+  "rules": [
+    {
+      "name": "shoplifting",
+      "trigger": {"detector": "concealment"},
+      "priority": "high"
+    },
+    {
+      "name": "shelf_loitering",
+      "trigger": {"detector": "presence"},
+      "context_filter": "zone == 'shelf_right' and dwell_seconds >= 10",
+      "priority": "medium"
+    }
+  ]
+}

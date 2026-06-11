@@ -12,10 +12,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from customization import CustomizationEngine, zone_states_to_events  # noqa: E402
+from concealment import ConcealmentAssessment  # noqa: E402
+from customization import CustomizationEngine, concealment_to_events, zone_states_to_events  # noqa: E402
 from retail_zones import PersonZoneState  # noqa: E402
 
 CFG = str(Path(__file__).resolve().parents[1] / "configs" / "banking_zones_v1.json")
+PIPE_CFG = str(Path(__file__).resolve().parents[1] / "configs" / "retail_pipeline_v1.json")
 NIGHT = datetime(2026, 6, 11, 21, 0)   # 9pm
 DAY = datetime(2026, 6, 11, 12, 0)     # noon
 
@@ -60,9 +62,22 @@ def test_wrong_zone_does_not_fire() -> None:
     print("PASS presence in an unconfigured zone fires nothing")
 
 
+def test_concealment_event_fires_shoplifting_rule() -> None:
+    """The full-pipeline wiring: a concealment CANDIDATE -> 'shoplifting' alert; a
+    non-candidate produces an inactive event the engine ignores."""
+    engine = CustomizationEngine(PIPE_CFG)
+    fired = concealment_to_events([ConcealmentAssessment(track_id=1, score=0.8, candidate=True, destination="waist")])
+    alerts = engine.evaluate(fired, now=DAY)
+    assert any(a.rule_name == "shoplifting" and a.priority == "high" for a in alerts), alerts
+    quiet = concealment_to_events([ConcealmentAssessment(track_id=2, score=0.2, candidate=False)])
+    assert engine.evaluate(quiet, now=DAY) == [], "a non-candidate must not fire"
+    print("PASS concealment candidate fires the shoplifting rule; non-candidate stays silent")
+
+
 if __name__ == "__main__":
     test_presence_events_shape()
     test_vault_after_hours_fires_only_at_night()
     test_atm_loitering_needs_dwell()
     test_wrong_zone_does_not_fire()
+    test_concealment_event_fires_shoplifting_rule()
     print("\nAll zone-customization tests passed.")

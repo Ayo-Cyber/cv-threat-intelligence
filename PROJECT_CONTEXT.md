@@ -1134,4 +1134,29 @@ Founder's insight: concealment is a *destination* problem — pocket/bag = threa
 ### Status: 20/20 unit tests passing (concealment 7, retail_zones 9, zone_customization 4). All modules compile; demos run on real video. New/changed this session: `customization.py` (+zone bridge), `concealment.py` (+bag/destination, +viz overlay, +bag demo), `retail_zones.py` (+--rules/--simulate-time), configs `bank_zones.example.json` / `banking_zones_v1.json` / `retail_zones_rules.example.json` / `retail_zones.theft_shop_01.json`, `tests/test_zone_customization.py`. Still nothing committed (all on `theft-retail`, untracked/modified).
 
 ### Next (needs go-ahead): full `detector.py` integration
-Wire zones + concealment (with destination) + state machine into one fused trigger → rolling clip → multi-frame Verification Gate → alert, driven by `user_config.json`. Then measure precision on normal-shopper footage (still needed). — make the theft signal temporal (pose-sequence first, or video model), feeding off the `RetailZoneMonitor` shelf-interaction trigger + a rolling clip buffer → fused with the state machine → Verification Gate (upgraded to multi-frame). This is the piece that makes the product genuinely Veesion-like rather than a frame-guesser.
+Wire zones + concealment (with destination) + state machine into one fused trigger → rolling clip → multi-frame Verification Gate → alert, driven by `user_config.json`. Then measure precision on normal-shopper footage (still needed).
+
+## Checkpoint 2026-06-11 Full Pipeline Integrated (the orchestra) — pushed earlier work first
+Pushed the prior session's work to `origin/theft-retail` (Demilade's repo) as commit `7c56ed7` (brief 2-line message, no co-author line, per founder) — a new branch carrying Ayo's full work + ours; `main` untouched. Then built the full integration.
+
+### Architecture decision: a dedicated `retail_pipeline.py`, not an edit to `detector.py`
+Chose to compose the V1 pieces into a NEW orchestrator rather than surgically editing Ayo's 1827-line `detector.py` (he's actively working on it; editing risks merge conflicts + the sv.Detections-vs-his-Detection-dataclass friction). `retail_pipeline.py` REUSES the shared layers (`CustomizationEngine`, `VerificationGate`) so there's no duplication of the contract logic — only the retail-specific loop is new. Can be folded into `detector.py` later, or `detector.py` refactored to call the shared components.
+
+### What the orchestra does (all wired, runs on real video)
+`retail_pipeline.py`: one YOLO-pose model gives person boxes + track ids + keypoints →
+- `RetailZoneMonitor` (shelf zones + dwell) → `zone_states_to_events` → `presence` events
+- `ConcealmentDetector` (pose action + bag/pocket destination; optional object model for bags) → `concealment_to_events` → `concealment` events
+- merged → `CustomizationEngine.evaluate(user_config rules)` → candidate alerts
+- top alert → `VerificationGate.verify` (mock | anthropic Claude Vision), **throttled to a new rule match** so the VLM runs per-event not per-frame
+- on confirm → rolling-buffer **evidence clip** (`runs/retail/event_XXXX/clip.mp4`) + `alert.json` (rule + detector + person + verdict)
+- live overlay: shelf zones, per-person concealment score / `CONCEAL>WAIST|BAG`, red ALERT banner.
+- New converter `concealment_to_events()` in `customization.py`; rules in `configs/retail_pipeline_v1.json` (`shoplifting` on concealment, `shelf_loitering` on dwell). Rule named `shoplifting` so the gate asks the right question.
+
+### Verified end-to-end on `theft_shop_01.mp4` (mock gate)
+931 frames → **3 confirmed `shoplifting` alerts** (concealment, destination=waist), each with a saved evidence clip + `alert.json` + gate artifacts (frame/verdict/raw). Annotated mp4 produced. The mock gate confirms everything, so the 3 alerts include the real concealment + track-fragmentation/mannequin false positives — which is exactly what a REAL VLM gate is there to filter. **21/21 unit tests pass** (concealment 7, retail_zones 9, zone_customization 5 incl. a new concealment→shoplifting-rule wiring test).
+
+### Honest status / what's left
+- **Precision is still unmeasured.** With mock gate everything confirms; we need (a) a real Anthropic key to run `--gate-provider anthropic`, and (b) **normal-shopper (negative) footage** to measure false-positive rate. This is the single most important open item before any "it works" claim.
+- The Verification Gate is still **single-frame** (best frame at alert time); multi-frame clip verification is the next quality upgrade.
+- `retail_pipeline.py` is uncommitted (new, on `theft-retail`). The theft state-machine (`detector.py`) is NOT folded in — concealment + zones are the retail signal; the state machine can be added as an extra signal later.
+- New/changed: `retail_pipeline.py` (new), `customization.py` (+concealment_to_events), `configs/retail_pipeline_v1.json` (new), `tests/test_zone_customization.py` (+1 test). — make the theft signal temporal (pose-sequence first, or video model), feeding off the `RetailZoneMonitor` shelf-interaction trigger + a rolling clip buffer → fused with the state machine → Verification Gate (upgraded to multi-frame). This is the piece that makes the product genuinely Veesion-like rather than a frame-guesser.
