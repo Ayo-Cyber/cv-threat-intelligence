@@ -12,7 +12,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from customization import CustomizationEngine, assessments_to_events
+from customization import (
+    CustomizationEngine,
+    assessments_to_events,
+    concealment_to_events,
+    zone_states_to_events,
+)
 from verification_gate import VerificationGate
 
 import cv2
@@ -68,6 +73,10 @@ class PosePersonState:
     max_wrist_accel: float
     max_arm_extension_ratio: float
     weapon_labels: list[str]
+    # Hips: used by the concealment (action) layer for the hand-to-waist signal.
+    # Optional/defaulted so existing violence-path constructions are unaffected.
+    left_hip: tuple[float, float] | None = None
+    right_hip: tuple[float, float] | None = None
 
 
 class EventRecorder:
@@ -404,6 +413,18 @@ def parse_args() -> argparse.Namespace:
         help="Path to user_config.json (Customization Engine rules). Example: configs/retail_v1.json",
     )
     parser.add_argument(
+        "--zones",
+        type=str,
+        default="",
+        help="Zone-geometry JSON (e.g. configs/retail_zones.theft_shop_01.json). Enables shelf/"
+             "restricted zones + dwell -> 'presence' events (loitering, after-hours). Needs --pose-weights.",
+    )
+    parser.add_argument(
+        "--concealment",
+        action="store_true",
+        help="Enable the pose-based concealment (action) detector -> 'concealment' events. Needs --pose-weights.",
+    )
+    parser.add_argument(
         "--classifier-weights",
         type=str,
         default="",
@@ -425,13 +446,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--gate-provider",
         default="mock",
-        choices=("mock", "anthropic"),
-        help="VLM provider for the Verification Gate. 'mock' confirms all alerts for testing. 'anthropic' calls Claude Vision.",
+        choices=("mock", "anthropic", "openrouter"),
+        help="VLM provider for the Verification Gate. 'mock' confirms all for testing; 'anthropic' = Claude Vision; "
+             "'openrouter' = Gemma 4 / other vision models via OpenRouter.",
+    )
+    parser.add_argument(
+        "--gate-model",
+        default="",
+        help="Override the gate model (empty = provider default: claude-sonnet-4-6 / google/gemma-4-26b-a4b-it:free).",
     )
     parser.add_argument(
         "--gate-api-key-env",
         default="ANTHROPIC_API_KEY",
-        help="Environment variable name containing the Anthropic API key for the Verification Gate.",
+        help="Env var holding the gate API key (auto-switches to OPENROUTER_API_KEY for --gate-provider openrouter).",
     )
     return parser.parse_args()
 
@@ -504,7 +531,13 @@ POSE_KEYPOINT_INDEX = {
     "right_elbow": 8,
     "left_wrist": 9,
     "right_wrist": 10,
+    "left_hip": 11,
+    "right_hip": 12,
 }
+
+# Personal-carry bag classes that count as a concealment destination (mirrors
+# concealment.BAG_CLASSES). A shopping trolley is NOT one of these, so it stays safe.
+CONCEALMENT_BAG_CLASSES = frozenset({"backpack", "handbag", "suitcase"})
 
 
 def label_matches_any(label: str, configured_labels: set[str]) -> bool:
@@ -641,6 +674,8 @@ def extract_pose_people(model: LoadedModel, frame: Any, conf: float, imgsz: int)
         right_elbow = safe_keypoint(xy_points, conf_points, POSE_KEYPOINT_INDEX["right_elbow"])
         left_wrist = safe_keypoint(xy_points, conf_points, POSE_KEYPOINT_INDEX["left_wrist"])
         right_wrist = safe_keypoint(xy_points, conf_points, POSE_KEYPOINT_INDEX["right_wrist"])
+        left_hip = safe_keypoint(xy_points, conf_points, POSE_KEYPOINT_INDEX["left_hip"])
+        right_hip = safe_keypoint(xy_points, conf_points, POSE_KEYPOINT_INDEX["right_hip"])
         pose_people.append(
             PosePersonState(
                 track_id=-1,
@@ -659,10 +694,47 @@ def extract_pose_people(model: LoadedModel, frame: Any, conf: float, imgsz: int)
                     compute_arm_extension_ratio(right_shoulder, right_wrist, (x1, y1, x2, y2)),
                 ),
                 weapon_labels=[],
+                left_hip=left_hip,
+                right_hip=right_hip,
             )
         )
 
     return pose_people
+
+
+def pose_people_to_sv_detections(pose_people: list[PosePersonState]) -> Any:
+    """Build a supervision Detections (person boxes + track ids) for the zone monitor.
+
+    Retail zones/concealment both ride on the pose pass, which already carries a track id,
+    so we don't need a second tracker or to thread ids through the Detection dataclass.
+    """
+    import numpy as np
+    import supervision as sv
+    if not pose_people:
+        return sv.Detections.empty()
+    return sv.Detections(
+        xyxy=np.array([list(p.bbox) for p in pose_people], dtype=float),
+        class_id=np.zeros(len(pose_people), dtype=int),
+        tracker_id=np.array([p.track_id for p in pose_people], dtype=int),
+    )
+
+
+def pose_people_to_concealment_frames(pose_people: list[PosePersonState], timestamp: float) -> list[Any]:
+    """Adapt pose people into concealment.PoseFrame objects (keeps hips + track id)."""
+    from concealment import PoseFrame
+    return [
+        PoseFrame(
+            track_id=p.track_id,
+            timestamp=timestamp,
+            keypoints={
+                "left_shoulder": p.left_shoulder, "right_shoulder": p.right_shoulder,
+                "left_wrist": p.left_wrist, "right_wrist": p.right_wrist,
+                "left_hip": p.left_hip, "right_hip": p.right_hip,
+            },
+            bbox=tuple(float(v) for v in p.bbox),
+        )
+        for p in pose_people
+    ]
 
 
 def assign_pose_tracks(
@@ -1662,6 +1734,20 @@ def main() -> None:
     customization_engine = CustomizationEngine(args.config)
     last_alert_rule: str | None = None
 
+    # Retail action layer (optional): shelf zones + concealment, both riding the pose pass.
+    zone_monitor = None
+    concealment_detector = None
+    if args.zones:
+        from retail_zones import RetailZoneMonitor, load_zone_config
+        zone_monitor = RetailZoneMonitor(load_zone_config(args.zones))
+        print(f"[Zones] Loaded {len(zone_monitor.zones)} zone(s): {', '.join(z.name for z in zone_monitor.zones)}")
+    if args.concealment:
+        from concealment import ConcealmentDetector
+        concealment_detector = ConcealmentDetector()
+        print("[Concealment] Pose-based concealment detector ON")
+    if (zone_monitor is not None or concealment_detector is not None) and pose_model is None:
+        print("[Warning] --zones/--concealment need a pose model; pass --pose-weights yolov8n-pose.pt")
+
     scene_context: dict | None = None
     if args.context_file:
         context_path = Path(args.context_file)
@@ -1673,13 +1759,14 @@ def main() -> None:
 
     verification_gate = VerificationGate(
         provider=args.gate_provider,
+        model=args.gate_model,
         api_key_env=args.gate_api_key_env,
         save_dir=output_root / "gate" if args.gate_provider != "mock" else None,
     )
     if args.gate_provider != "mock":
-        print(f"[VerificationGate] Provider: {args.gate_provider} — alerts will be confirmed by Claude Vision before recording.")
+        print(f"[VerificationGate] Provider: {args.gate_provider} ({verification_gate.model}) — alerts confirmed by VLM before recording.")
     else:
-        print("[VerificationGate] Provider: mock (all alerts auto-confirmed). Use --gate-provider anthropic for real verification.)")
+        print("[VerificationGate] Provider: mock (all alerts auto-confirmed). Use --gate-provider openrouter/anthropic for real verification.)")
 
     print("Starting inference loop. Press 'q' to quit.")
     try:
@@ -1818,11 +1905,26 @@ def main() -> None:
 
             # Customization Engine + Verification Gate
             if args.config:
+                ts_now = time.time() - time_anchor
                 raw_events = assessments_to_events(
                     object_assessment, violence_assessment, theft_assessment,
-                    timestamp=time.time() - time_anchor,
+                    timestamp=ts_now,
                     theft_detector=theft_detector,
                 )
+                # Retail action layer events (zones + concealment) ride the same pose pass
+                # and merge into the same event stream the user's rules evaluate.
+                if zone_monitor is not None:
+                    zone_states = zone_monitor.update(pose_people_to_sv_detections(pose_people), ts_now)
+                    raw_events += zone_states_to_events(zone_states, ts_now)
+                if concealment_detector is not None:
+                    bag_bboxes = [d.bbox for d in detections
+                                  if normalize_label(d.label) in CONCEALMENT_BAG_CLASSES]
+                    conceal = concealment_detector.update(
+                        pose_people_to_concealment_frames(pose_people, ts_now),
+                        ts_now,
+                        bag_bboxes=bag_bboxes or None,
+                    )
+                    raw_events += concealment_to_events(conceal, ts_now)
                 candidate_alerts = customization_engine.evaluate(raw_events, scene_context=scene_context)
                 top_alert = candidate_alerts[0] if candidate_alerts else None
                 if top_alert is not None:
