@@ -56,9 +56,17 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-bags", action="store_true", help="Disable bag-destination detection.")
     p.add_argument("--tracker", default="configs/bytetrack_retail.yaml")
     p.add_argument("--conf", type=float, default=0.4)
-    p.add_argument("--gate-provider", default="mock", choices=("mock", "anthropic"))
-    p.add_argument("--gate-model", default="claude-sonnet-4-6")
+    p.add_argument("--gate-provider", default="mock", choices=("mock", "anthropic", "openrouter"))
+    p.add_argument("--gate-model", default="", help="Override gate model; empty = provider default "
+                   "(claude-sonnet-4-6 for anthropic, google/gemma-4-26b-a4b-it:free for openrouter).")
+    p.add_argument("--gate-frames", type=int, default=3,
+                   help="How many of the CLEAREST recent frames to send the gate (multi-frame "
+                        "verification). 1 = single best frame.")
     p.add_argument("--scene-context", default="", help="Optional scene_context.json from agent_mapper.")
+    p.add_argument("--scene-description", default="",
+                   help="Free-text scene description fed to the gate when no --scene-context file is given. "
+                        "Priming the gate with context markedly improves its judgment.")
+    p.add_argument("--environment-type", default="retail_shop", help="Environment type for the gate context.")
     p.add_argument("--simulate-time", default="", help="HH:MM override for time-filtered rules (demo).")
     p.add_argument("--clip-seconds", type=float, default=4.0, help="Rolling evidence-clip length.")
     p.add_argument("--cooldown", type=float, default=5.0, help="Min seconds between saved events.")
@@ -84,7 +92,12 @@ def main() -> None:
     out_root = Path(args.output_dir)
     gate = VerificationGate(provider=args.gate_provider, model=args.gate_model, save_dir=out_root / "gate")
 
-    scene_context = json.loads(Path(args.scene_context).read_text()) if args.scene_context else None
+    if args.scene_context:
+        scene_context = json.loads(Path(args.scene_context).read_text())
+    elif args.scene_description:
+        scene_context = {"environment_type": args.environment_type, "scene_description": args.scene_description}
+    else:
+        scene_context = None
     sim_now = None
     if args.simulate_time:
         hh, mm = (int(x) for x in args.simulate_time.split(":"))
@@ -96,6 +109,9 @@ def main() -> None:
     cap.release()
     dt = 1.0 / fps if fps > 1e-3 else 1.0 / 25.0
     buffer: deque = deque(maxlen=max(1, int(fps * args.clip_seconds)))
+    # Per-frame (frame, {track_id: concealment_score}) — lets the gate be sent the CLEAREST
+    # frames of the candidate, not the first (often blurry) one.
+    evidence: deque = deque(maxlen=max(1, int(fps * args.clip_seconds)))
 
     print(f"[retail_pipeline] zones={'on' if zone_monitor else 'off'} "
           f"bags={'off' if args.no_bags else 'on'} gate={args.gate_provider} rules={args.config}"
@@ -113,7 +129,8 @@ def main() -> None:
                                    conf=args.conf, classes=[0], verbose=False):
         frame = result.orig_img
         ts = n * dt
-        buffer.append(frame.copy())
+        frame_copy = frame.copy()
+        buffer.append(frame_copy)
 
         detections = sv.Detections.from_ultralytics(result)
         detections = filter_person_detections(detections, frame.shape[:2])
@@ -136,6 +153,7 @@ def main() -> None:
             if obj.boxes is not None and len(obj.boxes) > 0:
                 bag_bboxes = [tuple(float(v) for v in b) for b in obj.boxes.xyxy]
         conceal = concealment.update(pose_frames, ts, bag_bboxes=bag_bboxes)
+        evidence.append((frame_copy, {a.track_id: a.score for a in conceal}))
 
         # Merge every signal into one event stream, then let the USER's rules decide.
         raw_events = zone_states_to_events(zone_states, ts) + concealment_to_events(conceal, ts)
@@ -147,15 +165,21 @@ def main() -> None:
             sig = f"{top.rule_name}:{top.person_id}"
             if sig != last_rule_sig:
                 last_rule_sig = sig
-                verdict = gate.verify(frame, top, scene_context)
-                if verdict.confirmed and (ts - last_event_t) >= args.cooldown:
+                evidence_frames = _best_frames(evidence, top.person_id, args.gate_frames) or [frame]
+                try:
+                    verdict = gate.verify(evidence_frames, top, scene_context)
+                except Exception as exc:  # noqa: BLE001 - a transient gate/API error must not kill the run
+                    print(f"[gate error] {top.rule_name} person #{top.person_id} — "
+                          f"{str(exc)[:140]} (alert held, not raised)")
+                    verdict = None
+                if verdict is not None and verdict.confirmed and (ts - last_event_t) >= args.cooldown:
                     event_count += 1
                     last_event_t = ts
                     alert_until, alert_text = ts + 2.0, f"{top.rule_name.upper()} ({top.priority}) {verdict.confidence:.2f}"
                     print(f"[ALERT #{event_count}] {top.rule_name} ({top.priority.upper()}) "
                           f"person #{top.person_id} — {top.title} | confirmed {verdict.confidence:.2f} | {verdict.reason}")
                     _save_event(cv2, out_root, event_count, list(buffer), fps, top, verdict)
-                elif not verdict.confirmed:
+                elif verdict is not None and not verdict.confirmed:
                     print(f"[rejected] {top.rule_name} person #{top.person_id} — {verdict.reason}")
         else:
             last_rule_sig = None
@@ -180,6 +204,22 @@ def main() -> None:
     if args.show:
         cv2.destroyAllWindows()
     print(f"\n=== done: {n} frames, {event_count} confirmed alert(s) -> {out_root} ===")
+
+
+def _best_frames(evidence: deque, person_id: Any, k: int) -> list | None:
+    """Pick the k highest-concealment-score frames for this person, in chronological order.
+
+    Fixes the single-frame gate problem: the first frame a candidate fires on is often
+    blurry/ambiguous; the clearest evidence is the peak-score frames around it.
+    """
+    items = list(evidence)  # chronological
+    scored = [(i, scores.get(person_id, 0.0)) for i, (_, scores) in enumerate(items)]
+    scored = [(i, s) for i, s in scored if s > 0.0]
+    if not scored:
+        return None
+    scored.sort(key=lambda x: x[1], reverse=True)
+    keep = sorted(i for i, _ in scored[: max(1, k)])
+    return [items[i][0] for i in keep]
 
 
 def _save_event(cv2: Any, out_root: Path, idx: int, frames: list, fps: float, alert: Any, verdict: Any) -> None:

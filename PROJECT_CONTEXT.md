@@ -1159,4 +1159,23 @@ Chose to compose the V1 pieces into a NEW orchestrator rather than surgically ed
 - **Precision is still unmeasured.** With mock gate everything confirms; we need (a) a real Anthropic key to run `--gate-provider anthropic`, and (b) **normal-shopper (negative) footage** to measure false-positive rate. This is the single most important open item before any "it works" claim.
 - The Verification Gate is still **single-frame** (best frame at alert time); multi-frame clip verification is the next quality upgrade.
 - `retail_pipeline.py` is uncommitted (new, on `theft-retail`). The theft state-machine (`detector.py`) is NOT folded in — concealment + zones are the retail signal; the state machine can be added as an extra signal later.
-- New/changed: `retail_pipeline.py` (new), `customization.py` (+concealment_to_events), `configs/retail_pipeline_v1.json` (new), `tests/test_zone_customization.py` (+1 test). — make the theft signal temporal (pose-sequence first, or video model), feeding off the `RetailZoneMonitor` shelf-interaction trigger + a rolling clip buffer → fused with the state machine → Verification Gate (upgraded to multi-frame). This is the piece that makes the product genuinely Veesion-like rather than a frame-guesser.
+- New/changed: `retail_pipeline.py` (new), `customization.py` (+concealment_to_events), `configs/retail_pipeline_v1.json` (new), `tests/test_zone_customization.py` (+1 test).
+
+## Checkpoint 2026-06-12 Real VLM Gate Wired (OpenRouter) + Multi-Frame Fix + Model-Quality Finding
+Ran the real Verification Gate against a live VLM for the first time, and learned what actually drives gate quality.
+
+### OpenRouter gate provider added
+- `verification_gate.py` now supports an `openrouter` provider (alongside `mock`/`anthropic`), reusing `agent_mapper.call_openai_compatible` (proven retry/backoff). Defaults: model `google/gemma-4-26b-a4b-it:free`, key env `OPENROUTER_API_KEY` (auto-selected when provider=openrouter). `retail_pipeline.py` gained `--gate-provider openrouter`, `--gate-model`, `--scene-description`, `--environment-type`, `--gate-frames`.
+- **Robustness fix:** a transient gate/API error no longer crashes the pipeline — it logs `[gate error] … (alert held, not raised)` and continues. (Found because a 429 killed the whole run.)
+
+### Free-tier reality (validated live)
+- Key valid; the earlier 401 was PowerShell `$env:` syntax used in zsh (should be `export`). 
+- **Gemma 4 `:free` is heavily 429-rate-limited** right now (shared pool). Among free vision models, **`nvidia/nemotron-nano-12b-v2-vl:free` responds** and was used for testing.
+
+### Multi-frame gate built — and the real lesson
+- Implemented best-frame selection: the pipeline keeps a per-frame `{track_id: concealment_score}` buffer and sends the gate the **clearest frames** (highest score), not the first (often blurry) one. `verify()` + both providers + `agent_mapper.call_openai_compatible` now accept a list of frames; the Anthropic/OpenAI payloads carry multiple images; the prompt says "frames from the same short event."
+- **Empirical finding (important):** with the small free model, **3 frames made it judge "standing still across stills" and reject**; **1 single best frame + scene context CONFIRMED** the real concealment (person #5, **0.85**, "bending over, hands near waist in a merchandise area"). So for a weak model, `--gate-frames 1` + a primed `--scene-description` is the working config; a stronger model would likely benefit from more frames.
+- **Precision is excellent, recall is model-bound.** The gate reliably rejects normal behavior (great FP control); confirming subtle concealment on grainy 360p CCTV needs a stronger model. This matches the day-one research (subtle concealment is hard; small models + heuristics aren't enough for production recall). Levers: (1) Gemma 4 with ~$5 OpenRouter credit (no 429) or Claude via `--gate-provider anthropic`; (2) the Phase-2 trained action model + clearer/staged footage.
+
+### Status
+End-to-end with a real VLM now yields a confirmed shoplifting alert (0.85) + saved evidence, while rejecting normals. 21/21 unit tests still pass. Track fragmentation still splits the shoplifter across ids #1/#5/#7 (id #5 caught the confirmable moment). Uncommitted on `theft-retail`: `verification_gate.py`, `agent_mapper.py`, `retail_pipeline.py` changes. Security: a paste of the OpenRouter key occurred in chat — **rotate it**; the on-disk copy was removed. `detector.py` unification still queued. — make the theft signal temporal (pose-sequence first, or video model), feeding off the `RetailZoneMonitor` shelf-interaction trigger + a rolling clip buffer → fused with the state machine → Verification Gate (upgraded to multi-frame). This is the piece that makes the product genuinely Veesion-like rather than a frame-guesser.

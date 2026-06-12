@@ -51,7 +51,7 @@ class VerificationResult:
 _PROMPT_TEMPLATE = """\
 You are a security alert verification assistant for a CCTV system.
 
-A computer vision system has flagged a potential security event. Review the camera frame and decide if the alert is genuine.
+A computer vision system has flagged a potential security event. You are shown one or more camera frames from the SAME short event (a brief sequence in time) — use the motion across them to decide if the alert is genuine.
 
 Scene context:
 - Environment: {environment_type}
@@ -108,6 +108,9 @@ def _build_question(rule_name: str, environment_type: str) -> str:
 # ---------------------------------------------------------------------------
 
 class VerificationGate:
+    DEFAULT_MODEL = {"anthropic": "claude-sonnet-4-6", "openrouter": "google/gemma-4-26b-a4b-it:free"}
+    DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
+
     def __init__(
         self,
         provider: str = "mock",
@@ -116,14 +119,18 @@ class VerificationGate:
         save_dir: Path | str | None = None,
     ) -> None:
         self.provider = provider
-        self.model = model or "claude-sonnet-4-6"
+        self.model = model or self.DEFAULT_MODEL.get(provider, "claude-sonnet-4-6")
+        # If the caller left the default Anthropic key env but picked another provider,
+        # switch to that provider's conventional env var (e.g. OPENROUTER_API_KEY).
+        if api_key_env == "ANTHROPIC_API_KEY" and provider in self.DEFAULT_KEY_ENV:
+            api_key_env = self.DEFAULT_KEY_ENV[provider]
         self.api_key_env = api_key_env
         self.save_dir = Path(save_dir) if save_dir else None
         self._call_count = 0
 
     def verify(
         self,
-        frame: Any,               # numpy BGR frame
+        frame: Any,               # a single numpy BGR frame OR a list of them (multi-frame)
         alert: CandidateAlert,
         scene_context: dict | None = None,
     ) -> VerificationResult:
@@ -144,24 +151,22 @@ class VerificationGate:
             priority=alert.priority,
         )
 
-        frame_bytes = _encode_frame(frame)
+        frames = frame if isinstance(frame, list) else [frame]
+        frames_bytes = [_encode_frame(f) for f in frames]
 
         if self.provider == "mock":
             raw_response = _mock_response(alert)
         elif self.provider == "anthropic":
-            raw_response = _call_anthropic(
-                prompt=prompt,
-                frame_bytes=frame_bytes,
-                model=self.model,
-                api_key_env=self.api_key_env,
-            )
+            raw_response = _call_anthropic(prompt, frames_bytes, self.model, self.api_key_env)
+        elif self.provider == "openrouter":
+            raw_response = _call_openrouter(prompt, frames_bytes, self.model, self.api_key_env)
         else:
             raise RuntimeError(f"Unsupported provider: {self.provider}")
 
         result = _parse_response(raw_response, alert.priority)
 
         if self.save_dir:
-            _save_artifacts(self.save_dir, self._call_count, frame, alert, result, raw_response)
+            _save_artifacts(self.save_dir, self._call_count, frames, alert, result, raw_response)
 
         return result
 
@@ -187,32 +192,40 @@ def _mock_response(alert: CandidateAlert) -> str:
     })
 
 
-def _call_anthropic(prompt: str, frame_bytes: bytes, model: str, api_key_env: str) -> str:
+def _call_openrouter(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str) -> str:
+    """Verify via an OpenAI-compatible endpoint (OpenRouter / Gemma 4 etc.), one or many frames.
+
+    Reuses agent_mapper.call_openai_compatible — the same retry/backoff path already
+    validated against OpenRouter's free tier — so we don't duplicate the HTTP logic.
+    """
+    from agent_mapper import call_openai_compatible  # local import: only when used
+    return call_openai_compatible(
+        prompt=prompt,
+        frame_bytes=frames_bytes,
+        model=model,
+        api_key_env=api_key_env,
+        api_base_url="https://openrouter.ai/api/v1",
+    )
+
+
+def _call_anthropic(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str) -> str:
     api_key = os.environ.get(api_key_env, "").strip()
     if not api_key:
         raise RuntimeError(
             f"ANTHROPIC_API_KEY not set. Export it with: export {api_key_env}=your_key"
         )
 
+    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for fb in frames_bytes:
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg",
+                       "data": base64.b64encode(fb).decode("ascii")},
+        })
     payload = {
         "model": model,
         "max_tokens": 512,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": base64.b64encode(frame_bytes).decode("ascii"),
-                        },
-                    },
-                ],
-            }
-        ],
+        "messages": [{"role": "user", "content": content}],
     }
     req = urlrequest.Request(
         "https://api.anthropic.com/v1/messages",
@@ -289,14 +302,15 @@ def _parse_response(raw: str, fallback_priority: str) -> VerificationResult:
 def _save_artifacts(
     save_dir: Path,
     call_count: int,
-    frame: Any,
+    frames: list,
     alert: CandidateAlert,
     result: VerificationResult,
     raw_response: str,
 ) -> None:
     out_dir = save_dir / f"gate_{call_count:04d}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_dir / "frame.jpg"), frame)
+    for i, fr in enumerate(frames):
+        cv2.imwrite(str(out_dir / (f"frame_{i}.jpg" if len(frames) > 1 else "frame.jpg")), fr)
     (out_dir / "alert.json").write_text(
         json.dumps(alert.to_dict(), indent=2), encoding="utf-8"
     )
