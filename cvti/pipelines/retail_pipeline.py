@@ -40,10 +40,11 @@ from typing import Any
 
 import supervision as sv
 
-from concealment import COCO_BAG_IDS, ConcealmentDetector, PoseFrame, keypoints_from_ultralytics
-from customization import CustomizationEngine, concealment_to_events, zone_states_to_events
-from retail_zones import RetailZoneMonitor, filter_person_detections, load_zone_config
-from verification_gate import VerificationGate
+from cvti.event_adapters import concealment_to_events, zone_states_to_events
+from cvti.retail.concealment import COCO_BAG_IDS, ConcealmentDetector, PoseFrame, keypoints_from_ultralytics
+from cvti.retail.zones import RetailZoneMonitor, filter_person_detections, load_zone_config
+from cvti.rules.customization import CustomizationEngine
+from cvti.verification.gate import VerificationGate
 
 
 def _parse_args() -> argparse.Namespace:
@@ -51,8 +52,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--source", required=True, help="Video path / RTSP URL / webcam index.")
     p.add_argument("--config", required=True, help="user_config rules JSON, e.g. configs/retail_pipeline_v1.json")
     p.add_argument("--zones", default="", help="Zone geometry JSON (enables shelf zones + loitering).")
-    p.add_argument("--pose-weights", default="yolov8n-pose.pt")
-    p.add_argument("--object-weights", default="yolov8n.pt", help="Detector for personal-bag destinations.")
+    p.add_argument("--pose-weights", default="models/yolov8n-pose.pt")
+    p.add_argument("--object-weights", default="models/yolov8n.pt", help="Detector for personal-bag destinations.")
     p.add_argument("--no-bags", action="store_true", help="Disable bag-destination detection.")
     p.add_argument("--tracker", default="configs/bytetrack_retail.yaml")
     p.add_argument("--conf", type=float, default=0.4)

@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cvti"
+version = "0.1.0"
+description = "CV Threat Intelligence — real-time threat detection for surveillance cameras"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Atunrase Ayo" }
+]
+keywords = ["computer-vision", "threat-detection", "surveillance", "yolo"]
+
+dependencies = [
+    "ultralytics>=8.3.0",
+    "opencv-python>=4.9.0",
+    "numpy>=1.26.0",
+    "supervision>=0.18.0",
+]
+
+[project.optional-dependencies]
+vlm = ["anthropic>=0.25.0"]
+train = ["torch>=2.0.0", "torchvision>=0.15.0"]
+gui = ["PyQt6>=6.6.0"]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov",
+]
+all = ["cvti[vlm,train,gui,dev]"]
+
+[project.scripts]
+cvti-detect  = "cvti.cli.detect:main"
+cvti-retail  = "cvti.pipelines.retail_pipeline:main"
+cvti-train   = "cvti.training.classifier:main"
+cvti-eval    = "cvti.training.eval:main"
+cvti-infer   = "cvti.cli.infer:main"
+cvti-suite   = "cvti.cli.suite:main"
+cvti-app     = "cvti.app.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cvti*"]
+
+[tool.setuptools.package-data]
+cvti = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"

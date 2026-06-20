@@ -12,9 +12,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from concealment import ConcealmentAssessment  # noqa: E402
-from customization import CustomizationEngine, concealment_to_events, zone_states_to_events  # noqa: E402
-from retail_zones import PersonZoneState  # noqa: E402
+from cvti.event_adapters import concealment_to_events, zone_states_to_events  # noqa: E402
+from cvti.retail.concealment import ConcealmentAssessment  # noqa: E402
+from cvti.retail.zones import PersonZoneState  # noqa: E402
+from cvti.rules.customization import CustomizationEngine  # noqa: E402
 
 CFG = str(Path(__file__).resolve().parents[1] / "configs" / "banking_zones_v1.json")
 PIPE_CFG = str(Path(__file__).resolve().parents[1] / "configs" / "retail_pipeline_v1.json")

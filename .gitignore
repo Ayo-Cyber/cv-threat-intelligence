@@ -1,38 +1,60 @@
+# ── Python ──────────────────────────────────────────────────────────────────
 .venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
+*.egg
+.Python
 
+# ── Build & distribution (PyInstaller output) ────────────────────────────────
+dist/
+build/
+*.dmg
+*.app
+*.exe
+*.AppImage
+*.tar.gz
+*.zip
+
+# ── Training runs & model outputs ────────────────────────────────────────────
 runs/
 outputs/
 
-# Agent Mapper eval — keep folder structure + .gitkeep + README, ignore the clip binaries and result CSVs
-tests/agent_mapper/clips/**/*.mp4
-tests/agent_mapper/clips/**/*.mov
-tests/agent_mapper/clips/**/*.avi
-tests/agent_mapper/clips/**/*.mkv
-tests/agent_mapper/clips/**/*.webm
-tests/agent_mapper/results/eval_*.csv
-
-.cursor/
-.idea/
-.vscode/
-
-external/knife_Gun_Detection/
-external/Weapon-Detection-System/
-
-*.log
-Thumbs.db
-desktop.ini
-
-# Downloaded model weights (auto-downloaded on first run)
-rtdetr-l.pt
-rtdetr-x.pt
-
+# ── Datasets (large, not for git) ────────────────────────────────────────────
 CamNuvem Robbery Dataset/
 CamNuvem_Robbery_Dataset/
 data/classify/
 
-# Large model weights (not pre-trained bases)
-yolov8s-cls.pt
+# ── Model weights (large binaries) ───────────────────────────────────────────
+models/*.pt
+# Allow placeholder / README inside models/
+!models/.gitkeep
+!models/README.md
+
+# ── IDE & OS ─────────────────────────────────────────────────────────────────
+.cursor/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── External vendored repos (installed separately) ───────────────────────────
+external/knife_Gun_Detection/
+external/Weapon-Detection-System/
+
+# ── Video / media files (large binaries, not for git) ────────────────────────
+data/test_clips/
+data/**/*.mp4
+data/**/*.mov
+data/**/*.avi
+data/**/*.mkv
+data/**/*.webm
+tests/agent_mapper/clips/
+tests/agent_mapper/results/eval_*.csv
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.log
+reports/

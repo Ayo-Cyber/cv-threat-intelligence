@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from concealment import ConcealmentDetector, PoseFrame  # noqa: E402
+from cvti.retail.concealment import ConcealmentDetector, PoseFrame  # noqa: E402
 
 _SHOULDERS = {"left_shoulder": (80.0, 100.0), "right_shoulder": (120.0, 100.0)}
 _HIPS = {"left_hip": (85.0, 250.0), "right_hip": (115.0, 250.0)}

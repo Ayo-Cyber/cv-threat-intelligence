@@ -1,0 +1,2 @@
+"""Retail-specific detection components."""
+

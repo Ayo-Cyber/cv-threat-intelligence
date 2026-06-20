@@ -14,7 +14,7 @@ import supervision as sv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from retail_zones import (  # noqa: E402
+from cvti.retail.zones import (  # noqa: E402
     RetailZoneMonitor,
     ZoneSpec,
     filter_person_detections,

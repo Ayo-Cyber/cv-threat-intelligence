@@ -19,10 +19,10 @@ from ultralytics import YOLO
 # Paths
 # ---------------------------------------------------------------------------
 
-DATASET_ROOT = Path("CamNuvem_Robbery_Dataset/videos/samples")
+DATASET_ROOT = Path("CamNuvem Robbery Dataset/videos/samples")
 FRAMES_ROOT  = Path("data/classify")
 RUNS_ROOT    = Path("runs/classify")
-MODEL_NAME   = "robbery_v1"
+MODEL_NAME   = "robbery_v19"
 
 SPLITS = ("training", "test")
 CLASSES = ("theft", "violence", "normal")
@@ -31,7 +31,7 @@ YOLO_SPLIT_MAP = {"training": "train", "test": "val"}
 
 FRAMES_PER_CLIP   = 10    # max frames extracted per clip
 FRAME_SAMPLE_RATE = 5     # take every Nth frame (skip duplicates)
-TRAIN_EPOCHS      = 10
+TRAIN_EPOCHS      = 5
 IMAGE_SIZE        = 224
 BATCH_SIZE        = 16
 

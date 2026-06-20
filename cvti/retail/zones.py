@@ -278,7 +278,8 @@ def main() -> None:
     engine = None
     sim_now = None
     if args.rules:
-        from customization import CustomizationEngine, zone_states_to_events  # noqa: F401
+        from cvti.event_adapters import zone_states_to_events  # noqa: F401
+        from cvti.rules.customization import CustomizationEngine
         engine = CustomizationEngine(args.rules)
         if args.simulate_time:
             from datetime import datetime
@@ -334,7 +335,7 @@ def main() -> None:
                 last_report[s.tracker_id] = line
 
         if engine is not None:
-            from customization import zone_states_to_events
+            from cvti.event_adapters import zone_states_to_events
             events = zone_states_to_events(states, timestamp=timestamp)
             for alert in engine.evaluate(events, now=sim_now):
                 sig = f"{alert.rule_name}:{alert.person_id}"

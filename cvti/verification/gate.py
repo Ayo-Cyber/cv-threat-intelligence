@@ -12,36 +12,15 @@ from __future__ import annotations
 import base64
 import json
 import os
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
 import cv2
 
-if TYPE_CHECKING:
-    from customization import CandidateAlert
-
-
-@dataclass
-class VerificationResult:
-    confirmed: bool
-    confidence: float
-    reason: str
-    alert_priority: str
-    timestamp: str
-    raw_response: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "confirmed": self.confirmed,
-            "confidence": self.confidence,
-            "reason": self.reason,
-            "alert_priority": self.alert_priority,
-            "timestamp": self.timestamp,
-        }
+from cvti.contracts import CandidateAlert, VerificationResult
 
 
 # ---------------------------------------------------------------------------

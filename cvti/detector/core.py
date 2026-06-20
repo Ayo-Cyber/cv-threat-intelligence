@@ -12,8 +12,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from customization import CustomizationEngine, assessments_to_events
-from verification_gate import VerificationGate
+from cvti.event_adapters import assessments_to_events
+from cvti.rules.customization import CustomizationEngine
+from cvti.verification.gate import VerificationGate
 
 import cv2
 import torch
@@ -160,7 +161,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--weights",
-        default="yolov8n.pt",
+        default="models/yolov8n.pt",
         help="Path to default YOLO weights. Ultralytics model names also work.",
     )
     parser.add_argument(
@@ -186,7 +187,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--pose-weights",
-        default="yolov8n-pose.pt",
+        default="models/yolov8n-pose.pt",
         help="Pose model weights used for violence heuristics. Set to empty to disable pose-based violence logic.",
     )
     parser.add_argument(
@@ -255,6 +256,11 @@ def parse_args() -> argparse.Namespace:
         "--show",
         action="store_true",
         help="Display the live window. Recommended for local demos.",
+    )
+    parser.add_argument(
+        "--save-video",
+        default="",
+        help="Write the full annotated output to this .mp4 path.",
     )
     parser.add_argument(
         "--max-frames",
@@ -1642,6 +1648,7 @@ def main() -> None:
     frame_count = 0
     time_anchor = time.time()
     threat_visible_last_frame = False
+    video_writer: cv2.VideoWriter | None = None
     object_threat_frames = 0
     consecutive_threat_frames = 0
     last_weapon_debug_signature = ""
@@ -1912,6 +1919,17 @@ def main() -> None:
             if recorder.should_stop():
                 recorder.stop()
 
+            if args.save_video:
+                if video_writer is None:
+                    h, w = annotated.shape[:2]
+                    video_writer = cv2.VideoWriter(
+                        args.save_video,
+                        cv2.VideoWriter_fourcc(*"mp4v"),
+                        max(fps_from_capture, 1.0),
+                        (w, h),
+                    )
+                video_writer.write(annotated)
+
             if args.show:
                 cv2.imshow("CV Threat Intelligence POC", annotated)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -1921,6 +1939,8 @@ def main() -> None:
                 break
     finally:
         recorder.stop()
+        if video_writer is not None:
+            video_writer.release()
         capture.release()
         cv2.destroyAllWindows()
 
