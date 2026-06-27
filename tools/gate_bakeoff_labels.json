@@ -1,0 +1,28 @@
+{
+  "_comment": "rule = which gate question (concealment | violence | weapon). label = 'positive' (threat present -> CONFIRM) or 'normal' (-> REJECT). data/anomaly/* are CamNuvem robbery clips; their rule/label are AUTO-ASSIGNED from the batch detector and should be human-reviewed. NOTE: only 3 true NEGATIVES here — add real normal CCTV footage for a trustworthy specificity/FPR number. Missing clips are skipped automatically.",
+  "scene_description": "CCTV scene. Confirm only if the specific threat asked about is genuinely visible across the frames; otherwise reject.",
+  "clips": [
+    {"clip": "data/test_clips/theft_shop_01.mp4", "rule": "concealment", "label": "positive"},
+    {"clip": "data/test_clips/theft_shop_02.mp4", "rule": "concealment", "label": "positive"},
+    {"clip": "data/test_clips/theft_yt_01.mp4",   "rule": "concealment", "label": "positive"},
+
+    {"clip": "data/test_clips/stabbing_event.mp4",     "rule": "violence", "label": "positive"},
+    {"clip": "data/test_clips/violence_suspected.mp4", "rule": "violence", "label": "positive"},
+    {"clip": "data/anomaly/119.mp4", "rule": "violence", "label": "positive"},
+    {"clip": "data/anomaly/149.mp4", "rule": "violence", "label": "positive"},
+    {"clip": "data/anomaly/306.mp4", "rule": "violence", "label": "positive"},
+    {"clip": "data/anomaly/345.mp4", "rule": "violence", "label": "positive"},
+    {"clip": "data/anomaly/482.mp4", "rule": "violence", "label": "positive"},
+
+    {"clip": "data/test_clips/weapons_yt_01.mp4", "rule": "weapon", "label": "positive"},
+    {"clip": "data/anomaly/154.mp4", "rule": "weapon", "label": "positive"},
+    {"clip": "data/anomaly/18.mp4",  "rule": "weapon", "label": "positive"},
+    {"clip": "data/anomaly/240.mp4", "rule": "weapon", "label": "positive"},
+    {"clip": "data/anomaly/339.mp4", "rule": "weapon", "label": "positive"},
+    {"clip": "data/anomaly/477.mp4", "rule": "weapon", "label": "positive"},
+
+    {"clip": "data/test_clips/normal_street_01.mp4", "rule": "concealment", "label": "normal"},
+    {"clip": "data/test_clips/normal_street_02.mp4", "rule": "violence",    "label": "normal"},
+    {"clip": "data/test_clips/empty_warehouse.mp4",  "rule": "weapon",      "label": "normal"}
+  ]
+}

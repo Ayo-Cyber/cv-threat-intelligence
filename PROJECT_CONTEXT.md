@@ -1197,4 +1197,75 @@ Done on a dedicated branch **`unify-detector`** (off `theft-retail`, after the g
 ### Status / next
 - One command now runs the whole product, routed per customer by `user_config.json` (retail uses concealment+zone rules; bank uses zone+time rules; weapons/violence always available). Same backend, many verticals.
 - Uncommitted on `unify-detector`: `detector.py` + this `PROJECT_CONTEXT.md`. To merge into `theft-retail`/`main` later (coordinate with Ayo since it touches his file).
-- Still open (unchanged): recall needs a stronger gate model (Gemma 4 paid / Claude) + Phase-2 trained action model; track fragmentation; multi-frame gate not yet wired into detector.py's gate call (single-frame there for now — `retail_pipeline.py` has the multi-frame/best-frame version). — make the theft signal temporal (pose-sequence first, or video model), feeding off the `RetailZoneMonitor` shelf-interaction trigger + a rolling clip buffer → fused with the state machine → Verification Gate (upgraded to multi-frame). This is the piece that makes the product genuinely Veesion-like rather than a frame-guesser.
+- Still open (unchanged): recall needs a stronger gate model (Gemma 4 paid / Claude) + Phase-2 trained action model; track fragmentation; multi-frame gate not yet wired into detector.py's gate call (single-frame there for now — `retail_pipeline.py` has the multi-frame/best-frame version).
+
+## Checkpoint 2026-06-22 Real Gate Validated + Anomaly Batch Test (technical deltas since unification)
+Tested the unified system with the real VLM gate (OpenRouter) and across a real robbery dataset.
+- **Real OpenRouter gate works.** Added an `openrouter` provider to `verification_gate.py` (reuses `agent_mapper.call_openai_compatible`; defaults to `google/gemma-4-26b-a4b-it:free`, env `OPENROUTER_API_KEY`). Gemma's free tier is 429-saturated; `nvidia/nemotron-nano-12b-v2-vl:free` responds. The gate **reasons correctly** — it rejects blurry/ambiguous candidates ("the image is blurry…", "no clear evidence of violence") = good precision, conservative recall. Multi-frame/best-frame + scene-context priming added in `retail_pipeline.py`.
+- **Robustness fixes:** `detector.py`'s gate call is now wrapped in try/except (`[gate error] … alert held`), and `agent_mapper.call_openai_compatible` retries the free tier's empty "no choices" responses. (Found via live crashes.)
+- **CamNuvem robbery batch test** (49 "anomaly" clips a friend shared — the same CamNuvem robbery dataset Ayo already uses; downloaded to `data/anomaly/`, gitignored). New reusable harness `tools/batch_anomaly.py` (single model load, reuses detector.py wiring + adds concealment) + `configs/all_threats_v1.json`. Result across 49 clips (stride 2, mock gate): **ANY THREAT 75%** (37/49) — concealment 75%, violence 51%, weapon 28%, theft 10%. All clips are robbery-positive, so this is **recall only** (no FP rate — needs normal clips + real gate). Confirms the system runs across varied real low-res CCTV and the concealment signal is very active.
+- Uncommitted on `unify-detector`: `detector.py` (gate try/except), `agent_mapper.py` (empty-retry + multi-image), `tools/batch_anomaly.py`, `configs/all_threats_v1.json`.
+
+## Checkpoint 2026-06-22 DEPLOYMENT DIRECTION LOCKED — Edge-First + On-Device VLM (read this for the product/infra picture)
+Founder + co-collaborators set the deployment architecture. This reframes everything downstream of the detector.
+
+### Team & roles
+- **Demilade** (this workspace) — ML core: detection + concealment + zones + the gate.
+- **Ayomide "Ayo" Atunrase** — executables / Docker / bundling / cameras. Already bundled a **Mac app `CVTI-0.1.0-mac.dmg` (~316 MB, in repo root, gitignored)**; Windows `.exe` in progress.
+- **Martins ("Martin's Nc")** — WhatsApp bot + API + customization integration + hardware procurement. (Demi Ezylag also in the group.)
+
+### Architecture (decided, firm)
+- **EDGE-FIRST, NO CLOUD.** Inference runs **on-site on the device wired to the cameras**. **Only alerts leave the box — never video.** A server exists only for **software updates** and the **WhatsApp link** to customers. ("We are using edge, we can't use server.")
+- **Sell device + software together.** Production hardware = **NVIDIA Jetson Orin Nano Super Dev Kit** ($249 / ~₦500k; **8 GB shared CPU/GPU RAM**). **PC for demos.**
+- **Cameras:** WiFi/RTSP (ONVIF), 2–3 live streams. (`detector.py` already supports RTSP.)
+- **Interface = WhatsApp bot, NO mobile app for the MVP** — customers **customize the system AND receive alerts** via WhatsApp. **`user_config.json` is the contract** between Martins' WhatsApp bot and the executable — Martins needs that structure from us (we already have it: the Customization Engine schema).
+
+### HARD CONSTRAINTS
+- **Total package ≤ 4–5 GB**, and it must **fit the Jetson's 8 GB RAM at runtime** — detector + VLM + everything. (Both disk size AND memory footprint.)
+- **The VLM must run LOCALLY, fully offline, while staying accurate.** This is the central technical challenge and the team's current focus.
+- **YOLO must be exported to TensorRT** for production (no raw PyTorch `.pt` inference on the Jetson).
+- **Dockerize everything** → one-command deploy to a new site. Ship as an **executable**.
+
+### Governance / DevOps baseline (this week, per Ayo's DevOps contact)
+- Pinned `requirements`, **protected `main`**, **GitHub Actions CI running tests on every PR** before merge.
+- **Model registry**: every training run logs dataset/metrics/**FPR**/weights; **no model ships to a customer without a validated FPR attached** (hard rule).
+- **Balena.io-style fleet management** later (can't hand-update >3–4 sites).
+- **Feedback loop = the differentiator**: every false positive + missed detection logged and **auto-queued for retraining**. Core feature from day one. (Our gate already saves per-event artifacts — the foundation for this.)
+
+### The on-device VLM pivot (critical for our part)
+- **Our gate currently calls OpenRouter (cloud) → conflicts with offline edge.** It must re-point to a **LOCAL small VLM**. Good news: the gate's `openai_compatible` provider works **unchanged** against a local **Ollama** server (OpenAI-compatible at `localhost:11434/v1`) — only the base URL + model name change. The OpenRouter work transfers directly.
+- The cloud **Gemma-4-26B-A4B is too big** to quantize/run on a Jetson (~13–15 GB at 4-bit). Need **2–4B** models, quantized (~1.5–2.5 GB at 4-bit). **On-device shortlist being evaluated:** `Gemma-4-E4B-it` (edge variant; strong reasoning+factuality), `Qwen-3.5-VL-2B`, `SmolVLM2-2.2B` (best video/temporal), `VILA1.5-3B` (likely weakest, older).
+- **Current task (Demilade):** test these candidates **on OUR task** (gate verification on our clips) to pick a winner — NOT on generic MMMU/MMLU benchmarks. 4-bit quantization's accuracy hit is small (~1–3%); model choice + task-fit matters more; must verify the winner's **vision works in Ollama on the Jetson** (some VLMs' vision projector isn't GPU-accelerated there).
+
+### How this maps to what we've built
+- Most of our pipeline (YOLO, pose, concealment, zones, Customization Engine, `user_config.json`) is already **local/edge-friendly**. The **gate is the one cloud piece to localize.**
+- Near-term ML-core deliverables implied: (1) **local-VLM gate** via Ollama + pick the on-device model; (2) hand Martins the **`user_config.json` structure**; (3) **TensorRT export** of YOLO; (4) wire the **feedback-loop logging** (FP/miss → retrain queue) onto the existing gate artifacts.
+
+## Checkpoint 2026-06-24 Local-VLM Gate Built + On-Device Model Bake-Off (HANDOFF TO AYO — read this)
+Executed the local-VLM gate pivot from the deployment direction, and built a harness to pick the on-device gate model. **All this is on branch `unify-detector` and now pushed.**
+
+### What's built
+- **Local Ollama gate** (`verification_gate.py`): added an `ollama` provider (offline, OpenAI-compatible `localhost:11434/v1`) — this is the **production edge-gate path**. Just `--gate-provider ollama --gate-model <tag>`. The OpenRouter `openai_compatible` work transferred directly; only the base URL/model change. Also added a **`--cot`** (chain-of-thought) prompt path and multi-frame gate (`verify()` accepts a list of frames; Anthropic/OpenAI payloads carry multiple images).
+- **Gate model bake-off** (`tools/gate_bakeoff.py` + `tools/gate_bakeoff_labels.json`, doc `docs/GATE_MODEL_BAKEOFF.md`): rule-aware (concealment / violence / weapon) — picks the peak frame for each rule using the real detectors, asks the gate the matching question, scores recall/specificity/accuracy/JSON/latency + a per-rule breakdown. **Three A/B toggles** to improve the gate: `--gate-frames N` (multi-frame spanning the motion), `--cot`, `--use-agent-mapper` (grounds the gate with a real Agent-Mapper scene description, run locally via Gemma). `--models mock` tests wiring without Ollama.
+- **Robustness** (found via live crashes): `detector.py`'s gate call wrapped in try/except (`[gate error] … alert held`); `agent_mapper.call_openai_compatible` retries the free tier's empty "no choices" responses.
+- **Reusable batch harness** `tools/batch_anomaly.py` (single model load) + `configs/all_threats_v1.json` (full-system rules).
+
+### Key findings (on a SMALL, partly-noisy set — directional)
+- **`gemma3:4b` is the best gate so far** — on the clean *concealment* slice it scores **100% recall + 100% specificity**, grounds well, and is **right-sized for edge (~3.3 GB)**.
+- **`qwen2.5vl:3b` is unsuitable** — rubber-stamps "yes" (0% specificity), even **hallucinated a person in an empty warehouse**.
+- **`gemma4:e4b` is 9.6 GB → too big for the 4–5 GB edge budget.** So the team's shortlist Gemma won't fit the Jetson; `gemma3:4b` is the practical Gemma. (User has since pulled a Gemma 4 on Ollama for an accuracy reference — but mind the size for edge.)
+- **Multi-frame helps MOTION threats, hurts OBJECT threats:** violence 25%→37% (caught a stabbing the single frame missed); weapons 28%→14% (a weapon is a single-frame object; extra frames + CoT made it over-reason). ⇒ **gate config should be per-rule, not one global setting.** Multi-frame ~tripled latency (7s→19s/call) — a real edge cost (acceptable since the gate runs infrequently).
+
+### KEY DECISIONS
+1. **Edge gate = local small VLM via Ollama** (no cloud). `gemma3:4b` leads. Pick by performance **on OUR task**, not generic benchmarks.
+2. **Per-rule gate configuration** (multi-frame for concealment/violence, single-frame for weapons).
+3. **Frame selection + curated labels are now the bottleneck** (see open problem below), not the harness.
+4. The general VLM is the **V1 bridge**; the **Phase-2 trained action model** (on labeled motion data) is the real recall/edge fix.
+
+### THE OPEN PROBLEM (current focus): frame selection for a frame-blind VLM
+The VLM sees *frames*, not motion, so a single frame of a real theft/assault can look innocent (e.g., a robbery clip where the incriminating moment is them *yanking* a machine across frames). Our current picker chooses the **peak-detector-score** frame, which ≠ the frame where the threat is **visually obvious**. Recommended fixes (senior view): (a) **multi-frame spanning the event** — the biggest lever, already built; (b) anchor selection to the detector's **event moment** (state transition / motion peak / optical-flow spike), not raw score; (c) **crop to the tracked person** so the VLM focuses on the suspect's hands; (d) prefer a **temporal-capable small VLM** — note the team's own table put **SmolVLM2-2.2B #1 on Video & Temporal**, and our task is temporal; (e) ultimately a **trained temporal model** beats frame-picking. Cleanly measuring any of this needs a **curated, accurately-labeled eval set with more normals** (also produces the validated FPR for the registry).
+
+### Where things are (for pickup)
+- Branch **`unify-detector`** (off `theft-retail`, off `ayo/main`) holds: the unified `detector.py` (weapons+violence+theft+concealment+zones via `--zones`/`--concealment`), the local Ollama gate, the bake-off + toggles, the batch tool, and this doc. Pushed to `origin/unify-detector` (DEMILADE07).
+- Standalone modules: `retail_zones.py`, `concealment.py`, `customization.py` (+ zone/concealment converters), `verification_gate.py` (mock/anthropic/openrouter/ollama, +cot, +multi-frame), `agent_mapper.py`.
+- Configs: `configs/retail_pipeline_v1.json`, `all_threats_v1.json`, `retail_zones*.json`, `bytetrack_retail.yaml`. Tests: `tests/test_concealment.py`, `test_retail_zones.py`, `test_zone_customization.py` (all green). Big data (`data/anomaly/`, `*.dmg`, `runs/`) is gitignored. — make the theft signal temporal (pose-sequence first, or video model), feeding off the `RetailZoneMonitor` shelf-interaction trigger + a rolling clip buffer → fused with the state machine → Verification Gate (upgraded to multi-frame). This is the piece that makes the product genuinely Veesion-like rather than a frame-guesser.

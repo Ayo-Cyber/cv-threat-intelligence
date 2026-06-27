@@ -477,7 +477,16 @@ def call_openai_compatible(
         )
         try:
             with urlrequest.urlopen(req, timeout=90) as response:
-                body = json.loads(response.read().decode("utf-8"))
+                parsed = json.loads(response.read().decode("utf-8"))
+            # Free tiers sometimes return HTTP 200 with an empty/no-choices body under load —
+            # treat that like a transient error and retry rather than failing the call.
+            if not parsed.get("choices"):
+                last_error = RuntimeError("OpenAI-compatible response did not contain choices.")
+                if attempt < max_retries:
+                    time.sleep(2.0 * (2**attempt))
+                    continue
+                raise last_error
+            body = parsed
             break
         except urlerror.HTTPError as exc:
             detail = read_http_error_body(exc)

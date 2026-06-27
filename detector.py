@@ -1930,8 +1930,12 @@ def main() -> None:
                 if top_alert is not None:
                     rule_sig = f"{top_alert.rule_name}:{top_alert.title}"
                     if rule_sig != last_alert_rule:
-                        gate_result = verification_gate.verify(frame, top_alert, scene_context)
-                        if gate_result.confirmed:
+                        try:
+                            gate_result = verification_gate.verify(frame, top_alert, scene_context)
+                        except Exception as exc:  # noqa: BLE001 - a transient gate/API error must not kill the run
+                            print(f"[gate error] {top_alert.rule_name} — {str(exc)[:140]} (alert held, not raised)")
+                            gate_result = None
+                        if gate_result is not None and gate_result.confirmed:
                             print(
                                 f"[CONFIRMED] {top_alert.rule_name} ({top_alert.priority.upper()}) "
                                 f"— {top_alert.title}"
@@ -1939,7 +1943,7 @@ def main() -> None:
                                 + f" | confidence={gate_result.confidence:.2f} | {gate_result.reason}"
                             )
                             threat_detected = True
-                        else:
+                        elif gate_result is not None:
                             print(
                                 f"[REJECTED]  {top_alert.rule_name} — {gate_result.reason}"
                             )

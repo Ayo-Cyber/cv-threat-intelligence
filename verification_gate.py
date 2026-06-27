@@ -81,6 +81,35 @@ Rules:
 - confidence should reflect how certain you are, not how alarming the scene is.
 """
 
+_COT_PROMPT_TEMPLATE = """\
+You are a security alert verification assistant for a CCTV system. You are shown one or
+more frames from the SAME short event (a brief sequence in time).
+
+Scene context:
+- Environment: {environment_type}
+- Description: {scene_description}
+
+Candidate alert:
+- Rule: {rule_name}
+- Detector: {detector}
+- Detection: {title}
+- Person tracked: {person_id}
+- Object involved: {object_label}
+
+Question: {question}
+
+Reason step by step FIRST (plain text, no JSON yet):
+1. Given the environment, what is normal behaviour here?
+2. What is the person actually doing across the frames (hands, body, motion)?
+3. Where did any item go — shelf / pocket / clothing / personal bag / basket-or-trolley / still in hand?
+4. Does the evidence CLEARLY meet the alert, or is it ambiguous or normal?
+
+Then on the FINAL line, output ONLY this JSON object (no markdown, nothing after it):
+{{"confirmed": true or false, "confidence": 0.0 to 1.0, "reason": "one sentence", "alert_priority": "{priority}"}}
+
+Be strict: confirm only if the visual evidence clearly supports the alert. If ambiguous or normal, confirmed must be false. Confidence reflects certainty, not how alarming the scene is.
+"""
+
 _QUESTIONS: dict[str, str] = {
     "shoplifting": "Does this frame show a person concealing or taking merchandise without paying in a {environment_type}?",
     "violence_in_store": "Does this frame show genuine physical violence or assault in a {environment_type}?",
@@ -108,8 +137,11 @@ def _build_question(rule_name: str, environment_type: str) -> str:
 # ---------------------------------------------------------------------------
 
 class VerificationGate:
-    DEFAULT_MODEL = {"anthropic": "claude-sonnet-4-6", "openrouter": "google/gemma-4-26b-a4b-it:free"}
-    DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
+    DEFAULT_MODEL = {"anthropic": "claude-sonnet-4-6",
+                     "openrouter": "google/gemma-4-26b-a4b-it:free",
+                     "ollama": "gemma3:4b"}
+    DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY",
+                       "ollama": "OLLAMA_API_KEY"}
 
     def __init__(
         self,
@@ -117,8 +149,10 @@ class VerificationGate:
         model: str = "",
         api_key_env: str = "ANTHROPIC_API_KEY",
         save_dir: Path | str | None = None,
+        cot: bool = False,
     ) -> None:
         self.provider = provider
+        self.cot = cot
         self.model = model or self.DEFAULT_MODEL.get(provider, "claude-sonnet-4-6")
         # If the caller left the default Anthropic key env but picked another provider,
         # switch to that provider's conventional env var (e.g. OPENROUTER_API_KEY).
@@ -139,7 +173,8 @@ class VerificationGate:
         environment_type = context.get("environment_type", "unknown")
         scene_description = context.get("scene_description", "No scene description available.")
 
-        prompt = _PROMPT_TEMPLATE.format(
+        template = _COT_PROMPT_TEMPLATE if self.cot else _PROMPT_TEMPLATE
+        prompt = template.format(
             environment_type=environment_type,
             scene_description=scene_description,
             rule_name=alert.rule_name,
@@ -160,6 +195,8 @@ class VerificationGate:
             raw_response = _call_anthropic(prompt, frames_bytes, self.model, self.api_key_env)
         elif self.provider == "openrouter":
             raw_response = _call_openrouter(prompt, frames_bytes, self.model, self.api_key_env)
+        elif self.provider == "ollama":
+            raw_response = _call_ollama(prompt, frames_bytes, self.model, self.api_key_env)
         else:
             raise RuntimeError(f"Unsupported provider: {self.provider}")
 
@@ -190,6 +227,24 @@ def _mock_response(alert: CandidateAlert) -> str:
         "reason": f"Mock provider: alert {alert.rule_name} accepted for testing.",
         "alert_priority": alert.priority,
     })
+
+
+def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str) -> str:
+    """Verify via a LOCAL Ollama server — offline, on-device (the edge gate path).
+
+    Ollama exposes an OpenAI-compatible API at localhost:11434 and ignores auth, so we
+    reuse the same call path and just point the base URL at it. Set OLLAMA_API_KEY to any
+    non-empty value (done automatically here) since the shared helper requires a key.
+    """
+    os.environ.setdefault(api_key_env, "ollama")
+    from agent_mapper import call_openai_compatible  # local import: only when used
+    return call_openai_compatible(
+        prompt=prompt,
+        frame_bytes=frames_bytes,
+        model=model,
+        api_key_env=api_key_env,
+        api_base_url="http://localhost:11434/v1",
+    )
 
 
 def _call_openrouter(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str) -> str:
