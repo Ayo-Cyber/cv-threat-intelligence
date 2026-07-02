@@ -441,9 +441,10 @@ def call_openai_compatible(
     api_key_env: str,
     api_base_url: str,
     max_retries: int = 3,
+    require_key: bool = True,
 ) -> str:
-    api_key = os.environ.get(api_key_env, "").strip()
-    if not api_key:
+    api_key = os.environ.get(api_key_env, "").strip() if api_key_env else ""
+    if require_key and not api_key:
         raise RuntimeError(f"Missing API key in environment variable: {api_key_env}")
 
     image_url = f"data:image/jpeg;base64,{base64.b64encode(frame_bytes).decode('ascii')}"
@@ -701,6 +702,97 @@ def save_outputs(
     paths.context_path.write_text(json.dumps(context, indent=2), encoding="utf-8")
     if dump_raw_response:
         paths.raw_response_path.write_text(raw_response, encoding="utf-8")
+
+
+class AgentMapper:
+    """Object API over the scene-mapping functions, used by the desktop app.
+
+    Providers: "mock", "anthropic", and "local"/"ollama" (an Ollama server on its
+    OpenAI-compatible endpoint, no API key required).
+    """
+
+    _DEFAULT_MODELS = {
+        "anthropic": "claude-sonnet-4-6",
+        "local": "gemma3:4b-it-qat",
+        "ollama": "gemma3:4b-it-qat",
+        "openai_compatible": "gpt-4.1-mini",
+    }
+
+    def __init__(
+        self,
+        provider: str = "mock",
+        model: str = "",
+        api_key_env: str = "",
+        base_url: str = "",
+        prompt_path: Path | None = None,
+        schema_path: Path | None = None,
+        max_zone_suggestions: int = 4,
+    ) -> None:
+        self.provider = provider
+        self.model = model or self._DEFAULT_MODELS.get(provider, "")
+        self.api_key_env = api_key_env
+        self.base_url = base_url or (
+            "http://localhost:11434/v1" if provider in ("local", "ollama") else ""
+        )
+        self.max_zone_suggestions = max_zone_suggestions
+        # Resolve bundled defaults so this works from a frozen app too.
+        try:
+            from cvti.utils import resource_path
+            self._prompt_path = prompt_path or resource_path(str(DEFAULT_PROMPT_PATH))
+            self._schema_path = schema_path or resource_path(str(DEFAULT_SCHEMA_PATH))
+        except Exception:  # noqa: BLE001 - fall back to CWD-relative defaults in dev
+            self._prompt_path = prompt_path or DEFAULT_PROMPT_PATH
+            self._schema_path = schema_path or DEFAULT_SCHEMA_PATH
+
+    def map(self, source_raw: str, camera_id: str = "", sample_count: int = 3) -> dict[str, Any]:
+        source = normalize_source(str(source_raw))
+        source_type = detect_source_type(source)
+        cam = build_camera_id(camera_id, source)
+
+        samples = capture_sample_frames(source, source_type, max(1, sample_count), 2.0)
+        selected = choose_representative_frame(samples)
+        frame_bytes = encode_frame_as_jpeg_bytes(selected.image)
+
+        prompt = build_prompt(
+            template=load_text_file(Path(self._prompt_path)),
+            camera_id=cam,
+            source_type=source_type,
+            source_frame_path=f"runs/context/{cam}/source_frame.jpg",
+            max_zone_suggestions=self.max_zone_suggestions,
+        )
+
+        if self.provider == "mock":
+            raw = mock_scene_context_json(cam, source_type, selected.image.shape)
+        elif self.provider == "anthropic":
+            raw = call_anthropic(
+                prompt=prompt, frame_bytes=frame_bytes,
+                model=self.model or "claude-sonnet-4-6",
+                api_key_env=self.api_key_env or "ANTHROPIC_API_KEY",
+            )
+        elif self.provider in ("local", "ollama"):
+            raw = call_openai_compatible(
+                prompt=prompt, frame_bytes=frame_bytes,
+                model=self.model or "gemma3:4b-it-qat",
+                api_key_env="", api_base_url=self.base_url,
+                require_key=False,
+            )
+        elif self.provider == "openai_compatible":
+            raw = call_openai_compatible(
+                prompt=prompt, frame_bytes=frame_bytes,
+                model=self.model or "gpt-4.1-mini",
+                api_key_env=self.api_key_env or "OPENAI_API_KEY",
+                api_base_url=self.base_url or "https://api.openai.com/v1",
+            )
+        else:
+            raise RuntimeError(f"Unsupported provider: {self.provider}")
+
+        return parse_and_validate_scene_context(
+            raw_response=raw,
+            schema=load_schema(Path(self._schema_path)),
+            camera_id=cam,
+            source_type=source_type,
+            source_frame_path=f"runs/context/{cam}/source_frame.jpg",
+        )
 
 
 def main() -> None:

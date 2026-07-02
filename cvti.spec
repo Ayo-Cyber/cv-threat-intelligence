@@ -23,6 +23,22 @@ datas = [
     ("schemas/*.json",     "schemas"),
 ]
 
+# Bundle the Ollama binary for the local (offline) VLM if a build script has
+# fetched it into vendor/ollama/<platform>/. Skipped cleanly if absent so plain
+# `pyinstaller cvti.spec` still works in dev. Run scripts/fetch_ollama.* first
+# to include it. The 3.3 GB model itself is NOT bundled — it pulls on first run.
+_plat = {"win32": "windows", "darwin": "darwin"}.get(sys.platform, "linux")
+_ollama_dir = Path("vendor/ollama") / _plat
+if _ollama_dir.exists():
+    # The runtime ships the `ollama` binary alongside many runner libs and
+    # nested runner dirs (e.g. mlx_metal_*). Recurse so every file lands at the
+    # same relative path the binary expects to find its libraries.
+    for _f in _ollama_dir.rglob("*"):
+        if _f.is_file():
+            _rel = _f.parent.relative_to(_ollama_dir).as_posix()
+            _dest = f"vendor/ollama/{_plat}" + ("/" + _rel if _rel != "." else "")
+            datas.append((str(_f), _dest))
+
 # ---------------------------------------------------------------------------
 # Hidden imports — packages that PyInstaller misses through static analysis
 # ---------------------------------------------------------------------------
@@ -99,6 +115,7 @@ hidden = [
     "cvti.rules.customization",
     "cvti.verification",
     "cvti.verification.gate",
+    "cvti.verification.ollama",
     "cvti.event_adapters",
     "cvti.contracts",
 ]

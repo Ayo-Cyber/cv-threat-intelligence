@@ -27,6 +27,7 @@ class DetectionWorker(QThread):
         config_path: str,
         zones_path: str = "",
         gate_provider: str = "mock",
+        gate_model: str = "",
         scene_context: dict | None = None,
         pose_weights: str = "",
         object_weights: str = "",
@@ -38,6 +39,7 @@ class DetectionWorker(QThread):
         self.config_path   = config_path
         self.zones_path    = zones_path
         self.gate_provider = gate_provider
+        self.gate_model    = gate_model
         self.scene_context = scene_context
         self.pose_weights   = pose_weights or str(resource_path("models/yolov8n-pose.pt"))
         self.object_weights = object_weights or str(resource_path("models/yolov8n.pt"))
@@ -64,7 +66,7 @@ class DetectionWorker(QThread):
             zone_monitor = RetailZoneMonitor(load_zone_config(self.zones_path)) if self.zones_path else None
             concealment  = ConcealmentDetector()
             engine       = CustomizationEngine(self.config_path)
-            gate         = VerificationGate(provider=self.gate_provider)
+            gate         = VerificationGate(provider=self.gate_provider, model=self.gate_model)
 
         except Exception as exc:
             self.status_update.emit(f"Load error: {exc}")

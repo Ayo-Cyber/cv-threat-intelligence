@@ -11,6 +11,9 @@ set DIST_DIR=dist
 echo =^> Installing build dependencies...
 pip install pyinstaller -q
 
+echo =^> Fetching Ollama binary for the offline VLM...
+call "%~dp0fetch_ollama.bat" || exit /b 1
+
 echo =^> Building %APP_NAME% bundle...
 pyinstaller cvti.spec --clean --noconfirm
 

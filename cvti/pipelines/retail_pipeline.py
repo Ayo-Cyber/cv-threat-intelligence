@@ -57,8 +57,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-bags", action="store_true", help="Disable bag-destination detection.")
     p.add_argument("--tracker", default="configs/bytetrack_retail.yaml")
     p.add_argument("--conf", type=float, default=0.4)
-    p.add_argument("--gate-provider", default="mock", choices=("mock", "anthropic"))
-    p.add_argument("--gate-model", default="claude-sonnet-4-6")
+    p.add_argument("--gate-provider", default="mock",
+                   choices=("mock", "anthropic", "local", "openai_compatible"))
+    p.add_argument("--gate-model", default="", help="VLM model; blank uses a per-provider default.")
+    p.add_argument("--gate-base-url", default="", help="Override VLM endpoint (e.g. local Ollama).")
     p.add_argument("--scene-context", default="", help="Optional scene_context.json from agent_mapper.")
     p.add_argument("--simulate-time", default="", help="HH:MM override for time-filtered rules (demo).")
     p.add_argument("--clip-seconds", type=float, default=4.0, help="Rolling evidence-clip length.")
@@ -83,7 +85,8 @@ def main() -> None:
     concealment = ConcealmentDetector()
     engine = CustomizationEngine(args.config)
     out_root = Path(args.output_dir)
-    gate = VerificationGate(provider=args.gate_provider, model=args.gate_model, save_dir=out_root / "gate")
+    gate = VerificationGate(provider=args.gate_provider, model=args.gate_model,
+                            base_url=args.gate_base_url, save_dir=out_root / "gate")
 
     scene_context = json.loads(Path(args.scene_context).read_text()) if args.scene_context else None
     sim_now = None

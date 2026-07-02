@@ -10,6 +10,9 @@ DIST_DIR="dist"
 echo "==> Installing build dependencies…"
 pip install pyinstaller -q
 
+echo "==> Fetching Ollama binary for the offline VLM…"
+bash "$(dirname "$0")/fetch_ollama.sh"
+
 echo "==> Building binary bundle…"
 pyinstaller cvti.spec --clean --noconfirm
 

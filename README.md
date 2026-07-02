@@ -16,6 +16,14 @@ The goal of this POC is simple:
 - configurable YOLO weights
 - configurable threat classes
 - evidence saving for detections
+- VLM verification gate — cloud (Anthropic) **or fully local/offline via Ollama**
+
+### Offline VLM verification
+The verification gate and scene mapper can run against a local vision model (no API
+key, no internet) using [Ollama](https://ollama.com). Set `Gate → local` in the app,
+or `--gate-provider local` on the CLI. Default model is **Gemma 3** (`gemma3:4b-it-qat`,
+~6 GB peak on Apple Silicon); `moondream` is a weaker ~4 GB fallback. See
+[docs/OFFLINE_VLM.md](docs/OFFLINE_VLM.md) for model choices and setup.
 
 ## Important Reality Check
 If you use standard pretrained YOLO weights such as `yolov8n.pt`, you will usually only get common object classes from public datasets.

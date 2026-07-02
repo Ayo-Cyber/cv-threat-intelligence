@@ -87,16 +87,26 @@ def _build_question(rule_name: str, environment_type: str) -> str:
 # ---------------------------------------------------------------------------
 
 class VerificationGate:
+    # Sensible per-provider default models.
+    _DEFAULT_MODELS = {
+        "anthropic": "claude-sonnet-4-6",
+        "local": "gemma3:4b-it-qat",
+        "openai_compatible": "gpt-4.1-mini",
+    }
+
     def __init__(
         self,
         provider: str = "mock",
         model: str = "",
         api_key_env: str = "ANTHROPIC_API_KEY",
         save_dir: Path | str | None = None,
+        base_url: str = "",
     ) -> None:
         self.provider = provider
-        self.model = model or "claude-sonnet-4-6"
+        self.model = model or self._DEFAULT_MODELS.get(provider, "claude-sonnet-4-6")
         self.api_key_env = api_key_env
+        # `local` targets an Ollama server's OpenAI-compatible endpoint by default.
+        self.base_url = base_url or ("http://localhost:11434/v1" if provider == "local" else "")
         self.save_dir = Path(save_dir) if save_dir else None
         self._call_count = 0
 
@@ -133,6 +143,15 @@ class VerificationGate:
                 frame_bytes=frame_bytes,
                 model=self.model,
                 api_key_env=self.api_key_env,
+            )
+        elif self.provider in ("local", "openai_compatible"):
+            raw_response = _call_openai_compatible(
+                prompt=prompt,
+                frame_bytes=frame_bytes,
+                model=self.model,
+                base_url=self.base_url or "https://api.openai.com/v1",
+                # Local Ollama needs no key; OpenAI-compatible clouds do.
+                api_key_env="" if self.provider == "local" else self.api_key_env,
             )
         else:
             raise RuntimeError(f"Unsupported provider: {self.provider}")
@@ -216,6 +235,67 @@ def _call_anthropic(prompt: str, frame_bytes: bytes, model: str, api_key_env: st
     if not chunks:
         raise RuntimeError("Anthropic response contained no text.")
     return "\n".join(chunks).strip()
+
+
+def _call_openai_compatible(
+    prompt: str,
+    frame_bytes: bytes,
+    model: str,
+    base_url: str,
+    api_key_env: str = "",
+) -> str:
+    """Call any OpenAI-compatible chat/vision endpoint.
+
+    Used for two cases:
+    - provider="local": an Ollama server (http://localhost:11434/v1), no API key.
+    - provider="openai_compatible": OpenAI / OpenRouter / etc., key from api_key_env.
+    """
+    api_key = os.environ.get(api_key_env, "").strip() if api_key_env else ""
+    image_url = f"data:image/jpeg;base64,{base64.b64encode(frame_bytes).decode('ascii')}"
+    payload = {
+        "model": model,
+        "temperature": 0,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            }
+        ],
+    }
+    headers = {"content-type": "application/json"}
+    if api_key:
+        headers["authorization"] = f"Bearer {api_key}"
+
+    req = urlrequest.Request(
+        f"{base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urlrequest.urlopen(req, timeout=120) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(f"VLM request failed HTTP {exc.code}: {detail}") from exc
+    except urlerror.URLError as exc:
+        hint = ""
+        if "localhost:11434" in base_url:
+            hint = " Is Ollama running? Start it with `ollama serve` and `ollama pull <model>`."
+        raise RuntimeError(f"VLM request failed: {exc}.{hint}") from exc
+
+    choices = body.get("choices", [])
+    if not choices:
+        raise RuntimeError("VLM response contained no choices.")
+    content = choices[0].get("message", {}).get("content", "")
+    if isinstance(content, list):
+        content = "\n".join(item.get("text", "") for item in content if item.get("type") == "text")
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("VLM response contained no text content.")
+    return content.strip()
 
 
 # ---------------------------------------------------------------------------

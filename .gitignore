@@ -45,6 +45,9 @@ desktop.ini
 external/knife_Gun_Detection/
 external/Weapon-Detection-System/
 
+# ── Bundled Ollama binary (fetched at build time by scripts/fetch_ollama.*) ───
+vendor/ollama/
+
 # ── Video / media files (large binaries, not for git) ────────────────────────
 data/test_clips/
 data/**/*.mp4
