@@ -1277,3 +1277,207 @@ Built the two highest-ROI fixes for "the VLM sees frames, not motion" into the b
 - Now **five independent gate toggles** to A/B: `--gate-frames N`, `--cot`, `--use-agent-mapper`, `--crop`, `--event-moment`. Each run's config prints in the table header. Verified end-to-end with `--models mock`; needs an Ollama run to measure effect on a curated set.
 - **Still the gating dependency (unchanged): a curated, accurately-labeled eval set with real normals** — without it the toggle A/B stays noisy (concealment is already 100%, violence/weapon labels are approximate). That's the next real deliverable + it produces the validated FPR.
 - Pushed to `origin/unify-detector`. — make the theft signal temporal (pose-sequence first, or video model), feeding off the `RetailZoneMonitor` shelf-interaction trigger + a rolling clip buffer → fused with the state machine → Verification Gate (upgraded to multi-frame). This is the piece that makes the product genuinely Veesion-like rather than a frame-guesser.
+
+## Checkpoint 2026-07-04 Backend V1 Direction + Multi-Threat Clarification
+Founder clarified the product thesis: the system is a **context-aware AI security intelligence layer**, not a single-purpose detector. The moat is that "threat" means different things to different customers, and even to different cameras within the same customer environment. The customer defines threat policy; the backend detects possible events; the verification layer confirms whether the event matches that configured threat.
+
+### Strategic product understanding
+- This should not become only a shoplifting app, a violence detector, or a VLM demo.
+- The system should be a local camera-intelligence layer that can serve estates, retail shops, malls, offices, banks, warehouses, and later higher-friction sectors.
+- Agent Mapper describes each camera's environment and zones. It must remain descriptive and should not decide threat policy.
+- Customization Engine applies the user's threat definition through `user_config.json`.
+- Detection Core produces cheap local signals such as people, weapons, pose, zones, dwell, concealment, violence, and later running/crowd/tampering/person-down.
+- Verification Gate confirms or rejects a specific candidate alert using the rule and scene context.
+
+### Important current backend gap
+`CustomizationEngine.evaluate()` already returns multiple matching `CandidateAlert`s, sorted by priority, but the runtime paths usually select only:
+
+```python
+top_alert = candidate_alerts[0] if candidate_alerts else None
+```
+
+This means the architecture can represent multiple threats, but runtime behavior is still too close to "many signals -> one top alert." V1 needs "many signals -> multiple candidate alerts -> throttled verification queue -> multiple saved alert artifacts." This matters because shoplifting can occur in one part of a retail shop while armed robbery, violence, or panic happens in another.
+
+### Always-on critical baseline decision
+User configuration should not hide universal critical threats. The backend should separate:
+
+```text
+customer-specific threat policy
+always-on critical safety baseline
+```
+
+The baseline should eventually include visible weapon/armed robbery, serious violence, person down/fall, fire/smoke, and camera tampering. Customer-specific rules then add business context such as shoplifting, loitering, vault-after-hours, gate tailgating, or power-outage + motion.
+
+### Robbery should be a compound threat recipe
+Robbery should not rely only on detecting a gun. Low-resolution CCTV often makes guns too small, blurry, or occluded. Robbery should be represented as a compound event using signals such as weapon candidate, violence, masked entry, counter rush, running/panic, person down, and crowd dispersal. The VLM gate then verifies the compound candidate, not just a tiny object box.
+
+### VLM versus trained video models
+The team discussed whether to rely on VLMs or fine-tune video models. Current conclusion: use a **hybrid architecture**.
+- CV rules and trained/specialized video models should generate candidate events.
+- VLMs should verify candidate events against the customer's specific rule and scene context.
+- A VLM should not be expected to discover all threats from raw footage.
+- True motion threats such as concealment, assault, stabbing, fall/person-down, running, fence climbing, and tampering are better candidates for fine-tuned temporal video models.
+
+The immediate training strategy should not be "train a general threat model." It should be:
+
+```text
+choose one rule -> collect/label clips -> fine-tune a pretrained video model -> plug it into candidate generation -> VLM verifies -> measure FPR/recall
+```
+
+Most practical first targets: concealment/no-concealment, violence/no-violence, or person-down/fall.
+
+### Data strategy clarification
+Nigeria-specific data is not available at scale yet. The correct path is:
+- use public/online/western CCTV data now for bootstrapping and initial fine-tunes;
+- treat it as starting data, not final product data;
+- collect event artifacts during pilots;
+- require human review labels before using those artifacts for training;
+- use the reviewed labels for active learning / supervised fine-tuning, not true reinforcement learning yet.
+
+The feedback loop is:
+
+```text
+candidate event -> human review -> true threat / false alarm / missed threat / ambiguous -> curated dataset -> periodic supervised fine-tuning
+```
+
+### Current codebase status after repo review
+What exists:
+- `detector.py` unified branch can run weapons, violence, theft, zones, and concealment in one stream when the right flags are used.
+- `customization.py` can convert assessments/zone/concealment outputs into RawEvents and evaluate all matching rules.
+- `agent_mapper.py` can generate descriptive scene context.
+- `verification_gate.py` supports mock, Anthropic, OpenRouter, local Ollama, multi-frame verification, CoT prompt mode, and artifact saving.
+- `tools/gate_bakeoff.py` supports local VLM bakeoff with `--gate-frames`, `--cot`, `--use-agent-mapper`, `--crop`, and `--event-moment`.
+- `tools/batch_anomaly.py` provides broad recall-style testing over anomaly clips.
+- `retail_zones.py` and `concealment.py` are tested on synthetic logic.
+
+What is missing:
+- full GTM 12-rule V1 implementation;
+- always-on critical baseline rules;
+- multi-threat alert queue;
+- runtime per-rule frame/clip selection;
+- first-class robbery compound rule;
+- validated FPR from a curated labeled eval set;
+- true temporal video-model fine-tuning pipeline;
+- human feedback/retraining queue;
+- production TensorRT/export path.
+
+### Ayo branch technical comparison as of 2026-07-04
+Compared `unify-detector` with `ayo/main` at `4364ba4`.
+
+Ayo's branch adds packaging/productization:
+- installable `cvti` package;
+- desktop app;
+- build scripts and PyInstaller spec;
+- local Ollama operational helpers in `cvti/verification/ollama.py`;
+- default local model `gemma3:4b-it-qat`;
+- offline VLM/user guide/software wiring docs.
+
+Backend-intelligence features present in `unify-detector` but not Ayo's branch:
+- general detector flags `--zones` and `--concealment`;
+- general detector merges weapons, violence, theft, zones, and concealment into the same event stream;
+- local gate provider named `ollama`;
+- multi-frame `VerificationGate.verify()` that accepts a list of frames;
+- CoT gate prompt mode;
+- OpenRouter provider in this branch's gate;
+- `tools/gate_bakeoff.py` with `--gate-frames`, `--cot`, `--use-agent-mapper`, `--crop`, `--event-moment`;
+- `tools/batch_anomaly.py`;
+- `configs/all_threats_v1.json`;
+- `docs/GATE_MODEL_BAKEOFF.md`.
+
+Ayo's general detector still lacks the unified zone/concealment flags and uses `mock`/`anthropic` gate choices in that path. Ayo's packaged `cvti/verification/gate.py` supports `local` and `openai_compatible`, but it is single-frame only and does not include CoT or the bakeoff frame-selection experiments. Both branches still need the top-alert pattern replaced with a multi-alert queue.
+
+### New planning artifact
+Created `plan.md` as the current backend V1 roadmap. It records:
+- overview/product thesis;
+- what's already built;
+- what is ticked;
+- what's missing;
+- edge cases discussed;
+- data/training strategy;
+- minimum backend V1 definition;
+- roadmap;
+- technical comparison with Ayo's branch.
+
+## Checkpoint 2026-07-09 VideoMAE Hybrid Temporal Signal Integrated
+
+Added a standalone and runtime-ready video-action layer for the hybrid detector architecture.
+
+### What changed
+
+- Added `video_action_model.py`:
+  - VideoMAE wrapper using `MCG-NJU/videomae-base-finetuned-kinetics`;
+  - optional X3D wrapper for comparison, though the team is currently standardizing on VideoMAE because it gives more useful weak violence signals;
+  - frame sampling helpers for single windows, beginning/middle/ending windows, and detector-centered event windows.
+- Added `tools/video_action_probe.py`:
+  - can run VideoMAE or X3D on a local clip;
+  - can save the exact sampled frames;
+  - can output JSON artifacts;
+  - supports `--window-mode single`, `--window-mode segments`, and `--window-mode event`;
+  - supports `--center-frame` for simulating "YOLO/pose found something suspicious at this frame."
+- Added `video_action_hybrid.py`:
+  - maps useful pretrained action labels into weak `RawEvent`s;
+  - down-weights the raw video-model confidence before it reaches rules;
+  - avoids treating irrelevant Kinetics labels as security truth.
+- Added `video_action_runtime.py`:
+  - keeps a rolling frame buffer in live detector runs;
+  - when YOLO/pose/theft/concealment sees a suspicious moment, it samples frames around that moment and asks VideoMAE for weak temporal evidence.
+- Added `configs/hybrid_video_action_v1.json`:
+  - demo config for consuming weak `video_action` RawEvents.
+- Added tests:
+  - `tests/test_video_action_model.py`;
+  - `tests/test_video_action_hybrid.py`;
+  - `tests/test_video_action_runtime.py`.
+
+### Live detector integration
+
+`detector.py` now has optional flags:
+
+```text
+--video-action-backend {none,videomae,x3d}
+--video-action-model
+--video-action-window-seconds
+--video-action-frames
+--video-action-top-k
+--video-action-cooldown
+--video-action-device
+```
+
+The intended production path is:
+
+```text
+YOLO / pose / theft / concealment detects suspicious frame
+-> current frame becomes event center
+-> VideoMAE samples 16 frames around that moment
+-> VideoMAE emits weak temporal labels
+-> useful labels become down-weighted RawEvents
+-> CustomizationEngine decides if the customer config cares
+-> VerificationGate/VLM confirms or rejects
+```
+
+This confirms the desired hybrid system: VideoMAE is not the judge. It is a weak temporal witness. The config and VLM still decide final alert behavior.
+
+### Validation so far
+
+Focused tests pass:
+
+```text
+tests/test_video_action_model.py
+tests/test_video_action_hybrid.py
+tests/test_video_action_runtime.py
+```
+
+Smoke-tested detector runtime on `data/test_clips/violence_suspected.mp4`:
+
+```text
+[VideoAction] ... top=punching person (boxing)
+[CONFIRMED] video_action_violence_candidate (MEDIUM)
+```
+
+VideoMAE local model cache is about 330 MB. X3D-S is about 30 MB, but X3D is not the current preferred backend because its outputs have been weaker on the tested threat clips.
+
+### Current caveats
+
+- Pretrained VideoMAE does not understand shoplifting/concealment directly. It is more useful for weak violence/motion evidence.
+- The system still needs multi-alert queue semantics. The live detector still uses a top-alert pattern in the config/gate path.
+- VideoMAE should stay optional and off by default until we validate runtime latency and false-positive behavior on a larger eval set.
+- For shoplifting, the pose/concealment heuristic remains more relevant until we fine-tune a video model on concealment clips.

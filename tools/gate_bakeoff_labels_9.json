@@ -1,0 +1,15 @@
+{
+  "_comment": "Small 9-clip bakeoff set for quick local model comparison.",
+  "scene_description": "CCTV scene. Confirm only if the specific threat asked about is genuinely visible across the frames; otherwise reject.",
+  "clips": [
+    {"clip": "data/test_clips/theft_shop_01.mp4", "rule": "concealment", "label": "positive"},
+    {"clip": "data/test_clips/theft_shop_02.mp4", "rule": "concealment", "label": "positive"},
+    {"clip": "data/test_clips/stabbing_event.mp4", "rule": "violence", "label": "positive"},
+    {"clip": "data/test_clips/violence_suspected.mp4", "rule": "violence", "label": "positive"},
+    {"clip": "data/anomaly/119.mp4", "rule": "violence", "label": "positive"},
+    {"clip": "data/test_clips/weapons_yt_01.mp4", "rule": "weapon", "label": "positive"},
+    {"clip": "data/test_clips/normal_street_01.mp4", "rule": "concealment", "label": "normal"},
+    {"clip": "data/test_clips/normal_street_02.mp4", "rule": "violence", "label": "normal"},
+    {"clip": "data/test_clips/empty_warehouse.mp4", "rule": "weapon", "label": "normal"}
+  ]
+}

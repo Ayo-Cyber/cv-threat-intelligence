@@ -364,6 +364,8 @@ def _save_artifacts(
 ) -> None:
     out_dir = save_dir / f"gate_{call_count:04d}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    for stale_frame in out_dir.glob("frame*.jpg"):
+        stale_frame.unlink()
     for i, fr in enumerate(frames):
         cv2.imwrite(str(out_dir / (f"frame_{i}.jpg" if len(frames) > 1 else "frame.jpg")), fr)
     (out_dir / "alert.json").write_text(

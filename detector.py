@@ -19,6 +19,7 @@ from customization import (
     zone_states_to_events,
 )
 from verification_gate import VerificationGate
+from video_action_runtime import build_video_action_runtime
 
 import cv2
 import torch
@@ -442,6 +443,46 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Path to scene_context.json produced by agent_mapper.py. Passed to the Customization Engine and Verification Gate.",
+    )
+    parser.add_argument(
+        "--video-action-backend",
+        default="none",
+        choices=("none", "videomae", "x3d"),
+        help="Optional weak temporal classifier run around detector-triggered moments.",
+    )
+    parser.add_argument(
+        "--video-action-model",
+        default="",
+        help="Override video action model. Defaults: VideoMAE HF checkpoint or x3d_s.",
+    )
+    parser.add_argument(
+        "--video-action-window-seconds",
+        type=float,
+        default=4.0,
+        help="Seconds of recent video analyzed around a detector-triggered moment.",
+    )
+    parser.add_argument(
+        "--video-action-frames",
+        type=int,
+        default=16,
+        help="Number of sampled frames sent to the video action model.",
+    )
+    parser.add_argument(
+        "--video-action-top-k",
+        type=int,
+        default=5,
+        help="Number of action labels considered from the video action model.",
+    )
+    parser.add_argument(
+        "--video-action-cooldown",
+        type=float,
+        default=2.0,
+        help="Minimum seconds between video action model runs.",
+    )
+    parser.add_argument(
+        "--video-action-device",
+        default=None,
+        help="Force video action device: cpu, mps, or cuda. X3D defaults to cpu on Mac.",
     )
     parser.add_argument(
         "--gate-provider",
@@ -1733,6 +1774,24 @@ def main() -> None:
     )
     customization_engine = CustomizationEngine(args.config)
     last_alert_rule: str | None = None
+    video_action_runtime = None
+    if args.video_action_backend != "none":
+        fps_for_video_action = fps_from_capture if fps_from_capture and fps_from_capture > 0 else 30.0
+        video_action_runtime = build_video_action_runtime(
+            backend=args.video_action_backend,
+            model_name=args.video_action_model,
+            fps=fps_for_video_action,
+            window_seconds=args.video_action_window_seconds,
+            frame_count=args.video_action_frames,
+            top_k=args.video_action_top_k,
+            cooldown_seconds=args.video_action_cooldown,
+            device=args.video_action_device,
+            verbose=True,
+        )
+        print(
+            f"[VideoAction] {args.video_action_backend} ON — "
+            f"{args.video_action_frames} frames over {args.video_action_window_seconds:.1f}s event windows"
+        )
 
     # Retail action layer (optional): shelf zones + concealment, both riding the pose pass.
     zone_monitor = None
@@ -1775,6 +1834,9 @@ def main() -> None:
             if not ok:
                 print("Stream ended or frame could not be read.")
                 break
+            current_frame_index = frame_count
+            if video_action_runtime is not None:
+                video_action_runtime.add_frame(frame, frame_index=current_frame_index)
 
             # Only one model should own the ByteTrack state at a time.
             # If a dedicated person model is set, it handles tracking.
@@ -1911,6 +1973,14 @@ def main() -> None:
                     timestamp=ts_now,
                     theft_detector=theft_detector,
                 )
+                should_run_video_action = (
+                    video_action_runtime is not None
+                    and (
+                        object_assessment.active
+                        or violence_assessment.active
+                        or theft_assessment.active
+                    )
+                )
                 # Retail action layer events (zones + concealment) ride the same pose pass
                 # and merge into the same event stream the user's rules evaluate.
                 if zone_monitor is not None:
@@ -1924,7 +1994,17 @@ def main() -> None:
                         ts_now,
                         bag_bboxes=bag_bboxes or None,
                     )
-                    raw_events += concealment_to_events(conceal, ts_now)
+                    concealment_events = concealment_to_events(conceal, ts_now)
+                    raw_events += concealment_events
+                    should_run_video_action = should_run_video_action or any(event.active for event in concealment_events)
+                if should_run_video_action and video_action_runtime is not None:
+                    try:
+                        raw_events += video_action_runtime.analyze_event(
+                            center_frame_index=current_frame_index,
+                            timestamp=ts_now,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - optional weak signal must not kill detector
+                        print(f"[VideoAction error] {str(exc)[:140]}")
                 candidate_alerts = customization_engine.evaluate(raw_events, scene_context=scene_context)
                 top_alert = candidate_alerts[0] if candidate_alerts else None
                 if top_alert is not None:
