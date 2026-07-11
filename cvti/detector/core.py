@@ -767,7 +767,7 @@ def pose_people_to_sv_detections(pose_people: list[PosePersonState]) -> Any:
 
 def pose_people_to_concealment_frames(pose_people: list[PosePersonState], timestamp: float) -> list[Any]:
     """Adapt pose people into concealment.PoseFrame objects (keeps hips + track id)."""
-    from concealment import PoseFrame
+    from cvti.retail.concealment import PoseFrame
     return [
         PoseFrame(
             track_id=p.track_id,
@@ -1807,7 +1807,7 @@ def main() -> None:
         zone_monitor = RetailZoneMonitor(load_zone_config(args.zones))
         print(f"[Zones] Loaded {len(zone_monitor.zones)} zone(s): {', '.join(z.name for z in zone_monitor.zones)}")
     if args.concealment:
-        from concealment import ConcealmentDetector
+        from cvti.retail.concealment import ConcealmentDetector
         concealment_detector = ConcealmentDetector()
         print("[Concealment] Pose-based concealment detector ON")
     if (zone_monitor is not None or concealment_detector is not None) and pose_model is None:

@@ -38,9 +38,8 @@ from typing import Any
 
 import cv2
 
-# Pull shared logic from detector.py
-sys.path.insert(0, str(Path(__file__).parent))
-from detector import (
+# Pull shared logic from the unified detector core.
+from cvti.detector.core import (
     PosePersonState,
     ThreatAssessment,
     TheftDetector,

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from cvti.contracts import RawEvent
 
 if TYPE_CHECKING:
-    from detector import ThreatAssessment
+    from cvti.detector.core import ThreatAssessment
 
 
 def zone_states_to_events(zone_states: list[Any], timestamp: float = 0.0) -> list[RawEvent]:

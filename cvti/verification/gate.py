@@ -234,7 +234,7 @@ def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env
     non-empty value (done automatically here) since the shared helper requires a key.
     """
     os.environ.setdefault(api_key_env, "ollama")
-    from agent_mapper import call_openai_compatible  # local import: only when used
+    from cvti.scene.agent_mapper import call_openai_compatible  # local import: only when used
     return call_openai_compatible(
         prompt=prompt,
         frame_bytes=frames_bytes,
@@ -250,7 +250,7 @@ def _call_openrouter(prompt: str, frames_bytes: list[bytes], model: str, api_key
     Reuses agent_mapper.call_openai_compatible — the same retry/backoff path already
     validated against OpenRouter's free tier — so we don't duplicate the HTTP logic.
     """
-    from agent_mapper import call_openai_compatible  # local import: only when used
+    from cvti.scene.agent_mapper import call_openai_compatible  # local import: only when used
     return call_openai_compatible(
         prompt=prompt,
         frame_bytes=frames_bytes,
