@@ -30,7 +30,7 @@ from cvti.contracts import CandidateAlert, VerificationResult
 _PROMPT_TEMPLATE = """\
 You are a security alert verification assistant for a CCTV system.
 
-A computer vision system has flagged a potential security event. Review the camera frame and decide if the alert is genuine.
+A computer vision system has flagged a potential security event. You are shown one or more camera frames from the SAME short event (a brief sequence in time) — use the motion across them to decide if the alert is genuine.
 
 Scene context:
 - Environment: {environment_type}
@@ -58,6 +58,35 @@ Rules:
 - Only confirm if the visual evidence clearly supports the alert.
 - If the scene looks normal or the alert is ambiguous, return confirmed: false.
 - confidence should reflect how certain you are, not how alarming the scene is.
+"""
+
+_COT_PROMPT_TEMPLATE = """\
+You are a security alert verification assistant for a CCTV system. You are shown one or
+more frames from the SAME short event (a brief sequence in time).
+
+Scene context:
+- Environment: {environment_type}
+- Description: {scene_description}
+
+Candidate alert:
+- Rule: {rule_name}
+- Detector: {detector}
+- Detection: {title}
+- Person tracked: {person_id}
+- Object involved: {object_label}
+
+Question: {question}
+
+Reason step by step FIRST (plain text, no JSON yet):
+1. Given the environment, what is normal behaviour here?
+2. What is the person actually doing across the frames (hands, body, motion)?
+3. Where did any item go — shelf / pocket / clothing / personal bag / basket-or-trolley / still in hand?
+4. Does the evidence CLEARLY meet the alert, or is it ambiguous or normal?
+
+Then on the FINAL line, output ONLY this JSON object (no markdown, nothing after it):
+{{"confirmed": true or false, "confidence": 0.0 to 1.0, "reason": "one sentence", "alert_priority": "{priority}"}}
+
+Be strict: confirm only if the visual evidence clearly supports the alert. If ambiguous or normal, confirmed must be false. Confidence reflects certainty, not how alarming the scene is.
 """
 
 _QUESTIONS: dict[str, str] = {
@@ -92,7 +121,12 @@ class VerificationGate:
         "anthropic": "claude-sonnet-4-6",
         "local": "gemma3:4b-it-qat",
         "openai_compatible": "gpt-4.1-mini",
+        "openrouter": "google/gemma-4-26b-a4b-it:free",
+        "ollama": "gemma3:4b",
     }
+    # Conventional API-key env var per provider.
+    DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY",
+                       "ollama": "OLLAMA_API_KEY"}
 
     def __init__(
         self,
@@ -101,9 +135,15 @@ class VerificationGate:
         api_key_env: str = "ANTHROPIC_API_KEY",
         save_dir: Path | str | None = None,
         base_url: str = "",
+        cot: bool = False,
     ) -> None:
         self.provider = provider
+        self.cot = cot
         self.model = model or self._DEFAULT_MODELS.get(provider, "claude-sonnet-4-6")
+        # If the caller left the default Anthropic key env but picked another provider,
+        # switch to that provider's conventional env var (e.g. OPENROUTER_API_KEY).
+        if api_key_env == "ANTHROPIC_API_KEY" and provider in self.DEFAULT_KEY_ENV:
+            api_key_env = self.DEFAULT_KEY_ENV[provider]
         self.api_key_env = api_key_env
         # `local` targets an Ollama server's OpenAI-compatible endpoint by default.
         self.base_url = base_url or ("http://localhost:11434/v1" if provider == "local" else "")
@@ -112,7 +152,7 @@ class VerificationGate:
 
     def verify(
         self,
-        frame: Any,               # numpy BGR frame
+        frame: Any,               # a single numpy BGR frame OR a list of them (multi-frame)
         alert: CandidateAlert,
         scene_context: dict | None = None,
     ) -> VerificationResult:
@@ -121,7 +161,8 @@ class VerificationGate:
         environment_type = context.get("environment_type", "unknown")
         scene_description = context.get("scene_description", "No scene description available.")
 
-        prompt = _PROMPT_TEMPLATE.format(
+        template = _COT_PROMPT_TEMPLATE if self.cot else _PROMPT_TEMPLATE
+        prompt = template.format(
             environment_type=environment_type,
             scene_description=scene_description,
             rule_name=alert.rule_name,
@@ -133,33 +174,33 @@ class VerificationGate:
             priority=alert.priority,
         )
 
-        frame_bytes = _encode_frame(frame)
+        frames = frame if isinstance(frame, list) else [frame]
+        frames_bytes = [_encode_frame(f) for f in frames]
 
         if self.provider == "mock":
             raw_response = _mock_response(alert)
         elif self.provider == "anthropic":
-            raw_response = _call_anthropic(
-                prompt=prompt,
-                frame_bytes=frame_bytes,
-                model=self.model,
-                api_key_env=self.api_key_env,
-            )
+            raw_response = _call_anthropic(prompt, frames_bytes, self.model, self.api_key_env)
         elif self.provider in ("local", "openai_compatible"):
             raw_response = _call_openai_compatible(
                 prompt=prompt,
-                frame_bytes=frame_bytes,
+                frame_bytes=frames_bytes[0],
                 model=self.model,
                 base_url=self.base_url or "https://api.openai.com/v1",
                 # Local Ollama needs no key; OpenAI-compatible clouds do.
                 api_key_env="" if self.provider == "local" else self.api_key_env,
             )
+        elif self.provider == "openrouter":
+            raw_response = _call_openrouter(prompt, frames_bytes, self.model, self.api_key_env)
+        elif self.provider == "ollama":
+            raw_response = _call_ollama(prompt, frames_bytes, self.model, self.api_key_env)
         else:
             raise RuntimeError(f"Unsupported provider: {self.provider}")
 
         result = _parse_response(raw_response, alert.priority)
 
         if self.save_dir:
-            _save_artifacts(self.save_dir, self._call_count, frame, alert, result, raw_response)
+            _save_artifacts(self.save_dir, self._call_count, frames, alert, result, raw_response)
 
         return result
 
@@ -185,32 +226,58 @@ def _mock_response(alert: CandidateAlert) -> str:
     })
 
 
-def _call_anthropic(prompt: str, frame_bytes: bytes, model: str, api_key_env: str) -> str:
+def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str) -> str:
+    """Verify via a LOCAL Ollama server — offline, on-device (the edge gate path).
+
+    Ollama exposes an OpenAI-compatible API at localhost:11434 and ignores auth, so we
+    reuse the same call path and just point the base URL at it. Set OLLAMA_API_KEY to any
+    non-empty value (done automatically here) since the shared helper requires a key.
+    """
+    os.environ.setdefault(api_key_env, "ollama")
+    from agent_mapper import call_openai_compatible  # local import: only when used
+    return call_openai_compatible(
+        prompt=prompt,
+        frame_bytes=frames_bytes,
+        model=model,
+        api_key_env=api_key_env,
+        api_base_url="http://localhost:11434/v1",
+    )
+
+
+def _call_openrouter(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str) -> str:
+    """Verify via an OpenAI-compatible endpoint (OpenRouter / Gemma 4 etc.), one or many frames.
+
+    Reuses agent_mapper.call_openai_compatible — the same retry/backoff path already
+    validated against OpenRouter's free tier — so we don't duplicate the HTTP logic.
+    """
+    from agent_mapper import call_openai_compatible  # local import: only when used
+    return call_openai_compatible(
+        prompt=prompt,
+        frame_bytes=frames_bytes,
+        model=model,
+        api_key_env=api_key_env,
+        api_base_url="https://openrouter.ai/api/v1",
+    )
+
+
+def _call_anthropic(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str) -> str:
     api_key = os.environ.get(api_key_env, "").strip()
     if not api_key:
         raise RuntimeError(
             f"ANTHROPIC_API_KEY not set. Export it with: export {api_key_env}=your_key"
         )
 
+    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for fb in frames_bytes:
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg",
+                       "data": base64.b64encode(fb).decode("ascii")},
+        })
     payload = {
         "model": model,
         "max_tokens": 512,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": base64.b64encode(frame_bytes).decode("ascii"),
-                        },
-                    },
-                ],
-            }
-        ],
+        "messages": [{"role": "user", "content": content}],
     }
     req = urlrequest.Request(
         "https://api.anthropic.com/v1/messages",
@@ -348,14 +415,17 @@ def _parse_response(raw: str, fallback_priority: str) -> VerificationResult:
 def _save_artifacts(
     save_dir: Path,
     call_count: int,
-    frame: Any,
+    frames: list,
     alert: CandidateAlert,
     result: VerificationResult,
     raw_response: str,
 ) -> None:
     out_dir = save_dir / f"gate_{call_count:04d}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_dir / "frame.jpg"), frame)
+    for stale_frame in out_dir.glob("frame*.jpg"):
+        stale_frame.unlink()
+    for i, fr in enumerate(frames):
+        cv2.imwrite(str(out_dir / (f"frame_{i}.jpg" if len(frames) > 1 else "frame.jpg")), fr)
     (out_dir / "alert.json").write_text(
         json.dumps(alert.to_dict(), indent=2), encoding="utf-8"
     )

@@ -61,3 +61,12 @@ tests/agent_mapper/results/eval_*.csv
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.log
 reports/
+yolov8s-cls.pt
+
+# ── Large anomaly dataset (CamNuvem robbery clips) — do not commit ────────────
+data/anomaly/
+data/anomaly-*.zip
+
+# ── Bundled app installers (large binaries) — do not commit ───────────────────
+*.dmg
+*.exe

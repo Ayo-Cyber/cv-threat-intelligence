@@ -436,7 +436,7 @@ def read_http_error_body(exc: urlerror.HTTPError) -> str:
 
 def call_openai_compatible(
     prompt: str,
-    frame_bytes: bytes,
+    frame_bytes: bytes | list[bytes],
     model: str,
     api_key_env: str,
     api_base_url: str,
@@ -447,18 +447,15 @@ def call_openai_compatible(
     if require_key and not api_key:
         raise RuntimeError(f"Missing API key in environment variable: {api_key_env}")
 
-    image_url = f"data:image/jpeg;base64,{base64.b64encode(frame_bytes).decode('ascii')}"
+    # frame_bytes may be a single JPEG or a list of JPEGs (multi-frame verification).
+    frames = frame_bytes if isinstance(frame_bytes, list) else [frame_bytes]
+    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for fb in frames:
+        url = f"data:image/jpeg;base64,{base64.b64encode(fb).decode('ascii')}"
+        content.append({"type": "image_url", "image_url": {"url": url}})
     payload = {
         "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                ],
-            }
-        ],
+        "messages": [{"role": "user", "content": content}],
         "temperature": 0,
     }
     base = api_base_url.rstrip("/")
@@ -481,7 +478,16 @@ def call_openai_compatible(
         )
         try:
             with urlrequest.urlopen(req, timeout=90) as response:
-                body = json.loads(response.read().decode("utf-8"))
+                parsed = json.loads(response.read().decode("utf-8"))
+            # Free tiers sometimes return HTTP 200 with an empty/no-choices body under load —
+            # treat that like a transient error and retry rather than failing the call.
+            if not parsed.get("choices"):
+                last_error = RuntimeError("OpenAI-compatible response did not contain choices.")
+                if attempt < max_retries:
+                    time.sleep(2.0 * (2**attempt))
+                    continue
+                raise last_error
+            body = parsed
             break
         except urlerror.HTTPError as exc:
             detail = read_http_error_body(exc)

@@ -1,0 +1,18 @@
+{
+  "_comment": "Demo config for hybrid video-action evidence. VideoMAE/X3D are weak temporal signals; matching rules should still be verified by the VLM before alerting.",
+  "use_case_id": "hybrid_video_action_v1",
+  "rules": [
+    {
+      "name": "video_action_violence_candidate",
+      "trigger": {"detector": "video_action"},
+      "context_filter": "signal_type == 'violence_candidate' and adjusted_confidence >= 0.02",
+      "priority": "medium"
+    },
+    {
+      "name": "video_action_weapon_handling_candidate",
+      "trigger": {"detector": "video_action"},
+      "context_filter": "signal_type == 'weapon_handling_candidate' and adjusted_confidence >= 0.02",
+      "priority": "medium"
+    }
+  ]
+}

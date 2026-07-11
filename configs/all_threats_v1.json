@@ -1,0 +1,10 @@
+{
+  "_comment": "Full-system test config: rules for every detector (weapons, violence, theft, concealment). Used to batch-test the unified detector across varied CCTV.",
+  "use_case_id": "all_threats_v1",
+  "rules": [
+    {"name": "weapon_sighting", "trigger": {"detector": "weapons"}, "priority": "critical"},
+    {"name": "violence", "trigger": {"detector": "violence"}, "priority": "critical"},
+    {"name": "theft_depart", "trigger": {"detector": "theft", "state": "DEPART"}, "priority": "high"},
+    {"name": "shoplifting", "trigger": {"detector": "concealment"}, "priority": "high"}
+  ]
+}
