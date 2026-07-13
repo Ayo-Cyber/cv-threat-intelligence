@@ -170,7 +170,7 @@ class VerificationGate:
             title=alert.title,
             person_id=alert.person_id if alert.person_id is not None else "unknown",
             object_label=alert.object_label or "unknown",
-            question=_build_question(alert.rule_name, environment_type),
+            question=getattr(alert, "question", None) or _build_question(alert.rule_name, environment_type),
             priority=alert.priority,
         )
 

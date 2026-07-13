@@ -373,11 +373,17 @@ Example:
 }
 ```
 
+Status: compound evaluator DONE in `cvti/rules/customization.py` (`_eval_compound`,
+`_logic_satisfied`, signal aliases). Logic ops: `any` / `all` / `at_least_N` /
+`one_high_or_two_medium`. Recipes in `configs/compound_recipes_v1.json`
+(armed_robbery, violent_theft). `gate_question` threads to the gate via the new
+`CandidateAlert.question`. Tuning against real multi-signal footage is future work.
+
 Tasks:
 
-- Extend RawEvent with confidence, zone, camera_id, track_id/person_id, and signal_type.
-- Add compound rule evaluator.
-- Build first compound recipes for armed robbery, shoplifting, loitering, and after-hours intrusion.
+- [~] Extend RawEvent with confidence, zone, camera_id, track_id/person_id, and signal_type (signal_type + person_id used today via `extra`; camera_id lives on the queue item).
+- [x] Add compound rule evaluator.
+- [~] Build first compound recipes (armed_robbery + violent_theft done; loitering/after-hours already covered by simple zone+time rules).
 
 ### Phase 4: Per-Rule Frame/Clip Selection
 

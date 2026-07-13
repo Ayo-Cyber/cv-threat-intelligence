@@ -34,6 +34,9 @@ class CandidateAlert:
     object_label: str | None
     timestamp: float
     reasons: list[str] = field(default_factory=list)
+    # Optional rule-specific gate question (used by compound recipes); falls
+    # back to the gate's per-rule default question when None.
+    question: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +48,7 @@ class CandidateAlert:
             "object_label": self.object_label,
             "timestamp": self.timestamp,
             "reasons": self.reasons,
+            "question": self.question,
         }
 
 

@@ -1,0 +1,22 @@
+{
+  "_comment": "Compound threat recipes (plan.md Phase 3). A recipe fires when several signals combine per its logic op — so robbery isn't dependent on a lone gun detection on poor CCTV. Signals map to detectors (weapon_candidate->weapons, violence->violence, etc.); person_down/running/masked_entry/counter_rush activate as those detectors land. Merge with a customer config or run standalone.",
+  "use_case_id": "compound_recipes_v1",
+  "rules": [
+    {
+      "name": "armed_robbery",
+      "title": "ARMED ROBBERY IN PROGRESS",
+      "priority": "critical",
+      "signals": ["weapon_candidate", "violence", "running", "person_down", "masked_entry", "counter_rush"],
+      "logic": "one_high_or_two_medium",
+      "gate_question": "Do these frames show an armed robbery or coercive threat in progress — a weapon shown, staff/customers forced or fleeing, a counter rushed, or a person forced to the ground?"
+    },
+    {
+      "name": "violent_theft",
+      "title": "VIOLENT THEFT / GRAB-AND-RUN",
+      "priority": "high",
+      "signals": ["concealment", "violence", "running"],
+      "logic": "at_least_2",
+      "gate_question": "Do these frames show a theft escalating to force or a grab-and-run — concealment or grabbing goods combined with a shove, struggle, or someone fleeing?"
+    }
+  ]
+}

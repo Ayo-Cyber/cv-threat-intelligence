@@ -64,6 +64,12 @@ class CustomizationEngine:
         # Baseline first so critical safety rules are always evaluated, whatever
         # the customer config says.
         for rule in self.baseline_rules + self.rules:
+            # Compound recipe (Phase 3): several signals combined by a logic op.
+            if "signals" in rule:
+                compound = _eval_compound(rule, events, now)
+                if compound is not None:
+                    alerts.append(compound)
+                continue
             trigger = rule.get("trigger", {})
             for event in events:
                 if not event.active:
@@ -181,3 +187,87 @@ def _match_context_filter(
         return bool(eval(expr, {"__builtins__": {}}, ns))  # noqa: S307
     except Exception:
         return True  # don't block alert if expression is malformed
+
+
+# ---------------------------------------------------------------------------
+# Compound threat recipes (Phase 3)
+# A recipe combines several weak/strong signals into one high-level threat,
+# e.g. armed_robbery = weapon_candidate + violence + running + person_down.
+# ---------------------------------------------------------------------------
+
+# Signal name -> the detector it usually corresponds to (soft aliases).
+_SIGNAL_ALIASES = {
+    "weapon_candidate": "weapons", "weapon": "weapons", "gun": "weapons", "knife": "weapons",
+    "violence": "violence", "assault": "violence", "fight": "violence",
+    "person_down": "person_down", "fall": "person_down",
+    "concealment": "concealment", "theft": "theft",
+    "running": "running", "panic": "running",
+    "video_action": "video_action",
+}
+
+
+def _match_signal(event: RawEvent, spec: Any) -> bool:
+    if isinstance(spec, dict):
+        return _match_trigger(event, spec)
+    target = _SIGNAL_ALIASES.get(spec, spec)
+    sig_type = str(event.extra.get("signal_type") or "")
+    return (event.detector == target or event.detector == spec
+            or spec in sig_type or target in sig_type)
+
+
+def _logic_satisfied(logic: str, severities: list[int], total_signals: int) -> bool:
+    count = len(severities)
+    logic = (logic or "any").lower()
+    if logic == "all":
+        return count >= total_signals and total_signals > 0
+    if logic == "any":
+        return count >= 1
+    if logic.startswith("at_least_"):
+        try:
+            return count >= int(logic.rsplit("_", 1)[1])
+        except ValueError:
+            return count >= 1
+    if logic == "one_high_or_two_medium":
+        highs = sum(1 for s in severities if s >= PRIORITY_ORDER["high"])
+        mediums = sum(1 for s in severities if s >= PRIORITY_ORDER["medium"])
+        return highs >= 1 or mediums >= 2
+    return count >= 1
+
+
+def _eval_compound(rule: dict, events: list[RawEvent], now: datetime) -> CandidateAlert | None:
+    if not _match_time_filter(rule.get("time_filter"), now):
+        return None
+    specs = rule.get("signals", [])
+    present: dict[str, int] = {}   # signal key -> best severity seen
+    latest_ts = 0.0
+    for event in events:
+        if not event.active:
+            continue
+        for spec in specs:
+            if _match_signal(event, spec):
+                key = spec if isinstance(spec, str) else spec.get("name", str(spec))
+                sev = PRIORITY_ORDER.get(event.level, PRIORITY_ORDER["medium"])
+                present[key] = max(present.get(key, 0), sev)
+                latest_ts = max(latest_ts, event.timestamp)
+    if not present or not _logic_satisfied(rule.get("logic", "any"),
+                                           list(present.values()), len(specs)):
+        return None
+    reasons = [f"{k}={_rank_name(v)}" for k, v in present.items()]
+    return CandidateAlert(
+        rule_name=rule["name"],
+        priority=rule.get("priority", "high"),
+        detector="compound",
+        title=rule.get("title", rule["name"].replace("_", " ").upper()),
+        person_id=None,
+        object_label=None,
+        timestamp=latest_ts,
+        reasons=reasons,
+        question=rule.get("gate_question"),
+    )
+
+
+def _rank_name(rank: int) -> str:
+    for name, r in PRIORITY_ORDER.items():
+        if r == rank:
+            return name
+    return "medium"
