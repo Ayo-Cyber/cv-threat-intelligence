@@ -1,5 +1,11 @@
 # Session Handoff — Merge + Multi-Stream Serving + plan.md Phases 1–4
 
+> **Written:** 2026-07-13 20:44 WAT (Monday)
+> **Author:** Ayo (Atunrase)
+> **Branch:** `phase8-throughput` (backend work) · `main` (the merge)
+> **Commit range on branch:** `fa2a2ad..6b64db6` (`git log --oneline main..phase8-throughput`)
+> **Naming:** see [handoffs/README.md](README.md) for the date-time convention.
+
 **Audience:** engineering colleague picking this up.
 **Scope:** everything done this session. Two thrusts — (A) merge the ML branch
 into the installable package and make it actually run, (B) build a multi-stream
