@@ -19,6 +19,7 @@ from cvti.event_adapters import (
 )
 from cvti.rules.customization import CustomizationEngine
 from cvti.serving.alert_queue import AlertQueue, QueuedAlert
+from cvti.verification.frame_select import select_evidence_frames
 from cvti.verification.gate import VerificationGate
 from cvti.video_action_runtime import build_video_action_runtime
 
@@ -1805,6 +1806,10 @@ def main() -> None:
     # Phase 1: queue ALL matching candidates (dedup + throttle) instead of only
     # verifying candidate_alerts[0]. Lets concurrent threats each get verified.
     alert_queue = AlertQueue()
+    # Phase 4: rolling buffer of recent frames so the gate can be sent the
+    # clearest / motion-peak evidence for a rule, not just the flagged frame.
+    _fps_buf = fps_from_capture if fps_from_capture and fps_from_capture > 0 else 25.0
+    gate_frame_buffer: deque = deque(maxlen=max(2, int(_fps_buf * 1.5)))
     video_action_runtime = None
     if args.video_action_backend != "none":
         fps_for_video_action = fps_from_capture if fps_from_capture and fps_from_capture > 0 else 30.0
@@ -1866,6 +1871,7 @@ def main() -> None:
                 print("Stream ended or frame could not be read.")
                 break
             current_frame_index = frame_count
+            gate_frame_buffer.append(frame)
             if video_action_runtime is not None:
                 video_action_runtime.add_frame(frame, frame_index=current_frame_index)
 
@@ -2061,8 +2067,14 @@ def main() -> None:
                 for queued in alert_queue.drain(max_per_drain=args.max_alerts_per_frame):
                     candidate = queued.payload
                     verified_this_frame = True
+                    # Phase 4: send the gate per-rule evidence (1 clearest frame for
+                    # weapons; several motion-peak frames for violence/concealment)
+                    # instead of the single flagged frame.
+                    evidence_frames, sel_meta = select_evidence_frames(
+                        list(gate_frame_buffer), candidate.rule_name)
                     try:
-                        gate_result = verification_gate.verify(frame, candidate, scene_context)
+                        gate_result = verification_gate.verify(
+                            evidence_frames or frame, candidate, scene_context)
                     except Exception as exc:  # noqa: BLE001 - a transient gate/API error must not kill the run
                         print(f"[gate error] {candidate.rule_name} — {str(exc)[:140]} (alert held, not raised)")
                         continue
@@ -2072,6 +2084,7 @@ def main() -> None:
                             f"— {candidate.title}"
                             + (f" [obj: {candidate.object_label}]" if candidate.object_label else "")
                             + f" | confidence={gate_result.confidence:.2f} | {gate_result.reason}"
+                            + f" | frames={sel_meta['count']}({sel_meta['strategy']})"
                         )
                         confirmed_any = True
                     elif gate_result is not None:
