@@ -39,6 +39,7 @@ class StreamDecoder:
         self._thread: threading.Thread | None = None
         self._index = 0
         self._t0 = 0.0
+        self._fps = 0.0
         self.ended = False
 
     def start(self) -> "StreamDecoder":
@@ -54,7 +55,9 @@ class StreamDecoder:
         return cv2.VideoCapture(src)
 
     def _loop(self) -> None:
+        import cv2
         cap = self._open()
+        self._fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
         while not self._stop.is_set():
             loop_start = time.perf_counter()
             ok, image = cap.read()
@@ -67,7 +70,10 @@ class StreamDecoder:
                     continue
                 self.ended = True          # file/webcam exhausted
                 break
-            ts = time.perf_counter() - self._t0
+            # Use VIDEO time (frame index / source fps) so dwell/loiter thresholds
+            # are correct regardless of playback speed. Fall back to wall-clock for
+            # live sources with no reliable fps.
+            ts = (self._index / self._fps) if self._fps > 1e-3 else (time.perf_counter() - self._t0)
             with self._lock:
                 self._index += 1
                 self._latest = Frame(self.camera_id, image, self._index, ts)

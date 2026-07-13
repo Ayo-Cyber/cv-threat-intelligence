@@ -12,6 +12,11 @@ The single-stream `cvti-detect` path is untouched; this is an additive layer.
 
 from cvti.serving.alert_queue import AlertQueue, QueuedAlert
 from cvti.serving.batcher import collect_batch
+from cvti.serving.camera import PerCameraState, build_camera_states, load_site_config
+from cvti.serving.gate_pool import GatePool
 from cvti.serving.streams import StreamDecoder
 
-__all__ = ["AlertQueue", "QueuedAlert", "collect_batch", "StreamDecoder"]
+__all__ = [
+    "AlertQueue", "QueuedAlert", "collect_batch", "StreamDecoder",
+    "PerCameraState", "build_camera_states", "load_site_config", "GatePool",
+]

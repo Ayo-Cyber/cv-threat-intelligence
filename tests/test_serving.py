@@ -80,5 +80,57 @@ class BatcherTests(unittest.TestCase):
         self.assertEqual(len(collect_batch(decoders, max_batch=4)), 4)
 
 
+class GatePoolTests(unittest.TestCase):
+    def test_pool_drains_queue_and_confirms_via_mock_gate(self):
+        import time
+        import numpy as np
+        from cvti.contracts import CandidateAlert
+        from cvti.serving.gate_pool import GatePool
+        from cvti.verification.gate import VerificationGate
+
+        q = AlertQueue(cooldown_seconds=0.0)
+        frame = np.zeros((16, 16, 3), dtype=np.uint8)
+        candidate = CandidateAlert(rule_name="loitering_at_shelf", priority="medium",
+                                   detector="presence", title="PERSON IN ZONE",
+                                   person_id=6, object_label=None, timestamp=1.0)
+        qa = QueuedAlert(camera_id="cam0", rule_name="loitering_at_shelf", priority="medium",
+                         title="PERSON IN ZONE", timestamp=1.0, track_id=6, zone="shelf_right",
+                         payload={"candidate": candidate, "frames": [frame],
+                                  "scene": {"environment_type": "retail_shop"}})
+        q.add(qa)
+
+        verdicts = []
+        pool = GatePool(q, gate_factory=lambda: VerificationGate(provider="mock"),
+                        on_verdict=lambda a, r: verdicts.append((a, r))).start()
+        try:
+            deadline = time.time() + 5.0
+            while pool.verified < 1 and time.time() < deadline:
+                time.sleep(0.05)
+        finally:
+            pool.stop()
+
+        self.assertEqual(pool.verified, 1)
+        self.assertEqual(pool.confirmed, 1)          # mock auto-confirms
+        self.assertEqual(q.pending_count, 0)
+        self.assertEqual(verdicts[0][0].camera_id, "cam0")
+
+
+class CameraMappingTests(unittest.TestCase):
+    def test_candidate_maps_to_queued_with_evidence(self):
+        from cvti.contracts import CandidateAlert
+        from cvti.serving.camera import _to_queued
+
+        cand = CandidateAlert(rule_name="after_hours_in_aisle", priority="high",
+                              detector="presence", title="PERSON IN ZONE SHELF_RIGHT",
+                              person_id=8, object_label=None, timestamp=2.5)
+        qa = _to_queued("aisle_cam_2", cand, 2.5, "shelf_right", frames=["F"],
+                        scene={"environment_type": "retail_shop"})
+        self.assertEqual(qa.camera_id, "aisle_cam_2")
+        self.assertEqual(qa.track_id, 8)
+        self.assertEqual(qa.zone, "shelf_right")
+        self.assertEqual(qa.payload["candidate"], cand)
+        self.assertEqual(qa.payload["frames"], ["F"])
+
+
 if __name__ == "__main__":
     unittest.main()

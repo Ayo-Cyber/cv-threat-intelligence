@@ -44,7 +44,8 @@ class MultiStreamPipeline:
     def __init__(self, sources: dict[str, int | str], *, weights: str = "models/yolov8n.pt",
                  target_fps: float = 5.0, tick_seconds: float = 0.15, imgsz: int = 640,
                  conf: float = 0.4, device: str = "", half: bool = False,
-                 max_batch: int = 32, on_result: ResultHandler | None = None) -> None:
+                 max_batch: int = 32, on_result: ResultHandler | None = None,
+                 camera_states: dict[str, Any] | None = None, alert_queue: Any = None) -> None:
         self.sources = sources
         self.weights = weights
         self.target_fps = target_fps
@@ -54,7 +55,16 @@ class MultiStreamPipeline:
         self.device = device or _auto_device()
         self.half = half and self.device == "cuda"
         self.max_batch = max_batch
-        self.on_result = on_result or self._default_handler
+        self._camera_states = camera_states
+        self._alert_queue = alert_queue
+        # When per-camera states + a queue are supplied, route detections through
+        # them (track -> zones -> rules -> alert queue). Otherwise just count.
+        if on_result is not None:
+            self.on_result = on_result
+        elif camera_states is not None and alert_queue is not None:
+            self.on_result = self._route_to_queue
+        else:
+            self.on_result = self._default_handler
         self._decoders: dict[str, StreamDecoder] = {}
         self._model = None
         # stats
@@ -62,6 +72,7 @@ class MultiStreamPipeline:
         self.frames_processed = 0
         self.batch_hist: Counter = Counter()
         self.per_cam: Counter = Counter()
+        self.alerts_queued = 0
         self._detect_ms_total = 0.0
 
     def start(self) -> None:
@@ -75,6 +86,16 @@ class MultiStreamPipeline:
     def _default_handler(self, frame: Frame, result: Any) -> None:
         n = 0 if result.boxes is None else len(result.boxes)
         self.per_cam[frame.camera_id] += n
+
+    def _route_to_queue(self, frame: Frame, result: Any) -> None:
+        import supervision as sv
+        state = self._camera_states.get(frame.camera_id)
+        if state is None:
+            return
+        detections = sv.Detections.from_ultralytics(result)
+        for alert in state.process(detections, frame.image, frame.timestamp):
+            if self._alert_queue.add(alert):
+                self.alerts_queued += 1
 
     def _all_ended(self) -> bool:
         return all(d.ended and not d.read_latest() for d in self._decoders.values())
@@ -117,17 +138,59 @@ class MultiStreamPipeline:
               f"avg_batch={avg_batch:.1f} detect={avg_ms:.1f}ms/batch "
               f"throughput={fps:.0f} frames/s | batch_sizes={dict(sorted(self.batch_hist.items()))}")
         if final:
-            print(f"[FINAL] detections/camera={dict(self.per_cam)}")
+            if self._camera_states is not None:
+                print(f"[FINAL] alerts_queued={self.alerts_queued}")
+            else:
+                print(f"[FINAL] detections/camera={dict(self.per_cam)}")
 
     def stop(self) -> None:
         for d in self._decoders.values():
             d.stop()
 
 
+def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
+             target_fps: float = 5.0, imgsz: int = 640, conf: float = 0.4,
+             device: str = "", half: bool = False, seconds: float = 20.0,
+             gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
+             output_dir: str = "runs/serving") -> None:
+    """End-to-end multi-camera run: shared batched detector -> per-camera
+    track/zones/rules -> shared alert queue -> async VLM gate pool."""
+    from pathlib import Path
+
+    from cvti.serving.alert_queue import AlertQueue
+    from cvti.serving.camera import build_camera_states, load_site_config
+    from cvti.serving.gate_pool import GatePool
+    from cvti.verification.gate import VerificationGate
+
+    cams = build_camera_states(load_site_config(site_config_path))
+    sources = {cid: c["source"] for cid, c in cams.items()}
+    states = {cid: c["state"] for cid, c in cams.items()}
+    queue = AlertQueue()
+
+    save_dir = Path(output_dir) / "gate"
+    gate_pool = GatePool(
+        queue,
+        gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
+                                              base_url=gate_base_url, save_dir=save_dir),
+    ).start()
+
+    pipe = MultiStreamPipeline(sources, weights=weights, target_fps=target_fps, imgsz=imgsz,
+                               conf=conf, device=device, half=half, camera_states=states,
+                               alert_queue=queue)
+    pipe.start()
+    print(f"[site] {len(states)} camera(s) | gate={gate_provider} | rules per camera")
+    try:
+        pipe.run(max_seconds=seconds)
+    finally:
+        pipe.stop()
+        gate_pool.stop()
+    print(f"[site] alerts_queued={pipe.alerts_queued} gate={gate_pool.stats()}")
+
+
 def main() -> None:
-    p = argparse.ArgumentParser(description="Phase 8.1 multi-stream pipeline demo.")
-    p.add_argument("--sources", nargs="+", required=True,
-                   help="One or more video files / RTSP URLs / webcam indices.")
+    p = argparse.ArgumentParser(description="Phase 8.1 multi-stream pipeline.")
+    p.add_argument("--sources", nargs="+", help="Video files / RTSP URLs / webcam indices (demo mode).")
+    p.add_argument("--site-config", default="", help="Site JSON: per-camera source + rules + zones.")
     p.add_argument("--weights", default="models/yolov8n.pt")
     p.add_argument("--target-fps", type=float, default=5.0)
     p.add_argument("--imgsz", type=int, default=640)
@@ -135,8 +198,20 @@ def main() -> None:
     p.add_argument("--device", default="")
     p.add_argument("--half", action="store_true")
     p.add_argument("--seconds", type=float, default=20.0)
+    p.add_argument("--gate-provider", default="mock")
+    p.add_argument("--gate-model", default="")
+    p.add_argument("--gate-base-url", default="")
     args = p.parse_args()
 
+    if args.site_config:
+        run_site(args.site_config, weights=args.weights, target_fps=args.target_fps,
+                 imgsz=args.imgsz, conf=args.conf, device=args.device, half=args.half,
+                 seconds=args.seconds, gate_provider=args.gate_provider,
+                 gate_model=args.gate_model, gate_base_url=args.gate_base_url)
+        return
+
+    if not args.sources:
+        raise SystemExit("pass --sources <files...> (demo) or --site-config <site.json>")
     sources = {f"cam{i}": s for i, s in enumerate(args.sources)}
     pipe = MultiStreamPipeline(sources, weights=args.weights, target_fps=args.target_fps,
                                imgsz=args.imgsz, conf=args.conf, device=args.device, half=args.half)

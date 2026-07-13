@@ -1,0 +1,21 @@
+{
+  "_comment": "Demo site: two virtual cameras (both fed the bundled theft_shop_01 clip so the demo is self-contained) each running the shelf-zone loitering rules. Shows the multi-stream path: one shared detector, per-camera tracking + zones + rules, one shared alert queue, async VLM gate. Point 'source' at RTSP URLs for real cameras.",
+  "cameras": [
+    {
+      "id": "aisle_cam_1",
+      "source": "data/test_clips/theft_shop_01.mp4",
+      "zones": "configs/retail_zones.theft_shop_01.json",
+      "config": "configs/shelf_zones_demo.json",
+      "environment_type": "retail_shop",
+      "scene_description": "retail shop aisle with merchandise shelves"
+    },
+    {
+      "id": "aisle_cam_2",
+      "source": "data/test_clips/theft_shop_01.mp4",
+      "zones": "configs/retail_zones.theft_shop_01.json",
+      "config": "configs/shelf_zones_demo.json",
+      "environment_type": "retail_shop",
+      "scene_description": "second aisle, same store"
+    }
+  ]
+}

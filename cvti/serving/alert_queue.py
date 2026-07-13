@@ -13,6 +13,7 @@ Pure Python and side-effect free so it is fully unit-testable without models.
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -54,6 +55,9 @@ class AlertQueue:
         self._pending: list[QueuedAlert] = []
         self._last_seen: dict[tuple, float] = {}  # dedup signature -> last accept ts
         self.dropped_duplicates = 0
+        # Producer (pipeline thread) and consumer (gate pool thread) touch this
+        # concurrently, so every mutation is under the lock.
+        self._lock = threading.Lock()
 
     def add(self, alert: QueuedAlert) -> bool:
         """Enqueue unless a matching alert was accepted within the cooldown.
@@ -64,27 +68,30 @@ class AlertQueue:
         # zone) should not re-fire every frame, so we ignore the time bucket here
         # and gate purely on elapsed time since the last accept.
         dedup_key = (alert.camera_id, alert.rule_name, alert.track_id, alert.zone)
-        last = self._last_seen.get(dedup_key)
-        if last is not None and (alert.timestamp - last) < self.cooldown_seconds:
-            self.dropped_duplicates += 1
-            return False
-        self._last_seen[dedup_key] = alert.timestamp
-        self._pending.append(alert)
-        # Bound memory: if a slow gate lets the backlog grow, keep the most urgent.
-        if len(self._pending) > self.max_pending:
-            self._pending.sort()
-            self._pending = self._pending[: self.max_pending]
+        with self._lock:
+            last = self._last_seen.get(dedup_key)
+            if last is not None and (alert.timestamp - last) < self.cooldown_seconds:
+                self.dropped_duplicates += 1
+                return False
+            self._last_seen[dedup_key] = alert.timestamp
+            self._pending.append(alert)
+            # Bound memory: if a slow gate lets the backlog grow, keep the most urgent.
+            if len(self._pending) > self.max_pending:
+                self._pending.sort()
+                self._pending = self._pending[: self.max_pending]
         return True
 
     def drain(self, max_per_drain: int = 4) -> list[QueuedAlert]:
         """Pop up to `max_per_drain` most-urgent alerts for verification."""
-        if not self._pending:
-            return []
-        self._pending.sort()
-        out = self._pending[:max_per_drain]
-        self._pending = self._pending[max_per_drain:]
+        with self._lock:
+            if not self._pending:
+                return []
+            self._pending.sort()
+            out = self._pending[:max_per_drain]
+            self._pending = self._pending[max_per_drain:]
         return out
 
     @property
     def pending_count(self) -> int:
-        return len(self._pending)
+        with self._lock:
+            return len(self._pending)
