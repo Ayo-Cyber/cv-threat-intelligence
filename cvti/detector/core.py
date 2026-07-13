@@ -1803,7 +1803,7 @@ def main() -> None:
     zone_monitor = None
     concealment_detector = None
     if args.zones:
-        from retail_zones import RetailZoneMonitor, load_zone_config
+        from cvti.retail.zones import RetailZoneMonitor, load_zone_config
         zone_monitor = RetailZoneMonitor(load_zone_config(args.zones))
         print(f"[Zones] Loaded {len(zone_monitor.zones)} zone(s): {', '.join(z.name for z in zone_monitor.zones)}")
     if args.concealment:

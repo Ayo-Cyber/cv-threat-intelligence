@@ -1,0 +1,19 @@
+{
+  "_comment": "Demo zone rules for data/test_clips/theft_shop_01.mp4. Pair with configs/retail_zones.theft_shop_01.json. Consumes 'presence' events from zone_states_to_events(). The loitering rule fires during the day (no time filter); the after-hours rule needs --simulate-time 21:00.",
+  "use_case_id": "shelf_zones_demo",
+  "rules": [
+    {
+      "name": "loitering_at_shelf",
+      "trigger": {"detector": "presence"},
+      "context_filter": "zone == 'shelf_right' and dwell_seconds >= 5",
+      "priority": "medium"
+    },
+    {
+      "name": "after_hours_in_aisle",
+      "trigger": {"detector": "presence"},
+      "time_filter": "20:00-06:00",
+      "context_filter": "zone == 'shelf_right'",
+      "priority": "high"
+    }
+  ]
+}
