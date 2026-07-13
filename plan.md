@@ -521,6 +521,60 @@ The registry should track:
 
 No model should ship without a validated FPR attached.
 
+### Phase 8: Serving & Throughput (multi-stream, near real-time)
+
+Goal: run many camera streams on one box in near real-time. Phases 0–7 cover
+*what* to detect; this phase covers *how to serve it at scale*, which nothing
+above addresses.
+
+Target (confirmed 2026-07-13): **one edge box per site, NVIDIA GPU, 5–16
+cameras, 1–2s glass-to-alert latency.**
+
+Key insights that shape the design:
+
+- The 1–2s budget means we do **not** need 30 FPS/camera. Detection at ~5 FPS
+  is enough (threats and dwell/zone events are multi-second). 16 cams × 5 =
+  ~80 detection-frames/s total.
+- **Detection is not the bottleneck.** Baseline bench (yolov8n @640, MPS dev
+  box, fp16 off) already sustains ~180 fps batched → ~36 cams at 5 FPS. A real
+  NVIDIA GPU with fp16/TensorRT is multiples faster.
+- **The local VLM gate is the true ceiling** (~1–3s per verify, ~single-thread
+  on one GPU). Across all 16 cams combined you can afford roughly one verified
+  alert every 1–3s. You cannot gate every candidate — so Phase 1 (alert
+  queue + dedup) and Phase 4 (per-rule frames) become load-bearing for scale.
+- **Batch the stateless detector across cameras; keep the stateful tracker and
+  rules per camera.** ByteTrack holds per-camera state, so batch detection then
+  associate per stream.
+
+Target architecture (one process, shared models for a camera group):
+
+```text
+16 RTSP decode threads ─┐  keep LATEST frame only (drop stale) + skip to ~5 FPS
+                        ├─▶ BATCHER (~150ms window) ─▶ YOLO.predict(batch, half=True)
+                        │        └─▶ scatter detections back per camera
+                        ├─▶ per-camera: ByteTrack assoc + pose(batched) + zones/rules
+                        ├─▶ ALERT QUEUE (Phase 1): dedup (camera,rule,track,time-bucket) + throttle
+                        └─▶ async LOCAL-VLM pool (1–2 workers, rate-limited) ─▶ evidence writer
+```
+
+Sub-phases (sequenced so the hot loop is rewritten once):
+
+- **8.0 Measure** — `tools/throughput_bench.py`: per-model ms/frame at batch
+  1/8/16 (+fp16) and a multi-stream capacity projection. Run on the target GPU.
+- **8.1 Pipeline refactor** — decode threads (latest-frame-drop) → batcher →
+  batched detect → per-camera track/rules; single process, shared models.
+  **Fold Phase 1 (top-alert → alert queue) in here.**
+- **8.2 Frame governor** — per-camera target-FPS subsampling.
+- **8.3 Async gate + baseline-critical** — non-blocking VLM pool, hard dedup,
+  prioritize Phase 2 baseline-critical over customer rules. Tames the VLM ceiling.
+- **8.4 GPU optimize** — export YOLO→TensorRT (fp16), tune imgsz; then NVDEC decode.
+- **8.5 Resilience** — per-camera supervision/reconnect (one dead RTSP feed must
+  not kill the box).
+
+Interlock with earlier phases: 8.1 *is where* Phase 1 lands (same loop). 8.3
+depends on Phase 2 and consumes Phase 4. Compound recipes (Phase 3), eval
+(Phase 5), and video fine-tuning (Phase 6) run in parallel, unaffected.
+
 ## Minimum Bar To Call This Backend V1
 
 Backend V1 is ready when:
