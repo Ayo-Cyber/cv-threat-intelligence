@@ -169,16 +169,23 @@ def _bench_gate(provider: str, model: str, base_url: str, frames: int, imgsz: in
 
 
 def _project(rows: list[dict], target_fps: float, cams: int) -> None:
+    # Per-frame models (detection, pose) run on every sampled frame, so they
+    # scale with camera count. VideoMAE is per-EVENT (gated + cooldown'd), not
+    # per-frame, so the per-camera-FPS capacity math does not apply to it.
+    per_frame = [r for r in rows if r["model"] != "videomae"]
     print(f"\n=== Multi-stream projection (target {target_fps:g} FPS/camera) ===")
     print(f"{'model':>12} {'best fps':>9} {'max cams @target':>17} {'used @'+str(cams)+'cams':>14}")
-    for label in dict.fromkeys(r["model"] for r in rows):
-        best = max((r for r in rows if r["model"] == label), key=lambda r: r["fps"])
+    for label in dict.fromkeys(r["model"] for r in per_frame):
+        best = max((r for r in per_frame if r["model"] == label), key=lambda r: r["fps"])
         max_cams = best["fps"] / target_fps
-        needed = cams * target_fps
-        util = needed / best["fps"] * 100
+        util = (cams * target_fps) / best["fps"] * 100
         print(f"{label:>12} {best['fps']:>9.0f} {max_cams:>17.1f} {util:>13.0f}%")
+    for r in (r for r in rows if r["model"] == "videomae"):
+        clips_s = r["fps"]
+        print(f"{'videomae':>12} {clips_s:>7.1f}/s  (per EVENT, gated+cooldown — not per-frame)")
     print("\nNote: detection runs on every sampled frame; pose runs on person-frames only.")
-    print("The VLM gate is the true ceiling — measure it separately (Ollama server).")
+    print("VideoMAE fires only on detector-triggered events, so its cost is per-alert not per-frame.")
+    print("The VLM gate is the true ceiling — measure it with --time-gate against a live provider.")
 
 
 def main() -> None:
