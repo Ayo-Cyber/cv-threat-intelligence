@@ -429,6 +429,15 @@ Metrics:
 
 Goal: make temporal threats smarter than VLM frame guessing.
 
+Status: fine-tuning PIPELINE built (was inference-only before).
+`cvti/training/video_dataset.py` (shared CamNuvem clip loader, robbery-vs-normal,
+even-frame sampling) + `cvti/training/video_finetune.py` (unified
+`--backend {videomae,x3d}` trainer: resets the head to 2 classes, AdamW + CE,
+per-epoch accuracy/recall/FPR, saves checkpoint + metrics.json). VideoMAE +
+X3D share the same dataset so results are comparable. **Smoke-tested** on MPS
+(4 clips, 1 epoch: loop trains → evals → saves). Real multi-epoch run on the
+full ~256 clips is pending a cloud GPU (metrics on 4 clips are meaningless).
+
 Training strategy:
 
 - Use online/public CCTV data now for bootstrapping.
