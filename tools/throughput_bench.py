@@ -130,6 +130,44 @@ def _bench_videomae(model_name: str, iters: int, device: str, frame_count: int) 
              "p95_ms": stats["p95_ms"]}]
 
 
+def _bench_gate(provider: str, model: str, base_url: str, frames: int, imgsz: int,
+                iters: int) -> None:
+    """Time the VLM gate — the true scaling ceiling. Needs a live provider
+    (e.g. a local Ollama server); reports gracefully if it can't reach one."""
+    print(f"\n=== VLM gate: provider={provider} model={model or '(default)'} "
+          f"frames={frames} ===")
+    try:
+        from cvti.verification.gate import VerificationGate
+        from cvti.contracts import CandidateAlert
+    except Exception as exc:  # noqa: BLE001
+        print(f"    SKIPPED (import: {str(exc)[:80]})")
+        return
+    gate = VerificationGate(provider=provider, model=model, base_url=base_url)
+    alert = CandidateAlert(rule_name="violence", priority="critical", detector="pose",
+                           title="VIOLENCE SUSPECTED", person_id=1, object_label=None,
+                           timestamp=0.0)
+    clip = _synthetic_frames(frames, imgsz, imgsz)
+    scene = {"environment_type": "retail_shop", "scene_description": "aisle"}
+
+    # One real call first to surface auth/connection errors clearly.
+    try:
+        gate.verify(clip if frames > 1 else clip[0], alert, scene)
+    except Exception as exc:  # noqa: BLE001
+        print(f"    could not reach provider: {str(exc)[:100]}")
+        print("    (start the Ollama server / set the API key, then rerun with --time-gate)")
+        return
+
+    def _call():
+        gate.verify(clip if frames > 1 else clip[0], alert, scene)
+
+    stats = _time_calls(_call, max(4, iters // 4))
+    per_call = stats["mean_ms"]
+    per_s = 1000.0 / per_call
+    print(f"    {per_call:.0f} ms/verify (p95 {stats['p95_ms']:.0f})  ~{per_s:.2f} verifies/s")
+    print(f"    => the whole box can confirm ~{per_s:.2f} alerts/s across ALL cameras.")
+    print("    Dedup/throttle (alert queue) must keep candidates under this ceiling.")
+
+
 def _project(rows: list[dict], target_fps: float, cams: int) -> None:
     print(f"\n=== Multi-stream projection (target {target_fps:g} FPS/camera) ===")
     print(f"{'model':>12} {'best fps':>9} {'max cams @target':>17} {'used @'+str(cams)+'cams':>14}")
@@ -157,6 +195,12 @@ def main() -> None:
     p.add_argument("--video-action-model", default="", help="Also benchmark this VideoMAE checkpoint.")
     p.add_argument("--video-action-frames", type=int, default=16)
     p.add_argument("--no-pose", action="store_true")
+    p.add_argument("--time-gate", action="store_true",
+                   help="Also time the VLM gate (the true ceiling). Needs a live provider.")
+    p.add_argument("--gate-provider", default="ollama")
+    p.add_argument("--gate-model", default="")
+    p.add_argument("--gate-base-url", default="")
+    p.add_argument("--gate-frames", type=int, default=3)
     args = p.parse_args()
 
     device = args.device or _detect_device()
@@ -171,6 +215,10 @@ def main() -> None:
     if args.video_action_model:
         rows += _bench_videomae(args.video_action_model, args.iters, device,
                                 args.video_action_frames)
+
+    if args.time_gate:
+        _bench_gate(args.gate_provider, args.gate_model, args.gate_base_url,
+                    args.gate_frames, args.imgsz, args.iters)
 
     if rows:
         _project(rows, args.target_fps, args.cams)

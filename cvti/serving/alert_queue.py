@@ -1,0 +1,90 @@
+"""Alert queue with dedup + throttle (plan.md Phase 1: top-alert -> queue).
+
+The single-stream detector processes only `candidate_alerts[0]`. With many
+cameras that drops real concurrent threats and also floods the VLM. This queue:
+
+- accepts every candidate from every camera,
+- collapses duplicates by (camera, rule, track, zone, time-bucket),
+- orders by priority so the gate verifies the most critical first,
+- hands out at most `max_per_drain` candidates per cycle so a slow VLM gate
+  (the true scaling ceiling) is never overwhelmed.
+
+Pure Python and side-effect free so it is fully unit-testable without models.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+# Higher rank = more urgent; used to order the gate funnel.
+_PRIORITY_RANK = {"critical": 3, "high": 2, "medium": 1, "low": 0}
+
+
+@dataclass(order=True)
+class QueuedAlert:
+    # Fields before `sort_index` are excluded from ordering; heap/sort uses
+    # (-rank, timestamp) so criticals surface first, ties break oldest-first.
+    sort_index: tuple = field(init=False, compare=True)
+    camera_id: str = field(compare=False)
+    rule_name: str = field(compare=False)
+    priority: str = field(compare=False)
+    title: str = field(compare=False)
+    timestamp: float = field(compare=False)
+    track_id: int | None = field(default=None, compare=False)
+    zone: str | None = field(default=None, compare=False)
+    payload: Any = field(default=None, compare=False)  # e.g. the CandidateAlert
+
+    def __post_init__(self) -> None:
+        rank = _PRIORITY_RANK.get(self.priority, 0)
+        self.sort_index = (-rank, self.timestamp)
+
+    def signature(self, bucket_seconds: float) -> tuple:
+        bucket = int(self.timestamp // bucket_seconds) if bucket_seconds > 0 else 0
+        return (self.camera_id, self.rule_name, self.track_id, self.zone, bucket)
+
+
+class AlertQueue:
+    """Dedup + priority-ordered throttle in front of the VLM gate."""
+
+    def __init__(self, *, cooldown_seconds: float = 8.0, bucket_seconds: float = 2.0,
+                 max_pending: int = 256) -> None:
+        self.cooldown_seconds = cooldown_seconds
+        self.bucket_seconds = bucket_seconds
+        self.max_pending = max_pending
+        self._pending: list[QueuedAlert] = []
+        self._last_seen: dict[tuple, float] = {}  # dedup signature -> last accept ts
+        self.dropped_duplicates = 0
+
+    def add(self, alert: QueuedAlert) -> bool:
+        """Enqueue unless a matching alert was accepted within the cooldown.
+
+        Returns True if enqueued, False if suppressed as a duplicate.
+        """
+        # Dedup key is coarser than the cooldown key: the same (camera,rule,track,
+        # zone) should not re-fire every frame, so we ignore the time bucket here
+        # and gate purely on elapsed time since the last accept.
+        dedup_key = (alert.camera_id, alert.rule_name, alert.track_id, alert.zone)
+        last = self._last_seen.get(dedup_key)
+        if last is not None and (alert.timestamp - last) < self.cooldown_seconds:
+            self.dropped_duplicates += 1
+            return False
+        self._last_seen[dedup_key] = alert.timestamp
+        self._pending.append(alert)
+        # Bound memory: if a slow gate lets the backlog grow, keep the most urgent.
+        if len(self._pending) > self.max_pending:
+            self._pending.sort()
+            self._pending = self._pending[: self.max_pending]
+        return True
+
+    def drain(self, max_per_drain: int = 4) -> list[QueuedAlert]:
+        """Pop up to `max_per_drain` most-urgent alerts for verification."""
+        if not self._pending:
+            return []
+        self._pending.sort()
+        out = self._pending[:max_per_drain]
+        self._pending = self._pending[max_per_drain:]
+        return out
+
+    @property
+    def pending_count(self) -> int:
+        return len(self._pending)
