@@ -33,6 +33,7 @@ class QueuedAlert:
     timestamp: float = field(compare=False)
     track_id: int | None = field(default=None, compare=False)
     zone: str | None = field(default=None, compare=False)
+    object_label: str | None = field(default=None, compare=False)
     payload: Any = field(default=None, compare=False)  # e.g. the CandidateAlert
 
     def __post_init__(self) -> None:
@@ -64,10 +65,11 @@ class AlertQueue:
 
         Returns True if enqueued, False if suppressed as a duplicate.
         """
-        # Dedup key is coarser than the cooldown key: the same (camera,rule,track,
-        # zone) should not re-fire every frame, so we ignore the time bucket here
-        # and gate purely on elapsed time since the last accept.
-        dedup_key = (alert.camera_id, alert.rule_name, alert.track_id, alert.zone)
+        # The same (camera, rule, track, zone, object) should not re-fire every
+        # frame; suppress within the cooldown. object_label matters for object
+        # alerts (weapons) where track_id is often None.
+        dedup_key = (alert.camera_id, alert.rule_name, alert.track_id, alert.zone,
+                     alert.object_label)
         with self._lock:
             last = self._last_seen.get(dedup_key)
             if last is not None and (alert.timestamp - last) < self.cooldown_seconds:

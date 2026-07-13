@@ -115,6 +115,42 @@ class GatePoolTests(unittest.TestCase):
         self.assertEqual(verdicts[0][0].camera_id, "cam0")
 
 
+class Phase1ConcurrentAlertsTests(unittest.TestCase):
+    """Two simultaneous RawEvents must yield two CandidateAlerts that are BOTH
+    queued and processable — not just candidate_alerts[0]."""
+
+    def test_two_concurrent_events_both_reach_the_gate(self):
+        from cvti.contracts import RawEvent
+        from cvti.rules.customization import CustomizationEngine
+
+        engine = CustomizationEngine("configs/all_threats_v1.json")
+        events = [
+            RawEvent(detector="weapons", active=True, title="GUN", level="critical",
+                     object_label="gun", timestamp=1.0),
+            RawEvent(detector="violence", active=True, title="FIGHT", level="critical",
+                     person_id=3, timestamp=1.0),
+        ]
+        candidates = engine.evaluate(events)
+        self.assertGreaterEqual(len(candidates), 2)  # both rules fire, not just one
+
+        q = AlertQueue(cooldown_seconds=8.0)
+        for c in candidates:
+            q.add(QueuedAlert(camera_id="main", rule_name=c.rule_name, priority=c.priority,
+                              title=c.title, timestamp=1.0, track_id=c.person_id,
+                              object_label=c.object_label, payload=c))
+        drained = q.drain(max_per_drain=10)
+        self.assertEqual(len(drained), len(candidates))  # every concurrent alert processed
+
+    def test_object_label_distinguishes_weapon_alerts(self):
+        q = AlertQueue(cooldown_seconds=8.0)
+        base = dict(camera_id="main", rule_name="weapon_sighting", priority="critical",
+                    title="WEAPON", timestamp=0.0, track_id=None)
+        self.assertTrue(q.add(QueuedAlert(**base, object_label="gun")))
+        self.assertTrue(q.add(QueuedAlert(**base, object_label="knife")))   # different object
+        self.assertFalse(q.add(QueuedAlert(**base, object_label="gun")))    # dup within cooldown
+        self.assertEqual(q.pending_count, 2)
+
+
 class CameraMappingTests(unittest.TestCase):
     def test_candidate_maps_to_queued_with_evidence(self):
         from cvti.contracts import CandidateAlert

@@ -33,6 +33,7 @@ def _to_queued(camera_id: str, alert: Any, timestamp: float, zone: str | None,
         timestamp=timestamp,
         track_id=alert.person_id,
         zone=zone,
+        object_label=alert.object_label,
         payload={"candidate": alert, "frames": frames, "scene": scene},
     )
 

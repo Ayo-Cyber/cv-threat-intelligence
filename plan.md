@@ -332,13 +332,19 @@ Recommendation: use Retail Watch for short-term model experimentation because th
 
 Goal: move from "top alert" to "alert queue."
 
+Status: DONE in both runtimes via `cvti/serving/alert_queue.py` (`AlertQueue`).
+The multi-stream pipeline and the single-stream `detector/core.py` now enqueue
+every matching candidate (deduped by rule/track/object/zone within a cooldown,
+priority-ordered) and verify a bounded burst per frame instead of only
+`candidate_alerts[0]`.
+
 Tasks:
 
-- Replace `top_alert = candidate_alerts[0]` runtime behavior with a throttled queue of all important candidate alerts.
-- Add per-alert signature using rule, detector, person_id, object_label, zone, and time bucket.
-- Verify multiple concurrent candidates without flooding the VLM.
-- Save one artifact bundle per verified candidate.
-- Add tests proving two simultaneous RawEvents create two CandidateAlerts and both can be processed.
+- [x] Replace `top_alert = candidate_alerts[0]` runtime behavior with a throttled queue of all important candidate alerts.
+- [x] Add per-alert signature using rule, detector, person_id, object_label, zone, and time bucket.
+- [x] Verify multiple concurrent candidates without flooding the VLM (bounded `--max-alerts-per-frame`).
+- [~] Save one artifact bundle per verified candidate (gate save_dir writes per verified call; detector event-clip save still one-per-event).
+- [x] Add tests proving two simultaneous RawEvents create two CandidateAlerts and both can be processed.
 
 ### Phase 2: Add Always-On Critical Baseline
 

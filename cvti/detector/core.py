@@ -18,6 +18,7 @@ from cvti.event_adapters import (
     zone_states_to_events,
 )
 from cvti.rules.customization import CustomizationEngine
+from cvti.serving.alert_queue import AlertQueue, QueuedAlert
 from cvti.verification.gate import VerificationGate
 from cvti.video_action_runtime import build_video_action_runtime
 
@@ -417,6 +418,13 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Path to user_config.json (Customization Engine rules). Example: configs/retail_v1.json",
+    )
+    parser.add_argument(
+        "--max-alerts-per-frame",
+        type=int,
+        default=2,
+        help="Max queued candidate alerts verified by the gate per frame (Phase 1 "
+             "throttle). Extra concurrent alerts wait in the queue for later frames.",
     )
     parser.add_argument(
         "--zones",
@@ -1779,7 +1787,9 @@ def main() -> None:
         debug=args.debug_theft,
     )
     customization_engine = CustomizationEngine(args.config)
-    last_alert_rule: str | None = None
+    # Phase 1: queue ALL matching candidates (dedup + throttle) instead of only
+    # verifying candidate_alerts[0]. Lets concurrent threats each get verified.
+    alert_queue = AlertQueue()
     video_action_runtime = None
     if args.video_action_backend != "none":
         fps_for_video_action = fps_from_capture if fps_from_capture and fps_from_capture > 0 else 30.0
@@ -2012,32 +2022,47 @@ def main() -> None:
                     except Exception as exc:  # noqa: BLE001 - optional weak signal must not kill detector
                         print(f"[VideoAction error] {str(exc)[:140]}")
                 candidate_alerts = customization_engine.evaluate(raw_events, scene_context=scene_context)
-                top_alert = candidate_alerts[0] if candidate_alerts else None
-                if top_alert is not None:
-                    rule_sig = f"{top_alert.rule_name}:{top_alert.title}"
-                    if rule_sig != last_alert_rule:
-                        try:
-                            gate_result = verification_gate.verify(frame, top_alert, scene_context)
-                        except Exception as exc:  # noqa: BLE001 - a transient gate/API error must not kill the run
-                            print(f"[gate error] {top_alert.rule_name} — {str(exc)[:140]} (alert held, not raised)")
-                            gate_result = None
-                        if gate_result is not None and gate_result.confirmed:
-                            print(
-                                f"[CONFIRMED] {top_alert.rule_name} ({top_alert.priority.upper()}) "
-                                f"— {top_alert.title}"
-                                + (f" [obj: {top_alert.object_label}]" if top_alert.object_label else "")
-                                + f" | confidence={gate_result.confidence:.2f} | {gate_result.reason}"
-                            )
-                            threat_detected = True
-                        elif gate_result is not None:
-                            print(
-                                f"[REJECTED]  {top_alert.rule_name} — {gate_result.reason}"
-                            )
-                            threat_detected = False
-                        last_alert_rule = rule_sig
-                else:
-                    if last_alert_rule is not None:
-                        last_alert_rule = None
+                # Phase 1: enqueue EVERY matching candidate (deduped by rule/track/
+                # object within a cooldown), not just candidate_alerts[0]. Concurrent
+                # threats (e.g. a weapon AND a theft) are then each verified over
+                # successive frames instead of the top one starving the rest.
+                for candidate in candidate_alerts:
+                    alert_queue.add(QueuedAlert(
+                        camera_id=source_name,
+                        rule_name=candidate.rule_name,
+                        priority=candidate.priority,
+                        title=candidate.title,
+                        timestamp=ts_now,
+                        track_id=candidate.person_id,
+                        object_label=candidate.object_label,
+                        payload=candidate,
+                    ))
+                # Verify a bounded, priority-ordered burst per frame so a slow gate
+                # can't stall the loop; the rest stay queued for the next frames.
+                confirmed_any = False
+                verified_this_frame = False
+                for queued in alert_queue.drain(max_per_drain=args.max_alerts_per_frame):
+                    candidate = queued.payload
+                    verified_this_frame = True
+                    try:
+                        gate_result = verification_gate.verify(frame, candidate, scene_context)
+                    except Exception as exc:  # noqa: BLE001 - a transient gate/API error must not kill the run
+                        print(f"[gate error] {candidate.rule_name} — {str(exc)[:140]} (alert held, not raised)")
+                        continue
+                    if gate_result is not None and gate_result.confirmed:
+                        print(
+                            f"[CONFIRMED] {candidate.rule_name} ({candidate.priority.upper()}) "
+                            f"— {candidate.title}"
+                            + (f" [obj: {candidate.object_label}]" if candidate.object_label else "")
+                            + f" | confidence={gate_result.confidence:.2f} | {gate_result.reason}"
+                        )
+                        confirmed_any = True
+                    elif gate_result is not None:
+                        print(f"[REJECTED]  {candidate.rule_name} — {gate_result.reason}")
+                # Only let the config gate govern threat_detected when we actually
+                # verified something this frame; otherwise keep the baseline signal.
+                if verified_this_frame:
+                    threat_detected = confirmed_any
 
             weapon_detections_for_debug = validated_weapon_detections
             if args.debug_weapon:
