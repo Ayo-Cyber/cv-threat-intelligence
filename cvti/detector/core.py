@@ -427,6 +427,18 @@ def parse_args() -> argparse.Namespace:
              "throttle). Extra concurrent alerts wait in the queue for later frames.",
     )
     parser.add_argument(
+        "--baseline-config",
+        type=str,
+        default="configs/baseline_critical_v1.json",
+        help="Always-on critical safety rules merged with --config (Phase 2). "
+             "Fires weapon/violence/etc. even if the customer config omits them.",
+    )
+    parser.add_argument(
+        "--no-baseline",
+        action="store_true",
+        help="Disable the always-on critical baseline (dev/testing only).",
+    )
+    parser.add_argument(
         "--zones",
         type=str,
         default="",
@@ -1786,7 +1798,10 @@ def main() -> None:
         approach_ratio=args.theft_approach_ratio,
         debug=args.debug_theft,
     )
-    customization_engine = CustomizationEngine(args.config)
+    customization_engine = CustomizationEngine(
+        args.config,
+        baseline_path=None if args.no_baseline else args.baseline_config,
+    )
     # Phase 1: queue ALL matching candidates (dedup + throttle) instead of only
     # verifying candidate_alerts[0]. Lets concurrent threats each get verified.
     alert_queue = AlertQueue()
@@ -1981,8 +1996,10 @@ def main() -> None:
             assessment = choose_assessment(object_assessment, violence_assessment, theft_assessment)
             threat_detected = assessment.active
 
-            # Customization Engine + Verification Gate
-            if args.config:
+            # Customization Engine + Verification Gate. Runs when there are any
+            # rules — including the always-on critical baseline, so weapons/
+            # violence are gated even with no customer --config.
+            if customization_engine.has_rules():
                 ts_now = time.time() - time_anchor
                 raw_events = assessments_to_events(
                     object_assessment, violence_assessment, theft_assessment,

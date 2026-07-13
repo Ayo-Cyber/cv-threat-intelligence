@@ -1,0 +1,11 @@
+{
+  "_comment": "Always-on critical safety baseline (plan.md Phase 2). Merged into EVERY customer config and not disableable in pilots, so a narrow user policy (e.g. violence-only) can never hide a universal critical threat. 'weapons' and 'violence' fire today; person_down / camera_tampering / fire_smoke activate automatically once those detectors land.",
+  "use_case_id": "baseline_critical_v1",
+  "rules": [
+    {"name": "baseline_weapon", "trigger": {"detector": "weapons"}, "priority": "critical"},
+    {"name": "baseline_violence", "trigger": {"detector": "violence"}, "priority": "critical"},
+    {"name": "baseline_person_down", "trigger": {"detector": "person_down"}, "priority": "critical"},
+    {"name": "baseline_camera_tampering", "trigger": {"detector": "camera_tampering"}, "priority": "high"},
+    {"name": "baseline_fire_smoke", "trigger": {"detector": "fire"}, "priority": "critical"}
+  ]
+}

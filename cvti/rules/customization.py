@@ -16,9 +16,16 @@ PRIORITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "none": 0}
 class CustomizationEngine:
     """Evaluates a list of RawEvents against user-defined rules and returns CandidateAlerts."""
 
-    def __init__(self, config_path: str | Path | None = None) -> None:
+    def __init__(self, config_path: str | Path | None = None,
+                 baseline_path: str | Path | None = None) -> None:
         self.rules: list[dict] = []
+        # Always-on critical safety rules (weapon, violence, person-down, ...).
+        # Merged into every evaluation and NOT disableable via the customer config,
+        # so a narrow user policy can never hide a universal critical threat.
+        self.baseline_rules: list[dict] = []
         self.use_case_id: str = "default"
+        if baseline_path:
+            self.load_baseline(baseline_path)
         if config_path:
             self.load(config_path)
 
@@ -32,6 +39,17 @@ class CustomizationEngine:
         self.rules = data.get("rules", [])
         print(f"[CustomizationEngine] Loaded {len(self.rules)} rules for use-case '{self.use_case_id}'")
 
+    def load_baseline(self, baseline_path: str | Path) -> None:
+        path = Path(baseline_path)
+        if not path.exists():
+            print(f"[CustomizationEngine] Baseline config not found: {path}")
+            return
+        self.baseline_rules = json.loads(path.read_text()).get("rules", [])
+        print(f"[CustomizationEngine] Loaded {len(self.baseline_rules)} always-on baseline rule(s)")
+
+    def has_rules(self) -> bool:
+        return bool(self.rules or self.baseline_rules)
+
     def evaluate(
         self,
         events: list[RawEvent],
@@ -43,7 +61,9 @@ class CustomizationEngine:
         context = scene_context or {}
         alerts: list[CandidateAlert] = []
 
-        for rule in self.rules:
+        # Baseline first so critical safety rules are always evaluated, whatever
+        # the customer config says.
+        for rule in self.baseline_rules + self.rules:
             trigger = rule.get("trigger", {})
             for event in events:
                 if not event.active:
