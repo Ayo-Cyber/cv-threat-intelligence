@@ -150,7 +150,7 @@ class MultiStreamPipeline:
 
 def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              target_fps: float = 5.0, imgsz: int = 640, conf: float = 0.4,
-             device: str = "", half: bool = False, seconds: float = 20.0,
+             device: str = "", half: bool = False, seconds: float = 90.0,
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
              output_dir: str = "runs/serving") -> None:
     """End-to-end multi-camera run: shared batched detector -> per-camera
@@ -197,7 +197,8 @@ def main() -> None:
     p.add_argument("--conf", type=float, default=0.4)
     p.add_argument("--device", default="")
     p.add_argument("--half", action="store_true")
-    p.add_argument("--seconds", type=float, default=20.0)
+    p.add_argument("--seconds", type=float, default=90.0,
+                   help="Run cap; file sources stop automatically at end-of-stream.")
     p.add_argument("--gate-provider", default="mock")
     p.add_argument("--gate-model", default="")
     p.add_argument("--gate-base-url", default="")

@@ -58,9 +58,24 @@ class StreamDecoder:
         import cv2
         cap = self._open()
         self._fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+        # Sample target_fps by SKIPPING frames, not by slowing playback: keep 1
+        # frame every `stride`. This makes a file advance through video at real
+        # time while only decoding the frames we need (and drops a 30fps live
+        # source to the same sampled rate).
+        stride = max(1, round(self._fps / self.target_fps)) \
+            if (self._fps > 1e-3 and self.target_fps > 0) else 1
+        orig_index = 0
         while not self._stop.is_set():
             loop_start = time.perf_counter()
-            ok, image = cap.read()
+            ok = True
+            for _ in range(stride - 1):        # cheaply skip intermediate frames
+                ok = cap.grab()
+                orig_index += 1
+                if not ok:
+                    break
+            if ok:
+                ok, image = cap.read()
+                orig_index += 1
             if not ok:
                 if self.reconnect and not str(self.source).isdigit() and "://" in str(self.source):
                     # Live source hiccup — back off and reopen.
@@ -70,15 +85,15 @@ class StreamDecoder:
                     continue
                 self.ended = True          # file/webcam exhausted
                 break
-            # Use VIDEO time (frame index / source fps) so dwell/loiter thresholds
-            # are correct regardless of playback speed. Fall back to wall-clock for
-            # live sources with no reliable fps.
-            ts = (self._index / self._fps) if self._fps > 1e-3 else (time.perf_counter() - self._t0)
+            # VIDEO time from the original frame index so dwell/loiter thresholds
+            # are correct regardless of sample rate. Wall-clock fallback if no fps.
+            ts = (orig_index / self._fps) if self._fps > 1e-3 else (time.perf_counter() - self._t0)
             with self._lock:
                 self._index += 1
-                self._latest = Frame(self.camera_id, image, self._index, ts)
+                self._latest = Frame(self.camera_id, image, orig_index, ts)
                 self._consumed = False
-            # Governor: hold the decode loop to roughly target_fps.
+            # Pace each kept frame to target_fps: files play at real time; a live
+            # source is naturally paced already, so this just caps intake.
             if self._min_period:
                 elapsed = time.perf_counter() - loop_start
                 if elapsed < self._min_period:

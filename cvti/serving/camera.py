@@ -47,8 +47,13 @@ class PerCameraState:
     _tracker: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        import warnings
         import supervision as sv
-        self._tracker = sv.ByteTrack()
+        # sv.ByteTrack is deprecation-proxied in supervision 0.28 (removed in
+        # 0.30). It still works; silence the per-camera warning spam for now.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            self._tracker = sv.ByteTrack()
 
     def process(self, detections: Any, image: Any, timestamp: float) -> list[QueuedAlert]:
         """Associate detections to this camera's tracks, run zones + rules,
