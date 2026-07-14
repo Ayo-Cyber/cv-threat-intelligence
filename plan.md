@@ -429,14 +429,24 @@ Metrics:
 
 Goal: make temporal threats smarter than VLM frame guessing.
 
-Status: fine-tuning PIPELINE built (was inference-only before).
-`cvti/training/video_dataset.py` (shared CamNuvem clip loader, robbery-vs-normal,
-even-frame sampling) + `cvti/training/video_finetune.py` (unified
-`--backend {videomae,x3d}` trainer: resets the head to 2 classes, AdamW + CE,
-per-epoch accuracy/recall/FPR, saves checkpoint + metrics.json). VideoMAE +
-X3D share the same dataset so results are comparable. **Smoke-tested** on MPS
-(4 clips, 1 epoch: loop trains → evals → saves). Real multi-epoch run on the
-full ~256 clips is pending a cloud GPU (metrics on 4 clips are meaningless).
+Status: fine-tuning PIPELINE built (was inference-only before) AND a first real
+model trained. `cvti/training/video_dataset.py` (shared CamNuvem clip loader,
+robbery-vs-normal, even-frame sampling) + `cvti/training/video_finetune.py`
+(unified `--backend {videomae,x3d}` trainer: resets head to 2 classes, AdamW +
+class-weighted CE, `--freeze-backbone`, `--patience`, per-epoch balanced-acc /
+recall / FPR, saves best checkpoint + metrics.json). VideoMAE + X3D share the
+dataset so results compare directly.
+
+First real run (VideoMAE, frozen head, lr 1e-3, MPS, 220 train / 36 test):
+**best balanced_acc 0.852 @ epoch 7** — recall_theft 0.889, FPR_normal 0.185
+(8/9 thefts caught, 22/27 normals clean). Checkpoint in `runs/video_finetune/videomae/`.
+Lessons: (1) train/test splits are class-inverted (train 69% theft, test 75%
+normal) so **class-weighted loss** was essential — without it the head collapsed
+to always-theft (FPR ~0.96); (2) select/early-stop on **balanced accuracy**, not
+recall (recall pins at 1.0 during collapse and masks progress). Caveats: 36-clip
+test set is tiny (not a validated FPR — needs Phase 5 data); frozen head plateaus
+~0.80–0.85, next lever is partial unfreeze; the 2-class head is not yet wired into
+the hybrid detector path (needs a label adapter).
 
 Training strategy:
 
