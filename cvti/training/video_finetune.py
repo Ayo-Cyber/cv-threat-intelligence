@@ -170,8 +170,14 @@ def _evaluate(backend, torch, ds: RobberyClipDataset, batch: int, pos_label: int
                 else:
                     fp += int(p == pos_label); tn += int(p != pos_label)
     recall = tp / (tp + fn) if (tp + fn) else 0.0
+    specificity = tn / (tn + fp) if (tn + fp) else 0.0
     fpr = fp / (fp + tn) if (fp + tn) else 0.0
+    # Balanced accuracy = mean(recall, specificity). Unlike raw recall, this does
+    # NOT pin at 1.0 when the head collapses to always-theft, so it's the right
+    # thing to select best/early-stop on for this inverted-class set.
+    balanced = (recall + specificity) / 2
     return {"accuracy": round(correct / total, 4) if total else 0.0,
+            "balanced_acc": round(balanced, 4),
             "recall_theft": round(recall, 4), "fpr_normal": round(fpr, 4),
             "n": total, "tp": tp, "fp": fp, "tn": tn, "fn": fn}
 
@@ -236,7 +242,7 @@ def main() -> None:
     out_dir = Path(args.out) / args.backend
     out_dir.mkdir(parents=True, exist_ok=True)
     history = []
-    best_recall = -1.0
+    best_score = -1.0            # selection metric = balanced accuracy
     epochs_since_best = 0
 
     for epoch in range(1, args.epochs + 1):
@@ -259,12 +265,12 @@ def main() -> None:
                "secs": round(time.time() - t0, 1), **metrics}
         history.append(row)
         print(f"[epoch {epoch}] loss={row['train_loss']} "
-              + " ".join(f"{k}={metrics[k]}" for k in ("accuracy", "recall_theft", "fpr_normal") if k in metrics))
-        if metrics.get("recall_theft", -1) > best_recall:
-            best_recall = metrics.get("recall_theft", -1)
+              + " ".join(f"{k}={metrics[k]}" for k in ("balanced_acc", "accuracy", "recall_theft", "fpr_normal") if k in metrics))
+        if metrics.get("balanced_acc", -1) > best_score:
+            best_score = metrics.get("balanced_acc", -1)
             epochs_since_best = 0
             backend.save(out_dir)
-            print(f"[epoch {epoch}] saved best (recall_theft={best_recall})")
+            print(f"[epoch {epoch}] saved best (balanced_acc={best_score})")
         else:
             epochs_since_best += 1
         # Persist metrics EVERY epoch so a long/unattended run stays observable
@@ -272,7 +278,7 @@ def main() -> None:
         (out_dir / "metrics.json").write_text(json.dumps(
             {"backend": args.backend, "base_model": base_model, "device": device,
              "class_map": class_map, "epochs_planned": args.epochs,
-             "best_recall_theft": best_recall, "history": history}, indent=2))
+             "best_balanced_acc": best_score, "history": history}, indent=2))
         if args.patience and epochs_since_best >= args.patience:
             print(f"[finetune] early stop: no val improvement in {args.patience} epochs")
             break
