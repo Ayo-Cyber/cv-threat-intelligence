@@ -72,6 +72,19 @@ class _VideoMAEBackend:
         for p in self.model.classifier.parameters():
             p.requires_grad = True
 
+    def unfreeze_last_block(self):
+        # Middle ground: adapt the top encoder block + head. More capacity than
+        # a linear probe, far less overfit than full fine-tuning.
+        for p in self.model.parameters():
+            p.requires_grad = False
+        for p in self.model.videomae.encoder.layer[-1].parameters():
+            p.requires_grad = True
+        if getattr(self.model, "fc_norm", None) is not None:
+            for p in self.model.fc_norm.parameters():
+                p.requires_grad = True
+        for p in self.model.classifier.parameters():
+            p.requires_grad = True
+
     def set_train(self, on: bool):
         self.model.train(on)
 
@@ -116,6 +129,14 @@ class _X3DBackend:
         for p in self.model.parameters():
             p.requires_grad = False
         for p in self.model.blocks[-1].proj.parameters():
+            p.requires_grad = True
+
+    def unfreeze_last_block(self):
+        for p in self.model.parameters():
+            p.requires_grad = False
+        for p in self.model.blocks[-1].parameters():
+            p.requires_grad = True
+        for p in self.model.blocks[-2].parameters():
             p.requires_grad = True
 
     def set_train(self, on: bool):
@@ -195,6 +216,9 @@ def main() -> None:
     p.add_argument("--freeze-backbone", action="store_true",
                    help="Train only the classifier head (recommended for a small "
                         "dataset — the pretrained encoder overfits fast otherwise).")
+    p.add_argument("--unfreeze-last-block", action="store_true",
+                   help="Partial fine-tune: top encoder block + head. More capacity "
+                        "than --freeze-backbone; less overfit than full. Overrides it.")
     p.add_argument("--patience", type=int, default=0,
                    help="Early-stop if val recall_theft hasn't improved in N epochs (0=off).")
     p.add_argument("--no-class-weights", action="store_true",
@@ -221,7 +245,10 @@ def main() -> None:
 
     base_model = args.base_model or _backend_default(args.backend)
     backend = _make_backend(args.backend, base_model, len(class_map), device, id2label)
-    if args.freeze_backbone:
+    if args.unfreeze_last_block:
+        backend.unfreeze_last_block()
+        print("[finetune] partial fine-tune — top block + classifier head")
+    elif args.freeze_backbone:
         backend.freeze_backbone()
         print("[finetune] backbone frozen — training classifier head only")
     trainable = [p for p in backend.parameters() if p.requires_grad]
