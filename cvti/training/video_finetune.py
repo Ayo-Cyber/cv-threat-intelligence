@@ -191,6 +191,8 @@ def main() -> None:
                         "dataset — the pretrained encoder overfits fast otherwise).")
     p.add_argument("--patience", type=int, default=0,
                    help="Early-stop if val recall_theft hasn't improved in N epochs (0=off).")
+    p.add_argument("--no-class-weights", action="store_true",
+                   help="Disable inverse-frequency class weighting (on by default).")
     p.add_argument("--device", default="")
     p.add_argument("--out", default="runs/video_finetune")
     args = p.parse_args()
@@ -218,7 +220,18 @@ def main() -> None:
         print("[finetune] backbone frozen — training classifier head only")
     trainable = [p for p in backend.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(trainable, lr=args.lr)
-    loss_fn = torch.nn.CrossEntropyLoss()
+    # Class-weighted loss (inverse frequency) so a theft-heavy train set doesn't
+    # collapse the head into "always predict theft" (recall 1.0 / FPR ~1.0).
+    if args.no_class_weights:
+        loss_fn = torch.nn.CrossEntropyLoss()
+    else:
+        from collections import Counter
+        counts = Counter(train_ds.labels())
+        n = sum(counts.values())
+        w = torch.tensor([n / (len(class_map) * max(1, counts.get(i, 0)))
+                          for i in range(len(class_map))], dtype=torch.float, device=device)
+        loss_fn = torch.nn.CrossEntropyLoss(weight=w)
+        print(f"[finetune] class counts={dict(counts)} weights={[round(x,2) for x in w.tolist()]}")
 
     out_dir = Path(args.out) / args.backend
     out_dir.mkdir(parents=True, exist_ok=True)
