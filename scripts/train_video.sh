@@ -15,6 +15,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Refuse to start a second run — two trainers fight over the GPU and both write
+# the same output dir, corrupting metrics/checkpoint.
+if pgrep -f 'cvti.training.video_finetune' >/dev/null 2>&1; then
+  echo "[train] a training run is already active. Stop it first: pkill -f video_finetune" >&2
+  exit 1
+fi
+
 mkdir -p runs/video_finetune
 TS="$(date +%Y%m%d-%H%M)"
 LOG="runs/video_finetune/train-${TS}.log"
