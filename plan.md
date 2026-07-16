@@ -663,3 +663,33 @@ Common base with current `unify-detector`: `413da78`.
 ### Practical Conclusion
 
 Ayo's branch is better for packaging and offline app operations. This branch is better for ML/backend intelligence experiments and unified detector work. The eventual merge should port the ML features from `unify-detector` into Ayo's `cvti` package structure, not discard them.
+
+## Active Backlog (as of 2026-07-16)
+
+Owners: **Demi** = multi-stream detector completion + X3D (see
+`docs/handoffs/2026-07-16-1922-demi-multistream-detector-and-x3d.md`).
+**Ayo** = video-model track (data/eval) + the fixes below.
+
+### Demi
+- Wire violence / weapons / theft-state-machine / video-action into
+  `PerCameraState` (multi-stream currently does object-detection + zones +
+  concealment). Pattern set by `_concealment_events()`; reference `core.py` ~1900–2010.
+- X3D fine-tune on CamNuvem via the unified trainer (compare to VideoMAE 0.852/0.889).
+
+### P1 — the real ceiling (Ayo)
+- **Validated eval set (Phase 5).** Current video-model number (bal-acc 0.889) is
+  on a 36-clip, class-inverted test split — not trustworthy. Collect more normal /
+  hard-negative footage, re-split, re-run.
+- **Measure local VLM latency** (`tools/throughput_bench.py --time-gate` vs Ollama)
+  to size the alert-queue throttle at 16 cameras.
+- **Back up trained checkpoints off-machine** (`runs/` is gitignored, local-only).
+
+### P2 — correctness / tech-debt
+- `sv.ByteTrack` deprecated (supervision 0.28, removed 0.30) — migrate the tracker.
+- Per-rule frame selection is single-stream only — port `frame_select` into
+  `PerCameraState` (multi-stream currently sends 1 evidence frame/alert).
+- Compound recipes unit-tested but never run on real multi-signal footage — validate.
+- `PerCameraState` dedup `zone_hint` is approximate (one zone applied to all
+  alerts from a frame) — tighten if false-dedup appears.
+- 2-class video model wired to the detector via a keyword adapter
+  (`theft`→`theft_candidate`); revisit if class names change.
