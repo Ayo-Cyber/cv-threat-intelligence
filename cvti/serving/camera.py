@@ -14,6 +14,7 @@ video-action model per camera — all of which the single-stream detector runs.
 from __future__ import annotations
 
 import json
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,10 @@ class PerCameraState:
     _prev_pose: list = field(default_factory=list, init=False, repr=False)
     _next_pose_id: int = field(default=1, init=False, repr=False)
     _pose_history: dict = field(default_factory=dict, init=False, repr=False)
+    # Rolling recent frames (~2s at 5 FPS) so the gate gets per-rule evidence
+    # (motion-peak span for violence, sharpest single frame for weapons) instead
+    # of just the flagged frame.
+    _frame_buffer: deque = field(default_factory=lambda: deque(maxlen=10), init=False, repr=False)
 
     def __post_init__(self) -> None:
         import warnings
@@ -96,6 +101,7 @@ class PerCameraState:
         from cvti.retail.zones import filter_person_detections
 
         frame_hw = image.shape[:2]
+        self._frame_buffer.append(image)
         if self.person_filter and self.zone_monitor is not None:
             detections = filter_person_detections(detections, frame_hw)
         tracked = self._tracker.update_with_detections(detections)
@@ -118,10 +124,19 @@ class PerCameraState:
             return []
 
         alerts = self.engine.evaluate(raw_events, scene_context=self.scene_context)
+        if not alerts:
+            return []
+        from cvti.verification.frame_select import select_evidence_frames
+
         # Best-effort: attach the zone of the first matching presence event for dedup.
         zone_hint = zone_by_event[0] if zone_by_event else None
-        return [_to_queued(self.camera_id, a, timestamp, zone_hint, [image], self.scene_context)
-                for a in alerts]
+        recent = list(self._frame_buffer)
+        out = []
+        for a in alerts:
+            frames, _ = select_evidence_frames(recent, a.rule_name)
+            out.append(_to_queued(self.camera_id, a, timestamp, zone_hint,
+                                  frames or [image], self.scene_context))
+        return out
 
 
 def build_camera_states(site_config: dict, *, pose_model: Any = None,

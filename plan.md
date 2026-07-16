@@ -686,8 +686,9 @@ Owners: **Demi** = multi-stream detector completion + X3D (see
 
 ### P2 — correctness / tech-debt
 - `sv.ByteTrack` deprecated (supervision 0.28, removed 0.30) — migrate the tracker.
-- Per-rule frame selection is single-stream only — port `frame_select` into
-  `PerCameraState` (multi-stream currently sends 1 evidence frame/alert).
+- ~~Per-rule frame selection is single-stream only~~ **DONE (2026-07-16)**:
+  `PerCameraState` now keeps a rolling frame buffer and sends the gate per-rule
+  evidence (motion-peak span / sharpest frame) via `select_evidence_frames`.
 - Compound recipes unit-tested but never run on real multi-signal footage — validate.
 - `PerCameraState` dedup `zone_hint` is approximate (one zone applied to all
   alerts from a frame) — tighten if false-dedup appears.
