@@ -72,17 +72,19 @@ python -m cvti.retail.zones --source data/test_clips/theft_shop_01.mp4 \
 **Talking point:** "Zones + dwell are customer-configured — the same engine, a
 different JSON per site."
 
-## Demo 3 — Multi-stream on one model (scale story)
-**Shows:** many cameras through ONE batched model, per-camera rules, one alert
-queue, async gate.
+## Demo 3 — Multi-stream on one box (scale story)
+**Shows:** many cameras through ONE batched detector + ONE shared pose model,
+per-camera rules, one alert queue, async gate. Each camera runs
+object-detection + tracking + **pose-based concealment** + rules + gate.
 ```bash
-python -m cvti.serving.pipeline --site-config configs/site_demo.json --gate-provider mock
+python -m cvti.serving.pipeline --site-config configs/site_theft_demo.json --gate-provider mock
 ```
-**Expected:** `batch_sizes={2}`, both cameras fire loitering, gate confirms,
-`deduped=...`.
-**Talking point:** "One box, one shared model, N cameras batched together — the
-VLM gate (not detection) is the only real ceiling, and the alert queue keeps it
-from being flooded."
+**Expected:** `shared pose model loaded ...`, `[CONFIRMED] aisle_cam_1 :: shoplifting (POSSIBLE CONCEALMENT)`, `deduped=...`, `errors=0`.
+**Talking point:** "One box, one shared detector + one shared pose model, N
+cameras — each with its own tracker, rules, and evidence. The VLM gate (not
+detection) is the only real ceiling, and the alert queue keeps it from being
+flooded."
+(Zones-only variant: `--site-config configs/site_demo.json` shows loitering across cameras.)
 
 ## Demo 4 — Full detector + always-on safety baseline
 **Shows:** violence detected → confirmed alert; the critical baseline fires even
@@ -110,5 +112,6 @@ motion-peak frames, not one blurry still."
 ## Honest caveats (say these, don't hide them)
 - The robbery model's 0.89 is on a **36-clip** test set — a strong first result,
   not a validated production number. More normal/hard-negative data is the next step.
-- The multi-stream path currently runs **object-detection + zones**; pose/violence
-  in the multi-cam path is in progress.
+- The multi-stream path now runs **object-detection + zones + pose-based
+  concealment** per camera; violence / weapons / theft-state-machine / video-action
+  per camera are the remaining wiring (single-stream runs all of them today).
