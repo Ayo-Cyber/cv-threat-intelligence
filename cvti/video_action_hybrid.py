@@ -45,6 +45,19 @@ _SIGNAL_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "shooting",
         ),
     ),
+    (
+        # Emitted by a CamNuvem-fine-tuned model whose classes are theft/normal
+        # (the "normal" label matches nothing here, so it's correctly ignored).
+        "theft_candidate",
+        (
+            "theft",
+            "robbery",
+            "shoplift",
+            "stealing",
+            "steal",
+            "burglary",
+        ),
+    ),
 )
 
 

@@ -1,0 +1,12 @@
+{
+  "_comment": "Demo config for the CamNuvem-fine-tuned VideoMAE model. Fires when the video model emits a theft/robbery signal. Pair with: --video-action-backend videomae --video-action-model runs/video_finetune/videomae",
+  "use_case_id": "video_robbery_demo",
+  "rules": [
+    {
+      "name": "video_theft_candidate",
+      "trigger": {"detector": "video_action"},
+      "context_filter": "signal_type == 'theft_candidate'",
+      "priority": "high"
+    }
+  ]
+}
