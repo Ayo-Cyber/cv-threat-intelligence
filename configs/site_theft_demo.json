@@ -1,0 +1,7 @@
+{
+  "_comment": "Multi-stream demo with pose-based concealment ON per camera. Each camera runs object-detection (shared batched) + ByteTrack + concealment (shared pose model) + rules + gate. all_threats_v1 has a shoplifting rule on the concealment detector. Always-on critical baseline is merged automatically.",
+  "cameras": [
+    {"id": "aisle_cam_1", "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_v1.json", "concealment": true},
+    {"id": "aisle_cam_2", "source": "data/test_clips/theft_shop_02.mp4", "config": "configs/all_threats_v1.json", "concealment": true}
+  ]
+}

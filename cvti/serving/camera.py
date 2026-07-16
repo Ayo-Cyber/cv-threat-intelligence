@@ -6,8 +6,10 @@ tracker, zone monitor, rules engine, and scene context. Detections for a camera
 are associated to that camera's tracks, turned into RawEvents, evaluated against
 that camera's threat policy, and emitted as QueuedAlerts for the gate.
 
-Concealment/violence (which need the pose model) are a documented seam: add a
-batched pose pass in the pipeline and feed pose_people here the same way.
+Pose-based CONCEALMENT (theft) is wired in via a shared pose model (opt-in per
+camera with "concealment": true). Still on the seam for a later pass: violence
+(needs weapon validation + the temporal gate), the theft state machine, and the
+video-action model per camera — all of which the single-stream detector runs.
 """
 from __future__ import annotations
 
@@ -45,7 +47,17 @@ class PerCameraState:
     zone_monitor: Any = None          # RetailZoneMonitor | None
     scene_context: dict | None = None
     person_filter: bool = True
+    # Pose-based concealment (theft) — needs a SHARED pose model instance. The
+    # tracker/zones are the always-on path; concealment is opt-in per camera.
+    pose_model: Any = None            # LoadedModel | None (shared across cameras)
+    concealment: bool = False
+    pose_conf: float = 0.35
+    imgsz: int = 640
     _tracker: Any = field(default=None, init=False, repr=False)
+    _conceal: Any = field(default=None, init=False, repr=False)
+    _prev_pose: list = field(default_factory=list, init=False, repr=False)
+    _next_pose_id: int = field(default=1, init=False, repr=False)
+    _pose_history: dict = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         import warnings
@@ -55,10 +67,32 @@ class PerCameraState:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", FutureWarning)
             self._tracker = sv.ByteTrack()
+        if self.concealment and self.pose_model is not None:
+            from cvti.retail.concealment import ConcealmentDetector
+            self._conceal = ConcealmentDetector()
+
+    def _concealment_events(self, image: Any, timestamp: float) -> list:
+        """Run the shared pose model on this camera's frame and produce
+        concealment RawEvents (pocket/waist/bag). Per-camera pose track state is
+        kept here so dwell/motion history is not mixed across cameras."""
+        from cvti.detector.core import (
+            assign_pose_tracks, enrich_pose_people_with_history,
+            extract_pose_people, pose_people_to_concealment_frames,
+        )
+        from cvti.event_adapters import concealment_to_events
+
+        pose_people = extract_pose_people(self.pose_model, image, self.pose_conf, self.imgsz)
+        pose_people, self._next_pose_id = assign_pose_tracks(
+            pose_people, previous_people=self._prev_pose, next_track_id=self._next_pose_id)
+        pose_people = enrich_pose_people_with_history(pose_people, self._pose_history)
+        self._prev_pose = list(pose_people)
+        assessments = self._conceal.update(
+            pose_people_to_concealment_frames(pose_people, timestamp), timestamp)
+        return concealment_to_events(assessments, timestamp)
 
     def process(self, detections: Any, image: Any, timestamp: float) -> list[QueuedAlert]:
-        """Associate detections to this camera's tracks, run zones + rules,
-        and return the candidate alerts (already mapped to QueuedAlert)."""
+        """Associate detections to this camera's tracks, run zones (+ optional
+        pose-based concealment) + rules, and return candidate alerts."""
         from cvti.retail.zones import filter_person_detections
 
         frame_hw = image.shape[:2]
@@ -74,6 +108,12 @@ class PerCameraState:
             raw_events += zone_events
             zone_by_event = [e.extra.get("zone") for e in zone_events]
 
+        if self._conceal is not None:
+            try:
+                raw_events += self._concealment_events(image, timestamp)
+            except Exception as exc:  # noqa: BLE001 - a pose hiccup must not kill the camera
+                print(f"[{self.camera_id}] concealment error: {str(exc)[:120]}")
+
         if not raw_events:
             return []
 
@@ -84,18 +124,24 @@ class PerCameraState:
                 for a in alerts]
 
 
-def build_camera_states(site_config: dict) -> dict[str, dict]:
+def build_camera_states(site_config: dict, *, pose_model: Any = None,
+                        baseline_config: str | None = None) -> dict[str, dict]:
     """Parse a site config into {camera_id: {"source": ..., "state": PerCameraState}}.
 
     Site config shape:
-        {"cameras": [{"id", "source", "config", "zones"?, "scene_description"?}]}
+        {"cameras": [{"id", "source", "config", "zones"?, "concealment"?,
+                      "scene_description"?}]}
+
+    `pose_model` is a shared LoadedModel; cameras with "concealment": true reuse
+    it for pose-based theft detection. `baseline_config` (if given) is merged into
+    every camera's engine so the always-on critical rules apply per camera too.
     """
     from cvti.retail.zones import RetailZoneMonitor, load_zone_config
 
     out: dict[str, dict] = {}
     for cam in site_config["cameras"]:
         cam_id = cam["id"]
-        engine = CustomizationEngine(cam["config"])
+        engine = CustomizationEngine(cam["config"], baseline_path=baseline_config)
         zone_monitor = None
         if cam.get("zones"):
             zone_monitor = RetailZoneMonitor(load_zone_config(cam["zones"]))
@@ -105,7 +151,10 @@ def build_camera_states(site_config: dict) -> dict[str, dict]:
                      "scene_description": cam["scene_description"]}
         out[cam_id] = {
             "source": cam["source"],
-            "state": PerCameraState(cam_id, engine, zone_monitor=zone_monitor, scene_context=scene),
+            "state": PerCameraState(
+                cam_id, engine, zone_monitor=zone_monitor, scene_context=scene,
+                pose_model=pose_model, concealment=bool(cam.get("concealment")),
+            ),
         }
     return out
 

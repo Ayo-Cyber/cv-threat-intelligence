@@ -152,9 +152,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              target_fps: float = 5.0, imgsz: int = 640, conf: float = 0.4,
              device: str = "", half: bool = False, seconds: float = 90.0,
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
+             pose_weights: str = "models/yolov8n-pose.pt",
+             baseline_config: str | None = "configs/baseline_critical_v1.json",
              output_dir: str = "runs/serving") -> None:
     """End-to-end multi-camera run: shared batched detector -> per-camera
-    track/zones/rules -> shared alert queue -> async VLM gate pool."""
+    track/zones/(pose)concealment/rules -> shared alert queue -> async VLM gate."""
     from pathlib import Path
 
     from cvti.serving.alert_queue import AlertQueue
@@ -162,7 +164,14 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     from cvti.serving.gate_pool import GatePool
     from cvti.verification.gate import VerificationGate
 
-    cams = build_camera_states(load_site_config(site_config_path))
+    site = load_site_config(site_config_path)
+    # Load ONE shared pose model iff any camera enables concealment.
+    pose_model = None
+    if any(c.get("concealment") for c in site["cameras"]):
+        from cvti.detector.core import load_ultralytics_model
+        pose_model = load_ultralytics_model(pose_weights)
+        print(f"[site] shared pose model loaded ({pose_weights}) for concealment")
+    cams = build_camera_states(site, pose_model=pose_model, baseline_config=baseline_config)
     sources = {cid: c["source"] for cid, c in cams.items()}
     states = {cid: c["state"] for cid, c in cams.items()}
     queue = AlertQueue()
