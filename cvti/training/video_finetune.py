@@ -223,6 +223,11 @@ def main() -> None:
                    help="Early-stop if val recall_theft hasn't improved in N epochs (0=off).")
     p.add_argument("--no-class-weights", action="store_true",
                    help="Disable inverse-frequency class weighting (on by default).")
+    p.add_argument("--stratified", action="store_true",
+                   help="Pool all clips + class-balanced train/test split (fixes CamNuvem's "
+                        "class-inverted native split; use for a trustworthy number).")
+    p.add_argument("--val-fraction", type=float, default=0.25)
+    p.add_argument("--seed", type=int, default=1234)
     p.add_argument("--device", default="")
     p.add_argument("--out", default="runs/video_finetune")
     args = p.parse_args()
@@ -234,10 +239,21 @@ def main() -> None:
     id2label = {v: k for k, v in class_map.items()}
     limit = args.per_class_limit or None
 
-    train_ds = RobberyClipDataset(args.data_root, "training", frames=args.frames,
-                                  class_map=class_map, per_class_limit=limit)
-    test_ds = RobberyClipDataset(args.data_root, "test", frames=args.frames,
-                                 class_map=class_map, per_class_limit=limit)
+    if args.stratified:
+        from cvti.training.video_dataset import pool_clips, stratified_split
+        tr_items, te_items = stratified_split(
+            pool_clips(args.data_root, class_map=class_map),
+            val_fraction=args.val_fraction, seed=args.seed)
+        if limit:
+            tr_items, te_items = _cap_per_class(tr_items, limit), _cap_per_class(te_items, limit)
+        train_ds = RobberyClipDataset(items=tr_items, frames=args.frames, class_map=class_map)
+        test_ds = RobberyClipDataset(items=te_items, frames=args.frames, class_map=class_map)
+        print(f"[finetune] stratified split (val_fraction={args.val_fraction}, seed={args.seed})")
+    else:
+        train_ds = RobberyClipDataset(args.data_root, "training", frames=args.frames,
+                                      class_map=class_map, per_class_limit=limit)
+        test_ds = RobberyClipDataset(args.data_root, "test", frames=args.frames,
+                                     class_map=class_map, per_class_limit=limit)
     if len(train_ds) == 0:
         raise SystemExit(f"No training clips under {args.data_root}. Check the dataset path.")
     print(f"[finetune] backend={args.backend} device={device} "
@@ -315,6 +331,17 @@ def main() -> None:
 
 def _backend_default(name: str) -> str:
     return {"videomae": _VideoMAEBackend.default_model, "x3d": _X3DBackend.default_model}[name]
+
+
+def _cap_per_class(items: list, k: int) -> list:
+    from collections import Counter
+    seen: Counter = Counter()
+    out = []
+    for it in items:
+        if seen[it[1]] < k:
+            out.append(it)
+            seen[it[1]] += 1
+    return out
 
 
 if __name__ == "__main__":
