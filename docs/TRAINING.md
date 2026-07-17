@@ -63,6 +63,29 @@ Checkpoint: `runs/video_finetune/videomae/` (best-by-balanced-acc, auto-saved).
   (needs `pip install -r requirements-video.txt` for pytorchvideo).
 - Real GPU: add `--device cuda`, bump `--batch`.
 
+## Evaluate a checkpoint (Phase 5 metrics)
+
+Training-loop numbers use CamNuvem's native split, which is **class-inverted**
+(train 69% theft, test 75% normal) — misleading on its own. For honest metrics:
+
+```bash
+# full metrics on a checkpoint (native test — valid only if it was NOT trained stratified)
+python -m cvti.training.video_eval --checkpoint runs/video_finetune/videomae
+
+# trustworthy: train AND eval on a balanced (stratified) split, no leakage
+scripts/train_video.sh --unfreeze-last-block --stratified --lr 5e-4 --epochs 40 --patience 8 --batch 2 \
+  --out runs/video_finetune_stratified
+python -m cvti.training.video_eval --checkpoint runs/video_finetune_stratified/videomae --stratified
+```
+`video_eval` reports accuracy, **balanced_acc**, precision/recall/F1 (theft),
+**FPR** (normal), and a confusion matrix, and warns when the test set is too
+small to call an FPR "validated". Always eval a checkpoint on data it did NOT
+train on — `--stratified` uses the same seed as training, so it's leakage-free
+only for a checkpoint that was itself trained `--stratified`.
+
+Baseline (existing checkpoint, native test): balanced_acc 0.889, recall 0.889,
+precision 0.727, F1 0.80, FPR 0.111.
+
 ## Known limits / honest caveats
 
 - **36-clip test set is tiny** — 0.85 is encouraging, not a validated FPR. Needs

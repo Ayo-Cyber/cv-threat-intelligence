@@ -684,9 +684,12 @@ Owners: **Demi** = multi-stream detector completion + X3D (see
   streaming pipeline, not just single-stream/probe.
 
 ### P1 — the real ceiling (Ayo)
-- **Validated eval set (Phase 5).** Current video-model number (bal-acc 0.889) is
-  on a 36-clip, class-inverted test split — not trustworthy. Collect more normal /
-  hard-negative footage, re-split, re-run.
+- **Validated eval set (Phase 5).** Infra DONE (2026-07-17): `video_eval.py`
+  reports precision/recall/FPR/F1/confusion on a saved checkpoint, and
+  `--stratified` fixes the class-inverted split (pooled, class-balanced, seeded).
+  Existing checkpoint on native test: bal-acc 0.889 / recall 0.889 / precision
+  0.727 / FPR 0.111. STILL OPEN: only ~256 clips total — the number won't be a
+  *validated* FPR until we add more normal / hard-negative footage (data, not code).
 - **Measure local VLM latency** (`tools/throughput_bench.py --time-gate` vs Ollama)
   to size the alert-queue throttle at 16 cameras.
 - **Back up trained checkpoints off-machine** (`runs/` is gitignored, local-only).
