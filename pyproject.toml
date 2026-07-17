@@ -18,7 +18,7 @@ dependencies = [
     "ultralytics>=8.3.0",
     "opencv-python>=4.9.0",
     "numpy>=1.26.0",
-    "supervision>=0.18.0",
+    "supervision>=0.18.0,<0.30",  # sv.ByteTrack removed in 0.30; cap until we migrate the tracker
 ]
 
 [project.optional-dependencies]

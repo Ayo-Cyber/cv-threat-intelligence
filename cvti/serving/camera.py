@@ -215,12 +215,12 @@ class PerCameraState:
         tracked = self._tracker.update_with_detections(detections)
 
         raw_events = []
-        zone_by_event: list[str | None] = []
+        zone_by_pid: dict[Any, str | None] = {}   # person_id -> zone, for presence alerts
         if self.zone_monitor is not None:
             states = self.zone_monitor.update(tracked, timestamp)
             zone_events = zone_states_to_events(states, timestamp=timestamp)
             raw_events += zone_events
-            zone_by_event = [e.extra.get("zone") for e in zone_events]
+            zone_by_pid = {e.person_id: e.extra.get("zone") for e in zone_events}
 
         try:
             pose_people = self._compute_pose(image, timestamp) if self._needs_pose() else []
@@ -250,13 +250,14 @@ class PerCameraState:
             return []
         from cvti.verification.frame_select import select_evidence_frames
 
-        # Best-effort: attach the zone of the first matching presence event for dedup.
-        zone_hint = zone_by_event[0] if zone_by_event else None
         recent = list(self._frame_buffer)
         out = []
         for a in alerts:
+            # Zone is only meaningful for presence (zone) alerts; for other
+            # detectors leave it None so the dedup key isn't polluted.
+            zone = zone_by_pid.get(a.person_id) if a.detector == "presence" else None
             frames, _ = select_evidence_frames(recent, a.rule_name)
-            out.append(_to_queued(self.camera_id, a, timestamp, zone_hint,
+            out.append(_to_queued(self.camera_id, a, timestamp, zone,
                                   frames or [image], self.scene_context))
         return out
 

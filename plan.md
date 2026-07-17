@@ -670,11 +670,18 @@ Owners: **Demi** = multi-stream detector completion + X3D (see
 `docs/handoffs/2026-07-16-1922-demi-multistream-detector-and-x3d.md`).
 **Ayo** = video-model track (data/eval) + the fixes below.
 
+### Multi-stream full detector — **DONE (2026-07-17)**
+- ~~Wire violence / weapons / theft / video-action into `PerCameraState`~~ done:
+  the multi-stream pipeline now runs the whole detector per camera (zones +
+  concealment + violence + weapons + theft + fine-tuned video-action), shared
+  stateless models + per-camera state, reusing core.py. Verified end-to-end
+  (concealment/theft/video-action fire; violence wiring confirmed via direct
+  check but needs a feed longer than the 7-frame stub clips).
+
 ### Demi
-- Wire violence / weapons / theft-state-machine / video-action into
-  `PerCameraState` (multi-stream currently does object-detection + zones +
-  concealment). Pattern set by `_concealment_events()`; reference `core.py` ~1900–2010.
 - X3D fine-tune on CamNuvem via the unified trainer (compare to VideoMAE 0.852/0.889).
+- (Optional) longer violence clips so pose-violence can be exercised through the
+  streaming pipeline, not just single-stream/probe.
 
 ### P1 — the real ceiling (Ayo)
 - **Validated eval set (Phase 5).** Current video-model number (bal-acc 0.889) is
@@ -685,12 +692,15 @@ Owners: **Demi** = multi-stream detector completion + X3D (see
 - **Back up trained checkpoints off-machine** (`runs/` is gitignored, local-only).
 
 ### P2 — correctness / tech-debt
-- `sv.ByteTrack` deprecated (supervision 0.28, removed 0.30) — migrate the tracker.
+- `sv.ByteTrack` deprecated (supervision 0.28, removed 0.30) — **mitigated
+  (2026-07-17)**: capped `supervision<0.30` in pyproject so an upgrade can't
+  break us; a real tracker migration is still TODO before moving off 0.29.
 - ~~Per-rule frame selection is single-stream only~~ **DONE (2026-07-16)**:
   `PerCameraState` now keeps a rolling frame buffer and sends the gate per-rule
   evidence (motion-peak span / sharpest frame) via `select_evidence_frames`.
 - Compound recipes unit-tested but never run on real multi-signal footage — validate.
-- `PerCameraState` dedup `zone_hint` is approximate (one zone applied to all
-  alerts from a frame) — tighten if false-dedup appears.
+- ~~`PerCameraState` dedup `zone_hint` is approximate~~ **DONE (2026-07-17)**:
+  zone is now attached per-alert (presence alerts get their person's zone; other
+  detectors get None) so the dedup key isn't polluted.
 - 2-class video model wired to the detector via a keyword adapter
   (`theft`→`theft_candidate`); revisit if class names change.
