@@ -1,0 +1,9 @@
+{
+  "_comment": "TEMPLATE: real network (IP/RTSP) cameras on one PC. Replace the rtsp:// URLs with your cameras. source can be an rtsp:// URL, an http:// MJPEG URL, a webcam index (0,1,...), or a file path. Same pipeline command as the file demos.",
+  "cameras": [
+    {"id": "front_door",  "source": "rtsp://user:pass@192.168.1.10:554/Streaming/Channels/101", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "aisle_1",     "source": "rtsp://user:pass@192.168.1.11:554/Streaming/Channels/101", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "checkout",    "source": "rtsp://user:pass@192.168.1.12:554/Streaming/Channels/101", "config": "configs/all_threats_video_v1.json", "concealment": true},
+    {"id": "usb_webcam",  "source": "0", "config": "configs/all_threats_v1.json", "concealment": true}
+  ]
+}
