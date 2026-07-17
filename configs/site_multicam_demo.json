@@ -1,0 +1,7 @@
+{
+  "_comment": "2-camera demo where both cameras reliably fire (both on theft_shop_01 as two virtual feeds). One shared object + pose + fine-tuned VideoMAE, batched across cameras; each runs concealment + video-action theft + rules + gate. For a mixed real result, point cam 2 at a different clip.",
+  "cameras": [
+    {"id": "aisle_cam_1", "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "aisle_cam_2", "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true}
+  ]
+}

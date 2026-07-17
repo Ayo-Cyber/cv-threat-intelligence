@@ -89,9 +89,13 @@ different JSON per site."
 per-camera rules, one alert queue, async gate. Each camera runs
 object-detection + tracking + **pose-based concealment** + rules + gate.
 ```bash
-python -m cvti.serving.pipeline --site-config configs/site_theft_demo.json --gate-provider mock
+python -m cvti.serving.pipeline --site-config configs/site_multicam_demo.json --gate-provider mock
 ```
-**Expected:** `shared pose model loaded ...`, `[CONFIRMED] aisle_cam_1 :: shoplifting (POSSIBLE CONCEALMENT)`, `deduped=...`, `errors=0`.
+**Expected:** `shared pose model loaded`, `shared video-action model loaded`,
+then **both** cameras firing `shoplifting` + `video_theft_candidate`,
+`errors=0`. Cross-camera batching shows in the stats (`batch_sizes={..., 2: N}`).
+(For a realistic *mixed* result — one camera flags, one clear — point cam 2 at a
+different clip.)
 **Talking point:** "One box, one shared detector + one shared pose model, N
 cameras — each with its own tracker, rules, and evidence. The VLM gate (not
 detection) is the only real ceiling, and the alert queue keeps it from being
