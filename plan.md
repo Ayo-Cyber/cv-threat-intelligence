@@ -687,8 +687,11 @@ Owners: **Demi** = multi-stream detector completion + X3D (see
 - **Validated eval set (Phase 5).** Infra DONE (2026-07-17): `video_eval.py`
   reports precision/recall/FPR/F1/confusion on a saved checkpoint, and
   `--stratified` fixes the class-inverted split (pooled, class-balanced, seeded).
-  Existing checkpoint on native test: bal-acc 0.889 / recall 0.889 / precision
-  0.727 / FPR 0.111. STILL OPEN: only ~256 clips total — the number won't be a
+  Trustworthy result — retrained + evaluated on a balanced, leakage-free
+  stratified split (64-clip test): **balanced_acc 0.883, recall 0.85, precision
+  0.944, FPR 0.083, F1 0.895** (22TN/2FP/6FN/34TP), checkpoint
+  `runs/video_finetune_stratified/`. (Old native-split number was 0.889 but on a
+  class-inverted 36-clip test.) STILL OPEN: only ~256 clips total — not a fully
   *validated* FPR until we add more normal / hard-negative footage (data, not code).
 - **Measure local VLM latency** (`tools/throughput_bench.py --time-gate` vs Ollama)
   to size the alert-queue throttle at 16 cameras.
