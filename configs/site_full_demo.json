@@ -1,0 +1,7 @@
+{
+  "_comment": "Full multi-stream detector demo: each camera runs the whole single-stream signal set per its toggles. entrance_cam = violence (pose); aisle_cam = concealment + theft state machine. Shared object + pose models; always-on critical baseline merged per camera. Add \"weapons\": true (needs models/weapon_best.pt) for weapon detection.",
+  "cameras": [
+    {"id": "entrance_cam", "source": "data/test_clips/violence_suspected.mp4", "config": "configs/all_threats_v1.json", "violence": true},
+    {"id": "aisle_cam", "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_v1.json", "concealment": true, "theft": true}
+  ]
+}

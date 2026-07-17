@@ -78,6 +78,11 @@ class MultiStreamPipeline:
     def start(self) -> None:
         from ultralytics import YOLO
         self._model = YOLO(self.weights)
+        # For the per-camera detector path we also need core.py's Detection list
+        # (weapons/violence/theft), built from the same shared-model result.
+        self._names = self._model.names
+        from cvti.detector.core import normalize_threat_classes
+        self._threat_classes = normalize_threat_classes("gun,knife")
         for cam_id, src in self.sources.items():
             self._decoders[cam_id] = StreamDecoder(cam_id, src, target_fps=self.target_fps).start()
         print(f"[serving] {len(self._decoders)} camera(s) | device={self.device} "
@@ -89,11 +94,14 @@ class MultiStreamPipeline:
 
     def _route_to_queue(self, frame: Frame, result: Any) -> None:
         import supervision as sv
+        from cvti.detector.core import extract_detections
         state = self._camera_states.get(frame.camera_id)
         if state is None:
             return
-        detections = sv.Detections.from_ultralytics(result)
-        for alert in state.process(detections, frame.image, frame.timestamp):
+        detections = sv.Detections.from_ultralytics(result)          # tracking / zones
+        object_detections = extract_detections(result, self._names, self._threat_classes)  # weapons/violence/theft
+        for alert in state.process(detections, frame.image, frame.timestamp,
+                                   object_detections=object_detections):
             if self._alert_queue.add(alert):
                 self.alerts_queued += 1
 
@@ -153,10 +161,12 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              device: str = "", half: bool = False, seconds: float = 90.0,
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
              pose_weights: str = "models/yolov8n-pose.pt",
+             weapon_weights: str = "models/weapon_best.pt", yolov5_repo: str = "external/yolov5",
              baseline_config: str | None = "configs/baseline_critical_v1.json",
              output_dir: str = "runs/serving") -> None:
-    """End-to-end multi-camera run: shared batched detector -> per-camera
-    track/zones/(pose)concealment/rules -> shared alert queue -> async VLM gate."""
+    """End-to-end multi-camera run: shared batched detector + shared pose/weapon
+    models -> per-camera track/zones/concealment/violence/weapons/theft/rules ->
+    shared alert queue -> async VLM gate."""
     from pathlib import Path
 
     from cvti.serving.alert_queue import AlertQueue
@@ -165,13 +175,24 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     from cvti.verification.gate import VerificationGate
 
     site = load_site_config(site_config_path)
-    # Load ONE shared pose model iff any camera enables concealment.
+    cams_cfg = site["cameras"]
+    # Load ONE shared pose model iff any camera enables a pose-based signal.
     pose_model = None
-    if any(c.get("concealment") for c in site["cameras"]):
+    if any(c.get(k) for c in cams_cfg for k in ("concealment", "violence", "theft")):
         from cvti.detector.core import load_ultralytics_model
         pose_model = load_ultralytics_model(pose_weights)
-        print(f"[site] shared pose model loaded ({pose_weights}) for concealment")
-    cams = build_camera_states(site, pose_model=pose_model, baseline_config=baseline_config)
+        print(f"[site] shared pose model loaded ({pose_weights})")
+    # Load ONE shared weapon model iff any camera enables weapons (best-effort).
+    weapon_model = None
+    if any(c.get("weapons") for c in cams_cfg):
+        try:
+            from cvti.detector.core import load_detection_model
+            weapon_model = load_detection_model(weapon_weights, yolov5_repo, preferred_kind="yolov5")
+            print(f"[site] shared weapon model loaded ({weapon_weights})")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled")
+    cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
+                               baseline_config=baseline_config)
     sources = {cid: c["source"] for cid, c in cams.items()}
     states = {cid: c["state"] for cid, c in cams.items()}
     queue = AlertQueue()
