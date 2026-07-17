@@ -7,11 +7,12 @@ and scene context. Detections for a camera are associated to that camera's
 tracks, turned into RawEvents, evaluated against that camera's threat policy,
 and emitted as QueuedAlerts for the gate.
 
-This runs the full single-stream detector's signals per camera (opt-in per
-camera via the site config): zones, pose-based concealment, violence, weapons
-(needs a shared weapon model), and the theft state machine. It reuses the exact
-`cvti/detector/core.py` functions so behaviour matches single-stream. The one
-piece still on the seam is the video-action model per camera.
+This runs the FULL single-stream detector per camera (opt-in via the site
+config): zones, pose-based concealment, violence, weapons (needs a shared weapon
+model), the theft state machine, and the fine-tuned video-action model (gated,
+shared instance). It reuses the exact `cvti/detector/core.py` functions so
+behaviour matches single-stream. Shared stateless models (object/pose/weapon/
+video) are injected by the pipeline; everything stateful is per camera.
 """
 from __future__ import annotations
 
@@ -71,9 +72,15 @@ class PerCameraState:
     violence: bool = False
     weapons: bool = False
     theft: bool = False
+    video_action: bool = False
+    video_action_model: Any = None    # shared VideoMAEActionModel instance
     pose_conf: float = 0.35
     weapon_conf: float = 0.40
     imgsz: int = 640
+    va_fps: float = 5.0
+    va_window_seconds: float = 4.0
+    va_frames: int = 16
+    va_cooldown: float = 2.0
     # --- per-camera stateful bits (not constructor args) ---
     _tracker: Any = field(default=None, init=False, repr=False)
     _conceal: Any = field(default=None, init=False, repr=False)
@@ -85,6 +92,8 @@ class PerCameraState:
     _object_threat_frames: int = field(default=0, init=False, repr=False)
     _weapon_classes: Any = field(default=None, init=False, repr=False)
     _person_classes: Any = field(default=None, init=False, repr=False)
+    _video_runtime: Any = field(default=None, init=False, repr=False)
+    _va_index: int = field(default=0, init=False, repr=False)
     # Rolling recent frames (~2s at 5 FPS) so the gate gets per-rule evidence
     # (motion-peak span for violence, sharpest single frame for weapons).
     _frame_buffer: deque = field(default_factory=lambda: deque(maxlen=10), init=False, repr=False)
@@ -109,6 +118,13 @@ class PerCameraState:
         if self.theft and self.pose_model is not None:
             from cvti.detector.core import TheftDetector
             self._theft = TheftDetector()
+        if self.video_action and self.video_action_model is not None:
+            from cvti.video_action_runtime import VideoActionRuntime
+            self._video_runtime = VideoActionRuntime(
+                model=self.video_action_model, backend="videomae",
+                model_name=getattr(self.video_action_model, "model_name", "videomae"),
+                fps=self.va_fps, window_seconds=self.va_window_seconds,
+                frame_count=self.va_frames, cooldown_seconds=self.va_cooldown)
 
     def _needs_pose(self) -> bool:
         return self.pose_model is not None and (self.concealment or self.violence or self.theft)
@@ -191,6 +207,9 @@ class PerCameraState:
 
         frame_hw = image.shape[:2]
         self._frame_buffer.append(image)
+        if self._video_runtime is not None:
+            self._video_runtime.add_frame(image, frame_index=self._va_index)
+            self._va_index += 1
         if self.person_filter and self.zone_monitor is not None:
             detections = filter_person_detections(detections, frame_hw)
         tracked = self._tracker.update_with_detections(detections)
@@ -214,6 +233,12 @@ class PerCameraState:
             if self.violence or self.weapons or self.theft:
                 merged = self._merged_detections(object_detections, image)
                 raw_events += self._assessment_events(pose_people, merged, image, timestamp)
+            # Video-action runs only when a per-frame signal already flagged this
+            # moment (gated + cooldown'd, same as single-stream) — it's a weak
+            # temporal witness, not an always-on pass.
+            if self._video_runtime is not None and any(e.active for e in raw_events):
+                raw_events += self._video_runtime.analyze_event(
+                    center_frame_index=self._va_index - 1, timestamp=timestamp)
         except Exception as exc:  # noqa: BLE001 - a detector hiccup must not kill the camera
             print(f"[{self.camera_id}] detector error: {str(exc)[:140]}")
 
@@ -237,6 +262,7 @@ class PerCameraState:
 
 
 def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_model: Any = None,
+                        video_action_model: Any = None,
                         baseline_config: str | None = None) -> dict[str, dict]:
     """Parse a site config into {camera_id: {"source": ..., "state": PerCameraState}}.
 
@@ -264,8 +290,10 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
             "state": PerCameraState(
                 cam_id, engine, zone_monitor=zone_monitor, scene_context=scene,
                 pose_model=pose_model, weapon_model=weapon_model,
+                video_action_model=video_action_model,
                 concealment=bool(cam.get("concealment")), violence=bool(cam.get("violence")),
                 weapons=bool(cam.get("weapons")), theft=bool(cam.get("theft")),
+                video_action=bool(cam.get("video_action")),
             ),
         }
     return out

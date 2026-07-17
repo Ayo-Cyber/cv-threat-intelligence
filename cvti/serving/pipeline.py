@@ -162,6 +162,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
              pose_weights: str = "models/yolov8n-pose.pt",
              weapon_weights: str = "models/weapon_best.pt", yolov5_repo: str = "external/yolov5",
+             video_action_model_path: str = "runs/video_finetune/videomae",
              baseline_config: str | None = "configs/baseline_critical_v1.json",
              output_dir: str = "runs/serving") -> None:
     """End-to-end multi-camera run: shared batched detector + shared pose/weapon
@@ -191,8 +192,17 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             print(f"[site] shared weapon model loaded ({weapon_weights})")
         except Exception as exc:  # noqa: BLE001
             print(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled")
+    # Load ONE shared video-action model iff any camera enables it (best-effort).
+    video_action_model = None
+    if any(c.get("video_action") for c in cams_cfg):
+        try:
+            from cvti.video_action_model import VideoMAEActionModel
+            video_action_model = VideoMAEActionModel(video_action_model_path)
+            print(f"[site] shared video-action model loaded ({video_action_model_path})")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled")
     cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
-                               baseline_config=baseline_config)
+                               video_action_model=video_action_model, baseline_config=baseline_config)
     sources = {cid: c["source"] for cid, c in cams.items()}
     states = {cid: c["state"] for cid, c in cams.items()}
     queue = AlertQueue()

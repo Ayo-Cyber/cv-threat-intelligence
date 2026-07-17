@@ -1,0 +1,6 @@
+{
+  "_comment": "Multi-stream with the fine-tuned VideoMAE running per camera (gated behind concealment). Needs runs/video_finetune/videomae.",
+  "cameras": [
+    {"id": "aisle_cam", "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true}
+  ]
+}
