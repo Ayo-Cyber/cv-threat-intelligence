@@ -37,8 +37,17 @@ event: theft_candidate raw=0.878 ...
 config alert: video_theft_candidate (high)
 ```
 **Talking point:** "This is *our* model, fine-tuned on robbery CCTV — balanced
-accuracy 0.89 on the held-out test split (recall 0.89, false-positive rate 0.11).
-The label becomes a weak signal the customer's rules act on."
+accuracy ~0.88 on a balanced held-out split (precision 0.94, false-positive rate
+0.08). The label becomes a weak signal the customer's rules act on."
+
+**Specificity proof (run this right after — the most convincing beat):** the SAME
+model on a *normal* clip stays silent.
+```bash
+python tools/video_action_probe.py "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_003_x264.mp4" \
+  --model runs/video_finetune/videomae --hybrid-events --config configs/video_robbery_demo.json
+```
+Expected: `normal 0.974 | theft 0.026` → no event, no alert. *"It's not just
+always saying theft — on normal footage it stays quiet."*
 
 ## Demo 1b — The fine-tuned model running INSIDE the live detector (strongest)
 **Shows:** the same model, but running in the real pipeline — a per-frame
@@ -60,6 +69,9 @@ python -m cvti.cli.detect --source data/test_clips/theft_shop_01.mp4 \
 **Talking point:** "This is the whole chain live: cheap detector finds the
 moment → our fine-tuned model reads the motion (theft 0.98) → rule + gate →
 alert. And the always-on safety baseline fires in parallel."
+
+> **Do NOT pass `--video-action-cooldown 0`** in the demo — it disables throttling
+> and floods ~13 identical alerts on one clip. The default 2s cooldown paces them.
 
 ## Demo 2 — Zoning + loitering (customer-defined rules)
 **Shows:** draw a zone → track dwell → a customer rule fires → gate confirms.
