@@ -1,0 +1,9 @@
+{
+  "_comment": "4-camera demo: 3 theft feeds + 1 normal, through one shared object + pose + fine-tuned VideoMAE (batched). Each camera runs concealment + video-action theft + rules + gate. Shows the batched multi-stream pipeline at 4 cameras.",
+  "cameras": [
+    {"id": "aisle_cam_1", "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "aisle_cam_2", "source": "data/test_clips/theft_shop_02.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "checkout_cam", "source": "data/test_clips/theft_yt_01.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "backroom_cam", "source": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_003_x264.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true}
+  ]
+}
