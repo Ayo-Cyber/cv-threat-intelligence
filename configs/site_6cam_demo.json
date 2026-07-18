@@ -1,0 +1,11 @@
+{
+  "_comment": "6-camera headless production run matching the dashboard feeds: shared object + pose + fine-tuned VideoMAE, batched; each camera runs concealment + video-action theft + rules + gate + always-on baseline.",
+  "cameras": [
+    {"id": "aisle_1",   "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "aisle_2",   "source": "data/test_clips/theft_shop_02.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "checkout",  "source": "data/test_clips/theft_yt_01.mp4",   "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "entrance",  "source": "data/test_clips/weapons_yt_01.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "backroom",  "source": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_003_x264.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "warehouse", "source": "data/test_clips/empty_warehouse.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true}
+  ]
+}
