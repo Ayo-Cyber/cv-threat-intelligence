@@ -38,7 +38,8 @@ def _open(source: str):
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Live 4-6 camera detection dashboard.")
-    p.add_argument("--sources", nargs="+", required=True, help="2-6 clips / webcam idx / rtsp URLs.")
+    p.add_argument("--site-config", default="", help="Read sources from a serving site-config JSON.")
+    p.add_argument("--sources", nargs="+", help="Or list 2-6 clips / webcam idx / rtsp URLs directly.")
     p.add_argument("--show", action="store_true", help="Live window (needs a display; press q to quit).")
     p.add_argument("--out", default="", help="Also/instead write a grid mp4 here.")
     p.add_argument("--weights", default="models/yolov8n.pt")
@@ -52,7 +53,16 @@ def main() -> None:
     args = p.parse_args()
 
     from ultralytics import YOLO
-    sources = args.sources[:6]
+    site_names: list[str] | None = None
+    if args.site_config:
+        import json
+        cams = json.loads(Path(args.site_config).read_text())["cameras"][:6]
+        sources = [str(c["source"]) for c in cams]
+        site_names = [str(c.get("id", Path(str(c["source"])).stem)) for c in cams]
+    elif args.sources:
+        sources = args.sources[:6]
+    else:
+        raise SystemExit("give --site-config or --sources")
     n = len(sources)
     yolo = YOLO(args.weights)
     video = None
@@ -64,7 +74,9 @@ def main() -> None:
     caps = [_open(s) for s in sources]
     buffers = [deque(maxlen=max(args.va_frames, 48)) for _ in sources]
     banners = [("clear", 0.0) for _ in sources]
-    names = [Path(str(s)).stem[:20] if not str(s).isdigit() else f"webcam{s}" for s in sources]
+    names = site_names[:] if site_names else [
+        Path(str(s)).stem[:20] if not str(s).isdigit() else f"webcam{s}" for s in sources]
+    names = [nm[:20] for nm in names]
 
     cols = 2 if n <= 4 else 3
     rows = math.ceil(n / cols)
