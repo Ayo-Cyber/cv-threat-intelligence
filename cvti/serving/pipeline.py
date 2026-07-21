@@ -251,7 +251,8 @@ def main() -> None:
     p.add_argument("--gate-model", default="")
     p.add_argument("--gate-base-url", default="")
     p.add_argument("--notify", default="console",
-                   help="Alert notifier: console | webhook:<url> | telegram:<token>:<chat_id>")
+                   help="Alert notifier: console | webhook:<url> | telegram:<token>:<chat_id> "
+                        "| whatsapp (Twilio creds from env)")
     p.add_argument("--output-dir", default="runs/serving",
                    help="Where confirmed events + evidence + events.db are written.")
     args = p.parse_args()

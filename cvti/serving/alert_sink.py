@@ -69,8 +69,48 @@ class TelegramNotifier:
             print(f"[notify telegram error] {str(exc)[:120]}")
 
 
+class WhatsAppNotifier:
+    """Send to WhatsApp via Twilio's API. Credentials come from env vars (never
+    committed): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM
+    (defaults to the Twilio sandbox number), WHATSAPP_TO (e.g. +234...)."""
+
+    def __init__(self, account_sid: str, auth_token: str, from_number: str,
+                 to_number: str, timeout: float = 6.0) -> None:
+        import base64
+        self.url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+        self.auth = base64.b64encode(f"{account_sid}:{auth_token}".encode()).decode()
+        self.from_ = from_number if from_number.startswith("whatsapp:") else f"whatsapp:{from_number}"
+        self.to = to_number if to_number.startswith("whatsapp:") else f"whatsapp:{to_number}"
+        self.timeout = timeout
+
+    @classmethod
+    def from_env(cls) -> "WhatsAppNotifier":
+        import os
+        sid = os.environ.get("TWILIO_ACCOUNT_SID")
+        tok = os.environ.get("TWILIO_AUTH_TOKEN")
+        frm = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")  # Twilio sandbox
+        to = os.environ.get("WHATSAPP_TO")
+        if not (sid and tok and to):
+            raise RuntimeError("WhatsApp needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, WHATSAPP_TO env vars")
+        return cls(sid, tok, frm, to)
+
+    def notify(self, event: dict) -> None:
+        import urllib.parse
+        import urllib.request
+        text = (f"⚠️ {event['priority'].upper()} — {event['rule']} on "
+                f"{event['camera_id']} (conf {event['confidence']:.2f})\n{event['reason']}")
+        data = urllib.parse.urlencode({"From": self.from_, "To": self.to, "Body": text}).encode()
+        try:
+            req = urllib.request.Request(self.url, data=data,
+                                         headers={"Authorization": f"Basic {self.auth}"}, method="POST")
+            urllib.request.urlopen(req, timeout=self.timeout)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[notify whatsapp error] {str(exc)[:140]}")
+
+
 def build_notifier(spec: str) -> Any:
-    """spec: 'console' | 'webhook:<url>' | 'telegram:<token>:<chat_id>'."""
+    """spec: 'console' | 'webhook:<url>' | 'telegram:<token>:<chat_id>' | 'whatsapp'
+    (whatsapp reads Twilio creds from env)."""
     if not spec or spec == "console":
         return ConsoleNotifier()
     if spec.startswith("webhook:"):
@@ -78,6 +118,12 @@ def build_notifier(spec: str) -> Any:
     if spec.startswith("telegram:"):
         _, token, chat_id = spec.split(":", 2)
         return TelegramNotifier(token, chat_id)
+    if spec == "whatsapp":
+        try:
+            return WhatsAppNotifier.from_env()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[alert-sink] whatsapp unavailable ({exc}); using console")
+            return ConsoleNotifier()
     print(f"[alert-sink] unknown notifier '{spec}', using console")
     return ConsoleNotifier()
 
