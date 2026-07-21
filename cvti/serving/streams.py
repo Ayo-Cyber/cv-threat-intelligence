@@ -26,11 +26,12 @@ class Frame:
 
 class StreamDecoder:
     def __init__(self, camera_id: str, source: int | str, *, target_fps: float = 5.0,
-                 reconnect: bool = True) -> None:
+                 reconnect: bool = True, reconnect_backoff: float = 1.0) -> None:
         self.camera_id = camera_id
         self.source = source
         self.target_fps = target_fps
         self.reconnect = reconnect
+        self.reconnect_backoff = reconnect_backoff   # seconds * attempt, capped at 5s
         self._min_period = 1.0 / target_fps if target_fps > 0 else 0.0
         self._latest: Frame | None = None
         self._consumed = True          # True once the current latest was read
@@ -41,6 +42,10 @@ class StreamDecoder:
         self._t0 = 0.0
         self._fps = 0.0
         self.ended = False
+        self.reconnects = 0            # how many times we've re-opened a live stream
+
+    def _is_live(self) -> bool:
+        return not str(self.source).isdigit() and "://" in str(self.source)
 
     def start(self) -> "StreamDecoder":
         self._thread = threading.Thread(target=self._loop, name=f"decode-{self.camera_id}",
@@ -65,6 +70,7 @@ class StreamDecoder:
         stride = max(1, round(self._fps / self.target_fps)) \
             if (self._fps > 1e-3 and self.target_fps > 0) else 1
         orig_index = 0
+        attempt = 0
         while not self._stop.is_set():
             loop_start = time.perf_counter()
             ok = True
@@ -77,14 +83,21 @@ class StreamDecoder:
                 ok, image = cap.read()
                 orig_index += 1
             if not ok:
-                if self.reconnect and not str(self.source).isdigit() and "://" in str(self.source):
-                    # Live source hiccup — back off and reopen.
+                if self.reconnect and self._is_live():
+                    # Live source dropped (camera reboot / network blip). Keep
+                    # reopening with a capped backoff until it comes back.
+                    self.reconnects += 1
+                    attempt += 1
+                    backoff = min(self.reconnect_backoff * attempt, 5.0)
+                    print(f"[decode {self.camera_id}] stream dropped; reopening in "
+                          f"{backoff:.0f}s (attempt {attempt})")
                     cap.release()
-                    time.sleep(1.0)
+                    self._stop.wait(backoff)   # interruptible so stop() is prompt
                     cap = self._open()
                     continue
                 self.ended = True          # file/webcam exhausted
                 break
+            attempt = 0                    # a healthy read resets the backoff
             # VIDEO time from the original frame index so dwell/loiter thresholds
             # are correct regardless of sample rate. Wall-clock fallback if no fps.
             ts = (orig_index / self._fps) if self._fps > 1e-3 else (time.perf_counter() - self._t0)

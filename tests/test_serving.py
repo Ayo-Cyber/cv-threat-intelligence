@@ -115,6 +115,48 @@ class GatePoolTests(unittest.TestCase):
         self.assertEqual(verdicts[0][0].camera_id, "cam0")
 
 
+class ReconnectTests(unittest.TestCase):
+    """A live stream that drops must be reopened and recover — without a real camera."""
+
+    def test_decoder_recovers_after_drop(self):
+        import time
+        import numpy as np
+        from cvti.serving.streams import StreamDecoder
+
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+
+        class _DropCap:      # simulates a dropped stream (read always fails)
+            def get(self, p): return 0.0
+            def grab(self): return True
+            def read(self): return (False, None)
+            def release(self): pass
+
+        class _LiveCap:      # healthy stream after reconnect
+            def get(self, p): return 0.0
+            def grab(self): return True
+            def read(self): return (True, frame)
+            def release(self): pass
+
+        state = {"n": 0}
+
+        def fake_open():
+            state["n"] += 1
+            return _DropCap() if state["n"] == 1 else _LiveCap()
+
+        d = StreamDecoder("cam", "rtsp://fake/stream", target_fps=5, reconnect_backoff=0.01)
+        d._open = fake_open       # avoid real cv2.VideoCapture
+        d.start()
+        got = None
+        for _ in range(60):
+            got = d.read_latest()
+            if got is not None:
+                break
+            time.sleep(0.05)
+        d.stop()
+        self.assertGreaterEqual(d.reconnects, 1)   # it detected the drop + reopened
+        self.assertIsNotNone(got)                  # and recovered a live frame
+
+
 class Phase1ConcurrentAlertsTests(unittest.TestCase):
     """Two simultaneous RawEvents must yield two CandidateAlerts that are BOTH
     queued and processable — not just candidate_alerts[0]."""
