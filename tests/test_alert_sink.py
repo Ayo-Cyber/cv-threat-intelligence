@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import sqlite3
+import tempfile
+import unittest
+from dataclasses import dataclass
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from cvti.serving.alert_sink import AlertSink, build_notifier
+from cvti.serving.alert_queue import QueuedAlert
+
+
+@dataclass
+class _Result:
+    confirmed: bool
+    confidence: float
+    reason: str
+
+
+class _RecordingNotifier:
+    def __init__(self):
+        self.events = []
+
+    def notify(self, event):
+        self.events.append(event)
+
+
+def _alert(cam="cam0", rule="shoplifting"):
+    return QueuedAlert(camera_id=cam, rule_name=rule, priority="high", title="T",
+                       timestamp=1.0, track_id=3, zone="shelf", object_label=None,
+                       payload={"candidate": None, "frames": [], "scene": None})
+
+
+class AlertSinkTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.notifier = _RecordingNotifier()
+        self.sink = AlertSink(self._tmp.name, notifier=self.notifier, save_evidence=False)
+
+    def tearDown(self):
+        self.sink.close()
+        self._tmp.cleanup()
+
+    def test_confirmed_persists_and_notifies(self):
+        self.sink.handle(_alert(), _Result(confirmed=True, confidence=0.9, reason="clear theft"))
+        self.assertEqual(self.sink.persisted, 1)
+        self.assertEqual(len(self.notifier.events), 1)
+        self.assertEqual(self.notifier.events[0]["camera_id"], "cam0")
+        # DB row written
+        rows = sqlite3.connect(self.sink.db_path).execute(
+            "SELECT camera_id, rule, confidence FROM events").fetchall()
+        self.assertEqual(rows, [("cam0", "shoplifting", 0.9)])
+        # evidence dir + event.json written
+        ev_dirs = list((Path(self._tmp.name) / "events").iterdir())
+        self.assertEqual(len(ev_dirs), 1)
+        self.assertTrue((ev_dirs[0] / "event.json").exists())
+
+    def test_rejected_does_not_persist_or_notify(self):
+        self.sink.handle(_alert(), _Result(confirmed=False, confidence=0.1, reason="normal"))
+        self.assertEqual(self.sink.persisted, 0)
+        self.assertEqual(self.notifier.events, [])
+
+    def test_none_result_ignored(self):
+        self.sink.handle(_alert(), None)   # gate error path
+        self.assertEqual(self.sink.persisted, 0)
+
+
+class NotifierFactoryTests(unittest.TestCase):
+    def test_build_notifier_variants(self):
+        from cvti.serving.alert_sink import ConsoleNotifier, TelegramNotifier, WebhookNotifier
+        self.assertIsInstance(build_notifier("console"), ConsoleNotifier)
+        self.assertIsInstance(build_notifier(""), ConsoleNotifier)
+        self.assertIsInstance(build_notifier("webhook:https://example.com/hook"), WebhookNotifier)
+        tg = build_notifier("telegram:12345:67890")
+        self.assertIsInstance(tg, TelegramNotifier)
+        self.assertIn("12345", tg.url)
+        self.assertEqual(tg.chat_id, "67890")
+
+
+if __name__ == "__main__":
+    unittest.main()

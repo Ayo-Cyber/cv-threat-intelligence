@@ -164,7 +164,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              weapon_weights: str = "models/weapon_best.pt", yolov5_repo: str = "external/yolov5",
              video_action_model_path: str = "runs/video_finetune/videomae",
              baseline_config: str | None = "configs/baseline_critical_v1.json",
-             output_dir: str = "runs/serving") -> None:
+             notify: str = "console", output_dir: str = "runs/serving") -> None:
     """End-to-end multi-camera run: shared batched detector + shared pose/weapon
     models -> per-camera track/zones/concealment/violence/weapons/theft/rules ->
     shared alert queue -> async VLM gate."""
@@ -207,24 +207,32 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     states = {cid: c["state"] for cid, c in cams.items()}
     queue = AlertQueue()
 
+    # Confirmed alerts are persisted (SQLite + evidence bundle) and notified,
+    # instead of only printed. sink.handle is the gate's verdict callback.
+    from cvti.serving.alert_sink import AlertSink, build_notifier
+    sink = AlertSink(output_dir, notifier=build_notifier(notify))
+
     save_dir = Path(output_dir) / "gate"
     gate_pool = GatePool(
         queue,
         gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
                                               base_url=gate_base_url, save_dir=save_dir),
+        on_verdict=sink.handle,
     ).start()
 
     pipe = MultiStreamPipeline(sources, weights=weights, target_fps=target_fps, imgsz=imgsz,
                                conf=conf, device=device, half=half, camera_states=states,
                                alert_queue=queue)
     pipe.start()
-    print(f"[site] {len(states)} camera(s) | gate={gate_provider} | rules per camera")
+    print(f"[site] {len(states)} camera(s) | gate={gate_provider} | notify={notify} | rules per camera")
     try:
         pipe.run(max_seconds=seconds)
     finally:
         pipe.stop()
         gate_pool.stop()
+        sink.close()
     print(f"[site] alerts_queued={pipe.alerts_queued} gate={gate_pool.stats()}")
+    print(f"[site] persisted {sink.persisted} confirmed event(s) -> {output_dir}/events.db")
 
 
 def main() -> None:
@@ -242,13 +250,18 @@ def main() -> None:
     p.add_argument("--gate-provider", default="mock")
     p.add_argument("--gate-model", default="")
     p.add_argument("--gate-base-url", default="")
+    p.add_argument("--notify", default="console",
+                   help="Alert notifier: console | webhook:<url> | telegram:<token>:<chat_id>")
+    p.add_argument("--output-dir", default="runs/serving",
+                   help="Where confirmed events + evidence + events.db are written.")
     args = p.parse_args()
 
     if args.site_config:
         run_site(args.site_config, weights=args.weights, target_fps=args.target_fps,
                  imgsz=args.imgsz, conf=args.conf, device=args.device, half=args.half,
                  seconds=args.seconds, gate_provider=args.gate_provider,
-                 gate_model=args.gate_model, gate_base_url=args.gate_base_url)
+                 gate_model=args.gate_model, gate_base_url=args.gate_base_url,
+                 notify=args.notify, output_dir=args.output_dir)
         return
 
     if not args.sources:

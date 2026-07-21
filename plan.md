@@ -710,3 +710,26 @@ Owners: **Demi** = multi-stream detector completion + X3D (see
   detectors get None) so the dedup key isn't polluted.
 - 2-class video model wired to the detector via a keyword adapter
   (`theft`→`theft_candidate`); revisit if class names change.
+
+## Phases 9–11: Productionization (serving glue)
+
+The detection brain works; these phases add the plumbing that makes it a product.
+(From the 2026-07-21 architecture review: "detects threats but can't tell anyone".)
+
+### Phase 9 — P0: make it a product (glue)  [IN PROGRESS]
+- **Event sink + notifier** — persist every CONFIRMED alert to a store (SQLite)
+  with an evidence bundle (frames + metadata), and push a notification
+  (console / webhook / Telegram). Wire into `GatePool.on_verdict`. Fixes the #1
+  leak: confirmed multi-stream alerts currently only `print()` and vanish.
+- **Unify on the serving runtime** — one engine; point the UI at it (kill the
+  single-stream vs multi-stream split; the desktop app still runs single-stream).
+
+### Phase 10 — P1: scale & trust
+- Measure local-VLM latency; tune the async gate funnel + per-rule frame budget.
+- Real operator dashboard on the serving pipeline (live tiles + event feed + ack).
+- GPU decode (GStreamer/NVDEC) + RTSP hardening for many/WiFi cameras.
+
+### Phase 11 — P2: moat & onboarding
+- Feedback loop (review → label → periodic retrain) + model registry.
+- Onboarding: ONVIF camera discovery, zone-drawing UI, Agent-Mapper preset suggestions.
+- Secrets management, health/metrics, resource scheduling, ByteTrack migration, more eval data.
