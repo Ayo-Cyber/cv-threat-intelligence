@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 
 from cvti.app.widgets.alerts import AlertsPanel
+from cvti.app.widgets.cameras import CamerasPanel
 from cvti.app.widgets.config import ConfigPanel
 from cvti.app.widgets.feed import FeedWidget
 from cvti.app.widgets.mapper import MapperPanel
@@ -96,10 +97,12 @@ class MainWindow(QMainWindow):
         tabs.setMinimumWidth(380)
         tabs.setMaximumWidth(480)
 
+        self.cameras_panel = CamerasPanel()
         self.alerts_panel = AlertsPanel()
         self.mapper_panel = MapperPanel()
         self.config_panel = ConfigPanel()
 
+        tabs.addTab(self.cameras_panel, "Cameras")
         tabs.addTab(self.alerts_panel, "Alerts")
         tabs.addTab(self.mapper_panel, "Agent Map")
         tabs.addTab(self.config_panel, "Rules")
