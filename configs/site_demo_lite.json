@@ -1,0 +1,11 @@
+{
+  "_comment": "LEAN demo (for 16-18GB Macs): 3 real CCTV cams — 2 theft (fire alerts) + 1 normal (mostly quiet, shows gate rejecting false alarms). Lower load than site_demo_live.json (5 cams). Same narrative, cooler machine. Marked configured.",
+  "name": "Demo Store",
+  "notify": "console,whatsapp",
+  "configured": true,
+  "cameras": [
+    {"id": "aisle_1",  "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",     "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "aisle_2",  "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/316.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "entrance", "source": "CamNuvem Robbery Dataset/videos/samples/training/normal/Normal_Videos035_x264.mp4", "config": "configs/all_threats_v1.json", "concealment": true}
+  ]
+}

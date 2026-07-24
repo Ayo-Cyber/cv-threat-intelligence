@@ -112,10 +112,14 @@ class ConsoleBackend:
         out_dir.mkdir(parents=True, exist_ok=True)
         notify = self.get_site().get("notify") or "console"
         log = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
+        # Lean defaults keep the box cool: lower fps + image size cut compute
+        # a lot with negligible quality loss at demo scale. Gemma is the big
+        # RAM item; fewer cameras (use a lite site config) is the other lever.
         cmd = [sys.executable, "-m", "cvti.serving.pipeline",
                "--site-config", self.site_path,
                "--gate-provider", "ollama", "--gate-model", "gemma3:4b",
                "--notify", notify, "--output-dir", str(out_dir),
+               "--target-fps", "4", "--imgsz", "512",
                "--seconds", "100000", "--gate-drain", "60"]
         self._monitor = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
         return {"running": True, "pid": self._monitor.pid}

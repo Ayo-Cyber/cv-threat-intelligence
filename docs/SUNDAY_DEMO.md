@@ -28,8 +28,16 @@ python -m cvti.serving.pipeline --site-config configs/site_demo_live.json \
 ## Launch the app (the demo itself)
 
 ```bash
+# LEAN — recommended on 16-18GB Macs (3 cams; ~7-8GB, cooler machine)
+python -m cvti.app.shell --site-config configs/site_demo_lite.json --db runs/demo/events.db
+
+# FULL — 5 cams, heavier (needs headroom; close Brave/other apps first)
 python -m cvti.app.shell --site-config configs/site_demo_live.json --db runs/demo/events.db
 ```
+
+> **Memory:** Gemma (~5GB) + the detection stack + your other apps can hit ~13GB.
+> On an 18GB Mac use the **lite** (3-cam) config and quit Brave/extra apps before
+> the demo. The engine also runs lean now (4 fps, 512px). Same story, cooler box.
 
 ## Demo flow (5 beats)
 
