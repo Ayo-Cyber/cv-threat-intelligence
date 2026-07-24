@@ -132,9 +132,9 @@
     <div class="brand"><div class="n">CVTI</div><div class="s" id="siteName">Site 01 · local</div></div>
     <div class="navitems" id="nav"></div>
     <div class="navfoot">
-      <div class="row" style="gap:8px"><span class="dot" style="background:var(--c-live)"></span>
-        <span style="font-weight:600;color:#c7cdd8">Monitoring</span></div>
-      <div class="mono" style="margin-top:6px">gate local · offline OK</div>
+      <div class="row" style="gap:8px"><span class="dot" id="monDot" style="background:var(--c-sub)"></span>
+        <span id="monLabel" style="font-weight:600;color:#c7cdd8">Idle</span></div>
+      <div class="mono" id="monGate" style="margin-top:6px">gate local · offline OK</div>
       <div style="margin-top:4px;color:#3d4a66">CVTI Edge v0.9</div>
     </div>
   </nav>
@@ -144,6 +144,7 @@
       <div class="stats">
         <span><b id="stCams">0</b> cameras</span>
         <span><b id="stPending">0</b> to review</span>
+        <button class="btn sm" id="monBtn" onclick="toggleMonitor()">▶ Start monitoring</button>
         <button class="themebtn" onclick="toggleTheme()">◐ theme</button>
       </div>
     </header>
@@ -175,7 +176,31 @@ function renderNav(){
     return '<button class="navbtn'+on+'" onclick="go(\''+n[0]+'\')">'+n[1]+badge+'</button>';
   }).join("");
 }
-function go(r){ if(state.route==="live" && r!=="live") stopLive(); state.route=r; state.selected=null; renderNav(); render(); }
+function go(r){
+  if(state.route==="live" && r!=="live") stopLive();
+  if(state.route==="alerts" && r!=="alerts") stopAlertsPoll();
+  state.route=r; state.selected=null; renderNav(); render();
+}
+
+/* ---------- monitoring engine control ---------- */
+function refreshMonitor(){ call("monitoringStatus",[],function(s){ applyMonitor(s && s.running); }); }
+function applyMonitor(running){
+  state.monitoring = !!running;
+  var b=$("monBtn"); if(b){ b.textContent = running ? "■ Stop monitoring" : "▶ Start monitoring";
+    b.className = running ? "btn sm" : "btn ghost sm"; }
+  var dot=$("monDot"), lab=$("monLabel");
+  if(dot) dot.style.background = running ? "var(--c-live)" : "var(--c-sub)";
+  if(lab) lab.textContent = running ? "Monitoring" : "Idle";
+}
+function toggleMonitor(){
+  var b=$("monBtn"); if(b){ b.textContent="…"; }
+  if(state.monitoring){ call("stopMonitoring",[],function(){ refreshMonitor(); }); }
+  else { call("startMonitoring",[],function(r){ applyMonitor(true);
+    // engine takes ~15-30s to load models; alerts start flowing after that
+    if($("monGate")) $("monGate").textContent="gate gemma3:4b · loading models…";
+    setTimeout(function(){ if($("monGate")) $("monGate").textContent="gate gemma3:4b · live"; }, 25000);
+  }); }
+}
 
 function refreshCounts(){
   call("counts",[],function(c){ if(c&&!c.error){ state.pending=c.pending_alerts||0;
@@ -286,7 +311,9 @@ function stopLive(){ stopLivePoll(); call("liveStop",[],function(){}); }
 function renderAlerts(){
   call("listEvents",[100],function(evs){
     state.events = Array.isArray(evs)?evs:[];
-    if(!state.selected && state.events.length) state.selected = state.events[0];
+    state.alertsSig = state.events.map(function(e){return e.id+":"+e.review;}).join(",");
+    var selId = state.selected && state.selected.id;
+    state.selected = state.events.filter(function(e){return e.id===selId;})[0] || state.events[0] || null;
     var list = state.events.map(function(a,i){
       var sel = state.selected && state.selected.id===a.id ? " sel":"";
       var st = a.review==="true"?"TRUE":a.review==="false"?"FALSE":a.review==="ack"?"ACK":"NEW";
@@ -303,8 +330,15 @@ function renderAlerts(){
       + '<div class="alist"><div class="scroll">'+(state.events.length?list:empty)+'</div>'
       +   '<div style="flex:none;padding:8px 14px;border-top:1px solid var(--c-border)" class="kbd">click an alert → review it true / false</div></div>'
       + '<div class="adetail" id="detail">'+renderDetail()+'</div></div>';
+    startAlertsPoll();
   });
 }
+function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(function(){
+  if(state.route!=="alerts"){ stopAlertsPoll(); return; }
+  call("listEvents",[100],function(evs){ if(!Array.isArray(evs)) return;
+    var sig=evs.map(function(e){return e.id+":"+e.review;}).join(",");
+    if(sig!==state.alertsSig){ renderAlerts(); refreshCounts(); } }); }, 3000); }
+function stopAlertsPoll(){ if(state.alertsTimer){ clearInterval(state.alertsTimer); state.alertsTimer=null; } }
 function selectAlert(i){ state.selected = state.events[i]; $("detail").innerHTML = renderDetail();
   document.querySelectorAll(".arow").forEach(function(el,idx){el.classList.toggle("sel",idx===i);}); }
 function renderDetail(){
@@ -498,7 +532,7 @@ function wizCheckGateStandalone(){ var el=$("sysGate"); if(el) el.textContent="C
     el.textContent = msg; }); }
 
 /* ---------- boot ---------- */
-function startApp(){ renderNav(); refreshCounts(); render(); }
+function startApp(){ renderNav(); refreshCounts(); refreshMonitor(); render(); }
 function boot(){
   call("setupState",[],function(s){
     if(s && !s.error && !s.configured){ openWizard(); }

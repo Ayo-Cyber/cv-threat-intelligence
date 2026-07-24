@@ -110,3 +110,16 @@ class Backend(QObject):
     @pyqtSlot(result=str)
     def liveStop(self) -> str:
         return self._safe(self._core.live_stop)
+
+    # --- monitoring engine ---
+    @pyqtSlot(result=str)
+    def startMonitoring(self) -> str:
+        return self._safe(self._core.start_monitoring)
+
+    @pyqtSlot(result=str)
+    def stopMonitoring(self) -> str:
+        return self._safe(self._core.stop_monitoring)
+
+    @pyqtSlot(result=str)
+    def monitoringStatus(self) -> str:
+        return self._safe(self._core.monitoring_status)

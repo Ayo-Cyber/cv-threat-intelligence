@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import base64
 import sqlite3
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -27,7 +29,8 @@ class ConsoleBackend:
                  db_path: str = "runs/site/events.db") -> None:
         self.site_path = site_path
         self.db_path = db_path
-        self._live = None  # LiveWall instance while the Live screen is open
+        self._live = None       # LiveWall instance while the Live screen is open
+        self._monitor = None    # detection-engine subprocess (Start monitoring)
 
     # --- cameras (delegate to onboarding) ---
     def list_cameras(self) -> list[dict]:
@@ -97,6 +100,39 @@ class ConsoleBackend:
             self._live.stop()
             self._live = None
         return {"stopped": True}
+
+    # --- monitoring engine (Start/Stop) ---
+    # Launches the full detection pipeline (YOLO + VideoMAE + Gemma gate) as a
+    # subprocess pointed at this site, writing confirmed alerts into events.db.
+    # Runs from-source / dev env (needs torch etc.); not from the lean app bundle.
+    def start_monitoring(self) -> dict:
+        if self._monitor and self._monitor.poll() is None:
+            return {"running": True, "pid": self._monitor.pid, "already": True}
+        out_dir = Path(self.db_path).parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+        notify = self.get_site().get("notify") or "console"
+        log = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
+        cmd = [sys.executable, "-m", "cvti.serving.pipeline",
+               "--site-config", self.site_path,
+               "--gate-provider", "ollama", "--gate-model", "gemma3:4b",
+               "--notify", notify, "--output-dir", str(out_dir),
+               "--seconds", "100000", "--gate-drain", "60"]
+        self._monitor = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
+        return {"running": True, "pid": self._monitor.pid}
+
+    def stop_monitoring(self) -> dict:
+        if self._monitor and self._monitor.poll() is None:
+            self._monitor.terminate()
+            try:
+                self._monitor.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                self._monitor.kill()
+        self._monitor = None
+        return {"running": False}
+
+    def monitoring_status(self) -> dict:
+        running = bool(self._monitor and self._monitor.poll() is None)
+        return {"running": running, "pid": (self._monitor.pid if running else None)}
 
     def setup_state(self) -> dict:
         """Everything the wizard needs to decide whether to show + where to resume."""

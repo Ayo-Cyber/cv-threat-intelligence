@@ -1,0 +1,14 @@
+{
+  "_comment": "Sunday demo: 6 clips as 'cameras'. Theft/violence cams run the full detector + fine-tuned VideoMAE; normal cams stay (mostly) quiet to show targeting + low false alarms. Marked configured so the app opens straight into monitoring, not the wizard.",
+  "name": "Demo Store",
+  "notify": "console,whatsapp",
+  "configured": true,
+  "cameras": [
+    {"id": "aisle_1",      "source": "data/test_clips/theft_shop_01.mp4",   "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "aisle_2",      "source": "data/test_clips/theft_shop_02.mp4",   "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "back_door",    "source": "data/test_clips/stabbing_event.mp4",  "config": "configs/all_threats_video_v1.json", "concealment": true, "violence": true},
+    {"id": "entrance",     "source": "data/test_clips/normal_street_01.mp4", "config": "configs/all_threats_v1.json",       "concealment": true},
+    {"id": "car_park",     "source": "data/test_clips/normal_street_02.mp4", "config": "configs/all_threats_v1.json",       "concealment": true},
+    {"id": "stockroom",    "source": "data/test_clips/empty_warehouse.mp4",  "config": "configs/all_threats_v1.json"}
+  ]
+}

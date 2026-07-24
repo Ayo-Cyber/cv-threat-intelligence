@@ -108,9 +108,21 @@ class WhatsAppNotifier:
             print(f"[notify whatsapp error] {str(exc)[:140]}")
 
 
-def build_notifier(spec: str) -> Any:
-    """spec: 'console' | 'webhook:<url>' | 'telegram:<token>:<chat_id>' | 'whatsapp'
-    (whatsapp reads Twilio creds from env)."""
+class MultiNotifier:
+    """Fan an alert out to several notifiers; one failing never blocks the rest."""
+    def __init__(self, notifiers: list) -> None:
+        self.notifiers = notifiers
+
+    def notify(self, event: dict) -> None:
+        for n in self.notifiers:
+            try:
+                n.notify(event)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[alert-sink] {type(n).__name__} failed: {str(exc)[:100]}")
+
+
+def _build_one(spec: str) -> Any:
+    spec = spec.strip()
     if not spec or spec == "console":
         return ConsoleNotifier()
     if spec.startswith("webhook:"):
@@ -126,6 +138,16 @@ def build_notifier(spec: str) -> Any:
             return ConsoleNotifier()
     print(f"[alert-sink] unknown notifier '{spec}', using console")
     return ConsoleNotifier()
+
+
+def build_notifier(spec: str) -> Any:
+    """spec: one channel, or several comma-separated (e.g. 'console,whatsapp').
+    Each channel: 'console' | 'webhook:<url>' | 'telegram:<token>:<chat_id>' |
+    'whatsapp' (Twilio creds from env)."""
+    parts = [s for s in (spec or "console").split(",") if s.strip()]
+    if len(parts) <= 1:
+        return _build_one(parts[0] if parts else "console")
+    return MultiNotifier([_build_one(p) for p in parts])
 
 
 # ---------------------------------------------------------------------------
