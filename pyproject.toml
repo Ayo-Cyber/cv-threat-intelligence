@@ -25,6 +25,7 @@ dependencies = [
 vlm = ["anthropic>=0.25.0"]
 train = ["torch>=2.0.0", "torchvision>=0.15.0"]
 gui = ["PyQt6>=6.6.0"]
+console = ["PyQt6>=6.6.0", "PyQt6-WebEngine>=6.6.0"]  # web-in-native-shell operator app
 dev = [
     "pytest>=7.0.0",
     "pytest-cov",
@@ -39,6 +40,7 @@ cvti-eval    = "cvti.training.eval:main"
 cvti-infer   = "cvti.cli.infer:main"
 cvti-suite   = "cvti.cli.suite:main"
 cvti-app     = "cvti.app.main:main"
+cvti-console = "cvti.app.shell:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -46,6 +48,7 @@ include = ["cvti*"]
 
 [tool.setuptools.package-data]
 cvti = ["py.typed"]
+"cvti.app" = ["web/*.html", "web/*.css", "web/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

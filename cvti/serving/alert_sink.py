@@ -137,7 +137,9 @@ CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL, iso TEXT, camera_id TEXT, rule TEXT, priority TEXT,
     confidence REAL, reason TEXT, track_id INTEGER, zone TEXT,
-    object_label TEXT, evidence_dir TEXT
+    object_label TEXT, evidence_dir TEXT,
+    review TEXT,          -- NULL=new, 'ack', 'true', 'false' (operator label)
+    reviewed_at TEXT
 );
 """
 

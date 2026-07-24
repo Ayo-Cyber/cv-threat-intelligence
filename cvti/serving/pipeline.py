@@ -164,7 +164,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              weapon_weights: str = "models/weapon_best.pt", yolov5_repo: str = "external/yolov5",
              video_action_model_path: str = "runs/video_finetune/videomae",
              baseline_config: str | None = "configs/baseline_critical_v1.json",
-             notify: str = "console", output_dir: str = "runs/serving") -> None:
+             notify: str = "console", output_dir: str = "runs/serving",
+             gate_workers: int = 1, gate_drain: float = 180.0) -> None:
     """End-to-end multi-camera run: shared batched detector + shared pose/weapon
     models -> per-camera track/zones/concealment/violence/weapons/theft/rules ->
     shared alert queue -> async VLM gate."""
@@ -217,6 +218,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         queue,
         gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
                                               base_url=gate_base_url, save_dir=save_dir),
+        workers=gate_workers,
         on_verdict=sink.handle,
     ).start()
 
@@ -229,6 +231,13 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         pipe.run(max_seconds=seconds)
     finally:
         pipe.stop()
+        # Let in-flight VLM verdicts finish (a real gate is ~12s/verify, so the
+        # queue keeps draining after the streams end) before tearing down.
+        pending = queue.pending_count
+        if pending or gate_pool._active:
+            print(f"[site] draining gate: {pending} queued verdict(s) (up to {gate_drain:.0f}s)…")
+            drained = gate_pool.drain(timeout=gate_drain)
+            print(f"[site] gate drained cleanly={drained}")
         gate_pool.stop()
         sink.close()
     print(f"[site] alerts_queued={pipe.alerts_queued} gate={gate_pool.stats()}")
@@ -250,6 +259,10 @@ def main() -> None:
     p.add_argument("--gate-provider", default="mock")
     p.add_argument("--gate-model", default="")
     p.add_argument("--gate-base-url", default="")
+    p.add_argument("--gate-workers", type=int, default=1,
+                   help="Concurrent VLM gate workers (raise for real/slow gates).")
+    p.add_argument("--gate-drain", type=float, default=180.0,
+                   help="Seconds to let in-flight verdicts finish after streams end.")
     p.add_argument("--notify", default="console",
                    help="Alert notifier: console | webhook:<url> | telegram:<token>:<chat_id> "
                         "| whatsapp (Twilio creds from env)")
@@ -262,7 +275,8 @@ def main() -> None:
                  imgsz=args.imgsz, conf=args.conf, device=args.device, half=args.half,
                  seconds=args.seconds, gate_provider=args.gate_provider,
                  gate_model=args.gate_model, gate_base_url=args.gate_base_url,
-                 notify=args.notify, output_dir=args.output_dir)
+                 notify=args.notify, output_dir=args.output_dir,
+                 gate_workers=args.gate_workers, gate_drain=args.gate_drain)
         return
 
     if not args.sources:

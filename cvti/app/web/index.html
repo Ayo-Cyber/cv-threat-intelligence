@@ -1,0 +1,521 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CVTI Console</title>
+<script>document.documentElement.setAttribute("data-mode","dark");</script>
+<style>
+  /* Tokens live on :root so the app shell (#cv) AND the sibling overlays
+     (#wizard, #modalRoot) all inherit them. Theme is toggled on <html>. */
+  :root{--c-bg:#0a1326;--c-panel:#0f1c36;--c-raised:#13223f;--c-border:#1f2c48;--c-border2:#2a3a5c;
+    --c-text:#edf1f8;--c-mut:#8d94a6;--c-sub:#5f6b84;--c-accent:#36a0da;--c-accent-soft:rgba(54,160,218,0.15);
+    --c-live:#22c55e;--c-feed:#060d1c;--sev-crit:#ef4444;--sev-high:#f59e0b;--sev-med:#fad881;--sev-low:#8d94a6;
+    --ff-sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--ff-mono:ui-monospace,Menlo,"Cascadia Code",monospace;
+    --focus:0 0 0 3px rgba(54,160,218,0.35)}
+  :root[data-mode="light"]{--c-bg:#f5f6f8;--c-panel:#fff;--c-raised:#fff;--c-border:#e5e7eb;--c-border2:#c7cdd8;
+    --c-text:#010916;--c-mut:#616161;--c-sub:#8d94a6;--c-accent:#298ec2;--c-accent-soft:#e7f3fa;--c-live:#16a34a;
+    --c-feed:#0b1220;--sev-crit:#dc2626;--sev-high:#d97706;--sev-med:#ca8a04;--sev-low:#8d94a6}
+  *{box-sizing:border-box}
+  /* color + font on body so ALL top-level nodes (#cv, #wizard, #modalRoot)
+     inherit them — not just #cv. Otherwise overlays fall back to black serif. */
+  body{margin:0;background:var(--c-bg);color:var(--c-text);font-family:var(--ff-sans);font-size:13px}
+  #cv{display:flex;height:100vh;min-height:640px;background:var(--c-bg);color:var(--c-text);
+    font-family:var(--ff-sans);font-size:13px;overflow:hidden}
+  .mono{font-family:var(--ff-mono)}
+  button{font-family:inherit}
+  nav{width:206px;flex:none;background:#0e1a34;display:flex;flex-direction:column;border-right:1px solid #1f2c48}
+  :root[data-mode="light"] nav{background:#0c1930}
+  .brand{padding:18px}
+  .brand .n{font-size:21px;font-weight:700;color:#fff;letter-spacing:.02em}
+  .brand .s{font-size:11px;color:#8d94a6;margin-top:2px}
+  .navitems{display:flex;flex-direction:column;gap:2px;padding:6px 10px}
+  .navbtn{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:10px;padding:9px 12px;
+    border-radius:8px;font-weight:600;font-size:13px;color:#c7cdd8}
+  .navbtn:hover{background:rgba(255,255,255,.06)}
+  .navbtn.on{background:var(--c-accent-soft);color:#fff}
+  .navbtn .badge{margin-left:auto;background:var(--sev-crit);color:#fff;font-size:10.5px;font-weight:700;
+    min-width:18px;text-align:center;padding:2px 5px;border-radius:99px;font-family:var(--ff-mono)}
+  .navfoot{margin-top:auto;padding:14px 18px;border-top:1px solid #1f2c48;color:#5f6b84;font-size:11px}
+  main{flex:1;min-width:0;display:flex;flex-direction:column}
+  header.bar{flex:none;display:flex;align-items:center;gap:18px;padding:14px 24px;border-bottom:1px solid var(--c-border);
+    background:var(--c-panel)}
+  header.bar h1{margin:0;font-size:19px;font-weight:600;letter-spacing:-.01em}
+  .stats{margin-left:auto;display:flex;gap:18px;align-items:center;font-size:12px;color:var(--c-mut)}
+  .stats b{font-family:var(--ff-mono);color:var(--c-text);font-weight:500}
+  .themebtn{all:unset;cursor:pointer;border:1px solid var(--c-border);border-radius:99px;padding:5px 12px;font-size:12px;color:var(--c-mut)}
+  #screen{flex:1;min-height:0;overflow:auto}
+  .pad{padding:18px 24px 28px}
+  h2{font-size:20px;font-weight:600;margin:0 0 4px}
+  .mut{color:var(--c-mut)} .sub{color:var(--c-sub)}
+  .panel{background:var(--c-panel);border:1px solid var(--c-border);border-radius:10px}
+  .btn{all:unset;cursor:pointer;background:var(--c-accent);color:#fff;font-weight:700;padding:10px 18px;border-radius:8px;font-size:13px}
+  .btn:focus-visible{box-shadow:var(--focus)}
+  .btn.ghost{background:transparent;border:1px solid var(--c-border2);color:var(--c-text);font-weight:600}
+  .btn.sm{padding:8px 14px;font-size:12.5px}
+  input,select{background:var(--c-bg);border:1px solid var(--c-border2);color:var(--c-text);border-radius:8px;
+    padding:9px 11px;font-family:var(--ff-sans);font-size:13px;outline:none}
+  input:focus,select:focus{box-shadow:var(--focus);border-color:var(--c-accent)}
+  input.mono{font-family:var(--ff-mono)}
+  label.fld{display:flex;flex-direction:column;gap:6px;font-size:12.5px;font-weight:600}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .chip{cursor:pointer;font-size:12px;font-weight:600;padding:7px 12px;border-radius:99px;border:1px solid var(--c-border2);
+    color:var(--c-mut);background:transparent;user-select:none}
+  .chip.on{border-color:var(--c-accent);color:#fff;background:var(--c-accent-soft)}
+  /* cameras table */
+  .thead,.trow{display:grid;grid-template-columns:150px 1fr 130px 200px 90px;gap:12px;padding:11px 16px;align-items:center}
+  .thead{border-bottom:1px solid var(--c-border);font-size:10.5px;font-weight:700;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--c-sub)}
+  .trow{border-bottom:1px solid var(--c-border)}
+  .trow:last-child{border-bottom:none}
+  .dot{width:7px;height:7px;border-radius:99px;display:inline-block;margin-right:6px}
+  /* alerts */
+  .alerts{display:flex;height:100%;min-height:0}
+  .alist{width:390px;flex:none;border-right:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0}
+  .alist .scroll{flex:1;overflow:auto}
+  .arow{display:flex;gap:10px;padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--c-border)}
+  .arow:hover{background:var(--c-raised)} .arow.sel{background:var(--c-raised);box-shadow:inset 3px 0 0 var(--c-accent)}
+  .adetail{flex:1;min-width:0;overflow:auto;padding:20px 26px}
+  .sevbadge{font-size:10.5px;font-weight:800;letter-spacing:.08em;padding:4px 10px;border-radius:5px;color:#fff}
+  .frames{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+  .frames img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--c-border);background:var(--c-feed)}
+  .snapwrap{position:relative;aspect-ratio:16/9;background:var(--c-feed);border-radius:10px;overflow:hidden;
+    border:1px solid var(--c-border);display:flex;align-items:center;justify-content:center;color:var(--c-mut)}
+  .snapwrap img{width:100%;height:100%;object-fit:cover}
+  .spin{width:26px;height:26px;border-radius:99px;border:3px solid var(--c-border2);border-top-color:var(--c-accent);
+    animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+  .empty{max-width:460px;margin:70px auto 0;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px}
+  .kbd{font-family:var(--ff-mono);font-size:11px;color:var(--c-sub)}
+  .confbar{flex:1;height:6px;background:var(--c-border);border-radius:99px;max-width:280px}
+  .confbar>div{height:100%;border-radius:99px}
+  /* first-run wizard */
+  #wizard{position:fixed;inset:0;z-index:50;background:var(--c-bg);display:none;flex-direction:column}
+  #wizard.on{display:flex}
+  .wizhead{flex:none;padding:20px 40px 0}
+  .wizbrand{font-size:22px;font-weight:700;color:var(--c-text);letter-spacing:.02em}
+  .steps{display:flex;gap:8px;margin-top:16px;align-items:center}
+  .steps .st{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--c-sub)}
+  .steps .st .num{width:22px;height:22px;border-radius:99px;display:grid;place-items:center;font-size:11px;
+    border:1px solid var(--c-border2);color:var(--c-sub)}
+  .steps .st.on{color:var(--c-text)} .steps .st.on .num{background:var(--c-accent);border-color:var(--c-accent);color:#fff}
+  .steps .st.done .num{background:var(--c-live);border-color:var(--c-live);color:#fff}
+  .steps .sep{flex:1;height:1px;background:var(--c-border);max-width:40px}
+  .wizbody{flex:1;min-height:0;overflow:auto;display:flex;justify-content:center;padding:28px 40px}
+  .wizcard{width:100%;max-width:680px}
+  .wizcard h2{font-size:26px;margin:0 0 6px} .wizcard .lead{color:var(--c-mut);font-size:14px;line-height:1.55;margin:0 0 20px}
+  .wizfoot{flex:none;display:flex;gap:12px;align-items:center;padding:16px 40px;border-top:1px solid var(--c-border)}
+  .wizfoot .spacer{flex:1}
+  .found{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .found .ip{cursor:pointer;font-family:var(--ff-mono);font-size:12px;padding:6px 10px;border-radius:6px;
+    border:1px solid var(--c-border2);color:var(--c-text)}
+  .found .ip:hover{border-color:var(--c-accent);color:var(--c-accent)}
+  .addedlist{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+  .addedcam{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--c-border);border-radius:8px}
+  .statusbig{display:flex;align-items:center;gap:14px;padding:18px;border-radius:12px;border:1px solid var(--c-border);background:var(--c-panel)}
+  .statusdot{width:12px;height:12px;border-radius:99px;flex:none}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  /* live wall */
+  .wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+  .tile{position:relative;aspect-ratio:16/9;background:var(--c-feed);border:1px solid var(--c-border);
+    border-radius:10px;overflow:hidden}
+  .tile img{width:100%;height:100%;object-fit:cover;display:block}
+  .tile .ph{position:absolute;inset:0;display:grid;place-items:center;color:var(--c-sub)}
+  .tlabel{position:absolute;left:10px;bottom:9px;display:flex;align-items:center;gap:7px;font-size:12.5px;
+    font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8);font-family:var(--ff-mono)}
+  .livedot{width:8px;height:8px;border-radius:99px;background:var(--c-live);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+</style>
+</head>
+<body>
+<div id="cv" data-mode="dark">
+  <nav>
+    <div class="brand"><div class="n">CVTI</div><div class="s" id="siteName">Site 01 · local</div></div>
+    <div class="navitems" id="nav"></div>
+    <div class="navfoot">
+      <div class="row" style="gap:8px"><span class="dot" style="background:var(--c-live)"></span>
+        <span style="font-weight:600;color:#c7cdd8">Monitoring</span></div>
+      <div class="mono" style="margin-top:6px">gate local · offline OK</div>
+      <div style="margin-top:4px;color:#3d4a66">CVTI Edge v0.9</div>
+    </div>
+  </nav>
+  <main>
+    <header class="bar">
+      <h1 id="title">Cameras</h1>
+      <div class="stats">
+        <span><b id="stCams">0</b> cameras</span>
+        <span><b id="stPending">0</b> to review</span>
+        <button class="themebtn" onclick="toggleTheme()">◐ theme</button>
+      </div>
+    </header>
+    <div id="screen"><div class="pad mut">Loading…</div></div>
+  </main>
+</div>
+<div id="modalRoot"></div>
+<div id="wizard"></div>
+
+<script>
+"use strict";
+var backend = null, state = {route:"cameras", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[]};
+var NAV = [["cameras","Cameras"],["alerts","Alerts"],["live","Live"],["rules","Rules"],["system","System"]];
+var SEV = {critical:"var(--sev-crit)",high:"var(--sev-high)",medium:"var(--sev-med)",low:"var(--sev-low)"};
+
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function $(id){return document.getElementById(id);}
+function call(method, args, cb){ // args: array; cb(obj)
+  if(!backend){cb&&cb({error:"backend not connected"});return;}
+  var f = backend[method];
+  var done = function(json){ try{cb&&cb(JSON.parse(json));}catch(e){cb&&cb({error:"bad response"});} };
+  f.apply(backend, (args||[]).concat([done]));
+}
+
+function renderNav(){
+  $("nav").innerHTML = NAV.map(function(n){
+    var on = state.route===n[0] ? " on" : "";
+    var badge = (n[0]==="alerts" && state.pending>0) ? '<span class="badge">'+state.pending+'</span>' : '';
+    return '<button class="navbtn'+on+'" onclick="go(\''+n[0]+'\')">'+n[1]+badge+'</button>';
+  }).join("");
+}
+function go(r){ if(state.route==="live" && r!=="live") stopLive(); state.route=r; state.selected=null; renderNav(); render(); }
+
+function refreshCounts(){
+  call("counts",[],function(c){ if(c&&!c.error){ state.pending=c.pending_alerts||0;
+    $("stCams").textContent=c.cameras||0; $("stPending").textContent=c.pending_alerts||0; renderNav(); } });
+}
+
+function render(){
+  var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",rules:"Rules",system:"System"}[state.route];
+  $("title").textContent = t;
+  if(state.route==="cameras") return renderCameras();
+  if(state.route==="alerts") return renderAlerts();
+  if(state.route==="live") return renderLive();
+  var extra = state.route==="system"
+    ? '<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Run setup again</button><button class="btn ghost" onclick="wizCheckGateStandalone()">Check VLM gate</button></div><div id="sysGate" class="mut" style="margin-top:10px;font-size:12px"></div>'
+    : '';
+  $("screen").innerHTML='<div class="pad"><h2>'+t+'</h2><p class="mut">This screen is coming next — the backend for it is already running from the pipeline.</p>'+extra+'</div>';
+  if(state.route==="system") wizCheckGateStandalone();
+}
+
+/* ---------- Cameras ---------- */
+function renderCameras(){
+  call("presets",[],function(p){ state.presets = (p&&!p.error)?p:{}; });
+  call("listCameras",[],function(cams){
+    state.cameras = Array.isArray(cams)?cams:[];
+    var presetOpts = Object.keys(state.presets).map(function(k){return '<option value="'+esc(state.presets[k])+'">'+esc(k)+'</option>';}).join("");
+    var rows = state.cameras.map(function(c){
+      var sig=[c.concealment&&"conceal",c.video_action&&"video",c.violence&&"violence"].filter(Boolean).join(" · ")||"basic";
+      return '<div class="trow"><span class="mono" style="font-weight:600">'+esc(c.id)+'</span>'
+        +'<span class="mono mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((c.source||"").split("@").pop())+'</span>'
+        +'<span><span class="dot" style="background:var(--c-live)"></span>configured</span>'
+        +'<span class="mut">'+esc((c.config||"").split("/").pop())+'</span>'
+        +'<span class="mono sub">'+esc(sig)+'</span></div>';
+    }).join("");
+    var table = state.cameras.length ?
+      ('<div class="panel" style="overflow:hidden;margin-top:8px"><div class="thead"><span>Camera</span><span>Source</span><span>Status</span><span>Rule preset</span><span>Signals</span></div>'+rows+'</div>')
+      : '<div class="empty"><div style="font-size:22px;font-weight:600">Connect your first camera</div><p class="mut" style="line-height:1.5">CVTI works with the cameras you already have. Paste a stream address or scan your network. Nothing leaves this PC.</p></div>';
+    var testHtml = renderTestBox();
+    $("screen").innerHTML =
+      '<div class="pad">'
+      + '<div class="panel" style="padding:16px 18px;margin-bottom:14px">'
+      +   '<div class="row"><input id="cidr" placeholder="192.168.1.0/24" style="flex:1"><button class="btn ghost sm" onclick="doScan()">Scan network</button></div>'
+      +   '<div id="scanRes" class="mut" style="margin-top:8px;font-size:12px"></div>'
+      +   '<div style="height:1px;background:var(--c-border);margin:14px 0"></div>'
+      +   '<div class="row"><input id="url" class="mono" placeholder="rtsp://user:pass@192.168.1.10:554/Streaming/Channels/102" style="flex:1;min-width:320px"></div>'
+      +   '<div class="row" style="margin-top:10px"><input id="cname" placeholder="name e.g. entrance" style="width:200px">'
+      +     '<select id="preset">'+presetOpts+'</select>'
+      +     '<label class="row" style="gap:6px;font-weight:600"><input type="checkbox" id="cConceal" checked> concealment</label>'
+      +     '<label class="row" style="gap:6px;font-weight:600"><input type="checkbox" id="cVideo" checked> video</label>'
+      +     '<button class="btn ghost sm" onclick="doTest()">Test</button><button class="btn sm" onclick="doAdd()">Add camera</button></div>'
+      +   '<div id="testBox" style="margin-top:12px;max-width:420px">'+testHtml+'</div>'
+      + '</div>'
+      + table + '</div>';
+    // auto-fill the detected subnet so the operator never types one
+    call("detectSubnet",[],function(r){ if(r&&r.cidr && $("cidr") && !$("cidr").value) $("cidr").value=r.cidr; });
+  });
+}
+function renderTestBox(){
+  var t = state.test;
+  if(!t) return '';
+  if(t.busy) return '<div class="snapwrap"><div style="display:flex;flex-direction:column;gap:10px;align-items:center"><span class="spin"></span><span>Connecting…</span></div></div>';
+  if(t.error) return '<div class="snapwrap" style="color:var(--sev-crit);text-align:center;padding:16px">'+esc(t.error)+'</div>';
+  if(t.ok) return '<div class="snapwrap"><img src="'+t.snapshot+'"></div><div style="color:var(--c-live);font-weight:600;margin-top:6px;font-size:12.5px">✓ Connected — '+t.w+'×'+t.h+' @ '+t.fps+' fps</div>';
+  return '';
+}
+function doScan(){ var c=$("cidr").value.trim(); if(!c){$("scanRes").textContent="Enter a subnet like 192.168.1.0/24";return;}
+  $("scanRes").textContent="Scanning…";
+  call("scan",[c],function(r){ if(r.error){$("scanRes").textContent=r.error;return;}
+    var h=r.hosts||[]; $("scanRes").innerHTML = h.length ? ("Found: "+h.map(function(ip){return '<a href="#" onclick="pick(\''+ip+'\');return false" style="color:var(--c-accent)">'+ip+'</a>';}).join(" · ")) : "No cameras found on that subnet."; });
+}
+function pick(ip){ $("url").value = "rtsp://user:pass@"+ip+":554/Streaming/Channels/102"; }
+function doTest(){ var u=$("url").value.trim(); if(!u)return; state.test={busy:true}; $("testBox").innerHTML=renderTestBox();
+  call("testUrl",[u],function(r){ state.test = r.error?{error:r.error}:r; $("testBox").innerHTML=renderTestBox(); }); }
+function doAdd(){ var u=$("url").value.trim(); if(!u){state.test={error:"Enter a camera URL first"};$("testBox").innerHTML=renderTestBox();return;}
+  var cam={id:$("cname").value.trim()||null, source:u, config:$("preset").value,
+    concealment:$("cConceal").checked, video_action:$("cVideo").checked};
+  Object.keys(cam).forEach(function(k){if(cam[k]===null)delete cam[k];});
+  call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} state.test=null; refreshCounts(); renderCameras(); }); }
+
+/* ---------- Live wall ---------- */
+function renderLive(){
+  $("screen").innerHTML='<div class="pad mut">Starting live view…</div>';
+  call("liveStart",[6],function(cams){
+    if(!Array.isArray(cams) || !cams.length){
+      $("screen").innerHTML='<div class="pad"><h2>Live wall</h2><p class="mut">No camera feeds available. Add cameras (or drop clips in data/test_clips) and reopen this tab.</p></div>';
+      return;
+    }
+    state.liveCams = cams;
+    var tiles = cams.map(function(c){
+      return '<div class="tile"><div class="ph" id="ph-'+esc(c.id)+'">connecting…</div>'
+        +'<img id="live-'+esc(c.id)+'" alt="" onload="var p=document.getElementById(\'ph-'+esc(c.id)+'\');if(p)p.style.display=\'none\'">'
+        +'<div class="tlabel"><span class="livedot"></span>'+esc(c.id)+'</div></div>';
+    }).join("");
+    $("screen").innerHTML='<div class="pad"><div class="row" style="margin-bottom:12px"><h2 style="margin:0">Live wall</h2>'
+      +'<span class="mut" style="font-size:12px">'+cams.length+' feeds · looping demo footage</span></div>'
+      +'<div class="wall">'+tiles+'</div></div>';
+    startLivePoll();
+  });
+}
+function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function(){
+  if(state.route!=="live"){ stopLive(); return; }
+  call("liveFrames",[],function(f){ if(!f||f.error) return;
+    Object.keys(f).forEach(function(id){ var img=$("live-"+id); if(img && f[id] && f[id].uri && img.src!==f[id].uri) img.src=f[id].uri; }); });
+}, 200); }
+function stopLivePoll(){ if(state.liveTimer){ clearInterval(state.liveTimer); state.liveTimer=null; } }
+function stopLive(){ stopLivePoll(); call("liveStop",[],function(){}); }
+
+/* ---------- Alerts ---------- */
+function renderAlerts(){
+  call("listEvents",[100],function(evs){
+    state.events = Array.isArray(evs)?evs:[];
+    if(!state.selected && state.events.length) state.selected = state.events[0];
+    var list = state.events.map(function(a,i){
+      var sel = state.selected && state.selected.id===a.id ? " sel":"";
+      var st = a.review==="true"?"TRUE":a.review==="false"?"FALSE":a.review==="ack"?"ACK":"NEW";
+      return '<div class="arow'+sel+'" onclick="selectAlert('+i+')"><span class="dot" style="margin-top:4px;background:'+(SEV[a.priority]||SEV.low)+'"></span>'
+        +'<div style="flex:1;min-width:0"><div class="row" style="gap:8px"><span style="font-weight:700">'+esc(a.rule)+'</span>'
+        +'<span class="mono mut" style="font-size:11px">'+esc(a.camera_id)+'</span><span style="flex:1"></span>'
+        +'<span class="mono mut" style="font-size:11px">'+esc((a.iso||"").split("T")[1]||"")+'</span></div>'
+        +'<div class="row" style="gap:8px;margin-top:3px"><span style="font-size:10px;font-weight:700;letter-spacing:.05em;color:'+(SEV[a.priority]||SEV.low)+'">'+esc((a.priority||"").toUpperCase())+'</span>'
+        +'<span class="mono sub" style="font-size:11px">'+(a.confidence!=null?Number(a.confidence).toFixed(2):"")+'</span><span style="flex:1"></span>'
+        +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;color:var(--c-mut);background:var(--c-raised)">'+st+'</span></div></div></div>';
+    }).join("");
+    var empty = '<div class="empty" style="margin-top:40px"><div style="font-size:20px;font-weight:600">No confirmed alerts yet</div><p class="mut">They land here the moment the gate confirms one.</p></div>';
+    $("screen").innerHTML = '<div class="alerts">'
+      + '<div class="alist"><div class="scroll">'+(state.events.length?list:empty)+'</div>'
+      +   '<div style="flex:none;padding:8px 14px;border-top:1px solid var(--c-border)" class="kbd">click an alert → review it true / false</div></div>'
+      + '<div class="adetail" id="detail">'+renderDetail()+'</div></div>';
+  });
+}
+function selectAlert(i){ state.selected = state.events[i]; $("detail").innerHTML = renderDetail();
+  document.querySelectorAll(".arow").forEach(function(el,idx){el.classList.toggle("sel",idx===i);}); }
+function renderDetail(){
+  var a = state.selected; if(!a) return '<p class="mut">Select an alert to review it.</p>';
+  var sev = SEV[a.priority]||SEV.low;
+  var frames = (a.frames||[]).map(function(f){return '<img src="'+f+'">';}).join("") || '<span class="mut">no frames saved</span>';
+  var confPct = Math.round((Number(a.confidence)||0)*100);
+  var reviewed = a.review && a.review!=="new";
+  return '<div class="row"><span class="sevbadge" style="background:'+sev+'">'+esc((a.priority||"").toUpperCase())+'</span>'
+    +'<h2 style="margin:0">'+esc(a.rule)+'</h2><span style="flex:1"></span><span class="mono mut">'+esc(a.iso||"")+'</span></div>'
+    +'<div class="row" style="gap:20px;margin-top:8px;font-size:12px" class="mut"><span class="mut">camera <b class="mono" style="color:var(--c-text)">'+esc(a.camera_id)+'</b></span>'
+    +'<span class="mut">zone <b class="mono" style="color:var(--c-text)">'+esc(a.zone||"—")+'</b></span>'
+    +'<span class="mut">track <b class="mono" style="color:var(--c-text)">'+esc(a.track_id||"—")+'</b></span>'
+    +'<span class="mut">object <b class="mono" style="color:var(--c-text)">'+esc(a.object_label||"—")+'</b></span></div>'
+    +'<div class="frames">'+frames+'</div>'
+    +'<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why the gate confirmed this</div>'
+    +'<p style="margin:0;font-size:14px;line-height:1.5">'+esc(a.reason||"")+'</p>'
+    +'<div class="row" style="margin-top:12px"><span class="mut" style="font-size:11px">confidence</span><div class="confbar"><div style="width:'+confPct+'%;background:'+sev+'"></div></div><span class="mono">'+(Number(a.confidence)||0).toFixed(2)+'</span></div></div>'
+    +'<div class="row" style="margin-top:18px">'
+    +'<button class="btn" onclick="doReview(\'ack\')">'+(a.review==="ack"?"Acknowledged ✓":"Acknowledge")+'</button>'
+    +'<button class="btn ghost" style="border-color:var(--sev-crit);color:var(--sev-crit)" onclick="doReview(\'true\')">True threat</button>'
+    +'<button class="btn ghost" onclick="doReview(\'false\')">False alarm</button>'
+    +'<span class="sub" style="margin-left:6px;font-size:11.5px">'+(reviewed?("Labeled: "+a.review):"Your label retrains the site model.")+'</span></div>';
+}
+function doReview(label){ var a=state.selected; if(!a)return;
+  call("review",[String(a.id),label],function(r){ if(r&&r.error){alert(r.error);return;}
+    a.review=label; renderAlerts(); refreshCounts(); }); }
+
+/* ---------- theme + boot ---------- */
+function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }
+/* ---------- first-run setup wizard ---------- */
+var wiz = {step:0, hosts:[], test:null, added:[], site:{name:"My Site",notify:"console",preset:""}, gate:null, pull:null, cidr:"", scanning:false, scanned:false};
+var STEPS = ["welcome","cameras","vlm","site","done"];
+var VENDORS = [["Hikvision","/Streaming/Channels/102"],
+               ["Dahua / Amcrest","/cam/realmonitor?channel=1&subtype=1"],
+               ["Reolink","/h264Preview_01_sub"],
+               ["Generic","/stream1"]];
+var NOTIFIERS = [["console","Console (test)"],["whatsapp","WhatsApp"],
+                 ["telegram","Telegram"],["webhook","Webhook"]];
+
+function openWizard(){
+  call("presets",[],function(p){ state.presets=(p&&!p.error)?p:{}; wiz.site.preset=Object.values(state.presets)[0]||""; });
+  call("getSite",[],function(s){ if(s&&!s.error){ wiz.site.name=s.name||"My Site"; wiz.site.notify=s.notify||"console"; } });
+  call("listCameras",[],function(c){ wiz.added=Array.isArray(c)?c:[]; });
+  wiz.step=0; $("wizard").classList.add("on"); renderWizard();
+}
+function closeWizard(){ $("wizard").classList.remove("on"); }
+function wizStepper(){
+  var mids=[["cameras","Cameras"],["vlm","VLM gate"],["site","Site & rules"]];
+  var cur=STEPS.indexOf(STEPS[wiz.step]);
+  return '<div class="steps">'+mids.map(function(m,i){
+    var idx=STEPS.indexOf(m[0]); var cls=idx<wiz.step?"done":(idx===wiz.step?"on":"");
+    return (i?'<div class="sep"></div>':'')+'<div class="st '+cls+'"><span class="num">'+(idx<wiz.step?"✓":i+1)+'</span>'+m[1]+'</div>';
+  }).join("")+'</div>';
+}
+function renderWizard(){
+  var step=STEPS[wiz.step];
+  var body = ({welcome:wizWelcome,cameras:wizCameras,vlm:wizVlm,site:wizSite,done:wizDone}[step])();
+  var showStepper = (step!=="welcome" && step!=="done");
+  $("wizard").innerHTML =
+    '<div class="wizhead"><div class="wizbrand">CVTI</div>'+(showStepper?wizStepper():'')+'</div>'
+    + '<div class="wizbody"><div class="wizcard">'+body+'</div></div>'
+    + '<div class="wizfoot">'+wizFooter(step)+'</div>';
+}
+function wizFooter(step){
+  if(step==="welcome") return '<div class="spacer"></div><button class="btn ghost" onclick="wizSkip()">Skip for now</button><button class="btn" onclick="wizGo(1)">Get started</button>';
+  if(step==="done")    return '<button class="btn ghost" onclick="wizGo('+(wiz.step-1)+')">Back</button><div class="spacer"></div><button class="btn" onclick="wizFinish()">Finish setup</button>';
+  return '<button class="btn ghost" onclick="wizGo('+(wiz.step-1)+')">Back</button><div class="spacer"></div><button class="btn" onclick="wizNext()">Continue</button>';
+}
+function wizGo(i){ wiz.step=Math.max(0,Math.min(STEPS.length-1,i)); renderWizard();
+  if(STEPS[wiz.step]==="vlm") wizCheckGate();
+  if(STEPS[wiz.step]==="cameras" && !wiz.scanned && !wiz.scanning) wizAutoScan(); }
+function wizAutoScan(){ wiz.scanning=true;
+  call("detectSubnet",[],function(r){ wiz.cidr=(r&&r.cidr)||"";
+    if($("wzCidr")) $("wzCidr").value=wiz.cidr;
+    if(!wiz.cidr){ wiz.scanning=false; if($("wzScanRes")) $("wzScanRes").textContent="Couldn't detect your network automatically — type it above and scan."; return; }
+    wizScan(); }); }
+function wizNext(){ if(STEPS[wiz.step]==="site") wizSaveSite(); wizGo(wiz.step+1); }
+function wizSkip(){ closeWizard(); startApp(); }
+
+function wizWelcome(){
+  return '<h2>Welcome to CVTI</h2><p class="lead">CVTI turns the cameras you already have into a context-aware security layer — it watches for the threats you care about, and a local AI double-checks every alert before it reaches you. Everything runs on this machine. Nothing leaves your network.</p>'
+    +'<p class="lead">Three quick steps: connect your cameras, set up the local AI, name your site. Takes a couple of minutes.</p>';
+}
+
+function wizCameras(){
+  var venOpts=VENDORS.map(function(v){return '<option value="'+esc(v[1])+'">'+esc(v[0])+'</option>';}).join("");
+  var added = wiz.added.length ? ('<div class="addedlist">'+wiz.added.map(function(c){
+      return '<div class="addedcam"><span class="dot" style="background:var(--c-live)"></span><b class="mono">'+esc(c.id)+'</b><span class="mono mut" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((c.source||"").split("@").pop())+'</span><button class="chip" onclick="wizRemove(\''+esc(c.id)+'\')">remove</button></div>';
+    }).join("")+'</div>') : '<p class="mut" style="margin-top:12px">No cameras added yet.</p>';
+  return '<h2>Connect your cameras</h2><p class="lead">CVTI scans your network automatically to find cameras. Tap one and add it with its login — the password stays on this machine.</p>'
+    +'<div class="panel" style="padding:16px">'
+    +  '<div class="row"><input id="wzCidr" value="'+esc(wiz.cidr)+'" placeholder="detecting your network…" style="flex:1"><button class="btn ghost sm" onclick="wizScan()">'+(wiz.scanned?"Rescan":"Scan")+'</button></div>'
+    +  '<div id="wzScanRes" class="mut" style="margin-top:8px;font-size:12px">'+wizScanMsg()+'</div>'
+    +  '<div style="height:1px;background:var(--c-border);margin:14px 0"></div>'
+    +  '<div class="grid2"><input id="wzHost" placeholder="camera IP e.g. 10.0.2.5"><select id="wzVendor">'+venOpts+'</select></div>'
+    +  '<div class="grid2" style="margin-top:10px"><input id="wzUser" placeholder="username"><input id="wzPass" type="password" placeholder="password"></div>'
+    +  '<div class="row" style="margin-top:10px"><input id="wzName" placeholder="name (optional) e.g. entrance" style="flex:1"><button class="btn ghost sm" onclick="wizTest()">Test</button><button class="btn sm" onclick="wizAdd()">Add camera</button></div>'
+    +  '<div id="wzTest" style="margin-top:12px;max-width:420px">'+wizTestBox()+'</div>'
+    +'</div>'+added;
+}
+function wizTestBox(){
+  var t=wiz.test; if(!t) return '';
+  if(t.busy) return '<div class="snapwrap"><span class="spin"></span></div>';
+  if(t.error) return '<div class="snapwrap" style="color:var(--sev-crit);text-align:center;padding:16px">'+esc(t.error)+'</div>';
+  if(t.ok) return '<div class="snapwrap"><img src="'+t.snapshot+'"></div><div style="color:var(--c-live);font-weight:600;margin-top:6px;font-size:12.5px">✓ Connected — '+t.w+'×'+t.h+' @ '+t.fps+' fps</div>';
+  return '';
+}
+function wizBuildUrl(){
+  var h=($("wzHost")||{}).value; h=(h||"").trim(); if(!h) return "";
+  var u=(($("wzUser")||{}).value||"").trim(), p=(($("wzPass")||{}).value||""), path=($("wzVendor")||{}).value||"";
+  var auth = u ? (encodeURIComponent(u)+(p?":"+encodeURIComponent(p):"")+"@") : "";
+  return "rtsp://"+auth+h+":554"+path;
+}
+function wizFoundHtml(){ return '<div class="found">'+wiz.hosts.map(function(ip){return '<span class="ip" onclick="wizPick(\''+ip+'\')">'+esc(ip)+'</span>';}).join("")+'</div>'; }
+function wizScanMsg(){
+  if(wiz.scanning) return '<span class="spin" style="width:14px;height:14px;display:inline-block;vertical-align:-2px"></span> Scanning '+esc(wiz.cidr||"your network")+' for cameras…';
+  if(wiz.hosts.length) return '<b>Found '+wiz.hosts.length+' camera'+(wiz.hosts.length>1?'s':'')+'</b> — tap one to fill it in:'+wizFoundHtml();
+  if(wiz.scanned) return 'No cameras found on '+esc(wiz.cidr)+'. Add one manually below.';
+  return '';
+}
+function wizScan(){ var c=(($("wzCidr")||{}).value||"").trim()||wiz.cidr;
+  if(!c){ if($("wzScanRes")) $("wzScanRes").textContent="Type your network above (e.g. 192.168.1.0/24), then Scan."; return; }
+  wiz.cidr=c; wiz.scanning=true; if($("wzScanRes")) $("wzScanRes").innerHTML=wizScanMsg();
+  call("scan",[c],function(r){ wiz.scanning=false; wiz.scanned=true;
+    if(r&&r.error){ if($("wzScanRes")) $("wzScanRes").textContent=r.error; return; }
+    wiz.hosts=(r&&r.hosts)||[]; if($("wzScanRes")) $("wzScanRes").innerHTML=wizScanMsg(); }); }
+function wizPick(ip){ if($("wzHost")) $("wzHost").value=ip; }
+function wizTest(){ var u=wizBuildUrl(); if(!u){wiz.test={error:"Enter the camera IP first"};$("wzTest").innerHTML=wizTestBox();return;}
+  wiz.test={busy:true}; $("wzTest").innerHTML=wizTestBox();
+  call("testUrl",[u],function(r){ wiz.test=r.error?{error:r.error}:r; $("wzTest").innerHTML=wizTestBox(); }); }
+function wizAdd(){ var u=wizBuildUrl(); if(!u){wiz.test={error:"Enter the camera IP first"};$("wzTest").innerHTML=wizTestBox();return;}
+  var cam={source:u, config:wiz.site.preset||undefined, concealment:true, video_action:true};
+  var nm=($("wzName").value||"").trim(); if(nm) cam.id=nm;
+  call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} wiz.added=Array.isArray(r)?r:wiz.added; wiz.test=null; renderWizard(); }); }
+function wizRemove(id){ call("removeCamera",[id],function(r){ wiz.added=Array.isArray(r)?r:wiz.added; renderWizard(); }); }
+
+function wizVlm(){
+  var g=wiz.gate;
+  if(!g) return '<h2>Local AI verification</h2><p class="lead">Checking the on-device AI…</p><div class="statusbig"><span class="spin"></span><span>Checking Ollama…</span></div>';
+  var dot,title,detail,action="";
+  if(g.mode==="live"){ dot="var(--c-live)"; title="Gemma 3 4B is ready"; detail="Every alert will be double-checked by the local AI before it reaches you. Fully offline."; }
+  else if(g.mode==="no-model"){ dot="var(--sev-high)"; title="AI model not installed yet"; detail="Ollama is running, but the Gemma 3 4B vision model (~3.3 GB) needs to be downloaded once.";
+    action = wiz.pull&&wiz.pull.state==="pulling"
+      ? '<div style="margin-top:14px"><div class="confbar" style="max-width:none"><div id="wzPullBar" style="width:'+(wiz.pull.percent||0)+'%;background:var(--c-accent)"></div></div><div id="wzPullDetail" class="mono sub" style="margin-top:6px;font-size:11px">'+esc(wiz.pull.detail||"")+' '+(wiz.pull.percent||0)+'%</div></div>'
+      : '<button class="btn" style="margin-top:14px" onclick="wizPull()">Download model (3.3 GB)</button> <button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
+  else { dot="var(--sev-crit)"; title="Ollama isn't running"; detail="CVTI uses Ollama to run the local AI. Start it (or install it from ollama.com), then recheck. You can continue without it — alerts just won't be AI-verified yet.";
+    action='<button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
+  return '<h2>Local AI verification</h2><p class="lead">A vision model runs on this machine and confirms each alert is real — this is what keeps false alarms out.</p>'
+    +'<div class="statusbig"><span class="statusdot" style="background:'+dot+'"></span><div><div style="font-weight:700;font-size:15px">'+esc(title)+'</div><div class="mut" style="font-size:13px;margin-top:3px;line-height:1.5">'+esc(detail)+'</div>'+action+'</div></div>';
+}
+function wizCheckGate(){ wiz.gate=null; renderWizard(); call("gateStatus",[],function(g){ wiz.gate=g.error?{mode:"offline"}:g; renderWizard(); }); }
+function wizPull(){ wiz.pull={state:"pulling",percent:0,detail:"starting"}; renderWizard();
+  call("pullModel",[],function(){ wizPollPull(); }); }
+function wizPollPull(){ call("pullProgress",[],function(p){ wiz.pull=p||wiz.pull;
+    if(p&&p.state==="done"){ wizCheckGate(); return; }
+    if(p&&p.state==="error"){ renderWizard(); return; }
+    var bar=$("wzPullBar"); if(bar){ bar.style.width=((p&&p.percent)||0)+'%'; var d=$("wzPullDetail"); if(d) d.textContent=((p&&p.detail)||"")+' '+((p&&p.percent)||0)+'%'; }
+    else renderWizard();
+    setTimeout(wizPollPull, 1500); }); }
+
+function wizSite(){
+  var notiOpts=NOTIFIERS.map(function(n){return '<option value="'+n[0]+'"'+(wiz.site.notify===n[0]?' selected':'')+'>'+esc(n[1])+'</option>';}).join("");
+  var presetOpts=Object.keys(state.presets).map(function(k){return '<option value="'+esc(state.presets[k])+'"'+(wiz.site.preset===state.presets[k]?' selected':'')+'>'+esc(k)+'</option>';}).join("");
+  return '<h2>Name your site</h2><p class="lead">A label for this location and where alerts should go. You can fine-tune individual rules later.</p>'
+    +'<div class="panel" style="padding:18px">'
+    +  '<label class="fld">Site name<input id="wzSiteName" value="'+esc(wiz.site.name)+'" placeholder="e.g. Front Store"></label>'
+    +  '<div class="grid2" style="margin-top:14px"><label class="fld">Default threats<select id="wzPreset">'+presetOpts+'</select></label>'
+    +  '<label class="fld">Notify me via<select id="wzNotify">'+notiOpts+'</select></label></div>'
+    +  '<p class="sub" style="margin:12px 0 0;font-size:11.5px">WhatsApp/Telegram need credentials set on this machine (env vars) — the app will use them if present.</p>'
+    +'</div>';
+}
+function wizSaveSite(){ if($("wzSiteName")) wiz.site.name=($("wzSiteName").value||"").trim()||"My Site";
+  if($("wzNotify")) wiz.site.notify=$("wzNotify").value; if($("wzPreset")) wiz.site.preset=$("wzPreset").value; }
+
+function wizDone(){
+  var g=wiz.gate||{}; var gateTxt=g.mode==="live"?"Gemma 3 4B (on-device)":g.mode==="no-model"?"model not downloaded":"Ollama offline";
+  return '<h2>You\'re set up</h2><p class="lead">CVTI is ready to watch <b>'+esc(wiz.site.name)+'</b>.</p>'
+    +'<div class="panel" style="padding:18px"><div class="row" style="justify-content:space-between"><span class="mut">Cameras</span><b class="mono">'+wiz.added.length+'</b></div>'
+    +'<div class="row" style="justify-content:space-between;margin-top:8px"><span class="mut">AI verification</span><b>'+esc(gateTxt)+'</b></div>'
+    +'<div class="row" style="justify-content:space-between;margin-top:8px"><span class="mut">Notifications</span><b>'+esc(wiz.site.notify)+'</b></div></div>'
+    +'<p class="lead" style="margin-top:16px">Start the detection engine to begin monitoring; confirmed alerts will appear under <b>Alerts</b>.</p>';
+}
+function wizFinish(){ wizSaveSite();
+  call("setSite",[wiz.site.name, wiz.site.notify],function(){
+    call("markConfigured",[],function(){ closeWizard(); startApp(); }); }); }
+
+function wizCheckGateStandalone(){ var el=$("sysGate"); if(el) el.textContent="Checking VLM gate…";
+  call("gateStatus",[],function(g){ if(!el) return; if(g.error){el.textContent=g.error;return;}
+    var msg = g.mode==="live"?("● Live — "+g.model+" (on-device verification)"):g.mode==="no-model"?"● Ollama up, model not installed — run setup to download":"● Ollama offline — gate falls back to mock";
+    el.textContent = msg; }); }
+
+/* ---------- boot ---------- */
+function startApp(){ renderNav(); refreshCounts(); render(); }
+function boot(){
+  call("setupState",[],function(s){
+    if(s && !s.error && !s.configured){ openWizard(); }
+    else { startApp(); }
+  });
+}
+function connect(tries){
+  if(window.qt && qt.webChannelTransport && window.QWebChannel){
+    new QWebChannel(qt.webChannelTransport, function(ch){ backend = ch.objects.backend; boot(); });
+    return;
+  }
+  if(tries>0){ setTimeout(function(){connect(tries-1);}, 60); return; }
+  document.getElementById("screen").innerHTML='<div class="pad mut">Backend bridge not found. Run this via <b>cvti-console</b> / <b>python -m cvti.app.shell</b> — not a plain browser.</div>';
+  renderNav();
+}
+if(document.readyState!=="loading") connect(30);
+else document.addEventListener("DOMContentLoaded", function(){connect(30);});
+</script>
+</body>
+</html>

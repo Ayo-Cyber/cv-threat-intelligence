@@ -49,6 +49,26 @@ def test_url(url: str, snapshot_size: int = 320) -> dict:
             "snapshot": f"data:image/jpeg;base64,{b64}", "jpeg_b64": b64}
 
 
+def detect_subnet() -> str | None:
+    """Best-effort local /24 the machine is on — so the operator never types a
+    subnet. Uses the primary route's source IP (no packets sent) and assumes a
+    /24, which is what virtually every camera LAN uses.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))  # picks the default-route interface; no traffic
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return None
+    if not ip or ip.startswith("127."):
+        return None
+    net = ipaddress.ip_network(f"{ip}/24", strict=False)
+    return str(net)
+
+
 def scan_subnet(cidr: str, port: int = 554, timeout: float = 0.4, max_hosts: int = 512) -> list[str]:
     """Return hosts on the subnet with the RTSP port open (likely cameras)."""
     hosts = [str(h) for h in ipaddress.ip_network(cidr, strict=False).hosts()][:max_hosts]
@@ -96,3 +116,32 @@ def remove_camera(site_path: str | Path, camera_id: str) -> list[dict]:
     data["cameras"] = cams
     Path(site_path).write_text(json.dumps(data, indent=2))
     return cams
+
+
+# --- site metadata (name, notifier, first-run flag) ---------------------------
+# Stored alongside "cameras" in the same site JSON so one file fully describes a
+# deployment. The app's setup wizard reads/writes these.
+
+_META_KEYS = ("name", "notify", "gate", "configured")
+
+
+def get_site_meta(site_path: str | Path) -> dict:
+    data = load_site(site_path)
+    meta = {k: data.get(k) for k in _META_KEYS}
+    meta["name"] = meta.get("name") or "My Site"
+    meta["notify"] = meta.get("notify") or "console"
+    meta["configured"] = bool(meta.get("configured"))
+    meta["camera_count"] = len(data.get("cameras", []))
+    return meta
+
+
+def set_site_meta(site_path: str | Path, **fields: Any) -> dict:
+    """Update site-level fields (name/notify/gate/configured) and persist."""
+    data = load_site(site_path)
+    for k, v in fields.items():
+        if k in _META_KEYS and v is not None:
+            data[k] = v
+    p = Path(site_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2))
+    return get_site_meta(site_path)

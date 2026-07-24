@@ -30,6 +30,7 @@ class GatePool:
         self.on_verdict = on_verdict or self._default_verdict
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        self._active = 0  # verdicts currently in flight (for graceful drain)
         # stats (single-worker-safe; with >1 worker these are approximate)
         self.verified = 0
         self.confirmed = 0
@@ -60,6 +61,7 @@ class GatePool:
             for alert in batch:
                 # payload = {"candidate": CandidateAlert, "frames": [...], "scene": {...}}
                 p = alert.payload or {}
+                self._active += 1
                 try:
                     result = gate.verify(p.get("frames"), p.get("candidate"), p.get("scene"))
                     self.verified += 1
@@ -71,9 +73,25 @@ class GatePool:
                     self.errors += 1
                     print(f"[gate error] {alert.camera_id}::{alert.rule_name} — {str(exc)[:120]}")
                     result = None
+                finally:
+                    self._active -= 1
                 self.on_verdict(alert, result)
                 if self.min_interval:
                     self._stop.wait(self.min_interval)
+
+    def drain(self, timeout: float = 120.0) -> bool:
+        """Block until the queue is empty and no verdict is in flight, or timeout.
+
+        With a real VLM (~12s/verify) the queue keeps draining after detection
+        ends; call this before stop() so confirmed alerts aren't cut off. Returns
+        True if fully drained, False if the timeout hit first.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.queue.pending_count == 0 and self._active == 0:
+                return True
+            time.sleep(0.2)
+        return self.queue.pending_count == 0 and self._active == 0
 
     def stop(self) -> None:
         self._stop.set()
