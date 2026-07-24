@@ -226,6 +226,13 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                conf=conf, device=device, half=half, camera_states=states,
                                alert_queue=queue)
     pipe.start()
+    # Live agent mapping: infer each camera's scene (reusing the local VLM) so the
+    # gate reasons with real context. Background, non-blocking; only for a local
+    # VLM gate (ollama/local). Cameras run generic until their scene lands.
+    if gate_provider in ("ollama", "local"):
+        from cvti.serving.scene_map import map_cameras_async
+        map_cameras_async(cams_cfg, states, model=gate_model or "gemma3:4b",
+                          base_url=gate_base_url or "http://localhost:11434/v1")
     print(f"[site] {len(states)} camera(s) | gate={gate_provider} | notify={notify} | rules per camera")
     try:
         pipe.run(max_seconds=seconds)
