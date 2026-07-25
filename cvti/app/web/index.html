@@ -536,7 +536,7 @@ function startApp(){ renderNav(); refreshCounts(); refreshMonitor(); render(); }
 function boot(){
   call("setupState",[],function(s){
     if(s && !s.error && !s.configured){ openWizard(); }
-    else { startApp(); }
+    else { if(s && s.demo){ state.route="live"; } startApp(); }
   });
 }
 function connect(tries){

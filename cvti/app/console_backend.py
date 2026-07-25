@@ -177,6 +177,8 @@ class ConsoleBackend:
             "notify": meta["notify"],
             "cameras": meta["camera_count"],
             "gate": self.gate_status(),
+            # playback demo (bundled, no real cameras) -> app opens on the Live wall
+            "demo": bool(self._demo and not self.list_cameras()),
         }
 
     # --- events / review ---
