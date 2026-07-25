@@ -14,6 +14,7 @@ import json
 import sqlite3
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,20 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Notifiers — each exposes notify(event: dict) -> None
 # ---------------------------------------------------------------------------
+
+def _multipart(fields: dict, files: dict) -> tuple[bytes, str]:
+    """Build a multipart/form-data body (stdlib only). files: {name: (filename, bytes)}."""
+    boundary = "----cvti" + uuid.uuid4().hex
+    out = bytearray()
+    for name, value in fields.items():
+        out += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+        out += f"{value}\r\n".encode()
+    for name, (filename, data) in files.items():
+        out += (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; '
+                f'filename="{filename}"\r\nContent-Type: image/jpeg\r\n\r\n').encode()
+        out += data + b"\r\n"
+    out += f"--{boundary}--\r\n".encode()
+    return bytes(out), f"multipart/form-data; boundary={boundary}"
 
 class ConsoleNotifier:
     def notify(self, event: dict) -> None:
@@ -50,23 +65,59 @@ class WebhookNotifier:
 
 
 class TelegramNotifier:
-    """Send to a Telegram chat via the bot API (token + chat_id)."""
+    """Send to a Telegram chat via the bot API (token + chat_id). Attaches the
+    evidence frames as a photo album so the alert arrives WITH pictures."""
 
-    def __init__(self, token: str, chat_id: str, timeout: float = 5.0) -> None:
-        self.url = f"https://api.telegram.org/bot{token}/sendMessage"
+    def __init__(self, token: str, chat_id: str, timeout: float = 8.0) -> None:
+        self.base = f"https://api.telegram.org/bot{token}"
         self.chat_id = chat_id
         self.timeout = timeout
+
+    def _caption(self, event: dict) -> str:
+        return (f"⚠️ {event['priority'].upper()} — {event['rule']} on "
+                f"{event['camera_id']} (conf {event['confidence']:.2f})\n{event['reason']}")
+
+    def _frames(self, event: dict, cap: int = 3) -> list[Path]:
+        d = Path(event.get("evidence_dir") or "")
+        if not d.exists():
+            return []
+        imgs = sorted(p for p in d.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png"))
+        return imgs[:cap]
 
     def notify(self, event: dict) -> None:
         import urllib.parse
         import urllib.request
-        text = (f"⚠️ {event['priority'].upper()} — {event['rule']} on "
-                f"{event['camera_id']} (conf {event['confidence']:.2f})\n{event['reason']}")
-        data = urllib.parse.urlencode({"chat_id": self.chat_id, "text": text}).encode()
+        frames = self._frames(event)
         try:
-            urllib.request.urlopen(self.url, data=data, timeout=self.timeout)
-        except Exception as exc:  # noqa: BLE001
-            print(f"[notify telegram error] {str(exc)[:120]}")
+            if not frames:
+                data = urllib.parse.urlencode({"chat_id": self.chat_id, "text": self._caption(event)}).encode()
+                urllib.request.urlopen(f"{self.base}/sendMessage", data=data, timeout=self.timeout)
+                return
+            self._send_photos(frames, self._caption(event))
+        except Exception as exc:  # noqa: BLE001 - a notify failure must not kill the gate
+            print(f"[notify telegram error] {str(exc)[:140]}")
+
+    def _send_photos(self, frames: list[Path], caption: str) -> None:
+        """One photo -> sendPhoto; several -> sendMediaGroup (album)."""
+        import urllib.request
+        if len(frames) == 1:
+            fields = {"chat_id": self.chat_id, "caption": caption}
+            files = {"photo": (frames[0].name, frames[0].read_bytes())}
+            body, ctype = _multipart(fields, files)
+            req = urllib.request.Request(f"{self.base}/sendPhoto", data=body, headers={"Content-Type": ctype})
+            urllib.request.urlopen(req, timeout=self.timeout)
+            return
+        media, files = [], {}
+        for i, fr in enumerate(frames):
+            key = f"photo{i}"
+            item = {"type": "photo", "media": f"attach://{key}"}
+            if i == 0:
+                item["caption"] = caption          # caption goes on the first item
+            media.append(item)
+            files[key] = (fr.name, fr.read_bytes())
+        body, ctype = _multipart({"chat_id": self.chat_id, "media": json.dumps(media)}, files)
+        req = urllib.request.Request(f"{self.base}/sendMediaGroup", data=body, headers={"Content-Type": ctype})
+        urllib.request.urlopen(req, timeout=self.timeout)
 
 
 class WhatsAppNotifier:
