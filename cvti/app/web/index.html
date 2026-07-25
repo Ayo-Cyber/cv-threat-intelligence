@@ -138,6 +138,20 @@
   .talert .r{font-weight:800;font-size:12px;color:#fff;letter-spacing:.04em;text-transform:uppercase}
   .talert .why{font-size:11px;color:#fff;opacity:.95;margin-top:3px;line-height:1.3;max-height:2.7em;overflow:hidden}
   .tile.alerting .livedot{background:var(--sev-crit)}
+  /* live tile zoom affordance + expand modal */
+  .tzoom{position:absolute;top:8px;right:9px;width:24px;height:24px;border-radius:6px;background:rgba(0,0,0,.5);
+    color:#fff;text-align:center;line-height:24px;font-size:13px;opacity:0;transition:opacity .12s;pointer-events:none}
+  .tile:hover .tzoom{opacity:1}
+  .livemodal{position:fixed;inset:0;background:rgba(4,8,18,.9);z-index:60;display:flex;align-items:center;justify-content:center;padding:36px}
+  .livemodal-inner{position:relative;width:100%;max-width:1120px;aspect-ratio:16/9;background:#000;border-radius:12px;
+    overflow:hidden;border:1px solid var(--c-border2);box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .livemodal-inner img{width:100%;height:100%;object-fit:contain;background:#000;display:block}
+  .lmclose{all:unset;cursor:pointer;position:absolute;top:12px;right:12px;z-index:2;width:34px;height:34px;border-radius:99px;
+    background:rgba(0,0,0,.6);color:#fff;text-align:center;line-height:34px;font-size:15px}
+  .lmclose:hover{background:rgba(0,0,0,.85)}
+  .lmlabel{position:absolute;left:16px;bottom:14px;display:flex;align-items:center;gap:8px;color:#fff;
+    font-family:var(--ff-mono);font-weight:600;font-size:14px;text-shadow:0 1px 4px #000}
+  .lmalert{background:var(--sev-crit);color:#fff;padding:4px 10px;border-radius:6px;font-family:var(--ff-sans);font-size:12px;font-weight:700}
   /* rules page */
   .rulecard{padding:15px 17px;margin-bottom:12px}
   .detrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
@@ -315,9 +329,11 @@ function renderLive(){
     }
     state.liveCams = cams;
     var tiles = cams.map(function(c){
-      return '<div class="tile" id="tile-'+esc(c.id)+'"><div class="ph" id="ph-'+esc(c.id)+'">connecting…</div>'
+      return '<div class="tile" id="tile-'+esc(c.id)+'" style="cursor:pointer" onclick="openLiveModal(\''+esc(c.id)+'\')" title="click to expand">'
+        +'<div class="ph" id="ph-'+esc(c.id)+'">connecting…</div>'
         +'<img id="live-'+esc(c.id)+'" alt="" onload="var p=document.getElementById(\'ph-'+esc(c.id)+'\');if(p)p.style.display=\'none\'">'
         +'<div class="talert" id="talert-'+esc(c.id)+'"></div>'
+        +'<div class="tzoom">⤢</div>'
         +'<div class="tlabel"><span class="livedot"></span>'+esc(c.id)+'</div></div>';
     }).join("");
     $("screen").innerHTML='<div class="pad"><div class="row" style="margin-bottom:12px"><h2 style="margin:0">Live wall</h2>'
@@ -339,10 +355,34 @@ function updateLiveAlertTiles(){
   });
 }
 function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function(){
-  if(state.route!=="live"){ stopLive(); return; }
+  if(state.route!=="live" && !state.liveModal){ stopLive(); return; }
   call("liveFrames",[],function(f){ if(!f||f.error) return;
-    Object.keys(f).forEach(function(id){ var img=$("live-"+id); if(img && f[id] && f[id].uri && img.src!==f[id].uri) img.src=f[id].uri; }); });
-}, 200); }
+    state.liveFramesCache = f;
+    Object.keys(f).forEach(function(id){ var img=$("live-"+id); if(img && f[id] && f[id].uri && img.src!==f[id].uri) img.src=f[id].uri; });
+    if(state.liveModal) updateLiveModal();
+  }); }, 200); }
+/* click a feed to expand it */
+function openLiveModal(camId){
+  state.liveModal=camId;
+  var m=$("liveModal");
+  if(!m){ m=document.createElement("div"); m.id="liveModal"; (document.getElementById("modalRoot")||document.body).appendChild(m); }
+  m.className="livemodal";
+  m.innerHTML='<div class="livemodal-inner"><button class="lmclose" onclick="closeLiveModal()">✕</button>'
+    +'<img id="lmimg" alt=""><div class="lmlabel" id="lmlabel"></div></div>';
+  m.onclick=function(e){ if(e.target===m) closeLiveModal(); };
+  updateLiveModal();
+}
+function updateLiveModal(){
+  if(!state.liveModal) return;
+  var img=$("lmimg"), lbl=$("lmlabel");
+  var f=state.liveFramesCache && state.liveFramesCache[state.liveModal];
+  if(img && f && f.uri && img.src!==f.uri) img.src=f.uri;
+  var a=(state.latestEvents||[]).filter(function(e){return e.camera_id===state.liveModal && e.review==="new";})[0];
+  if(lbl) lbl.innerHTML='<span class="livedot"></span>'+esc(state.liveModal)
+    +(a?' <span class="lmalert">⚠ '+esc(a.rule)+' — '+esc(a.reason||"")+'</span>':'');
+}
+function closeLiveModal(){ state.liveModal=null; var m=$("liveModal"); if(m) m.remove(); }
+document.addEventListener("keydown", function(e){ if(e.key==="Escape" && state.liveModal) closeLiveModal(); });
 function stopLivePoll(){ if(state.liveTimer){ clearInterval(state.liveTimer); state.liveTimer=null; } }
 function stopLive(){ stopLivePoll(); call("liveStop",[],function(){}); }
 
