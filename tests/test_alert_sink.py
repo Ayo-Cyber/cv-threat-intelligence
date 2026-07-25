@@ -76,7 +76,7 @@ class NotifierFactoryTests(unittest.TestCase):
         self.assertIsInstance(build_notifier("webhook:https://example.com/hook"), WebhookNotifier)
         tg = build_notifier("telegram:12345:67890")
         self.assertIsInstance(tg, TelegramNotifier)
-        self.assertIn("12345", tg.url)
+        self.assertIn("12345", tg.base)
         self.assertEqual(tg.chat_id, "67890")
 
 
