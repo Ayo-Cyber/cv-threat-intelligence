@@ -59,8 +59,13 @@ class StreamDecoder:
         return self
 
     def _open(self):
+        import os
+
         import cv2
         src = int(self.source) if str(self.source).isdigit() else self.source
+        if isinstance(src, str) and src.lower().startswith("rtsp"):
+            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+            return cv2.VideoCapture(src, cv2.CAP_FFMPEG)
         return cv2.VideoCapture(src)
 
     def _loop(self) -> None:

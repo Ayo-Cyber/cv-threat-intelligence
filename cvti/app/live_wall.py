@@ -10,6 +10,7 @@ can drop straight into an <img src>.
 from __future__ import annotations
 
 import base64
+import os
 import threading
 import time
 
@@ -42,6 +43,10 @@ class LiveWall:
         # webcam indices arrive as strings like "0"
         if isinstance(source, str) and source.isdigit():
             return cv2.VideoCapture(int(source))
+        if isinstance(source, str) and source.lower().startswith("rtsp"):
+            # RTSP over TCP is far more reliable than the UDP default (no tearing/drops)
+            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+            return cv2.VideoCapture(source, cv2.CAP_FFMPEG)
         return cv2.VideoCapture(source)
 
     def _decode(self, cam_id: str, source) -> None:
