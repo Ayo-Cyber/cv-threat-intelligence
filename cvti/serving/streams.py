@@ -26,12 +26,16 @@ class Frame:
 
 class StreamDecoder:
     def __init__(self, camera_id: str, source: int | str, *, target_fps: float = 5.0,
-                 reconnect: bool = True, reconnect_backoff: float = 1.0) -> None:
+                 reconnect: bool = True, reconnect_backoff: float = 1.0,
+                 loop_files: bool = True) -> None:
         self.camera_id = camera_id
         self.source = source
         self.target_fps = target_fps
         self.reconnect = reconnect
         self.reconnect_backoff = reconnect_backoff   # seconds * attempt, capped at 5s
+        # File sources loop by default so demo footage streams continuously
+        # (real RTSP/webcam sources are live and never hit EOF).
+        self.loop_files = loop_files
         self._min_period = 1.0 / target_fps if target_fps > 0 else 0.0
         self._latest: Frame | None = None
         self._consumed = True          # True once the current latest was read
@@ -95,7 +99,12 @@ class StreamDecoder:
                     self._stop.wait(backoff)   # interruptible so stop() is prompt
                     cap = self._open()
                     continue
-                self.ended = True          # file/webcam exhausted
+                is_file = not self._is_live() and not str(self.source).isdigit()
+                if self.loop_files and is_file:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)   # rewind: stream footage continuously
+                    orig_index = 0
+                    continue
+                self.ended = True          # webcam exhausted / looping disabled
                 break
             attempt = 0                    # a healthy read resets the backoff
             # VIDEO time from the original frame index so dwell/loiter thresholds
