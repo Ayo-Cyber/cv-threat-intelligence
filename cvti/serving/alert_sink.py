@@ -261,6 +261,7 @@ class AlertSink:
             import cv2
             for i, f in enumerate(frames):
                 cv2.imwrite(str(ev_dir / f"frame_{i:02d}.jpg"), f)
+            self._write_clip(ev_dir / "clip.mp4", frames)
 
         event = {
             "ts": ts, "iso": iso, "camera_id": alert.camera_id, "rule": alert.rule_name,
@@ -280,6 +281,20 @@ class AlertSink:
             self._db.commit()
         self.persisted += 1
         self.notifier.notify(event)
+
+    def _write_clip(self, path: Path, frames: list, fps: int = 4) -> None:
+        """Encode the evidence frames into a short MP4 (archival + Telegram video)."""
+        import cv2
+        if not frames:
+            return
+        h, w = frames[0].shape[:2]
+        for fourcc in ("avc1", "mp4v"):        # prefer H.264, fall back to MPEG-4
+            vw = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
+            if vw.isOpened():
+                for f in frames:
+                    vw.write(f if f.shape[:2] == (h, w) else cv2.resize(f, (w, h)))
+                vw.release()
+                return
 
     def close(self) -> None:
         with self._lock:
