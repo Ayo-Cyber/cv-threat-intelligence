@@ -266,8 +266,9 @@ class ConsoleBackend:
         try:
             con = self._connect(db)
             try:
+                # "to review" = not yet handled. Ack/True/False all clear it.
                 pending = con.execute(
-                    "SELECT COUNT(*) FROM events WHERE review IS NULL OR review='ack'").fetchone()[0]
+                    "SELECT COUNT(*) FROM events WHERE review IS NULL").fetchone()[0]
             except sqlite3.OperationalError:
                 pending = 0
             con.close()

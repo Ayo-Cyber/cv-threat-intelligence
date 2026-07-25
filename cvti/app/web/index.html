@@ -75,6 +75,11 @@
   .alist .scroll{flex:1;overflow:auto}
   .arow{display:flex;gap:10px;padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--c-border)}
   .arow:hover{background:var(--c-raised)} .arow.sel{background:var(--c-raised);box-shadow:inset 3px 0 0 var(--c-accent)}
+  .afilter{display:flex;gap:4px;padding:9px 12px;border-bottom:1px solid var(--c-border);flex:none}
+  .atab{all:unset;cursor:pointer;font-size:12px;font-weight:600;color:var(--c-mut);padding:6px 10px;border-radius:7px;display:flex;align-items:center;gap:6px}
+  .atab:hover{background:var(--c-raised)} .atab.on{background:var(--c-accent-soft);color:var(--c-text)}
+  .acnt{font-family:var(--ff-mono);font-size:10.5px;background:var(--c-border);color:var(--c-mut);padding:1px 6px;border-radius:99px;min-width:16px;text-align:center}
+  .atab.on .acnt{background:var(--c-accent);color:#fff}
   .adetail{flex:1;min-width:0;overflow:auto;padding:20px 26px}
   .sevbadge{font-size:10.5px;font-weight:800;letter-spacing:.08em;padding:4px 10px;border-radius:5px;color:#fff}
   .frames{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
@@ -312,34 +317,53 @@ function renderAlerts(){
   call("listEvents",[100],function(evs){
     state.events = Array.isArray(evs)?evs:[];
     state.alertsSig = state.events.map(function(e){return e.id+":"+e.review;}).join(",");
-    var selId = state.selected && state.selected.id;
-    state.selected = state.events.filter(function(e){return e.id===selId;})[0] || state.events[0] || null;
-    var list = state.events.map(function(a,i){
-      var sel = state.selected && state.selected.id===a.id ? " sel":"";
-      var st = a.review==="true"?"TRUE":a.review==="false"?"FALSE":a.review==="ack"?"ACK":"NEW";
-      return '<div class="arow'+sel+'" onclick="selectAlert('+i+')"><span class="dot" style="margin-top:4px;background:'+(SEV[a.priority]||SEV.low)+'"></span>'
-        +'<div style="flex:1;min-width:0"><div class="row" style="gap:8px"><span style="font-weight:700">'+esc(a.rule)+'</span>'
-        +'<span class="mono mut" style="font-size:11px">'+esc(a.camera_id)+'</span><span style="flex:1"></span>'
-        +'<span class="mono mut" style="font-size:11px">'+esc((a.iso||"").split("T")[1]||"")+'</span></div>'
-        +'<div class="row" style="gap:8px;margin-top:3px"><span style="font-size:10px;font-weight:700;letter-spacing:.05em;color:'+(SEV[a.priority]||SEV.low)+'">'+esc((a.priority||"").toUpperCase())+'</span>'
-        +'<span class="mono sub" style="font-size:11px">'+(a.confidence!=null?Number(a.confidence).toFixed(2):"")+'</span><span style="flex:1"></span>'
-        +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;color:var(--c-mut);background:var(--c-raised)">'+st+'</span></div></div></div>';
-    }).join("");
-    var empty = '<div class="empty" style="margin-top:40px"><div style="font-size:20px;font-weight:600">No confirmed alerts yet</div><p class="mut">They land here the moment the gate confirms one.</p></div>';
-    $("screen").innerHTML = '<div class="alerts">'
-      + '<div class="alist"><div class="scroll">'+(state.events.length?list:empty)+'</div>'
-      +   '<div style="flex:none;padding:8px 14px;border-top:1px solid var(--c-border)" class="kbd">click an alert → review it true / false</div></div>'
-      + '<div class="adetail" id="detail">'+renderDetail()+'</div></div>';
+    paintAlerts();
     startAlertsPoll();
   });
 }
+function alertsFor(filt){
+  if(filt==="all") return state.events.slice();
+  if(filt==="active") return state.events.filter(function(e){return e.review==="new";});
+  return state.events.filter(function(e){return e.review===filt;});
+}
+function paintAlerts(){
+  var filt = state.alertFilter || "active";
+  var c = {active:0, "true":0, "false":0};
+  state.events.forEach(function(e){ if(e.review==="new")c.active++; else if(e.review==="true")c["true"]++; else if(e.review==="false")c["false"]++; });
+  var shown = alertsFor(filt); state.shown = shown;
+  var selId = state.selected && state.selected.id;
+  state.selected = shown.filter(function(e){return e.id===selId;})[0] || shown[0] || null;
+  var TABS = [["active","Needs review",c.active],["true","True",c["true"]],["false","False",c["false"]],["all","All",state.events.length]];
+  var bar = '<div class="afilter">'+TABS.map(function(t){
+    return '<button class="atab'+(filt===t[0]?" on":"")+'" onclick="setAlertFilter(\''+t[0]+'\')">'+esc(t[1])+'<span class="acnt">'+t[2]+'</span></button>';
+  }).join("")+'</div>';
+  var list = shown.map(function(a,i){
+    var sel = state.selected && state.selected.id===a.id ? " sel":"";
+    var st = a.review==="true"?"TRUE":a.review==="false"?"FALSE":a.review==="ack"?"ACK":"NEW";
+    return '<div class="arow'+sel+'" onclick="selectAlert('+i+')"><span class="dot" style="margin-top:4px;background:'+(SEV[a.priority]||SEV.low)+'"></span>'
+      +'<div style="flex:1;min-width:0"><div class="row" style="gap:8px"><span style="font-weight:700">'+esc(a.rule)+'</span>'
+      +'<span class="mono mut" style="font-size:11px">'+esc(a.camera_id)+'</span><span style="flex:1"></span>'
+      +'<span class="mono mut" style="font-size:11px">'+esc((a.iso||"").split("T")[1]||"")+'</span></div>'
+      +'<div class="row" style="gap:8px;margin-top:3px"><span style="font-size:10px;font-weight:700;letter-spacing:.05em;color:'+(SEV[a.priority]||SEV.low)+'">'+esc((a.priority||"").toUpperCase())+'</span>'
+      +'<span class="mono sub" style="font-size:11px">'+(a.confidence!=null?Number(a.confidence).toFixed(2):"")+'</span><span style="flex:1"></span>'
+      +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;color:var(--c-mut);background:var(--c-raised)">'+st+'</span></div></div></div>';
+  }).join("");
+  var empty = filt==="active"
+    ? '<div class="empty" style="margin-top:40px"><div style="font-size:22px;font-weight:600">✓ All clear</div><p class="mut">Nothing to review. New threats appear here the moment the gate confirms one.</p></div>'
+    : '<div class="empty" style="margin-top:40px"><div style="font-size:18px;font-weight:600">Nothing here</div><p class="mut">No alerts with this label yet.</p></div>';
+  $("screen").innerHTML = '<div class="alerts">'
+    + '<div class="alist">'+bar+'<div class="scroll">'+(shown.length?list:empty)+'</div>'
+    +   '<div style="flex:none;padding:8px 14px;border-top:1px solid var(--c-border)" class="kbd">label an alert → it clears from Needs review</div></div>'
+    + '<div class="adetail" id="detail">'+renderDetail()+'</div></div>';
+}
+function setAlertFilter(f){ state.alertFilter=f; state.selected=null; paintAlerts(); }
 function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(function(){
   if(state.route!=="alerts"){ stopAlertsPoll(); return; }
   call("listEvents",[100],function(evs){ if(!Array.isArray(evs)) return;
     var sig=evs.map(function(e){return e.id+":"+e.review;}).join(",");
-    if(sig!==state.alertsSig){ renderAlerts(); refreshCounts(); } }); }, 3000); }
+    if(sig!==state.alertsSig){ state.events=evs; state.alertsSig=sig; paintAlerts(); refreshCounts(); } }); }, 3000); }
 function stopAlertsPoll(){ if(state.alertsTimer){ clearInterval(state.alertsTimer); state.alertsTimer=null; } }
-function selectAlert(i){ state.selected = state.events[i]; $("detail").innerHTML = renderDetail();
+function selectAlert(i){ state.selected = state.shown[i]; $("detail").innerHTML = renderDetail();
   document.querySelectorAll(".arow").forEach(function(el,idx){el.classList.toggle("sel",idx===i);}); }
 function renderDetail(){
   var a = state.selected; if(!a) return '<p class="mut">Select an alert to review it.</p>';
@@ -364,8 +388,9 @@ function renderDetail(){
     +'<span class="sub" style="margin-left:6px;font-size:11.5px">'+(reviewed?("Labeled: "+a.review):"Your label retrains the site model.")+'</span></div>';
 }
 function doReview(label){ var a=state.selected; if(!a)return;
-  a.review=label; if($("detail")) $("detail").innerHTML=renderDetail();   // optimistic, instant
-  call("review",[String(a.id),label],function(r){ renderAlerts(); refreshCounts(); }); }
+  a.review=label; state.alertsSig="";     // local + force poll to reconcile
+  paintAlerts();                          // instant: clears from Needs review, selects next
+  call("review",[String(a.id),label],function(r){ refreshCounts(); }); }
 
 /* ---------- theme + boot ---------- */
 function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }
