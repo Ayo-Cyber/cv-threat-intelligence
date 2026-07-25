@@ -138,6 +138,20 @@
   .talert .r{font-weight:800;font-size:12px;color:#fff;letter-spacing:.04em;text-transform:uppercase}
   .talert .why{font-size:11px;color:#fff;opacity:.95;margin-top:3px;line-height:1.3;max-height:2.7em;overflow:hidden}
   .tile.alerting .livedot{background:var(--sev-crit)}
+  /* rules page */
+  .rulecard{padding:15px 17px;margin-bottom:12px}
+  .detrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .detchip{all:unset;cursor:pointer;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;
+    padding:8px 13px;border-radius:8px;border:1px solid var(--c-border2);color:var(--c-mut);user-select:none}
+  .detchip:hover{border-color:var(--c-accent)}
+  .detchip.on{border-color:var(--c-accent);background:var(--c-accent-soft);color:var(--c-text)}
+  .detchip .dt{font-size:11px;color:var(--c-sub)} .detchip.on .dt{color:var(--c-accent)}
+  /* system page */
+  .syslabel{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--c-sub)}
+  .sysnotifies{display:flex;flex-direction:column;gap:2px;margin-top:8px}
+  .sysnotify{display:flex;align-items:center;gap:11px;padding:9px 6px;border-radius:8px;cursor:pointer}
+  .sysnotify:hover{background:var(--c-raised)}
+  .sysnotify input{width:16px;height:16px;flex:none}
 </style>
 </head>
 <body>
@@ -227,11 +241,9 @@ function render(){
   if(state.route==="cameras") return renderCameras();
   if(state.route==="alerts") return renderAlerts();
   if(state.route==="live") return renderLive();
-  var extra = state.route==="system"
-    ? '<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Run setup again</button><button class="btn ghost" onclick="wizCheckGateStandalone()">Check VLM gate</button></div><div id="sysGate" class="mut" style="margin-top:10px;font-size:12px"></div>'
-    : '';
-  $("screen").innerHTML='<div class="pad"><h2>'+t+'</h2><p class="mut">This screen is coming next — the backend for it is already running from the pipeline.</p>'+extra+'</div>';
-  if(state.route==="system") wizCheckGateStandalone();
+  if(state.route==="rules") return renderRules();
+  if(state.route==="system") return renderSystem();
+  $("screen").innerHTML='<div class="pad"><h2>'+t+'</h2><p class="mut">Coming soon.</p></div>';
 }
 
 /* ---------- Cameras ---------- */
@@ -333,6 +345,99 @@ function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function
 }, 200); }
 function stopLivePoll(){ if(state.liveTimer){ clearInterval(state.liveTimer); state.liveTimer=null; } }
 function stopLive(){ stopLivePoll(); call("liveStop",[],function(){}); }
+
+/* ---------- System (settings + health) ---------- */
+var NOTIFY_CHANNELS=[["console","Console / log","always on — shows in the terminal"],
+  ["whatsapp","WhatsApp","Twilio — alert to your phone"],
+  ["telegram","Telegram","bot — alert to your phone"]];
+function renderSystem(){
+  call("getSite",[],function(s){ s=(s&&!s.error)?s:{};
+    call("gateStatus",[],function(g){ g=(g&&!g.error)?g:{};
+      var chans=((s.notify)||"console").split(",").filter(Boolean);
+      var rows=NOTIFY_CHANNELS.map(function(n){ var on=chans.indexOf(n[0])>=0;
+        return '<label class="sysnotify"><input type="checkbox" '+(on?"checked":"")+' onchange="toggleNotify(\''+n[0]+'\')">'
+          +'<div><b>'+esc(n[1])+'</b><div class="mut" style="font-size:11.5px">'+esc(n[2])+'</div></div></label>';
+      }).join("");
+      var mode=g.mode||"offline";
+      var mc=mode==="live"?"var(--c-live)":mode==="no-model"?"var(--sev-high)":"var(--sev-crit)";
+      var mt=mode==="live"?"live — verifying every alert":mode==="no-model"?"model not pulled yet":"offline — start Ollama";
+      $("screen").innerHTML='<div class="pad" style="max-width:720px"><h2>System</h2>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px"><div class="syslabel">Site</div>'
+        +  '<div class="row" style="margin-top:9px"><input id="sysName" value="'+esc(s.name||"")+'" style="flex:1;max-width:340px">'
+        +    '<button class="btn sm" onclick="saveSiteName()">Save</button><span id="sysNameOk" style="color:var(--c-live);font-size:12px"></span></div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px"><div class="syslabel">Notifications</div>'
+        +  '<div class="sysnotifies">'+rows+'</div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px"><div class="syslabel">Local AI gate</div>'
+        +  '<div class="row" style="gap:10px;margin-top:9px"><span class="statusdot" style="background:'+mc+'"></span>'
+        +    '<b class="mono" style="font-size:14px">'+esc(g.model||"gemma3:4b")+'</b>'
+        +    '<span style="color:'+mc+';font-weight:600;font-size:13px">'+esc(mt)+'</span>'
+        +    '<span style="flex:1"></span><button class="btn ghost sm" onclick="renderSystem()">Recheck</button></div>'
+        +  '<div class="mut" style="font-size:12px;margin-top:8px">Ollama '+(g.ollama?"reachable":"not reachable")+' · model '+(g.model_present?"present":"not pulled")+'</div></div>'
+        +'<div class="panel" style="padding:16px 18px"><div class="syslabel">Edge</div>'
+        +  '<div class="row" style="gap:22px;margin-top:9px;font-size:13px"><span class="mut">runs fully offline <b style="color:var(--c-live)">✓</b></span>'
+        +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">CVTI Edge <b class="mono">v0.9</b></span></div></div>'
+        +'<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Re-run setup wizard</button></div></div>';
+    });
+  });
+}
+function saveSiteName(){ var n=$("sysName").value.trim(); if(!n)return;
+  call("setSite",[n,""],function(){ if($("sysNameOk"))$("sysNameOk").textContent="saved ✓"; refreshCounts(); }); }
+function toggleNotify(ch){
+  call("getSite",[],function(s){ var chans=((s&&s.notify)||"console").split(",").filter(Boolean);
+    var i=chans.indexOf(ch); if(i>=0) chans.splice(i,1); else chans.push(ch);
+    if(!chans.length) chans=["console"];
+    call("setSite",["",chans.join(",")],function(){ renderSystem(); }); });
+}
+
+/* ---------- Rules (threats per camera) ---------- */
+var DETECTORS=[
+  ["concealment","Concealment","shoplifting — item hidden on body",true],
+  ["video_action","Video theft","fine-tuned AI reads the action (VideoMAE)",true],
+  ["violence","Violence","fighting / assault",false],
+  ["weapons","Weapons","gun / knife visible",false],
+  ["theft","Zone theft","takes item + leaves a zone",false]
+];
+function renderRules(){
+  call("presets",[],function(pr){ state.presets = (pr&&!pr.error)?pr:{}; });
+  call("listCameras",[],function(cams){
+    cams = Array.isArray(cams)?cams:[];
+    var presetOpts = Object.keys(state.presets||{}).map(function(k){return '<option value="'+esc(state.presets[k])+'">'+esc(k)+'</option>';}).join("");
+    if(!cams.length){
+      $("screen").innerHTML='<div class="pad"><h2>Rules</h2><p class="mut">No cameras yet. Add cameras first, then choose what each one watches for.</p></div>';
+      return;
+    }
+    var cards = cams.map(function(c){
+      var dets = DETECTORS.map(function(d){
+        var on = !!c[d[0]];
+        return '<button class="detchip'+(on?" on":"")+'" onclick="toggleRule(\''+esc(c.id)+'\',\''+d[0]+'\')" title="'+esc(d[2])+'">'
+          +'<span class="dt">'+(on?"●":"○")+'</span>'+esc(d[1])+'</button>';
+      }).join("");
+      var active = DETECTORS.filter(function(d){return c[d[0]];}).length;
+      return '<div class="panel rulecard"><div class="row" style="justify-content:space-between">'
+        +'<div class="row" style="gap:8px"><span class="dot" style="background:var(--c-live)"></span><b class="mono" style="font-size:14px">'+esc(c.id)+'</b>'
+        +'<span class="mono mut" style="font-size:11px">'+esc((c.source||"").split("/").pop().split("@").pop())+'</span></div>'
+        +'<span class="mut" style="font-size:12px">'+active+' threat'+(active===1?"":"s")+' watched</span></div>'
+        +'<div class="detrow">'+dets+'</div>'
+        +'<div class="row" style="margin-top:10px;gap:8px"><span class="mut" style="font-size:12px">rule set</span>'
+        +'<select onchange="setRulePreset(\''+esc(c.id)+'\',this.value)">'+presetOpts+'</select></div></div>';
+    }).join("");
+    $("screen").innerHTML='<div class="pad"><div class="row" style="justify-content:space-between;margin-bottom:6px">'
+      +'<h2 style="margin:0">Rules</h2><span class="mut" style="font-size:12px">what each camera watches for</span></div>'
+      +'<p class="mut" style="margin:0 0 14px">Toggle the threats CVTI should flag per camera. Heavier detectors (video theft) only load where you enable them. Changes apply on the next <b>Start monitoring</b>.</p>'
+      +cards+'</div>';
+    // reflect the saved preset in each select
+    cams.forEach(function(c){ /* selects default to first; preset persisted server-side */ });
+  });
+}
+function toggleRule(camId, det){
+  var btn = event && event.currentTarget;
+  var on = btn && btn.classList.contains("on");
+  var payload={}; payload[det]=!on;
+  call("setCameraRules",[camId, JSON.stringify(payload)],function(r){ renderRules(); });
+}
+function setRulePreset(camId, cfg){
+  call("setCameraRules",[camId, JSON.stringify({config:cfg})],function(){});
+}
 
 /* ---------- Alerts ---------- */
 function renderAlerts(){

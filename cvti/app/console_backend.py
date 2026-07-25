@@ -70,6 +70,24 @@ class ConsoleBackend:
     def presets(self) -> dict:
         return onboarding.RULE_PRESETS
 
+    # detectors the operator can toggle per camera (drive which models run)
+    RULE_FLAGS = ("concealment", "video_action", "violence", "weapons", "theft")
+
+    def set_camera_rules(self, camera_id: str, rules: dict) -> dict:
+        """Update which threat detectors run on a camera (+ optional rule preset).
+        Takes effect on the next Start monitoring."""
+        cams = onboarding.list_cameras(self.site_path)
+        cam = next((c for c in cams if c.get("id") == camera_id), None)
+        if cam is None:
+            return {"error": f"camera '{camera_id}' not found"}
+        for k in self.RULE_FLAGS:
+            if k in rules:
+                cam[k] = bool(rules[k])
+        if rules.get("config"):
+            cam["config"] = rules["config"]
+        onboarding.add_camera(self.site_path, cam)   # upsert by id
+        return {"ok": True, "camera": cam}
+
     # --- first-run setup wizard ---
     def get_site(self) -> dict:
         meta = onboarding.get_site_meta(self.site_path)

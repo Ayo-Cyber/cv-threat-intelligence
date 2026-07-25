@@ -41,6 +41,10 @@ class Backend(QObject):
     def presets(self) -> str:
         return self._safe(self._core.presets)
 
+    @pyqtSlot(str, str, result=str)
+    def setCameraRules(self, camera_id: str, rules_json: str) -> str:
+        return self._safe(lambda: self._core.set_camera_rules(camera_id, json.loads(rules_json)))
+
     @pyqtSlot(str, result=str)
     def scan(self, cidr: str) -> str:
         return self._safe(lambda: self._core.scan(cidr))
