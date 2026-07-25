@@ -38,7 +38,7 @@ class LiveWallTests(unittest.TestCase):
         import tempfile
         from cvti.app.console_backend import ConsoleBackend
         with tempfile.TemporaryDirectory() as d:
-            be = ConsoleBackend(site_path=str(Path(d) / "s.json"), db_path=str(Path(d) / "e.db"))
+            be = ConsoleBackend(site_path=str(Path(d) / "s.json"), db_path=str(Path(d) / "e.db"), enable_demo=False)
             cams = be.live_start(count=2)              # empty site -> demo clips fallback
             self.assertTrue(len(cams) >= 1)
             time.sleep(1.5)

@@ -43,6 +43,12 @@ hiddenimports = [
 # cvti/app/shell.py loads them from (cvti/app/web/index.html).
 datas = [(os.path.join(ROOT, "cvti", "app", "web"), "cvti/app/web")]
 
+# Self-contained playback demo (clips + recorded alerts), if it's been built
+# (packaging/build_demo_data.py). Lets the app demo itself on any machine.
+_demo = os.path.join(ROOT, "packaging", "demo_data")
+if os.path.isdir(_demo):
+    datas.append((_demo, "demo_data"))
+
 # The detection stack never runs inside the desktop app — keep it out.
 excludes = [
     "torch", "torchvision", "ultralytics", "transformers", "pytorchvideo",

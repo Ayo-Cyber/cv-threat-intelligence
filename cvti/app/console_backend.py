@@ -26,11 +26,27 @@ _REVIEW_VALUES = {"ack", "true", "false", "new"}
 
 class ConsoleBackend:
     def __init__(self, site_path: str = "configs/site_live.json",
-                 db_path: str = "runs/site/events.db") -> None:
+                 db_path: str = "runs/site/events.db", enable_demo: bool = True) -> None:
         self.site_path = site_path
         self.db_path = db_path
         self._live = None       # LiveWall instance while the Live screen is open
         self._monitor = None    # detection-engine subprocess (Start monitoring)
+        # bundled playback demo (for machines w/o the engine); off in tests
+        self._demo = self._locate_demo() if enable_demo else None
+
+    @staticmethod
+    def _locate_demo():
+        """Self-contained playback demo (clips + recorded alerts) shipped in the
+        bundle, so the app shows the live wall + alert system on any machine
+        without the engine/Ollama/clips installed."""
+        cands = []
+        if getattr(sys, "frozen", False):
+            cands.append(Path(getattr(sys, "_MEIPASS", ".")) / "demo_data")
+        cands.append(Path(__file__).resolve().parents[2] / "packaging" / "demo_data")
+        for c in cands:
+            if (c / "events.db").exists():
+                return c
+        return None
 
     # --- cameras (delegate to onboarding) ---
     def list_cameras(self) -> list[dict]:
@@ -56,7 +72,13 @@ class ConsoleBackend:
 
     # --- first-run setup wizard ---
     def get_site(self) -> dict:
-        return onboarding.get_site_meta(self.site_path)
+        meta = onboarding.get_site_meta(self.site_path)
+        # Playback demo with no real cameras: skip the wizard, land on the dash.
+        if meta["camera_count"] == 0 and self._demo:
+            meta["configured"] = True
+            meta["name"] = "Demo Store"
+            meta["camera_count"] = len(self._live_sources(99))
+        return meta
 
     def set_site(self, name: str | None = None, notify: str | None = None) -> dict:
         return onboarding.set_site_meta(self.site_path, name=name, notify=notify)
@@ -80,6 +102,9 @@ class ConsoleBackend:
         cams = [c for c in self.list_cameras() if c.get("source")]
         if cams:
             return [{"id": c["id"], "source": c["source"]} for c in cams[:count]]
+        if self._demo and (self._demo / "clips").exists():
+            clips = sorted((self._demo / "clips").glob("*.mp4"))[:count]
+            return [{"id": p.stem, "source": str(p)} for p in clips]
         clips = sorted(Path("data/test_clips").glob("*.mp4"))[:count]
         return [{"id": p.stem, "source": str(p)} for p in clips]
 
@@ -106,6 +131,11 @@ class ConsoleBackend:
     # subprocess pointed at this site, writing confirmed alerts into events.db.
     # Runs from-source / dev env (needs torch etc.); not from the lean app bundle.
     def start_monitoring(self) -> dict:
+        # A packaged app has no engine (torch/Ollama) inside it — it's a playback
+        # demo. Don't try to spawn; the recorded alerts are already shown.
+        if getattr(sys, "frozen", False):
+            return {"running": False, "demo": True,
+                    "note": "Playback demo — alerts are pre-recorded. Run from source for live monitoring."}
         if self._monitor and self._monitor.poll() is None:
             return {"running": True, "pid": self._monitor.pid, "already": True}
         out_dir = Path(self.db_path).parent
@@ -150,14 +180,24 @@ class ConsoleBackend:
         }
 
     # --- events / review ---
-    def _connect(self) -> sqlite3.Connection:
-        con = sqlite3.connect(self.db_path)
+    def _connect(self, path: str | None = None) -> sqlite3.Connection:
+        con = sqlite3.connect(path or self.db_path)
         con.row_factory = sqlite3.Row
         return con
 
+    def _effective_db(self) -> tuple[str, "Path | None"]:
+        """The DB to read + a base dir to resolve evidence frames against. Real
+        DB if present, else the bundled playback demo."""
+        if Path(self.db_path).exists():
+            return self.db_path, None
+        if self._demo:
+            return str(self._demo / "events.db"), self._demo
+        return self.db_path, None
+
     def list_events(self, limit: int = 100, embed_frames: bool = True) -> list[dict]:
+        db, frame_base = self._effective_db()
         try:
-            con = self._connect()
+            con = self._connect(db)
         except sqlite3.OperationalError:
             return []
         try:
@@ -171,12 +211,15 @@ class ConsoleBackend:
             e = dict(r)
             e["review"] = e.get("review") or "new"
             if embed_frames:
-                e["frames"] = self._frames_as_data_uris(e.get("evidence_dir"))
+                e["frames"] = self._frames_as_data_uris(e.get("evidence_dir"), frame_base)
             out.append(e)
         return out
 
-    def _frames_as_data_uris(self, evidence_dir: str | None, cap: int = 5) -> list[str]:
+    def _frames_as_data_uris(self, evidence_dir: str | None,
+                             frame_base: "Path | None" = None, cap: int = 5) -> list[str]:
         d = Path(evidence_dir or "")
+        if not d.exists() and frame_base and evidence_dir:
+            d = frame_base / evidence_dir       # bundled demo: paths are relative
         if not d.exists():
             return []
         uris = []
@@ -205,9 +248,11 @@ class ConsoleBackend:
     def counts(self) -> dict:
         """Header/nav summary numbers."""
         cams = self.list_cameras()
+        n_cams = len(cams) if cams else len(self._live_sources(99))
+        db, _ = self._effective_db()
         pending = 0
         try:
-            con = self._connect()
+            con = self._connect(db)
             try:
                 pending = con.execute(
                     "SELECT COUNT(*) FROM events WHERE review IS NULL OR review='ack'").fetchone()[0]
@@ -216,4 +261,4 @@ class ConsoleBackend:
             con.close()
         except sqlite3.OperationalError:
             pending = 0
-        return {"cameras": len(cams), "pending_alerts": pending}
+        return {"cameras": n_cams, "pending_alerts": pending}

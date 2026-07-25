@@ -70,3 +70,6 @@ data/anomaly-*.zip
 # ── Bundled app installers (large binaries) — do not commit ───────────────────
 *.dmg
 *.exe
+
+# Generated playback-demo bundle (built by packaging/build_demo_data.py)
+packaging/demo_data/

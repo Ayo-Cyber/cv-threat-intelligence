@@ -27,7 +27,7 @@ class ConsoleBackendTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.site = str(Path(self._tmp.name) / "site.json")
         self.db = str(Path(self._tmp.name) / "events.db")
-        self.be = ConsoleBackend(site_path=self.site, db_path=self.db)
+        self.be = ConsoleBackend(site_path=self.site, db_path=self.db, enable_demo=False)
 
     def tearDown(self):
         self._tmp.cleanup()
