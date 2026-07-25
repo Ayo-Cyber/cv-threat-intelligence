@@ -11,6 +11,7 @@ Run from the repo root (needs runs/demo/events.db from a real run + CamNuvem cli
 """
 from __future__ import annotations
 
+import json
 import shutil
 import sqlite3
 from pathlib import Path
@@ -19,13 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC_DB = ROOT / "runs" / "demo" / "events.db"
 SRC_EV = ROOT / "runs" / "demo" / "events"
 DST = ROOT / "packaging" / "demo_data"
-CAM_DIR = ROOT / "CamNuvem Robbery Dataset" / "videos" / "samples" / "test"
-
-
-def smallest(subdir: str, n: int) -> list[Path]:
-    d = CAM_DIR / subdir
-    vids = sorted(d.glob("*.mp4"), key=lambda p: p.stat().st_size)
-    return vids[:n]
+SITE = ROOT / "configs" / "site_demo_lite.json"  # live-wall clips = the demo site's cameras
 
 
 def main() -> None:
@@ -46,13 +41,13 @@ def main() -> None:
     con.commit()
     con.close()
 
-    # small real clips for the live wall, named to match the alert cameras
-    theft = smallest("theft", 3)
-    normal = smallest("normal", 2)
-    mapping = dict(zip(["aisle_1", "aisle_2", "back_door"], theft))
-    mapping.update(dict(zip(["entrance", "car_park"], normal)))
-    for cam, src in mapping.items():
-        shutil.copy(src, DST / "clips" / f"{cam}.mp4")
+    # live-wall clips = the exact cameras from the demo site, so playback footage
+    # matches the alerts it produced.
+    cams = json.loads(SITE.read_text()).get("cameras", [])
+    for c in cams:
+        src = ROOT / c["source"]
+        if src.exists():
+            shutil.copy(src, DST / "clips" / f"{c['id']}.mp4")
 
     total = sum(f.stat().st_size for f in DST.rglob("*") if f.is_file())
     print(f"built {DST.relative_to(ROOT)}: {len(list((DST/'clips').iterdir()))} clips, "
