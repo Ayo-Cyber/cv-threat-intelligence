@@ -188,11 +188,15 @@ class ConsoleBackend:
         return con
 
     def _effective_db(self) -> tuple[str, "Path | None"]:
-        """The DB to read + a base dir to resolve evidence frames against. Real
-        DB if present, else the bundled playback demo."""
+        """The DB to read + a base dir to resolve evidence frames against.
+
+        Real DB always wins. The bundled playback demo is used ONLY when there
+        are no real cameras configured — so a live site opens empty and fills as
+        detection happens (never shows pre-recorded alerts before monitoring).
+        """
         if Path(self.db_path).exists():
             return self.db_path, None
-        if self._demo:
+        if self._demo and not self.list_cameras():
             return str(self._demo / "events.db"), self._demo
         return self.db_path, None
 

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC_DB = ROOT / "runs" / "demo" / "events.db"
 SRC_EV = ROOT / "runs" / "demo" / "events"
 DST = ROOT / "packaging" / "demo_data"
-SITE = ROOT / "configs" / "site_demo_lite.json"  # live-wall clips = the demo site's cameras
+SITE = ROOT / "configs" / "site_demo_live.json"  # 5-camera live-wall clips
 
 
 def main() -> None:
