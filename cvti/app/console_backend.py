@@ -71,7 +71,7 @@ class ConsoleBackend:
         return onboarding.RULE_PRESETS
 
     # detectors the operator can toggle per camera (drive which models run)
-    RULE_FLAGS = ("concealment", "video_action", "violence", "weapons", "theft")
+    RULE_FLAGS = ("concealment", "video_action", "violence", "weapons", "theft", "tamper")
 
     def set_camera_rules(self, camera_id: str, rules: dict) -> dict:
         """Update which threat detectors run on a camera (+ optional rule preset).

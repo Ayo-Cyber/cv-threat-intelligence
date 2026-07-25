@@ -5,13 +5,6 @@
   "configured": true,
   "cameras": [
     {
-      "id": "aisle_1",
-      "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/226.mp4",
-      "config": "configs/all_threats_v1.json",
-      "concealment": true,
-      "video_action": true
-    },
-    {
       "id": "aisle_2",
       "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/89.mp4",
       "config": "configs/shelf_zones_demo.json",
@@ -26,10 +19,18 @@
       "video_action": true
     },
     {
+      "id": "aisle_1",
+      "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/226.mp4",
+      "config": "configs/shelf_zones_demo.json",
+      "concealment": true,
+      "video_action": true
+    },
+    {
       "id": "iphone",
       "source": "rtsp://192.168.5.145/stream",
       "config": "configs/all_threats_v1.json",
-      "concealment": true
+      "concealment": true,
+      "tamper": true
     }
   ]
 }

@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cvti.contracts import RawEvent
 from cvti.event_adapters import zone_states_to_events
 from cvti.rules.customization import CustomizationEngine
 from cvti.serving.alert_queue import QueuedAlert
@@ -72,6 +73,7 @@ class PerCameraState:
     violence: bool = False
     weapons: bool = False
     theft: bool = False
+    tamper: bool = False              # camera block/tamper detection (pure CV)
     video_action: bool = False
     video_action_model: Any = None    # shared VideoMAEActionModel instance
     pose_conf: float = 0.35
@@ -94,6 +96,7 @@ class PerCameraState:
     _person_classes: Any = field(default=None, init=False, repr=False)
     _video_runtime: Any = field(default=None, init=False, repr=False)
     _va_index: int = field(default=0, init=False, repr=False)
+    _tamper_det: Any = field(default=None, init=False, repr=False)
     # Rolling recent frames (~2s at 5 FPS) so the gate gets per-rule evidence
     # (motion-peak span for violence, sharpest single frame for weapons).
     _frame_buffer: deque = field(default_factory=lambda: deque(maxlen=10), init=False, repr=False)
@@ -207,6 +210,21 @@ class PerCameraState:
 
         frame_hw = image.shape[:2]
         self._frame_buffer.append(image)
+
+        # Camera tamper/block runs on the raw frame — independent of any person,
+        # since a covered camera shows nothing. Cheap CV, every frame.
+        raw_events: list = []
+        if self.tamper:
+            if self._tamper_det is None:
+                from cvti.detector.tamper import TamperDetector
+                self._tamper_det = TamperDetector()
+            t = self._tamper_det.update(image)
+            if t is not None:
+                raw_events.append(RawEvent(
+                    detector="camera_tampering", active=True,
+                    title=f"CAMERA BLOCKED ({t['kind']})", level="high",
+                    timestamp=timestamp, extra=t))
+
         if self._video_runtime is not None:
             self._video_runtime.add_frame(image, frame_index=self._va_index)
             self._va_index += 1
@@ -214,7 +232,6 @@ class PerCameraState:
             detections = filter_person_detections(detections, frame_hw)
         tracked = self._tracker.update_with_detections(detections)
 
-        raw_events = []
         zone_by_pid: dict[Any, str | None] = {}   # person_id -> zone, for presence alerts
         if self.zone_monitor is not None:
             states = self.zone_monitor.update(tracked, timestamp)
@@ -294,6 +311,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 video_action_model=video_action_model,
                 concealment=bool(cam.get("concealment")), violence=bool(cam.get("violence")),
                 weapons=bool(cam.get("weapons")), theft=bool(cam.get("theft")),
+                tamper=bool(cam.get("tamper")),
                 video_action=bool(cam.get("video_action")),
             ),
         }

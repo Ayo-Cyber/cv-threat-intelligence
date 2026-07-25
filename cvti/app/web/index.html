@@ -435,7 +435,8 @@ var DETECTORS=[
   ["video_action","Video theft","fine-tuned AI reads the action (VideoMAE)",true],
   ["violence","Violence","fighting / assault",false],
   ["weapons","Weapons","gun / knife visible",false],
-  ["theft","Zone theft","takes item + leaves a zone",false]
+  ["theft","Zone theft","takes item + leaves a zone",false],
+  ["tamper","Camera block","lens covered / sprayed / defocused / blacked out",false]
 ];
 function renderRules(){
   call("presets",[],function(pr){ state.presets = (pr&&!pr.error)?pr:{}; });
