@@ -234,18 +234,28 @@ class ConsoleBackend:
     def set_review(self, event_id: int | str, label: str) -> dict:
         if label not in _REVIEW_VALUES:
             raise ValueError(f"review must be one of {_REVIEW_VALUES}")
-        con = self._connect()
-        # defensive: older DBs may predate the review columns
-        cols = {c[1] for c in con.execute("PRAGMA table_info(events)")}
-        if "review" not in cols:
-            con.execute("ALTER TABLE events ADD COLUMN review TEXT")
-        if "reviewed_at" not in cols:
-            con.execute("ALTER TABLE events ADD COLUMN reviewed_at TEXT")
+        # Write to the SAME db we read from, and make sure its folder exists.
+        # A read-only bundled demo can't be written — degrade gracefully, no modal.
+        db, _ = self._effective_db()
         iso = time.strftime("%Y-%m-%dT%H:%M:%S")
-        con.execute("UPDATE events SET review=?, reviewed_at=? WHERE id=?", (label, iso, event_id))
-        con.commit()
+        try:
+            Path(db).parent.mkdir(parents=True, exist_ok=True)
+            con = self._connect(db)
+        except (sqlite3.OperationalError, OSError):
+            return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": False}
+        try:
+            cols = {c[1] for c in con.execute("PRAGMA table_info(events)")}
+            if "review" not in cols:
+                con.execute("ALTER TABLE events ADD COLUMN review TEXT")
+            if "reviewed_at" not in cols:
+                con.execute("ALTER TABLE events ADD COLUMN reviewed_at TEXT")
+            con.execute("UPDATE events SET review=?, reviewed_at=? WHERE id=?", (label, iso, event_id))
+            con.commit()
+        except sqlite3.OperationalError:
+            con.close()
+            return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": False}
         con.close()
-        return {"id": event_id, "review": label, "reviewed_at": iso}
+        return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": True}
 
     def counts(self) -> dict:
         """Header/nav summary numbers."""

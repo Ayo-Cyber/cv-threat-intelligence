@@ -364,8 +364,8 @@ function renderDetail(){
     +'<span class="sub" style="margin-left:6px;font-size:11.5px">'+(reviewed?("Labeled: "+a.review):"Your label retrains the site model.")+'</span></div>';
 }
 function doReview(label){ var a=state.selected; if(!a)return;
-  call("review",[String(a.id),label],function(r){ if(r&&r.error){alert(r.error);return;}
-    a.review=label; renderAlerts(); refreshCounts(); }); }
+  a.review=label; if($("detail")) $("detail").innerHTML=renderDetail();   // optimistic, instant
+  call("review",[String(a.id),label],function(r){ renderAlerts(); refreshCounts(); }); }
 
 /* ---------- theme + boot ---------- */
 function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }
