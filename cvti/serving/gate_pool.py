@@ -18,6 +18,11 @@ from cvti.serving.alert_queue import AlertQueue, QueuedAlert
 # Called on every verdict: (alert, VerificationResult) -> None
 VerdictHandler = Callable[[QueuedAlert, Any], None]
 
+# Deterministic detectors don't need VLM confirmation — a covered camera or a
+# visible weapon is a fact, not a judgement call. These auto-confirm instantly
+# instead of waiting ~1-3s (and a slot) on the gate.
+BYPASS_DETECTORS = {"camera_tampering", "weapons"}
+
 
 class GatePool:
     def __init__(self, queue: AlertQueue, *, gate_factory: Callable[[], Any],
@@ -51,6 +56,14 @@ class GatePool:
         print(f"[{tag}] {alert.camera_id} :: {alert.rule_name} ({alert.priority.upper()}) "
               f"— {alert.title} | conf={result.confidence:.2f} | {result.reason}")
 
+    @staticmethod
+    def _bypass(candidate: Any, alert: QueuedAlert) -> Any:
+        from cvti.contracts import VerificationResult
+        return VerificationResult(
+            confirmed=True, confidence=0.99,
+            reason=f"{getattr(candidate, 'title', alert.rule_name)} — deterministic detector, auto-confirmed (no VLM needed).",
+            alert_priority=alert.priority, timestamp=time.time(), raw_response="bypass")
+
     def _worker(self) -> None:
         gate = self.gate_factory()
         while not self._stop.is_set():
@@ -63,7 +76,11 @@ class GatePool:
                 p = alert.payload or {}
                 self._active += 1
                 try:
-                    result = gate.verify(p.get("frames"), p.get("candidate"), p.get("scene"))
+                    candidate = p.get("candidate")
+                    if getattr(candidate, "detector", "") in BYPASS_DETECTORS:
+                        result = self._bypass(candidate, alert)   # deterministic -> instant
+                    else:
+                        result = gate.verify(p.get("frames"), candidate, p.get("scene"))
                     self.verified += 1
                     if result is not None and result.confirmed:
                         self.confirmed += 1
