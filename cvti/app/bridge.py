@@ -46,6 +46,18 @@ class Backend(QObject):
         return self._safe(lambda: self._core.set_camera_rules(camera_id, json.loads(rules_json)))
 
     @pyqtSlot(str, result=str)
+    def sceneContext(self, camera_id: str) -> str:
+        return self._safe(lambda: self._core.scene_context(camera_id))
+
+    @pyqtSlot(str, str, str, result=str)
+    def addCustomThreat(self, camera_id: str, name: str, description: str) -> str:
+        return self._safe(lambda: self._core.add_custom_threat(camera_id, name, description))
+
+    @pyqtSlot(str, int, result=str)
+    def removeCustomThreat(self, camera_id: str, index: int) -> str:
+        return self._safe(lambda: self._core.remove_custom_threat(camera_id, index))
+
+    @pyqtSlot(str, result=str)
     def scan(self, cidr: str) -> str:
         return self._safe(lambda: self._core.scan(cidr))
 

@@ -13,6 +13,7 @@ Covers the two core operator flows:
 from __future__ import annotations
 
 import base64
+import json
 import sqlite3
 import subprocess
 import sys
@@ -87,6 +88,52 @@ class ConsoleBackend:
             cam["config"] = rules["config"]
         onboarding.add_camera(self.site_path, cam)   # upsert by id
         return {"ok": True, "camera": cam}
+
+    # --- scene context + custom (customer-defined) threats ---
+    def scene_context(self, camera_id: str) -> dict | None:
+        """What this camera watches — the 'place'. From live agent-mapping output
+        (runs/context/<cam>/scene_context.json) or static config fields."""
+        p = Path("runs/context") / camera_id / "scene_context.json"
+        if p.exists():
+            try:
+                return json.loads(p.read_text())
+            except (ValueError, OSError):
+                pass
+        cam = next((c for c in self.list_cameras() if c.get("id") == camera_id), None)
+        if cam and cam.get("scene_description"):
+            return {"environment_type": cam.get("environment_type", "unknown"),
+                    "scene_description": cam["scene_description"]}
+        return None
+
+    def _cam(self, cams: list, camera_id: str):
+        return next((c for c in cams if c.get("id") == camera_id), None)
+
+    def add_custom_threat(self, camera_id: str, name: str, description: str) -> dict:
+        """A customer-defined threat in plain English — the VLM gate evaluates it
+        in this camera's scene context. Native detectors are kept alongside."""
+        if not (description or "").strip():
+            return {"error": "describe what to watch for"}
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam is None:
+            return {"error": f"camera '{camera_id}' not found"}
+        threats = cam.get("custom_threats") or []
+        threats.append({"name": (name or "custom").strip(), "description": description.strip()})
+        cam["custom_threats"] = threats
+        onboarding.add_camera(self.site_path, cam)
+        return {"ok": True, "custom_threats": threats}
+
+    def remove_custom_threat(self, camera_id: str, index: int) -> dict:
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam is None:
+            return {"error": f"camera '{camera_id}' not found"}
+        threats = cam.get("custom_threats") or []
+        if 0 <= index < len(threats):
+            threats.pop(index)
+        cam["custom_threats"] = threats
+        onboarding.add_camera(self.site_path, cam)
+        return {"ok": True, "custom_threats": threats}
 
     # --- first-run setup wizard ---
     def get_site(self) -> dict:

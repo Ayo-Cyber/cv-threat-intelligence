@@ -160,6 +160,14 @@
   .detchip:hover{border-color:var(--c-accent)}
   .detchip.on{border-color:var(--c-accent);background:var(--c-accent-soft);color:var(--c-text)}
   .detchip .dt{font-size:11px;color:var(--c-sub)} .detchip.on .dt{color:var(--c-accent)}
+  /* scene context + custom threats */
+  .scenehint{font-size:12px;color:var(--c-mut);margin-top:10px;padding:9px 11px;background:var(--c-bg);
+    border-radius:8px;border:1px solid var(--c-border);line-height:1.45}
+  .envtag{display:inline-block;font-family:var(--ff-mono);font-size:10px;font-weight:700;color:var(--c-accent);
+    background:var(--c-accent-soft);padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.05em;margin-right:8px}
+  .customthreat{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;
+    border:1px solid var(--c-border);border-radius:8px;margin-top:6px;font-size:12.5px}
+  .customthreat b{font-weight:700}
   /* system page */
   .syslabel{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--c-sub)}
   .sysnotifies{display:flex;flex-direction:column;gap:2px;margin-top:8px}
@@ -453,23 +461,50 @@ function renderRules(){
         return '<button class="detchip'+(on?" on":"")+'" onclick="toggleRule(\''+esc(c.id)+'\',\''+d[0]+'\')" title="'+esc(d[2])+'">'
           +'<span class="dt">'+(on?"●":"○")+'</span>'+esc(d[1])+'</button>';
       }).join("");
-      var active = DETECTORS.filter(function(d){return c[d[0]];}).length;
+      var native = DETECTORS.filter(function(d){return c[d[0]];}).length;
+      var customs = (c.custom_threats||[]);
+      var customList = customs.length ? customs.map(function(t,i){
+        return '<div class="customthreat"><div style="min-width:0"><b>'+esc(t.name)+'</b> <span class="mut">'+esc(t.description)+'</span></div>'
+          +'<button class="chip" onclick="removeCustom(\''+esc(c.id)+'\','+i+')">remove</button></div>';
+      }).join("") : '<div class="mut" style="font-size:12px">None yet — add what matters for this place.</div>';
       return '<div class="panel rulecard"><div class="row" style="justify-content:space-between">'
         +'<div class="row" style="gap:8px"><span class="dot" style="background:var(--c-live)"></span><b class="mono" style="font-size:14px">'+esc(c.id)+'</b>'
         +'<span class="mono mut" style="font-size:11px">'+esc((c.source||"").split("/").pop().split("@").pop())+'</span></div>'
-        +'<span class="mut" style="font-size:12px">'+active+' threat'+(active===1?"":"s")+' watched</span></div>'
+        +'<span class="mut" style="font-size:12px">'+(native+customs.length)+' threat'+((native+customs.length)===1?"":"s")+' watched</span></div>'
+        +'<div class="scenehint" id="scene-'+esc(c.id)+'"><span class="mut">reading scene…</span></div>'
+        +'<div class="syslabel" style="margin-top:12px">Built-in detectors</div>'
         +'<div class="detrow">'+dets+'</div>'
         +'<div class="row" style="margin-top:10px;gap:8px"><span class="mut" style="font-size:12px">rule set</span>'
-        +'<select onchange="setRulePreset(\''+esc(c.id)+'\',this.value)">'+presetOpts+'</select></div></div>';
+        +'<select onchange="setRulePreset(\''+esc(c.id)+'\',this.value)">'+presetOpts+'</select></div>'
+        +'<div class="syslabel" style="margin-top:16px">Your own rules — in plain English, for this place</div>'
+        +'<div style="margin-top:8px">'+customList+'</div>'
+        +'<div class="row" style="margin-top:10px;gap:8px"><input id="ctn-'+esc(c.id)+'" placeholder="name e.g. counter-jump" style="width:170px">'
+        +'<input id="ctd-'+esc(c.id)+'" placeholder="describe: e.g. someone climbing over the counter" style="flex:1;min-width:220px">'
+        +'<button class="btn sm" onclick="addCustom(\''+esc(c.id)+'\')">Add</button></div></div>';
     }).join("");
     $("screen").innerHTML='<div class="pad"><div class="row" style="justify-content:space-between;margin-bottom:6px">'
       +'<h2 style="margin:0">Rules</h2><span class="mut" style="font-size:12px">what each camera watches for</span></div>'
-      +'<p class="mut" style="margin:0 0 14px">Toggle the threats CVTI should flag per camera. Heavier detectors (video theft) only load where you enable them. Changes apply on the next <b>Start monitoring</b>.</p>'
+      +'<p class="mut" style="margin:0 0 14px">Toggle built-in detectors, or write your own threats in plain English — the local AI checks them in this camera\'s scene. Changes apply on the next <b>Start monitoring</b>.</p>'
       +cards+'</div>';
-    // reflect the saved preset in each select
-    cams.forEach(function(c){ /* selects default to first; preset persisted server-side */ });
+    cams.forEach(function(c){ fillScene(c.id); });
   });
 }
+function fillScene(camId){
+  call("sceneContext",[camId],function(s){
+    var el=$("scene-"+camId); if(!el) return;
+    if(s && !s.error && s.scene_description){
+      el.innerHTML='<span class="envtag">'+esc((s.environment_type||"scene").replace(/_/g," "))+'</span>'+esc(s.scene_description);
+    } else {
+      el.innerHTML='<span class="mut">Scene not mapped yet — the AI reads this camera on the next Start monitoring, then your rules get its context.</span>';
+    }
+  });
+}
+function addCustom(camId){
+  var n=($("ctn-"+camId)||{}).value||"", d=($("ctd-"+camId)||{}).value||"";
+  if(!d.trim()) return;
+  call("addCustomThreat",[camId, n.trim(), d.trim()],function(r){ renderRules(); });
+}
+function removeCustom(camId, i){ call("removeCustomThreat",[camId, i],function(){ renderRules(); }); }
 function toggleRule(camId, det){
   var btn = event && event.currentTarget;
   var on = btn && btn.classList.contains("on");
