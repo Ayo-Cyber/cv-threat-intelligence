@@ -129,6 +129,15 @@
     font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8);font-family:var(--ff-mono)}
   .livedot{width:8px;height:8px;border-radius:99px;background:var(--c-live);animation:pulse 1.6s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+  /* a camera that's actively alerting */
+  .tile.alerting{border-color:var(--sev-crit)!important;animation:alertpulse 1.1s infinite}
+  @keyframes alertpulse{0%,100%{box-shadow:0 0 0 2px var(--sev-crit),0 0 14px rgba(239,68,68,.35)}50%{box-shadow:0 0 0 2px var(--sev-crit),0 0 26px rgba(239,68,68,.65)}}
+  .talert{position:absolute;top:0;left:0;right:0;padding:9px 11px 16px;display:none;
+    background:linear-gradient(180deg,rgba(220,38,38,.94),rgba(220,38,38,0))}
+  .tile.alerting .talert{display:block}
+  .talert .r{font-weight:800;font-size:12px;color:#fff;letter-spacing:.04em;text-transform:uppercase}
+  .talert .why{font-size:11px;color:#fff;opacity:.95;margin-top:3px;line-height:1.3;max-height:2.7em;overflow:hidden}
+  .tile.alerting .livedot{background:var(--sev-crit)}
 </style>
 </head>
 <body>
@@ -294,14 +303,27 @@ function renderLive(){
     }
     state.liveCams = cams;
     var tiles = cams.map(function(c){
-      return '<div class="tile"><div class="ph" id="ph-'+esc(c.id)+'">connecting…</div>'
+      return '<div class="tile" id="tile-'+esc(c.id)+'"><div class="ph" id="ph-'+esc(c.id)+'">connecting…</div>'
         +'<img id="live-'+esc(c.id)+'" alt="" onload="var p=document.getElementById(\'ph-'+esc(c.id)+'\');if(p)p.style.display=\'none\'">'
+        +'<div class="talert" id="talert-'+esc(c.id)+'"></div>'
         +'<div class="tlabel"><span class="livedot"></span>'+esc(c.id)+'</div></div>';
     }).join("");
     $("screen").innerHTML='<div class="pad"><div class="row" style="margin-bottom:12px"><h2 style="margin:0">Live wall</h2>'
       +'<span class="mut" style="font-size:12px">'+cams.length+' feeds · looping demo footage</span></div>'
       +'<div class="wall">'+tiles+'</div></div>';
     startLivePoll();
+    updateLiveAlertTiles();   // reflect any current alerts immediately
+  });
+}
+function updateLiveAlertTiles(){
+  var active = {};   // camera -> its latest unreviewed alert
+  (state.latestEvents||[]).forEach(function(e){ if(e.review==="new" && !active[e.camera_id]) active[e.camera_id]=e; });
+  (state.liveCams||[]).forEach(function(c){
+    var tile=$("tile-"+c.id), ov=$("talert-"+c.id), a=active[c.id];
+    if(!tile) return;
+    if(a){ tile.classList.add("alerting");
+      if(ov) ov.innerHTML='<div class="r">⚠ '+esc(a.rule)+'</div><div class="why">'+esc(a.reason||"")+'</div>'; }
+    else { tile.classList.remove("alerting"); if(ov) ov.innerHTML=""; }
   });
 }
 function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function(){
@@ -557,7 +579,49 @@ function wizCheckGateStandalone(){ var el=$("sysGate"); if(el) el.textContent="C
     el.textContent = msg; }); }
 
 /* ---------- boot ---------- */
-function startApp(){ renderNav(); refreshCounts(); refreshMonitor(); render(); }
+function startApp(){ renderNav(); refreshCounts(); refreshMonitor(); startGlobalWatch(); render(); }
+
+/* ---------- global alert watch: badge + sound + live-tile flags, any screen ---------- */
+function startGlobalWatch(){ if(state.globalTimer) return; state.globalTimer=setInterval(pollAlertsGlobal, 3000); pollAlertsGlobal(); }
+function pollAlertsGlobal(){
+  call("listEventsLite",[80],function(evs){
+    if(!Array.isArray(evs)) return;
+    state.latestEvents = evs;
+    var pending = evs.filter(function(e){return e.review==="new";}).length;
+    state.pending = pending;
+    if($("stPending")) $("stPending").textContent = pending;
+    renderNav();
+    maybeChime(evs);
+    if(state.route==="live") updateLiveAlertTiles();
+  });
+}
+function maybeChime(evs){
+  var maxId=0; evs.forEach(function(e){ if((e.id||0)>maxId) maxId=e.id; });
+  if(state.lastSeenId===undefined){ state.lastSeenId=maxId; return; }   // first poll: don't chime the backlog
+  if(maxId>state.lastSeenId){ state.lastSeenId=maxId; playChime(); }
+}
+function playChime(){
+  try{
+    if(!state.audioCtx) state.audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    var ctx=state.audioCtx; if(ctx.state==="suspended") ctx.resume();
+    var now=ctx.currentTime;
+    // clean two-note notification (A5 -> D6), soft attack, quick decay
+    [[880,0.0],[1174.66,0.13]].forEach(function(p){
+      var o=ctx.createOscillator(), g=ctx.createGain();
+      o.type="sine"; o.frequency.value=p[0];
+      var t=now+p[1];
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(0.22,t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.38);
+      o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+0.4);
+    });
+  }catch(e){}
+}
+// browsers gate audio until a user gesture — unlock on first click
+document.addEventListener("click", function _unlock(){
+  try{ if(!state.audioCtx) state.audioCtx=new (window.AudioContext||window.webkitAudioContext)(); state.audioCtx.resume(); }catch(e){}
+  document.removeEventListener("click", _unlock);
+});
 function boot(){
   call("setupState",[],function(s){
     if(s && !s.error && !s.configured){ openWizard(); }
