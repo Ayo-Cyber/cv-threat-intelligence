@@ -537,36 +537,39 @@ function openZoneEditor(camId){
       +'<div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">'
       +'<input id="zmname" placeholder="zone name e.g. entrance" style="width:190px">'
       +'<span class="mut" style="font-size:12px">loiter &gt;</span><input id="zmdwell" type="number" value="5" min="1" style="width:70px"><span class="mut" style="font-size:12px">sec</span>'
-      +'<span style="flex:1"></span><span id="zmhint" class="mut" style="font-size:12px">Click points on the frame, then Save (min 3)</span>'
-      +'<button class="btn ghost sm" onclick="zoneUndo()">Undo</button><button class="btn ghost sm" onclick="zoneClear()">Clear</button>'
+      +'<span style="flex:1"></span><span id="zmhint" class="mut" style="font-size:12px">Drag on the frame to draw the zone box</span>'
+      +'<button class="btn ghost sm" onclick="zoneClear()">Clear</button>'
       +'<button class="btn sm" onclick="zoneSave()">Save zone</button></div>';
     var cv=$("zmcanvas");
-    cv.addEventListener("click", function(e){ var r=cv.getBoundingClientRect();
-      state.zone.pts.push([Math.round(e.clientX-r.left), Math.round(e.clientY-r.top)]); zoneRedraw(); });
+    function pos(e){ var r=cv.getBoundingClientRect();
+      return [Math.max(0,Math.min(cv.width,Math.round(e.clientX-r.left))), Math.max(0,Math.min(cv.height,Math.round(e.clientY-r.top)))]; }
+    cv.addEventListener("mousedown", function(e){ var p=pos(e); state.zone.box={x0:p[0],y0:p[1],x1:p[0],y1:p[1]}; state.zone.drag=true; zoneRedraw(); });
+    cv.addEventListener("mousemove", function(e){ if(!state.zone||!state.zone.drag) return; var p=pos(e); state.zone.box.x1=p[0]; state.zone.box.y1=p[1]; zoneRedraw(); });
+    window.addEventListener("mouseup", function(){ if(state.zone) state.zone.drag=false; });
     zoneRedraw();
   });
 }
 function zoneRedraw(){
-  var cv=$("zmcanvas"); if(!cv) return; var ctx=cv.getContext("2d"); var p=state.zone.pts;
-  ctx.clearRect(0,0,cv.width,cv.height);
-  if(p.length){ ctx.beginPath(); ctx.moveTo(p[0][0],p[0][1]);
-    for(var i=1;i<p.length;i++) ctx.lineTo(p[i][0],p[i][1]);
-    if(p.length>=3) ctx.closePath();
+  var cv=$("zmcanvas"); if(!cv) return; var ctx=cv.getContext("2d"); ctx.clearRect(0,0,cv.width,cv.height);
+  var b=state.zone&&state.zone.box, h=$("zmhint");
+  if(b){
+    var x=Math.min(b.x0,b.x1), y=Math.min(b.y0,b.y1), w=Math.abs(b.x1-b.x0), hh=Math.abs(b.y1-b.y0);
     ctx.fillStyle="rgba(54,160,218,0.22)"; ctx.strokeStyle="#36a0da"; ctx.lineWidth=2;
-    if(p.length>=3) ctx.fill(); ctx.stroke();
-    p.forEach(function(pt){ ctx.beginPath(); ctx.arc(pt[0],pt[1],4,0,6.28); ctx.fillStyle="#36a0da"; ctx.fill(); ctx.strokeStyle="#fff"; ctx.lineWidth=1.5; ctx.stroke(); });
-  }
-  var h=$("zmhint"); if(h) h.textContent = p.length+" point"+(p.length===1?"":"s")+(p.length>=3?" — ready to save":" (min 3)");
+    ctx.fillRect(x,y,w,hh); ctx.strokeRect(x,y,w,hh);
+    [[x,y],[x+w,y],[x+w,y+hh],[x,y+hh]].forEach(function(c){ ctx.beginPath(); ctx.arc(c[0],c[1],4,0,6.28);
+      ctx.fillStyle="#36a0da"; ctx.fill(); ctx.strokeStyle="#fff"; ctx.lineWidth=1.5; ctx.stroke(); });
+    if(h) h.textContent = (w>4&&hh>4) ? Math.round(w)+"×"+Math.round(hh)+"px — ready to save" : "drag to size the box";
+  } else if(h){ h.textContent="Drag on the frame to draw the zone box"; }
 }
-function zoneUndo(){ if(state.zone&&state.zone.pts.length){ state.zone.pts.pop(); zoneRedraw(); } }
-function zoneClear(){ if(state.zone){ state.zone.pts=[]; zoneRedraw(); } }
+function zoneClear(){ if(state.zone){ state.zone.box=null; zoneRedraw(); } }
 function zoneSave(){
-  var z=state.zone; if(!z||z.pts.length<3){ var h=$("zmhint"); if(h) h.textContent="need at least 3 points"; return; }
+  var z=state.zone, b=z&&z.box;
+  if(!b || Math.abs(b.x1-b.x0)<5 || Math.abs(b.y1-b.y0)<5){ var h=$("zmhint"); if(h) h.textContent="drag a box on the frame first"; return; }
   var name=($("zmname")||{}).value||"", dwell=parseFloat(($("zmdwell")||{}).value||"5")||5;
   if(!name.trim()){ var h2=$("zmhint"); if(h2) h2.textContent="give the zone a name"; return; }
-  // map display coords -> ORIGINAL pixel coords
-  var sx=z.snapW/z.dispW, sy=z.snapH/z.dispH;
-  var orig=z.pts.map(function(pt){ return [Math.round(pt[0]*sx), Math.round(pt[1]*sy)]; });
+  var x0=Math.min(b.x0,b.x1), y0=Math.min(b.y0,b.y1), x1=Math.max(b.x0,b.x1), y1=Math.max(b.y0,b.y1);
+  var sx=z.snapW/z.dispW, sy=z.snapH/z.dispH;   // display -> ORIGINAL pixels; box -> 4 corners
+  var orig=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]].map(function(pt){ return [Math.round(pt[0]*sx), Math.round(pt[1]*sy)]; });
   call("addZone",[z.camId, name.trim(), JSON.stringify(orig), dwell],function(r){
     if(r&&r.error){ var h=$("zmhint"); if(h) h.textContent=r.error; return; }
     closeZoneEditor(); fillZones(z.camId);
