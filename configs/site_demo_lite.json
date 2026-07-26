@@ -23,14 +23,13 @@
       "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/226.mp4",
       "config": "configs/shelf_zones_demo.json",
       "concealment": true,
-      "video_action": true
-    },
-    {
-      "id": "iphone",
-      "source": "rtsp://192.168.5.145/stream",
-      "config": "configs/all_threats_v1.json",
-      "concealment": true,
-      "tamper": true
+      "video_action": true,
+      "custom_threats": [
+        {
+          "name": "counter-reach",
+          "description": "a person reaches over or leans across the service counter toward the till or shelves"
+        }
+      ]
     }
   ]
 }
