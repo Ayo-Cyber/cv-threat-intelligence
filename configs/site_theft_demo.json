@@ -1,7 +1,14 @@
 {
-  "_comment": "Multi-stream demo with pose-based concealment ON per camera. Each camera runs object-detection (shared batched) + ByteTrack + concealment (shared pose model) + rules + gate. all_threats_v1 has a shoplifting rule on the concealment detector. Always-on critical baseline is merged automatically.",
+  "_comment": "Shoplifting/theft wall: 3 retail-theft clips from data/test_clips (like theft_yt_01) + 3 CamNuvem theft. concealment + video-theft only (reliable, low false-positive). Weapons/violence off.",
+  "name": "Retail Theft Watch",
+  "notify": "console,whatsapp",
+  "configured": true,
   "cameras": [
-    {"id": "aisle_cam_1", "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_v1.json", "concealment": true},
-    {"id": "aisle_cam_2", "source": "data/test_clips/theft_shop_02.mp4", "config": "configs/all_threats_v1.json", "concealment": true}
+    {"id": "yt_shop",    "source": "data/test_clips/theft_yt_01.mp4",   "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "shop_1",     "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "shop_2",     "source": "data/test_clips/theft_shop_02.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "store_1",    "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",     "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "store_2",    "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/316.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "store_3",    "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/318.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true}
   ]
 }
