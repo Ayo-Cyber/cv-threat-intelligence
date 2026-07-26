@@ -67,10 +67,12 @@ BAG_NEAR = 0.60           # normalised hand<->bag distance considered "reaching 
 BAG_AT = 0.20             # normalised hand<->bag distance considered "in the bag"
 RETRACT_SCALE = 0.80      # normalised arm-extension drop that counts as a full retract
 DWELL_FRAMES = 6          # frames a hand at a concealment destination for full dwell credit
-SCORE_THRESHOLD = 0.72    # per-frame score above which the window looks concealment-like
-MIN_CANDIDATE_FRAMES = 6  # consecutive frames over threshold before a candidate fires
-                          # (0.60/4 fired on normal hand-near-waist posture — too noisy;
-                          #  tightened so it needs stronger, more sustained concealment shape)
+SCORE_THRESHOLD = 0.63    # per-frame score above which the window looks concealment-like
+MIN_CANDIDATE_FRAMES = 4  # consecutive frames over threshold before a candidate fires
+                          # (slightly tighter than the original 0.60 to trim the weakest
+                          #  candidates; the real fix for the flood was disabling concealment
+                          #  on the quiet cams. Note: video-action is GATED behind a signal
+                          #  firing, so concealment must still trigger on the theft cams.)
 WEIGHTS = (0.40, 0.30, 0.30)  # (destination_reached, retract, dwell), must sum to 1.0
 
 
