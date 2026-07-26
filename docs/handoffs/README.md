@@ -37,5 +37,6 @@ Example: `2026-07-13-2044-merge-serving-phases-1-4.md`
 
 ## Index (newest first)
 
+- [2026-07-26-1630 — How to run: operator app + detection engine](2026-07-26-1630-how-to-run.md)
 - [2026-07-16-1922 — Demi task brief: finish the multi-stream detector + X3D](2026-07-16-1922-demi-multistream-detector-and-x3d.md)
 - [2026-07-13-2044 — Merge + multi-stream serving + plan.md Phases 1–4](2026-07-13-2044-merge-serving-phases-1-4.md)
