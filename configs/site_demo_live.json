@@ -1,13 +1,14 @@
 {
-  "_comment": "Sunday demo: 5 real CCTV cams from CamNuvem — 3 theft (fire alerts) + 2 normal (mostly quiet, exercise the gate's false-alarm rejection). Fresh clip set. Marked configured so the app opens straight into monitoring.",
+  "_comment": "Full demo wall: 6 real CCTV cams — 3 THREAT (fire alerts) + 3 NORMAL (mostly quiet, show the gate rejecting false alarms). Threat clips are 5-7min so they won't loop on stage. Heavier run (~6 cams + Gemma); use site_demo_lite.json (3 cams) on a tight machine.",
   "name": "Demo Store",
   "notify": "console,whatsapp",
   "configured": true,
   "cameras": [
-    {"id": "aisle_1",   "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/226.mp4",     "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
-    {"id": "aisle_2",   "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/89.mp4",   "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
-    {"id": "back_door", "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/64.mp4",   "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "aisle_1",   "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",     "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "aisle_2",   "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/316.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "back_door", "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/318.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true, "tamper": true},
     {"id": "entrance",  "source": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_203_x264.mp4", "config": "configs/all_threats_v1.json", "concealment": true},
-    {"id": "car_park",  "source": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_196_x264.mp4", "config": "configs/all_threats_v1.json", "concealment": true}
+    {"id": "car_park",  "source": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_196_x264.mp4", "config": "configs/all_threats_v1.json", "concealment": true},
+    {"id": "stockroom", "source": "CamNuvem Robbery Dataset/videos/samples/training/normal/Normal_Videos061_x264.mp4", "config": "configs/all_threats_v1.json", "concealment": true, "tamper": true}
   ]
 }
