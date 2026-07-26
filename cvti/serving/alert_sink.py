@@ -282,17 +282,26 @@ class AlertSink:
         self.persisted += 1
         self.notifier.notify(event)
 
-    def _write_clip(self, path: Path, frames: list, fps: int = 4) -> None:
-        """Encode the evidence frames into a short MP4 (archival + Telegram video)."""
+    def _write_clip(self, path: Path, frames: list, fps: int = 12,
+                    hold_seconds: float = 0.5) -> None:
+        """Encode the evidence frames into a short MP4 (archival + Telegram video).
+
+        Evidence is only a handful of stills, so a naive low-fps clip flashes past
+        too fast to read. Instead we hold each frame for ~`hold_seconds` at a normal
+        container fps — a slower, smoother playback that any player handles cleanly.
+        """
         import cv2
         if not frames:
             return
         h, w = frames[0].shape[:2]
+        repeat = max(1, int(round(fps * hold_seconds)))   # frames to hold each still
         for fourcc in ("avc1", "mp4v"):        # prefer H.264, fall back to MPEG-4
             vw = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
             if vw.isOpened():
                 for f in frames:
-                    vw.write(f if f.shape[:2] == (h, w) else cv2.resize(f, (w, h)))
+                    out = f if f.shape[:2] == (h, w) else cv2.resize(f, (w, h))
+                    for _ in range(repeat):
+                        vw.write(out)
                 vw.release()
                 return
 

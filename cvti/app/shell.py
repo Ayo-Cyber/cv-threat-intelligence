@@ -46,7 +46,7 @@ def _qwebchannel_js() -> str:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="CVTI operator console (desktop app).")
+    p = argparse.ArgumentParser(description="Argus operator console (desktop app).")
     p.add_argument("--site-config", default="configs/site_live.json")
     p.add_argument("--db", default="runs/site/events.db")
     args = p.parse_args()
@@ -58,7 +58,7 @@ def main() -> None:
         from PyQt6.QtWebEngineWidgets import QWebEngineView
         from PyQt6.QtWidgets import QApplication, QMainWindow
     except ImportError as exc:
-        print(f"CVTI Console needs PyQt6 + WebEngine ({exc}):\n"
+        print(f"Argus Console needs PyQt6 + WebEngine ({exc}):\n"
               "  pip install PyQt6 PyQt6-WebEngine")
         sys.exit(1)
 
@@ -68,10 +68,10 @@ def main() -> None:
     # Must be set before the QApplication is constructed (else blank render).
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
-    app.setApplicationName("CVTI Console")
+    app.setApplicationName("Argus Console")
 
     win = QMainWindow()
-    win.setWindowTitle("CVTI Console")
+    win.setWindowTitle("Argus Console")
     win.resize(1320, 860)
 
     view = QWebEngineView()

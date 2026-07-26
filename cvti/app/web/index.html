@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CVTI Console</title>
+<title>Argus Console</title>
 <script>document.documentElement.setAttribute("data-mode","dark");</script>
 <style>
   /* Tokens live on :root so the app shell (#cv) AND the sibling overlays
@@ -85,13 +85,19 @@
   .frames{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
   .frames img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--c-border);background:var(--c-feed)}
   /* event clip player (auto-looping evidence frames) */
-  .clipwrap{position:relative;margin-top:14px;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--c-border)}
-  .clipwrap img{width:100%;height:100%;object-fit:contain;background:#000;display:block}
+  .clipwrap{position:relative;margin-top:14px;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--c-border);box-shadow:0 6px 24px rgba(0,0,0,.28)}
+  .clipwrap img{width:100%;height:100%;object-fit:contain;background:#000;display:block;transition:opacity .22s ease}
   .clipbadge{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.62);color:#fff;font-size:11px;font-weight:700;
-    padding:3px 9px;border-radius:6px;letter-spacing:.03em}
+    padding:3px 9px;border-radius:6px;letter-spacing:.03em;display:flex;align-items:center;gap:6px}
+  .clipbadge .dot{width:6px;height:6px;border-radius:99px;background:var(--sev-crit);animation:clippulse 1.4s ease-in-out infinite}
+  @keyframes clippulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .clipcounter{position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,.62);color:#fff;font-family:var(--ff-mono);
+    font-size:11px;padding:2px 8px;border-radius:99px;letter-spacing:.04em}
+  .clipprog{position:absolute;left:0;bottom:0;height:3px;background:var(--c-accent);width:0;transition:width .22s linear}
   .clipstrip{display:flex;gap:6px;margin-top:8px;overflow-x:auto;padding-bottom:2px}
-  .clipstrip img{height:50px;aspect-ratio:16/9;object-fit:cover;border-radius:5px;border:1px solid var(--c-border);cursor:pointer;flex:none}
-  .clipstrip img:hover{border-color:var(--c-accent)}
+  .clipstrip img{height:50px;aspect-ratio:16/9;object-fit:cover;border-radius:5px;border:1px solid var(--c-border);cursor:pointer;flex:none;opacity:.62;transition:opacity .15s ease,border-color .15s ease,transform .15s ease}
+  .clipstrip img:hover{border-color:var(--c-accent);opacity:1}
+  .clipstrip img.on{border-color:var(--c-accent);opacity:1;transform:translateY(-2px);box-shadow:0 3px 10px rgba(0,0,0,.3)}
   .snapwrap{position:relative;aspect-ratio:16/9;background:var(--c-feed);border-radius:10px;overflow:hidden;
     border:1px solid var(--c-border);display:flex;align-items:center;justify-content:center;color:var(--c-mut)}
   .snapwrap img{width:100%;height:100%;object-fit:cover}
@@ -194,13 +200,13 @@
 <body>
 <div id="cv" data-mode="dark">
   <nav>
-    <div class="brand"><div class="n">CVTI</div><div class="s" id="siteName">Site 01 · local</div></div>
+    <div class="brand"><div class="n">Argus</div><div class="s" id="siteName">Site 01 · local</div></div>
     <div class="navitems" id="nav"></div>
     <div class="navfoot">
       <div class="row" style="gap:8px"><span class="dot" id="monDot" style="background:var(--c-sub)"></span>
         <span id="monLabel" style="font-weight:600;color:#c7cdd8">Idle</span></div>
       <div class="mono" id="monGate" style="margin-top:6px">gate local · offline OK</div>
-      <div style="margin-top:4px;color:#3d4a66">CVTI Edge v0.9</div>
+      <div style="margin-top:4px;color:#3d4a66">Argus Edge v0.9</div>
     </div>
   </nav>
   <main>
@@ -262,8 +268,8 @@ function toggleMonitor(){
   if(state.monitoring){ call("stopMonitoring",[],function(){ refreshMonitor(); }); }
   else { call("startMonitoring",[],function(r){ applyMonitor(true);
     // engine takes ~15-30s to load models; alerts start flowing after that
-    if($("monGate")) $("monGate").textContent="gate gemma3:4b · loading models…";
-    setTimeout(function(){ if($("monGate")) $("monGate").textContent="gate gemma3:4b · live"; }, 25000);
+    if($("monGate")) $("monGate").textContent="TrueSight · loading models…";
+    setTimeout(function(){ if($("monGate")) $("monGate").textContent="TrueSight · live"; }, 25000);
   }); }
 }
 
@@ -299,7 +305,7 @@ function renderCameras(){
     }).join("");
     var table = state.cameras.length ?
       ('<div class="panel" style="overflow:hidden;margin-top:8px"><div class="thead"><span>Camera</span><span>Source</span><span>Status</span><span>Rule preset</span><span>Signals</span></div>'+rows+'</div>')
-      : '<div class="empty"><div style="font-size:22px;font-weight:600">Connect your first camera</div><p class="mut" style="line-height:1.5">CVTI works with the cameras you already have. Paste a stream address or scan your network. Nothing leaves this PC.</p></div>';
+      : '<div class="empty"><div style="font-size:22px;font-weight:600">Connect your first camera</div><p class="mut" style="line-height:1.5">Argus works with the cameras you already have. Paste a stream address or scan your network. Nothing leaves this PC.</p></div>';
     var testHtml = renderTestBox();
     $("screen").innerHTML =
       '<div class="pad">'
@@ -429,13 +435,13 @@ function renderSystem(){
         +  '<div class="sysnotifies">'+rows+'</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px"><div class="syslabel">Local AI gate</div>'
         +  '<div class="row" style="gap:10px;margin-top:9px"><span class="statusdot" style="background:'+mc+'"></span>'
-        +    '<b class="mono" style="font-size:14px">'+esc(g.model||"gemma3:4b")+'</b>'
+        +    '<b style="font-size:14px">TrueSight</b><span class="mut" style="font-size:11.5px">on-device vision AI</span>'
         +    '<span style="color:'+mc+';font-weight:600;font-size:13px">'+esc(mt)+'</span>'
         +    '<span style="flex:1"></span><button class="btn ghost sm" onclick="renderSystem()">Recheck</button></div>'
         +  '<div class="mut" style="font-size:12px;margin-top:8px">Ollama '+(g.ollama?"reachable":"not reachable")+' · model '+(g.model_present?"present":"not pulled")+'</div></div>'
         +'<div class="panel" style="padding:16px 18px"><div class="syslabel">Edge</div>'
         +  '<div class="row" style="gap:22px;margin-top:9px;font-size:13px"><span class="mut">runs fully offline <b style="color:var(--c-live)">✓</b></span>'
-        +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">CVTI Edge <b class="mono">v0.9</b></span></div></div>'
+        +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">Argus Edge <b class="mono">v0.9</b></span></div></div>'
         +'<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Re-run setup wizard</button></div></div>';
     });
   });
@@ -664,8 +670,11 @@ function renderDetail(){
   var sev = SEV[a.priority]||SEV.low;
   var fr = a.frames||[];
   var clip = fr.length
-    ? '<div class="clipwrap"><img id="clipImg" src="'+fr[0]+'" alt=""><div class="clipbadge">▶ EVENT CLIP · '+fr.length+' frames</div></div>'
-      +'<div class="clipstrip">'+fr.map(function(f,i){return '<img src="'+f+'" onclick="clipSeek('+i+')">';}).join("")+'</div>'
+    ? '<div class="clipwrap"><img id="clipImg" src="'+fr[0]+'" alt="">'
+      +'<div class="clipbadge"><span class="dot"></span>EVENT CLIP</div>'
+      +'<div class="clipcounter" id="clipCounter">1 / '+fr.length+'</div>'
+      +'<div class="clipprog" id="clipProg"></div></div>'
+      +'<div class="clipstrip" id="clipStrip">'+fr.map(function(f,i){return '<img id="clipthumb_'+i+'" class="'+(i===0?'on':'')+'" src="'+f+'" onclick="clipSeek('+i+')">';}).join("")+'</div>'
     : '<div class="mut" style="margin-top:14px">no clip saved</div>';
   var confPct = Math.round((Number(a.confidence)||0)*100);
   var reviewed = a.review && a.review!=="new";
@@ -676,7 +685,7 @@ function renderDetail(){
     +'<span class="mut">track <b class="mono" style="color:var(--c-text)">'+esc(a.track_id||"—")+'</b></span>'
     +'<span class="mut">object <b class="mono" style="color:var(--c-text)">'+esc(a.object_label||"—")+'</b></span></div>'
     +clip
-    +'<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why the gate confirmed this</div>'
+    +'<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why TrueSight confirmed this</div>'
     +'<p style="margin:0;font-size:14px;line-height:1.5">'+esc(a.reason||"")+'</p>'
     +'<div class="row" style="margin-top:12px"><span class="mut" style="font-size:11px">confidence</span><div class="confbar"><div style="width:'+confPct+'%;background:'+sev+'"></div></div><span class="mono">'+(Number(a.confidence)||0).toFixed(2)+'</span></div></div>'
     +'<div class="row" style="margin-top:18px">'
@@ -689,14 +698,35 @@ function doReview(label){ var a=state.selected; if(!a)return;
   a.review=label; state.alertsSig="";     // local + force poll to reconcile
   paintAlerts();                          // instant: clears from Needs review, selects next
   call("review",[String(a.id),label],function(r){ refreshCounts(); }); }
-/* event clip: auto-loop the evidence frames as a short video */
+/* event clip: auto-loop the evidence frames as a short video.
+   Slower, readable playback — each frame holds ~0.55s, with a longer pause on the
+   last frame before looping so the threat doesn't flash past or snap back jarringly. */
+var CLIP_FRAME_MS = 550, CLIP_LOOP_PAUSE_MS = 1200;
+function clipPaint(i){
+  var n=state.clipFrames?state.clipFrames.length:0; if(!n) return;
+  var counter=$("clipCounter"); if(counter) counter.textContent=(i+1)+" / "+n;
+  var prog=$("clipProg"); if(prog) prog.style.width=Math.round((i+1)/n*100)+"%";
+  var prev=state.clipThumb; if(prev!=null){ var pe=$("clipthumb_"+prev); if(pe) pe.classList.remove("on"); }
+  var ce=$("clipthumb_"+i); if(ce){ ce.classList.add("on"); if(ce.scrollIntoView) ce.scrollIntoView({block:"nearest",inline:"nearest"}); }
+  state.clipThumb=i;
+}
 function startClip(){ stopClip(); var a=state.selected; var fr=a&&a.frames;
   if(!fr||fr.length<2){ return; }
-  state.clipFrames=fr; state.clipIdx=0;
-  state.clipTimer=setInterval(function(){ var img=$("clipImg"); if(!img){ stopClip(); return; }
-    state.clipIdx=(state.clipIdx+1)%state.clipFrames.length; img.src=state.clipFrames[state.clipIdx]; }, 240); }
-function stopClip(){ if(state.clipTimer){ clearInterval(state.clipTimer); state.clipTimer=null; } }
-function clipSeek(i){ state.clipIdx=i; var img=$("clipImg"); if(img&&state.clipFrames&&state.clipFrames[i]) img.src=state.clipFrames[i]; }
+  state.clipFrames=fr; state.clipIdx=0; state.clipThumb=null;
+  var img=$("clipImg"); if(img) img.src=fr[0]; clipPaint(0);
+  function tick(){
+    var im=$("clipImg"); if(!im){ stopClip(); return; }
+    var wasLast = state.clipIdx >= state.clipFrames.length-1;
+    state.clipIdx = wasLast ? 0 : state.clipIdx+1;
+    im.src=state.clipFrames[state.clipIdx];
+    clipPaint(state.clipIdx);
+    var atLast = state.clipIdx===state.clipFrames.length-1;   // hold the final frame longer before looping
+    state.clipTimer=setTimeout(tick, atLast ? CLIP_LOOP_PAUSE_MS : CLIP_FRAME_MS);
+  }
+  state.clipTimer=setTimeout(tick, CLIP_FRAME_MS);
+}
+function stopClip(){ if(state.clipTimer){ clearTimeout(state.clipTimer); state.clipTimer=null; } }
+function clipSeek(i){ state.clipIdx=i; var img=$("clipImg"); if(img&&state.clipFrames&&state.clipFrames[i]) img.src=state.clipFrames[i]; clipPaint(i); }
 
 /* ---------- theme + boot ---------- */
 function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }
@@ -730,7 +760,7 @@ function renderWizard(){
   var body = ({welcome:wizWelcome,cameras:wizCameras,vlm:wizVlm,site:wizSite,done:wizDone}[step])();
   var showStepper = (step!=="welcome" && step!=="done");
   $("wizard").innerHTML =
-    '<div class="wizhead"><div class="wizbrand">CVTI</div>'+(showStepper?wizStepper():'')+'</div>'
+    '<div class="wizhead"><div class="wizbrand">Argus</div>'+(showStepper?wizStepper():'')+'</div>'
     + '<div class="wizbody"><div class="wizcard">'+body+'</div></div>'
     + '<div class="wizfoot">'+wizFooter(step)+'</div>';
 }
@@ -751,7 +781,7 @@ function wizNext(){ if(STEPS[wiz.step]==="site") wizSaveSite(); wizGo(wiz.step+1
 function wizSkip(){ closeWizard(); startApp(); }
 
 function wizWelcome(){
-  return '<h2>Welcome to CVTI</h2><p class="lead">CVTI turns the cameras you already have into a context-aware security layer — it watches for the threats you care about, and a local AI double-checks every alert before it reaches you. Everything runs on this machine. Nothing leaves your network.</p>'
+  return '<h2>Welcome to Argus</h2><p class="lead">Argus turns the cameras you already have into a context-aware security layer — it watches for the threats you care about, and a local AI double-checks every alert before it reaches you. Everything runs on this machine. Nothing leaves your network.</p>'
     +'<p class="lead">Three quick steps: connect your cameras, set up the local AI, name your site. Takes a couple of minutes.</p>';
 }
 
@@ -760,7 +790,7 @@ function wizCameras(){
   var added = wiz.added.length ? ('<div class="addedlist">'+wiz.added.map(function(c){
       return '<div class="addedcam"><span class="dot" style="background:var(--c-live)"></span><b class="mono">'+esc(c.id)+'</b><span class="mono mut" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((c.source||"").split("@").pop())+'</span><button class="chip" onclick="wizRemove(\''+esc(c.id)+'\')">remove</button></div>';
     }).join("")+'</div>') : '<p class="mut" style="margin-top:12px">No cameras added yet.</p>';
-  return '<h2>Connect your cameras</h2><p class="lead">CVTI scans your network automatically to find cameras. Tap one and add it with its login — the password stays on this machine.</p>'
+  return '<h2>Connect your cameras</h2><p class="lead">Argus scans your network automatically to find cameras. Tap one and add it with its login — the password stays on this machine.</p>'
     +'<div class="panel" style="padding:16px">'
     +  '<div class="row"><input id="wzCidr" value="'+esc(wiz.cidr)+'" placeholder="detecting your network…" style="flex:1"><button class="btn ghost sm" onclick="wizScan()">'+(wiz.scanned?"Rescan":"Scan")+'</button></div>'
     +  '<div id="wzScanRes" class="mut" style="margin-top:8px;font-size:12px">'+wizScanMsg()+'</div>'
@@ -811,12 +841,12 @@ function wizVlm(){
   var g=wiz.gate;
   if(!g) return '<h2>Local AI verification</h2><p class="lead">Checking the on-device AI…</p><div class="statusbig"><span class="spin"></span><span>Checking Ollama…</span></div>';
   var dot,title,detail,action="";
-  if(g.mode==="live"){ dot="var(--c-live)"; title="Gemma 3 4B is ready"; detail="Every alert will be double-checked by the local AI before it reaches you. Fully offline."; }
-  else if(g.mode==="no-model"){ dot="var(--sev-high)"; title="AI model not installed yet"; detail="Ollama is running, but the Gemma 3 4B vision model (~3.3 GB) needs to be downloaded once.";
+  if(g.mode==="live"){ dot="var(--c-live)"; title="TrueSight is ready"; detail="Every alert will be double-checked by TrueSight, the on-device vision AI, before it reaches you. Fully offline."; }
+  else if(g.mode==="no-model"){ dot="var(--sev-high)"; title="TrueSight not installed yet"; detail="Ollama is running, but the TrueSight vision model (~3.3 GB) needs to be downloaded once.";
     action = wiz.pull&&wiz.pull.state==="pulling"
       ? '<div style="margin-top:14px"><div class="confbar" style="max-width:none"><div id="wzPullBar" style="width:'+(wiz.pull.percent||0)+'%;background:var(--c-accent)"></div></div><div id="wzPullDetail" class="mono sub" style="margin-top:6px;font-size:11px">'+esc(wiz.pull.detail||"")+' '+(wiz.pull.percent||0)+'%</div></div>'
       : '<button class="btn" style="margin-top:14px" onclick="wizPull()">Download model (3.3 GB)</button> <button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
-  else { dot="var(--sev-crit)"; title="Ollama isn't running"; detail="CVTI uses Ollama to run the local AI. Start it (or install it from ollama.com), then recheck. You can continue without it — alerts just won't be AI-verified yet.";
+  else { dot="var(--sev-crit)"; title="Ollama isn't running"; detail="Argus uses Ollama to run the local AI. Start it (or install it from ollama.com), then recheck. You can continue without it — alerts just won't be AI-verified yet.";
     action='<button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
   return '<h2>Local AI verification</h2><p class="lead">A vision model runs on this machine and confirms each alert is real — this is what keeps false alarms out.</p>'
     +'<div class="statusbig"><span class="statusdot" style="background:'+dot+'"></span><div><div style="font-weight:700;font-size:15px">'+esc(title)+'</div><div class="mut" style="font-size:13px;margin-top:3px;line-height:1.5">'+esc(detail)+'</div>'+action+'</div></div>';
@@ -846,8 +876,8 @@ function wizSaveSite(){ if($("wzSiteName")) wiz.site.name=($("wzSiteName").value
   if($("wzNotify")) wiz.site.notify=$("wzNotify").value; if($("wzPreset")) wiz.site.preset=$("wzPreset").value; }
 
 function wizDone(){
-  var g=wiz.gate||{}; var gateTxt=g.mode==="live"?"Gemma 3 4B (on-device)":g.mode==="no-model"?"model not downloaded":"Ollama offline";
-  return '<h2>You\'re set up</h2><p class="lead">CVTI is ready to watch <b>'+esc(wiz.site.name)+'</b>.</p>'
+  var g=wiz.gate||{}; var gateTxt=g.mode==="live"?"TrueSight (on-device)":g.mode==="no-model"?"model not downloaded":"Ollama offline";
+  return '<h2>You\'re set up</h2><p class="lead">Argus is ready to watch <b>'+esc(wiz.site.name)+'</b>.</p>'
     +'<div class="panel" style="padding:18px"><div class="row" style="justify-content:space-between"><span class="mut">Cameras</span><b class="mono">'+wiz.added.length+'</b></div>'
     +'<div class="row" style="justify-content:space-between;margin-top:8px"><span class="mut">AI verification</span><b>'+esc(gateTxt)+'</b></div>'
     +'<div class="row" style="justify-content:space-between;margin-top:8px"><span class="mut">Notifications</span><b>'+esc(wiz.site.notify)+'</b></div></div>'
@@ -859,7 +889,7 @@ function wizFinish(){ wizSaveSite();
 
 function wizCheckGateStandalone(){ var el=$("sysGate"); if(el) el.textContent="Checking VLM gate…";
   call("gateStatus",[],function(g){ if(!el) return; if(g.error){el.textContent=g.error;return;}
-    var msg = g.mode==="live"?("● Live — "+g.model+" (on-device verification)"):g.mode==="no-model"?"● Ollama up, model not installed — run setup to download":"● Ollama offline — gate falls back to mock";
+    var msg = g.mode==="live"?"● Live — TrueSight (on-device verification)":g.mode==="no-model"?"● Ollama up, model not installed — run setup to download":"● Ollama offline — gate falls back to mock";
     el.textContent = msg; }); }
 
 /* ---------- boot ---------- */
