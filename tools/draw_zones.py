@@ -42,7 +42,7 @@ def mouse_callback(event, x, y, flags, param):
                 "kind": "shelf",
                 "dwell_alert_seconds": 5.0,
                 "polygon": [list(p) for p in points],
-                "anchors": ["ALL"]
+                "anchors": ["BOTTOM_CENTER"]
             })
             print(f"✅ Zone '{name}' saved with {len(points)} points!\n")
 
@@ -123,7 +123,7 @@ def main():
                     "kind": "shelf",
                     "dwell_alert_seconds": 5.0,
                     "polygon": [list(p) for p in points],
-                    "anchors": ["ALL"]
+                    "anchors": ["BOTTOM_CENTER"]
                 })
 
             if not completed_zones:
