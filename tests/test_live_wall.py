@@ -22,15 +22,16 @@ class LiveWallTests(unittest.TestCase):
             deadline = time.monotonic() + 4.0
             while time.monotonic() < deadline:
                 f = wall.frames()
-                if len(f) == len(srcs) and all(v.get("uri") for v in f.values()):
+                if len(f) == len(srcs) and all(wall.jpeg(k) for k in f):
                     break
                 time.sleep(0.1)
             f = wall.frames()
             self.assertEqual(set(f), {s["id"] for s in srcs})
-            for v in f.values():
-                self.assertTrue(v["uri"].startswith("data:image/jpeg;base64,"))
+            for k, v in f.items():
+                self.assertNotIn("jpeg", v)                      # metadata only, no bytes
                 self.assertGreater(v["frame"], 0)
                 self.assertLessEqual(v["w"], 240)
+                self.assertEqual(wall.jpeg(k)[:2], b"\xff\xd8")   # raw JPEG bytes served
         finally:
             wall.stop()
 
@@ -39,11 +40,12 @@ class LiveWallTests(unittest.TestCase):
         from cvti.app.console_backend import ConsoleBackend
         with tempfile.TemporaryDirectory() as d:
             be = ConsoleBackend(site_path=str(Path(d) / "s.json"), db_path=str(Path(d) / "e.db"), enable_demo=False)
-            cams = be.live_start(count=2)              # empty site -> demo clips fallback
-            self.assertTrue(len(cams) >= 1)
+            res = be.live_start(count=2)               # empty site -> demo clips fallback
+            self.assertGreaterEqual(len(res["cameras"]), 1)
+            self.assertGreater(res["port"], 0)         # frame server started
             time.sleep(1.5)
             frames = be.live_frames()
-            self.assertTrue(any(v.get("uri") for v in frames.values()))
+            self.assertTrue(any(v.get("frame", 0) > 0 for v in frames.values()))
             self.assertEqual(be.live_stop(), {"stopped": True})
 
 

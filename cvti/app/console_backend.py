@@ -31,6 +31,7 @@ class ConsoleBackend:
         self.site_path = site_path
         self.db_path = db_path
         self._live = None       # LiveWall instance while the Live screen is open
+        self._fs = None         # localhost FrameServer serving live JPEGs
         self._monitor = None    # detection-engine subprocess (Start monitoring)
         self._monitor_should_run = False  # watchdog: respawn engine if it dies
         self._restarts = 0
@@ -272,19 +273,25 @@ class ConsoleBackend:
         clips = sorted(Path("data/test_clips").glob("*.mp4"))[:count]
         return [{"id": p.stem, "source": str(p)} for p in clips]
 
-    def live_start(self, count: int = 6) -> list[dict]:
-        from cvti.app.live_wall import LiveWall
+    def live_start(self, count: int = 6) -> dict:
+        from cvti.app.live_wall import FrameServer, LiveWall
         self.live_stop()
         sources = self._live_sources(count)
         if not sources:
-            return []
-        self._live = LiveWall(sources).start()
-        return [{"id": s["id"]} for s in sources]
+            return {"cameras": [], "port": 0}
+        self._live = LiveWall(sources, fps=10).start()
+        self._fs = FrameServer(self._live)
+        port = self._fs.start()
+        # cameras + the localhost port the UI fetches JPEG frames from
+        return {"cameras": [{"id": s["id"]} for s in sources], "port": port}
 
     def live_frames(self) -> dict:
         return self._live.frames() if self._live else {}
 
     def live_stop(self) -> dict:
+        if self._fs:
+            self._fs.stop()
+            self._fs = None
         if self._live:
             self._live.stop()
             self._live = None

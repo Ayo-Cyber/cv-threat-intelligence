@@ -343,18 +343,19 @@ function doAdd(){ var u=$("url").value.trim(); if(!u){state.test={error:"Enter a
   call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} state.test=null; refreshCounts(); renderCameras(); }); }
 
 /* ---------- Live wall ---------- */
+function frameUrl(camId){ return "http://127.0.0.1:"+state.livePort+"/frame/"+encodeURIComponent(camId)+"?t="+(state.frameTick||0); }
 function renderLive(){
   $("screen").innerHTML='<div class="pad mut">Starting live view…</div>';
-  call("liveStart",[6],function(cams){
-    if(!Array.isArray(cams) || !cams.length){
+  call("liveStart",[6],function(res){
+    var cams = res && res.cameras, port = res && res.port;
+    if(!Array.isArray(cams) || !cams.length || !port){
       $("screen").innerHTML='<div class="pad"><h2>Live wall</h2><p class="mut">No camera feeds available. Add cameras (or drop clips in data/test_clips) and reopen this tab.</p></div>';
       return;
     }
-    state.liveCams = cams;
+    state.liveCams = cams; state.livePort = port; state.frameTick = 0;
     var tiles = cams.map(function(c){
       return '<div class="tile" id="tile-'+esc(c.id)+'" style="cursor:pointer" onclick="openLiveModal(\''+esc(c.id)+'\')" title="click to expand">'
-        +'<div class="ph" id="ph-'+esc(c.id)+'">connecting…</div>'
-        +'<img id="live-'+esc(c.id)+'" alt="" onload="var p=document.getElementById(\'ph-'+esc(c.id)+'\');if(p)p.style.display=\'none\'">'
+        +'<img id="live-'+esc(c.id)+'" alt="" src="'+frameUrl(c.id)+'">'
         +'<div class="talert" id="talert-'+esc(c.id)+'"></div>'
         +'<div class="tzoom">⤢</div>'
         +'<div class="tlabel"><span class="livedot"></span>'+esc(c.id)+'</div></div>';
@@ -379,11 +380,10 @@ function updateLiveAlertTiles(){
 }
 function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function(){
   if(state.route!=="live" && !state.liveModal){ stopLive(); return; }
-  call("liveFrames",[],function(f){ if(!f||f.error) return;
-    state.liveFramesCache = f;
-    Object.keys(f).forEach(function(id){ var img=$("live-"+id); if(img && f[id] && f[id].uri && img.src!==f[id].uri) img.src=f[id].uri; });
-    if(state.liveModal) updateLiveModal();
-  }); }, 200); }
+  state.frameTick = (state.frameTick||0) + 1;    // cache-bust -> fetch the newest JPEG natively
+  (state.liveCams||[]).forEach(function(c){ var img=$("live-"+c.id); if(img) img.src=frameUrl(c.id); });
+  if(state.liveModal){ var lm=$("lmimg"); if(lm) lm.src=frameUrl(state.liveModal); updateLiveModalLabel(); }
+}, 90); }   // ~11 fps
 /* click a feed to expand it */
 function openLiveModal(camId){
   state.liveModal=camId;
@@ -391,17 +391,14 @@ function openLiveModal(camId){
   if(!m){ m=document.createElement("div"); m.id="liveModal"; (document.getElementById("modalRoot")||document.body).appendChild(m); }
   m.className="livemodal";
   m.innerHTML='<div class="livemodal-inner"><button class="lmclose" onclick="closeLiveModal()">✕</button>'
-    +'<img id="lmimg" alt=""><div class="lmlabel" id="lmlabel"></div></div>';
+    +'<img id="lmimg" alt="" src="'+frameUrl(camId)+'"><div class="lmlabel" id="lmlabel"></div></div>';
   m.onclick=function(e){ if(e.target===m) closeLiveModal(); };
-  updateLiveModal();
+  updateLiveModalLabel();
 }
-function updateLiveModal(){
-  if(!state.liveModal) return;
-  var img=$("lmimg"), lbl=$("lmlabel");
-  var f=state.liveFramesCache && state.liveFramesCache[state.liveModal];
-  if(img && f && f.uri && img.src!==f.uri) img.src=f.uri;
+function updateLiveModalLabel(){
+  var lbl=$("lmlabel"); if(!lbl||!state.liveModal) return;
   var a=(state.latestEvents||[]).filter(function(e){return e.camera_id===state.liveModal && e.review==="new";})[0];
-  if(lbl) lbl.innerHTML='<span class="livedot"></span>'+esc(state.liveModal)
+  lbl.innerHTML='<span class="livedot"></span>'+esc(state.liveModal)
     +(a?' <span class="lmalert">⚠ '+esc(a.rule)+' — '+esc(a.reason||"")+'</span>':'');
 }
 function closeLiveModal(){ state.liveModal=null; var m=$("liveModal"); if(m) m.remove(); }

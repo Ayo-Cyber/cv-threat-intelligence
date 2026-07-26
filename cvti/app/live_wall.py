@@ -67,9 +67,11 @@ class LiveWall:
             frame = self._downscale(frame)
             ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
             if ok2:
-                uri = "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()
-                self._set(cam_id, uri=uri, w=int(frame.shape[1]), h=int(frame.shape[0]),
-                          frame=n, ok=True)
+                # Store RAW jpeg bytes — the frame server streams these natively
+                # over localhost so the browser never marshals base64 through
+                # QWebChannel (that was the FPS ceiling).
+                self._set(cam_id, jpeg=buf.tobytes(), w=int(frame.shape[1]),
+                          h=int(frame.shape[0]), frame=n, ok=True)
             self._stop.wait(self.interval)
         cap.release()
 
@@ -86,11 +88,66 @@ class LiveWall:
             rec.update(kw)
 
     def frames(self) -> dict:
+        # Metadata only (no image bytes) — small + cheap to poll for status.
         with self._lock:
-            return {k: dict(v) for k, v in self._latest.items()}
+            return {k: {kk: vv for kk, vv in v.items() if kk != "jpeg"} for k, v in self._latest.items()}
+
+    def jpeg(self, cam_id: str) -> bytes | None:
+        with self._lock:
+            rec = self._latest.get(cam_id)
+            return rec.get("jpeg") if rec else None
 
     def stop(self) -> None:
         self._stop.set()
         for t in self._threads:
             t.join(timeout=1.5)
         self._threads = []
+
+
+class FrameServer:
+    """Serves the LiveWall's latest JPEG per camera over localhost, so the UI's
+    <img> tags fetch frames natively (fast) instead of base64-over-QWebChannel."""
+
+    def __init__(self, wall: "LiveWall") -> None:
+        self.wall = wall
+        self.port = 0
+        self._httpd = None
+        self._thread = None
+
+    def start(self) -> int:
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        wall = self.wall
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *a):  # silence request logging
+                pass
+
+            def do_GET(self):
+                cam = self.path.split("?", 1)[0].rsplit("/", 1)[-1]
+                jpg = wall.jpeg(cam)
+                if not jpg:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(jpg)))
+                self.end_headers()
+                try:
+                    self.wfile.write(jpg)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+        self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)   # port 0 = OS picks
+        self.port = self._httpd.server_address[1]
+        self._thread = threading.Thread(target=self._httpd.serve_forever, name="frame-server", daemon=True)
+        self._thread.start()
+        return self.port
+
+    def stop(self) -> None:
+        if self._httpd is not None:
+            self._httpd.shutdown()
+            self._httpd = None
