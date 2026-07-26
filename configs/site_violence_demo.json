@@ -1,0 +1,14 @@
+{
+  "_comment": "Robbery/violence wall: 6 CamNuvem armed-robbery clips (visually violent). Reliable detection = video-action + concealment; violence detector enabled best-effort (pose-based, brittle). Weapons LEFT OFF (that model over-fires on low-res CCTV). The VLM gate describes the violence in its reasoning — that's the strength here, not the pose-violence heuristic.",
+  "name": "Robbery Watch",
+  "notify": "console,whatsapp",
+  "configured": true,
+  "cameras": [
+    {"id": "front_counter", "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",     "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true, "violence": true},
+    {"id": "till",          "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/316.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true, "violence": true},
+    {"id": "back_office",   "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/318.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true, "violence": true},
+    {"id": "entrance",      "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/171.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true, "violence": true},
+    {"id": "aisle",         "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/65.mp4",  "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true, "violence": true},
+    {"id": "stockroom",     "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/331.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true, "violence": true}
+  ]
+}
