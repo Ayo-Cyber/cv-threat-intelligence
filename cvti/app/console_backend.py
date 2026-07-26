@@ -32,6 +32,8 @@ class ConsoleBackend:
         self.db_path = db_path
         self._live = None       # LiveWall instance while the Live screen is open
         self._monitor = None    # detection-engine subprocess (Start monitoring)
+        self._monitor_should_run = False  # watchdog: respawn engine if it dies
+        self._restarts = 0
         # bundled playback demo (for machines w/o the engine); off in tests
         self._demo = self._locate_demo() if enable_demo else None
 
@@ -195,6 +197,21 @@ class ConsoleBackend:
     # Launches the full detection pipeline (YOLO + VideoMAE + Gemma gate) as a
     # subprocess pointed at this site, writing confirmed alerts into events.db.
     # Runs from-source / dev env (needs torch etc.); not from the lean app bundle.
+    def _spawn_engine(self) -> "subprocess.Popen":
+        out_dir = Path(self.db_path).parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+        notify = self.get_site().get("notify") or "console"
+        log = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
+        # Lean defaults keep the box cool: lower fps + image size cut compute a lot
+        # with negligible quality loss at demo scale.
+        cmd = [sys.executable, "-m", "cvti.serving.pipeline",
+               "--site-config", self.site_path,
+               "--gate-provider", "ollama", "--gate-model", "gemma3:4b",
+               "--notify", notify, "--output-dir", str(out_dir),
+               "--target-fps", "4", "--imgsz", "512",
+               "--seconds", "100000", "--gate-drain", "60"]
+        return subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
+
     def start_monitoring(self) -> dict:
         # A packaged app has no engine (torch/Ollama) inside it — it's a playback
         # demo. Don't try to spawn; the recorded alerts are already shown.
@@ -203,23 +220,39 @@ class ConsoleBackend:
                     "note": "Playback demo — alerts are pre-recorded. Run from source for live monitoring."}
         if self._monitor and self._monitor.poll() is None:
             return {"running": True, "pid": self._monitor.pid, "already": True}
-        out_dir = Path(self.db_path).parent
-        out_dir.mkdir(parents=True, exist_ok=True)
-        notify = self.get_site().get("notify") or "console"
-        log = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
-        # Lean defaults keep the box cool: lower fps + image size cut compute
-        # a lot with negligible quality loss at demo scale. Gemma is the big
-        # RAM item; fewer cameras (use a lite site config) is the other lever.
-        cmd = [sys.executable, "-m", "cvti.serving.pipeline",
-               "--site-config", self.site_path,
-               "--gate-provider", "ollama", "--gate-model", "gemma3:4b",
-               "--notify", notify, "--output-dir", str(out_dir),
-               "--target-fps", "4", "--imgsz", "512",
-               "--seconds", "100000", "--gate-drain", "60"]
-        self._monitor = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
+        self._monitor_should_run = True
+        self._restarts = 0
+        self._monitor = self._spawn_engine()
+        self._start_watchdog()
         return {"running": True, "pid": self._monitor.pid}
 
+    def _start_watchdog(self, max_restarts: int = 5) -> None:
+        """Respawn the engine if it dies unexpectedly (crash / OOM), up to a cap
+        so a genuinely broken config can't loop forever."""
+        import threading
+        if getattr(self, "_watchdog", None) and self._watchdog.is_alive():
+            return
+
+        def loop():
+            while getattr(self, "_monitor_should_run", False):
+                time.sleep(3)
+                if not getattr(self, "_monitor_should_run", False):
+                    break
+                if self._monitor and self._monitor.poll() is not None:   # died
+                    if self._restarts < max_restarts:
+                        self._restarts += 1
+                        print(f"[watchdog] engine exited unexpectedly — restarting "
+                              f"({self._restarts}/{max_restarts})")
+                        self._monitor = self._spawn_engine()
+                    else:
+                        print("[watchdog] engine died too many times — giving up")
+                        self._monitor_should_run = False
+
+        self._watchdog = threading.Thread(target=loop, name="engine-watchdog", daemon=True)
+        self._watchdog.start()
+
     def stop_monitoring(self) -> dict:
+        self._monitor_should_run = False   # tell the watchdog this is intentional
         if self._monitor and self._monitor.poll() is None:
             self._monitor.terminate()
             try:

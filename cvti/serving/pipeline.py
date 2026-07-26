@@ -229,15 +229,24 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # Live agent mapping: infer each camera's scene (reusing the local VLM) so the
     # gate reasons with real context. Background, non-blocking; only for a local
     # VLM gate (ollama/local). Cameras run generic until their scene lands.
+    custom_scanner = None
     if gate_provider in ("ollama", "local"):
         from cvti.serving.scene_map import map_cameras_async
         map_cameras_async(cams_cfg, states, model=gate_model or "gemma3:4b",
                           base_url=gate_base_url or "http://localhost:11434/v1")
+        # Customer-written rules run as a slow VLM scan (the VLM is the detector).
+        if any(c.get("custom_threats") for c in cams_cfg):
+            from cvti.serving.custom_rules import CustomRuleScanner
+            custom_scanner = CustomRuleScanner(
+                cams_cfg, sink, model=gate_model or "gemma3:4b",
+                base_url=gate_base_url or "http://localhost:11434/v1").start()
     print(f"[site] {len(states)} camera(s) | gate={gate_provider} | notify={notify} | rules per camera")
     try:
         pipe.run(max_seconds=seconds)
     finally:
         pipe.stop()
+        if custom_scanner is not None:
+            custom_scanner.stop()
         # Let in-flight VLM verdicts finish (a real gate is ~12s/verify, so the
         # queue keeps draining after the streams end) before tearing down.
         pending = queue.pending_count
