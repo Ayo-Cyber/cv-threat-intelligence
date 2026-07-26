@@ -18,10 +18,13 @@ from cvti.serving.alert_queue import AlertQueue, QueuedAlert
 # Called on every verdict: (alert, VerificationResult) -> None
 VerdictHandler = Callable[[QueuedAlert, Any], None]
 
-# Deterministic detectors don't need VLM confirmation — a covered camera or a
-# visible weapon is a fact, not a judgement call. These auto-confirm instantly
-# instead of waiting ~1-3s (and a slot) on the gate.
-BYPASS_DETECTORS = {"camera_tampering", "weapons"}
+# Hardened policy: EVERYTHING goes through the VLM gate. Nothing auto-confirms.
+# (Weapons/tamper used to bypass here, but the weapon model over-fires and a
+# bypassed false positive becomes a confirmed alert — exactly the noise the gate
+# exists to kill. The VLM now verifies covered-camera and weapon claims too, with
+# detector-specific gate questions.) Left as an empty, overridable set so a
+# genuinely deterministic detector could opt back in later if ever needed.
+BYPASS_DETECTORS: set[str] = set()
 
 
 class GatePool:

@@ -28,18 +28,21 @@ from cvti.contracts import CandidateAlert, VerificationResult
 # ---------------------------------------------------------------------------
 
 _PROMPT_TEMPLATE = """\
-You are a security alert verification assistant for a CCTV system.
+You are the FINAL verification check for a CCTV security system. A cheap computer-vision
+detector has flagged a possible event. That detector is frequently WRONG — it over-fires
+on normal activity. Your job is to catch its mistakes, not to agree with it.
 
-A computer vision system has flagged a potential security event. You are shown one or more camera frames from the SAME short event (a brief sequence in time) — use the motion across them to decide if the alert is genuine.
+You are shown one or more camera frames from the SAME short event (a brief sequence in
+time) — use the motion across them to decide for yourself what is happening.
 
 Scene context:
 - Environment: {environment_type}
 - Description: {scene_description}
 
-Candidate alert:
+The detector's UNRELIABLE hypothesis (treat as a claim to be disproven, NOT a fact):
 - Rule: {rule_name}
 - Detector: {detector}
-- Detection: {title}
+- Claimed detection: {title}
 - Person tracked: {person_id}
 - Object involved: {object_label}
 
@@ -50,43 +53,63 @@ Respond with a single JSON object only. No markdown. No text before or after the
 {{
   "confirmed": true or false,
   "confidence": 0.0 to 1.0,
-  "reason": "one sentence explaining your decision based on what you see",
+  "reason": "one sentence explaining your decision based ONLY on what you see",
   "alert_priority": "{priority}"
 }}
 
+You are TRIAGING for a human reviewer, not making a courtroom judgement.
 Rules:
-- Only confirm if the visual evidence clearly supports the alert.
-- If the scene looks normal or the alert is ambiguous, return confirmed: false.
-- confidence should reflect how certain you are, not how alarming the scene is.
+- Do NOT rubber-stamp the detector's label, and do NOT invent innocent excuses for
+  everything either. Judge the frames as they are.
+- REJECT when the frames show plainly ordinary behaviour with no sign of the threat
+  (standing, walking, browsing, using a phone/laptop, working a till, an empty scene).
+  This is how you kill the detector's false positives.
+- CONFIRM when the frames are genuinely consistent with the SPECIFIC threat in the
+  question — you do not need absolute proof, only a real, visible reason to escalate it
+  to a human. A missed real threat is worse than a reviewed false alarm.
+- If the frames could plausibly be the threat OR innocent and you truly cannot tell,
+  lean CONFIRM (escalate for review) — but only when there is an actual visible cue,
+  not merely because the detector said so.
+- confidence reflects certainty in your OWN verdict, not how alarming the scene is.
 """
 
 _COT_PROMPT_TEMPLATE = """\
-You are a security alert verification assistant for a CCTV system. You are shown one or
-more frames from the SAME short event (a brief sequence in time).
+You are the FINAL verification check for a CCTV security system. A cheap computer-vision
+detector has flagged a possible event, but that detector is frequently WRONG — it over-fires
+on ordinary activity. Your job is to REFUTE its claim unless the frames clearly prove it.
+You are shown one or more frames from the SAME short event (a brief sequence in time).
 
 Scene context:
 - Environment: {environment_type}
 - Description: {scene_description}
 
-Candidate alert:
+The detector's UNRELIABLE hypothesis (a claim to disprove, NOT a fact):
 - Rule: {rule_name}
 - Detector: {detector}
-- Detection: {title}
+- Claimed detection: {title}
 - Person tracked: {person_id}
 - Object involved: {object_label}
 
 Question: {question}
 
-Reason step by step FIRST (plain text, no JSON yet):
-1. Given the environment, what is normal behaviour here?
-2. What is the person actually doing across the frames (hands, body, motion)?
-3. Where did any item go — shelf / pocket / clothing / personal bag / basket-or-trolley / still in hand?
-4. Does the evidence CLEARLY meet the alert, or is it ambiguous or normal?
+You are TRIAGING for a human reviewer, not making a courtroom judgement.
+
+Reason step by step FIRST (plain text, no JSON yet). Judge the frames INDEPENDENTLY — do
+not assume the detector is right, but do not manufacture innocent excuses either:
+1. Given the environment, what is normal, expected behaviour here?
+2. What is the person ACTUALLY doing across the frames (hands, body, motion)? Describe only
+   what you can literally see, not what the detector claims.
+3. Is what you see genuinely consistent with the SPECIFIC threat in the question, or is it
+   plainly an ordinary activity (standing, walking, browsing, working a till, an empty scene)?
 
 Then on the FINAL line, output ONLY this JSON object (no markdown, nothing after it):
 {{"confirmed": true or false, "confidence": 0.0 to 1.0, "reason": "one sentence", "alert_priority": "{priority}"}}
 
-Be strict: confirm only if the visual evidence clearly supports the alert. If ambiguous or normal, confirmed must be false. Confidence reflects certainty, not how alarming the scene is.
+REJECT plainly ordinary scenes — that is how you kill false positives. CONFIRM when the
+frames genuinely show a visible cue of the specific threat; you do not need absolute proof,
+only a real reason to escalate to a human (a missed real threat is worse than a reviewed
+false alarm). Do not confirm merely because the detector said so. Confidence reflects
+certainty in your OWN verdict.
 """
 
 _QUESTIONS: dict[str, str] = {
@@ -100,13 +123,25 @@ _QUESTIONS: dict[str, str] = {
     "theft_attempt": "Does this frame show a person attempting to steal something?",
     "card_skimming_suspect": "Does this frame show suspicious behavior at an ATM or card reader?",
     "after_hours_presence": "Does this frame show unauthorized presence during closed hours?",
+    "camera_tampering": "Is this camera view blacked out, physically covered, obstructed, sprayed, or defocused — i.e. deliberately tampered with or blocked? Sudden darkness from lights turning off is NOT tampering.",
+    "camera_blocked": "Is this camera view blacked out, physically covered, obstructed, or defocused — i.e. deliberately tampered with or blocked?",
+}
+
+# Some detectors carry their meaning in the detector name rather than the rule name;
+# fall back to a detector-specific question so the VLM verifies the RIGHT thing.
+_DETECTOR_QUESTIONS: dict[str, str] = {
+    "weapons": "Does this frame clearly show a real weapon (gun, knife, blade) being held, carried, or brandished by a person? A phone, tool, bottle, or empty hand is NOT a weapon.",
+    "camera_tampering": _QUESTIONS["camera_tampering"],
+    "video_action": "Does this frame show the specific threat, or just a person present/moving normally? A weak action model flagged it — confirm only a genuine threatening action.",
 }
 
 
-def _build_question(rule_name: str, environment_type: str) -> str:
-    template = _QUESTIONS.get(
-        rule_name,
-        "Does this frame confirm a security threat event in a {environment_type}?",
+def _build_question(rule_name: str, environment_type: str, detector: str = "") -> str:
+    # Prefer a rule-specific question; else fall back to a detector-specific one so
+    # weapons/tamper/video-action get verified for the RIGHT thing (not a generic
+    # "is this a threat"). Only then the generic catch-all.
+    template = _QUESTIONS.get(rule_name) or _DETECTOR_QUESTIONS.get(detector) or (
+        "Does this frame confirm a genuine security threat event in a {environment_type}?"
     )
     return template.format(environment_type=environment_type)
 
@@ -135,10 +170,14 @@ class VerificationGate:
         api_key_env: str = "ANTHROPIC_API_KEY",
         save_dir: Path | str | None = None,
         base_url: str = "",
-        cot: bool = False,
+        cot: bool = True,
+        min_confidence: float = 0.5,
     ) -> None:
         self.provider = provider
         self.cot = cot
+        # A confirmed verdict below this confidence is downgraded to rejected — kills
+        # the borderline "confirmed at 0.5" noise the CV detectors produce.
+        self.min_confidence = max(0.0, min(1.0, float(min_confidence)))
         self.model = model or self._DEFAULT_MODELS.get(provider, "claude-sonnet-4-6")
         # If the caller left the default Anthropic key env but picked another provider,
         # switch to that provider's conventional env var (e.g. OPENROUTER_API_KEY).
@@ -170,7 +209,8 @@ class VerificationGate:
             title=alert.title,
             person_id=alert.person_id if alert.person_id is not None else "unknown",
             object_label=alert.object_label or "unknown",
-            question=getattr(alert, "question", None) or _build_question(alert.rule_name, environment_type),
+            question=getattr(alert, "question", None) or _build_question(
+                alert.rule_name, environment_type, getattr(alert, "detector", "")),
             priority=alert.priority,
         )
 
@@ -198,6 +238,14 @@ class VerificationGate:
             raise RuntimeError(f"Unsupported provider: {self.provider}")
 
         result = _parse_response(raw_response, alert.priority)
+
+        # Hardening: a confirmed verdict the VLM isn't confident about is not good enough.
+        if result.confirmed and result.confidence < self.min_confidence:
+            result = VerificationResult(
+                confirmed=False, confidence=result.confidence,
+                reason=f"Below confidence floor ({result.confidence:.2f} < {self.min_confidence:.2f}): {result.reason}",
+                alert_priority=result.alert_priority, timestamp=result.timestamp,
+                raw_response=result.raw_response)
 
         if self.save_dir:
             _save_artifacts(self.save_dir, self._call_count, frames, alert, result, raw_response)
