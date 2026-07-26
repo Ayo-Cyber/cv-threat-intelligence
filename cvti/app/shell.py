@@ -77,6 +77,13 @@ def main() -> None:
     view = QWebEngineView()
     page = view.page()
 
+    # The live wall fetches JPEG frames from a localhost HTTP server via <img>.
+    # A file:// page can't load remote (http) URLs unless we allow it.
+    from PyQt6.QtWebEngineCore import QWebEngineSettings
+    st = view.settings()
+    st.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+    st.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+
     backend = Backend(ConsoleBackend(site_path=args.site_config, db_path=args.db))
     channel = QWebChannel(page)
     channel.registerObject("backend", backend)
