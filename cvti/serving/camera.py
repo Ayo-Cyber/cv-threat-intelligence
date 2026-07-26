@@ -250,10 +250,13 @@ class PerCameraState:
             if self.violence or self.weapons or self.theft:
                 merged = self._merged_detections(object_detections, image)
                 raw_events += self._assessment_events(pose_people, merged, image, timestamp)
-            # Video-action runs only when a per-frame signal already flagged this
-            # moment (gated + cooldown'd, same as single-stream) — it's a weak
-            # temporal witness, not an always-on pass.
-            if self._video_runtime is not None and any(e.active for e in raw_events):
+            # Video-action runs on a CADENCE, not only when another signal fired.
+            # Gating it behind concealment meant theft that isn't concealment-
+            # shaped (e.g. a grab-and-go) was never seen by the fine-tuned model —
+            # even when it would catch it at high confidence. The runtime's own
+            # cooldown_seconds throttles how often the model actually runs, so
+            # calling every frame is cheap; it only infers ~every cooldown window.
+            if self._video_runtime is not None:
                 raw_events += self._video_runtime.analyze_event(
                     center_frame_index=self._va_index - 1, timestamp=timestamp)
         except Exception as exc:  # noqa: BLE001 - a detector hiccup must not kill the camera
