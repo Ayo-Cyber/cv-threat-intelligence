@@ -132,9 +132,17 @@ class CustomRuleScanner:
         threat = str(d.get("threat", "none")).strip().lower()
         if not threat or threat in ("none", "no", "null", "n/a", "nothing"):
             return None
+        # Only fire a threat the customer actually defined — never one the model
+        # invents. Match by name overlap or description word overlap.
         match = next((t for t in threats
                       if t["name"].lower() in threat or threat in t["name"].lower()), None)
-        return {"name": match["name"] if match else threat, "reason": str(d.get("reason", ""))[:240]}
+        if match is None:
+            desc_words = threat.split()
+            match = next((t for t in threats
+                          if any(w in t["description"].lower() for w in desc_words if len(w) > 3)), None)
+        if match is None:
+            return None
+        return {"name": match["name"], "reason": str(d.get("reason", ""))[:240]}
 
     def _emit(self, cam: dict, frame, hit: dict) -> None:
         from cvti.contracts import VerificationResult
