@@ -91,6 +91,103 @@ class ConsoleBackend:
         onboarding.add_camera(self.site_path, cam)   # upsert by id
         return {"ok": True, "camera": cam}
 
+    # --- zones (draw in-app -> geometry + a loitering rule the engine runs) ---
+    def camera_snapshot(self, camera_id: str) -> dict:
+        """A still from the camera to draw zones on — plus its ORIGINAL pixel
+        size so the UI can map canvas coords back to real zone coordinates."""
+        import cv2
+        cam = next((c for c in self.list_cameras() if c.get("id") == camera_id), None)
+        if cam is None or not cam.get("source"):
+            return {"error": "camera not found"}
+        src = cam["source"]
+        cap = cv2.VideoCapture(int(src) if str(src).isdigit() else src)
+        try:
+            n = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+            if n > 1:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(n * 0.3))
+            ok, fr = cap.read()
+        finally:
+            cap.release()
+        if not ok:
+            return {"error": "could not read a frame from this camera"}
+        h, w = fr.shape[:2]
+        ok2, buf = cv2.imencode(".jpg", fr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if not ok2:
+            return {"error": "encode failed"}
+        return {"uri": "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode(),
+                "w": int(w), "h": int(h)}
+
+    def _zones_file(self, camera_id: str) -> Path:
+        return Path("configs/zones") / f"{camera_id}.json"
+
+    def list_zones(self, camera_id: str) -> list[dict]:
+        f = self._zones_file(camera_id)
+        if f.exists():
+            try:
+                return json.loads(f.read_text()).get("zones", [])
+            except (ValueError, OSError):
+                return []
+        return []
+
+    def _regen_zone_rules(self, camera_id: str, cam: dict, zones: list[dict]) -> None:
+        """Per-camera rule config = the camera's base preset + one loitering rule
+        per zone. Keeps the shared preset untouched."""
+        base_cfg = cam.get("_base_config") or cam.get("config") or "configs/all_threats_v1.json"
+        cam["_base_config"] = base_cfg
+        try:
+            rules = list(json.loads(Path(base_cfg).read_text()).get("rules", []))
+        except (ValueError, OSError):
+            rules = []
+        for z in zones:
+            dw = z.get("dwell_alert_seconds", 5)
+            rules.append({"name": f"loitering_{z['name']}", "trigger": {"detector": "presence"},
+                          "context_filter": f"zone == '{z['name']}' and dwell_seconds >= {dw}",
+                          "priority": "medium"})
+        rdir = Path("configs/rules")
+        rdir.mkdir(parents=True, exist_ok=True)
+        rfile = rdir / f"{camera_id}.json"
+        rfile.write_text(json.dumps({"use_case_id": f"{camera_id}_zones", "rules": rules}, indent=2))
+        cam["config"] = str(rfile)
+
+    def add_zone(self, camera_id: str, name: str, points: list, dwell_seconds: float = 5.0) -> dict:
+        """Save a drawn zone (>=3 [x,y] points in ORIGINAL pixels) + wire a
+        loitering rule for it. Takes effect on the next Start monitoring."""
+        pts = [[int(p[0]), int(p[1])] for p in (points or []) if len(p) == 2]
+        if len(pts) < 3:
+            return {"error": "a zone needs at least 3 points"}
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam is None:
+            return {"error": f"camera '{camera_id}' not found"}
+        f = self._zones_file(camera_id)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        data = json.loads(f.read_text()) if f.exists() else {"zones": []}
+        data["zones"] = [z for z in data.get("zones", []) if z.get("name") != name]
+        data["zones"].append({"name": name or "zone", "kind": "restricted",
+                              "anchors": ["BOTTOM_CENTER"], "dwell_alert_seconds": float(dwell_seconds),
+                              "polygon": pts})
+        f.write_text(json.dumps(data, indent=2))
+        cam["zones"] = str(f)
+        self._regen_zone_rules(camera_id, cam, data["zones"])
+        onboarding.add_camera(self.site_path, cam)
+        return {"ok": True, "zones": data["zones"]}
+
+    def remove_zone(self, camera_id: str, name: str) -> dict:
+        f = self._zones_file(camera_id)
+        data = json.loads(f.read_text()) if f.exists() else {"zones": []}
+        data["zones"] = [z for z in data.get("zones", []) if z.get("name") != name]
+        f.write_text(json.dumps(data, indent=2))
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam:
+            if data["zones"]:
+                self._regen_zone_rules(camera_id, cam, data["zones"])
+            else:                                   # no zones left -> restore base preset
+                cam["config"] = cam.get("_base_config", cam.get("config"))
+                cam.pop("zones", None)
+            onboarding.add_camera(self.site_path, cam)
+        return {"ok": True, "zones": data["zones"]}
+
     # --- scene context + custom (customer-defined) threats ---
     def scene_context(self, camera_id: str) -> dict | None:
         """What this camera watches — the 'place'. From live agent-mapping output

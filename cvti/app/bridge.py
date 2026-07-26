@@ -49,6 +49,23 @@ class Backend(QObject):
     def sceneContext(self, camera_id: str) -> str:
         return self._safe(lambda: self._core.scene_context(camera_id))
 
+    # --- zones ---
+    @pyqtSlot(str, result=str)
+    def cameraSnapshot(self, camera_id: str) -> str:
+        return self._safe(lambda: self._core.camera_snapshot(camera_id))
+
+    @pyqtSlot(str, result=str)
+    def listZones(self, camera_id: str) -> str:
+        return self._safe(lambda: self._core.list_zones(camera_id))
+
+    @pyqtSlot(str, str, str, float, result=str)
+    def addZone(self, camera_id: str, name: str, points_json: str, dwell_seconds: float) -> str:
+        return self._safe(lambda: self._core.add_zone(camera_id, name, json.loads(points_json), dwell_seconds))
+
+    @pyqtSlot(str, str, result=str)
+    def removeZone(self, camera_id: str, name: str) -> str:
+        return self._safe(lambda: self._core.remove_zone(camera_id, name))
+
     @pyqtSlot(str, str, str, result=str)
     def addCustomThreat(self, camera_id: str, name: str, description: str) -> str:
         return self._safe(lambda: self._core.add_custom_threat(camera_id, name, description))

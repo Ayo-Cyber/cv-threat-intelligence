@@ -176,6 +176,13 @@
   .customthreat{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;
     border:1px solid var(--c-border);border-radius:8px;margin-top:6px;font-size:12.5px}
   .customthreat b{font-weight:700}
+  /* zone drawing modal */
+  .zonemodal{position:fixed;inset:0;background:rgba(4,8,18,.9);z-index:70;display:flex;align-items:center;justify-content:center;padding:30px}
+  .zonemodal-inner{background:var(--c-panel);border:1px solid var(--c-border2);border-radius:12px;padding:18px 20px;max-width:800px;width:100%}
+  .zmhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:15px}
+  .zmcanvaswrap{position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--c-border);margin:0 auto;background:#000}
+  .zmcanvaswrap img{display:block}
+  .zmcanvaswrap canvas{position:absolute;top:0;left:0;cursor:crosshair}
   /* system page */
   .syslabel{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--c-sub)}
   .sysnotifies{display:flex;flex-direction:column;gap:2px;margin-top:8px}
@@ -488,15 +495,84 @@ function renderRules(){
         +'<div style="margin-top:8px">'+customList+'</div>'
         +'<div class="row" style="margin-top:10px;gap:8px"><input id="ctn-'+esc(c.id)+'" placeholder="name e.g. counter-jump" style="width:170px">'
         +'<input id="ctd-'+esc(c.id)+'" placeholder="describe: e.g. someone climbing over the counter" style="flex:1;min-width:220px">'
-        +'<button class="btn sm" onclick="addCustom(\''+esc(c.id)+'\')">Add</button></div></div>';
+        +'<button class="btn sm" onclick="addCustom(\''+esc(c.id)+'\')">Add</button></div>'
+        +'<div class="syslabel" style="margin-top:16px">Zones — draw an area to watch (loitering / restricted)</div>'
+        +'<div id="zones-'+esc(c.id)+'" style="margin-top:6px"><span class="mut" style="font-size:12px">loading…</span></div>'
+        +'<div class="row" style="margin-top:9px"><button class="btn ghost sm" onclick="openZoneEditor(\''+esc(c.id)+'\')">✏️ Draw a zone</button></div></div>';
     }).join("");
     $("screen").innerHTML='<div class="pad"><div class="row" style="justify-content:space-between;margin-bottom:6px">'
       +'<h2 style="margin:0">Rules</h2><span class="mut" style="font-size:12px">what each camera watches for</span></div>'
       +'<p class="mut" style="margin:0 0 14px">Toggle built-in detectors, or write your own threats in plain English — the local AI checks them in this camera\'s scene. Changes apply on the next <b>Start monitoring</b>.</p>'
       +cards+'</div>';
-    cams.forEach(function(c){ fillScene(c.id); });
+    cams.forEach(function(c){ fillScene(c.id); fillZones(c.id); });
   });
 }
+function fillZones(camId){
+  call("listZones",[camId],function(zs){
+    var el=$("zones-"+camId); if(!el) return;
+    zs = Array.isArray(zs)?zs:[];
+    el.innerHTML = zs.length ? zs.map(function(z){
+      return '<div class="customthreat"><div><b>'+esc(z.name)+'</b> <span class="mut">loiter &gt; '+esc(z.dwell_alert_seconds||5)+'s · '+(z.polygon||[]).length+' points</span></div>'
+        +'<button class="chip" onclick="removeZone(\''+esc(camId)+'\',\''+esc(z.name)+'\')">remove</button></div>';
+    }).join("") : '<div class="mut" style="font-size:12px">No zones yet — draw one to watch a shelf, entrance, or restricted area.</div>';
+  });
+}
+function removeZone(camId, name){ call("removeZone",[camId,name],function(){ fillZones(camId); }); }
+/* ---- zone drawing modal (click points on a camera frame) ---- */
+function openZoneEditor(camId){
+  var m=$("zoneModal"); if(!m){ m=document.createElement("div"); m.id="zoneModal"; (document.getElementById("modalRoot")||document.body).appendChild(m); }
+  m.className="zonemodal"; m.innerHTML='<div class="zonemodal-inner"><div class="zmhead"><b>Draw a zone · '+esc(camId)+'</b>'
+    +'<button class="lmclose" style="position:static" onclick="closeZoneEditor()">✕</button></div>'
+    +'<div class="zmbody"><div class="mut">loading camera frame…</div></div></div>';
+  m.onclick=function(e){ if(e.target===m) closeZoneEditor(); };
+  call("cameraSnapshot",[camId],function(s){
+    if(!s || s.error || !s.uri){ var b=m.querySelector(".zmbody"); if(b) b.innerHTML='<div class="mut">Could not read a frame from this camera'+(s&&s.error?': '+esc(s.error):'')+'.</div>'; return; }
+    state.zone={camId:camId, pts:[], snapW:s.w, snapH:s.h};
+    var dispW=Math.min(720, s.w), dispH=Math.round(dispW*s.h/s.w);
+    state.zone.dispW=dispW; state.zone.dispH=dispH;
+    var b=m.querySelector(".zmbody");
+    b.innerHTML='<div class="zmcanvaswrap" style="width:'+dispW+'px;height:'+dispH+'px">'
+      +'<img src="'+s.uri+'" style="width:'+dispW+'px;height:'+dispH+'px">'
+      +'<canvas id="zmcanvas" width="'+dispW+'" height="'+dispH+'"></canvas></div>'
+      +'<div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">'
+      +'<input id="zmname" placeholder="zone name e.g. entrance" style="width:190px">'
+      +'<span class="mut" style="font-size:12px">loiter &gt;</span><input id="zmdwell" type="number" value="5" min="1" style="width:70px"><span class="mut" style="font-size:12px">sec</span>'
+      +'<span style="flex:1"></span><span id="zmhint" class="mut" style="font-size:12px">Click points on the frame, then Save (min 3)</span>'
+      +'<button class="btn ghost sm" onclick="zoneUndo()">Undo</button><button class="btn ghost sm" onclick="zoneClear()">Clear</button>'
+      +'<button class="btn sm" onclick="zoneSave()">Save zone</button></div>';
+    var cv=$("zmcanvas");
+    cv.addEventListener("click", function(e){ var r=cv.getBoundingClientRect();
+      state.zone.pts.push([Math.round(e.clientX-r.left), Math.round(e.clientY-r.top)]); zoneRedraw(); });
+    zoneRedraw();
+  });
+}
+function zoneRedraw(){
+  var cv=$("zmcanvas"); if(!cv) return; var ctx=cv.getContext("2d"); var p=state.zone.pts;
+  ctx.clearRect(0,0,cv.width,cv.height);
+  if(p.length){ ctx.beginPath(); ctx.moveTo(p[0][0],p[0][1]);
+    for(var i=1;i<p.length;i++) ctx.lineTo(p[i][0],p[i][1]);
+    if(p.length>=3) ctx.closePath();
+    ctx.fillStyle="rgba(54,160,218,0.22)"; ctx.strokeStyle="#36a0da"; ctx.lineWidth=2;
+    if(p.length>=3) ctx.fill(); ctx.stroke();
+    p.forEach(function(pt){ ctx.beginPath(); ctx.arc(pt[0],pt[1],4,0,6.28); ctx.fillStyle="#36a0da"; ctx.fill(); ctx.strokeStyle="#fff"; ctx.lineWidth=1.5; ctx.stroke(); });
+  }
+  var h=$("zmhint"); if(h) h.textContent = p.length+" point"+(p.length===1?"":"s")+(p.length>=3?" — ready to save":" (min 3)");
+}
+function zoneUndo(){ if(state.zone&&state.zone.pts.length){ state.zone.pts.pop(); zoneRedraw(); } }
+function zoneClear(){ if(state.zone){ state.zone.pts=[]; zoneRedraw(); } }
+function zoneSave(){
+  var z=state.zone; if(!z||z.pts.length<3){ var h=$("zmhint"); if(h) h.textContent="need at least 3 points"; return; }
+  var name=($("zmname")||{}).value||"", dwell=parseFloat(($("zmdwell")||{}).value||"5")||5;
+  if(!name.trim()){ var h2=$("zmhint"); if(h2) h2.textContent="give the zone a name"; return; }
+  // map display coords -> ORIGINAL pixel coords
+  var sx=z.snapW/z.dispW, sy=z.snapH/z.dispH;
+  var orig=z.pts.map(function(pt){ return [Math.round(pt[0]*sx), Math.round(pt[1]*sy)]; });
+  call("addZone",[z.camId, name.trim(), JSON.stringify(orig), dwell],function(r){
+    if(r&&r.error){ var h=$("zmhint"); if(h) h.textContent=r.error; return; }
+    closeZoneEditor(); fillZones(z.camId);
+  });
+}
+function closeZoneEditor(){ state.zone=null; var m=$("zoneModal"); if(m) m.remove(); }
 function fillScene(camId){
   call("sceneContext",[camId],function(s){
     var el=$("scene-"+camId); if(!el) return;
