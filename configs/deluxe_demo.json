@@ -1,12 +1,13 @@
 {
-  "_comment": "Deluxe Paints showcase — one wall spanning HSE + security: real production-floor FIRE, ATM vandalism/theft (crowbar on the ATM), a concealment grab-and-run, and a PANIC-running crowd. Fire/panic use the manufacturing_hse_v1 rules; the theft cameras use the retail all_threats_video_v1 rules (VideoMAE + concealment). Every alert is TrueSight-verified.",
-  "name": "Deluxe Paints — HSE + Security",
+  "_comment": "Deluxe Paints showcase — one wall spanning HSE + security: real production-floor FIRE, ATM vandalism/theft, a concealment grab-and-run, a PANIC-running crowd, plus a calm Loading Bay that should stay quiet (proof it doesn't fire on everything). Fire/panic use manufacturing_hse_v1 rules; theft cameras use retail all_threats_video_v1 (VideoMAE + concealment). Every alert is TrueSight-verified.",
+  "name": "Deluxe Paints Nigeria",
   "notify": "console",
   "configured": true,
   "cameras": [
-    {"id": "production_floor_fire", "source": "data/hse_demo/fire_videos.1406/pos/posVideo1.868.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "manufacturing_floor", "scene_description": "Paint manufacturing/warehouse floor where visible flame, smoke or haze indicates a fire hazard.", "fire_smoke": true},
-    {"id": "atm_vandalism", "source": "data/test_clips/theft_yt_01.mp4", "config": "configs/all_threats_video_v1.json", "environment_type": "forecourt", "scene_description": "Forecourt/ATM area where someone tampering with or breaking into the ATM or a vehicle is a theft.", "concealment": true, "video_action": true},
-    {"id": "concealment_theft", "source": "data/test_clips/theft_shop_02.mp4", "config": "configs/all_threats_video_v1.json", "environment_type": "retail", "scene_description": "Retail display area where a person concealing merchandise or grabbing and running is theft.", "concealment": true, "video_action": true},
-    {"id": "aisle_panic", "source": "data/hse_demo/Crowd-Activity-All.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "manufacturing_floor", "scene_description": "Factory aisle where people normally walk calmly; running may indicate panic, an accident, or evacuation.", "running": true, "running_min_speed_ratio": 0.07, "running_min_frames": 3}
+    {"id": "Production Floor", "source": "data/hse_demo/fire_videos.1406/pos/posVideo1.868.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "manufacturing_floor", "scene_description": "Paint manufacturing/warehouse floor where visible flame, smoke or haze indicates a fire hazard.", "fire_smoke": true},
+    {"id": "Forecourt ATM", "source": "data/test_clips/theft_yt_01.mp4", "config": "configs/all_threats_video_v1.json", "environment_type": "forecourt", "scene_description": "Forecourt/ATM area where someone tampering with or breaking into the ATM or a vehicle is a theft.", "concealment": true, "video_action": true},
+    {"id": "Retail Aisle 4", "source": "data/test_clips/theft_shop_02.mp4", "config": "configs/all_threats_video_v1.json", "environment_type": "retail", "scene_description": "Retail display aisle where a person concealing merchandise or grabbing and running is theft.", "concealment": true, "video_action": true},
+    {"id": "Main Corridor", "source": "data/hse_demo/Crowd-Activity-All.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "manufacturing_floor", "scene_description": "Factory corridor where people normally walk calmly; running may indicate panic, an accident, or evacuation.", "running": true, "running_min_speed_ratio": 0.07, "running_min_frames": 3},
+    {"id": "Loading Bay", "source": "data/test_clips/empty_warehouse.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "warehouse", "scene_description": "Quiet warehouse loading bay with no activity — a normal, calm feed."}
   ]
 }

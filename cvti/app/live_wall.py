@@ -124,7 +124,8 @@ class FrameServer:
                 pass
 
             def do_GET(self):
-                cam = self.path.split("?", 1)[0].rsplit("/", 1)[-1]
+                import urllib.parse
+                cam = urllib.parse.unquote(self.path.split("?", 1)[0].rsplit("/", 1)[-1])
                 jpg = wall.jpeg(cam)
                 if not jpg:
                     self.send_response(404)

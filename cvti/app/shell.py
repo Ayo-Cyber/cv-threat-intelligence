@@ -83,6 +83,8 @@ def main() -> None:
     st = view.settings()
     st.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
     st.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+    # Let event-clip <video> autoplay without a click (else playback looks broken).
+    st.setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
 
     backend = Backend(ConsoleBackend(site_path=args.site_config, db_path=args.db))
     channel = QWebChannel(page)
