@@ -1,11 +1,12 @@
 {
-  "_comment": "Safety wall: exercises the new baseline detectors — fire/smoke, person-fall, crowd/stampede — plus violence. Every trigger is verified by TrueSight (the VLM gate). 'synthetic_fire.mp4' is a generated flame clip so the fire path has a positive without sourcing footage; for a real positive fire/crowd demo, point a camera at real footage. Fall is enabled on the incident cam (person goes down) and crowd on the street cam.",
+  "_comment": "Safety/HSE wall: exercises the situational detectors — fire/smoke, panic-running, crowd-formation — plus person-fall and violence. Every trigger is verified by TrueSight (the VLM gate). 'synthetic_fire.mp4' is a generated flame clip so the fire path has something to chew on; for a real positive fire/panic/crowd demo, point cameras at real footage. Uses manufacturing_hse_v1 rules for the panic/crowd cameras.",
   "name": "Safety Watch",
   "notify": "console",
   "configured": true,
   "cameras": [
-    {"id": "fire_test", "source": "data/test_clips/synthetic_fire.mp4",     "config": "configs/all_threats_video_v1.json", "fire": true},
-    {"id": "incident",  "source": "data/test_clips/stabbing_event.mp4",      "config": "configs/all_threats_video_v1.json", "fall": true, "violence": true},
-    {"id": "street",    "source": "data/test_clips/normal_street_01.mp4",    "config": "configs/all_threats_video_v1.json", "crowd": true, "fall": true}
+    {"id": "fire_watch", "source": "data/test_clips/synthetic_fire.mp4",  "config": "configs/manufacturing_hse_v1.json", "environment_type": "manufacturing_floor", "scene_description": "Factory floor where visible flame, smoke or haze indicates a fire hazard.", "fire_smoke": true},
+    {"id": "aisle_panic", "source": "data/test_clips/normal_street_01.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "walkway", "scene_description": "A walkway where people normally move calmly; running may indicate panic or an evacuation.", "running": true, "running_min_speed_ratio": 0.08, "running_min_frames": 3},
+    {"id": "gather_zone", "source": "data/test_clips/normal_street_02.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "open_area", "scene_description": "An open area where a tight crowd can block movement or exits.", "crowd_formation": true, "crowd_min_people": 3, "crowd_min_frames": 2, "crowd_max_cluster_ratio": 0.32},
+    {"id": "incident",   "source": "data/test_clips/stabbing_event.mp4",     "config": "configs/manufacturing_hse_v1.json", "environment_type": "indoor", "scene_description": "Indoor area; a person on the ground may signal a medical emergency or assault.", "fall": true, "violence": true}
   ]
 }

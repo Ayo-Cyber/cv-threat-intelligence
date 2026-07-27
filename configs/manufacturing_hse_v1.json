@@ -1,0 +1,16 @@
+{
+  "_comment": "Manufacturing/HSE demo rules. Fire/smoke is handled by the always-on baseline rule baseline_fire_smoke when a camera enables fire_smoke; this config adds manufacturing-specific movement/crowd safety rules.",
+  "use_case_id": "manufacturing_hse_v1",
+  "rules": [
+    {
+      "name": "panic_running",
+      "trigger": {"detector": "running"},
+      "priority": "high"
+    },
+    {
+      "name": "unsafe_crowd_formation",
+      "trigger": {"detector": "crowd_formation"},
+      "priority": "medium"
+    }
+  ]
+}

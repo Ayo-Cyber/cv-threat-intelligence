@@ -5,8 +5,7 @@
     {"name": "baseline_weapon", "trigger": {"detector": "weapons"}, "priority": "critical"},
     {"name": "baseline_violence", "trigger": {"detector": "violence"}, "priority": "critical"},
     {"name": "baseline_camera_tampering", "trigger": {"detector": "camera_tampering"}, "priority": "high"},
-    {"name": "baseline_fire_smoke", "trigger": {"detector": "fire_smoke"}, "priority": "critical"},
-    {"name": "baseline_person_fall", "trigger": {"detector": "person_fall"}, "priority": "critical"},
-    {"name": "baseline_crowd_surge", "trigger": {"detector": "crowd_surge"}, "priority": "high"}
+    {"name": "baseline_fire_smoke", "trigger": {"detector": "fire"}, "priority": "critical"},
+    {"name": "baseline_person_fall", "trigger": {"detector": "person_fall"}, "priority": "critical"}
   ]
 }

@@ -119,6 +119,11 @@ _QUESTIONS: dict[str, str] = {
     "after_hours_presence": "Does this frame show unauthorized presence during closed hours?",
     "camera_tampering": "Is this camera view blacked out, physically covered, obstructed, sprayed, or defocused — i.e. deliberately tampered with or blocked? Sudden darkness from lights turning off is NOT tampering.",
     "camera_blocked": "Is this camera view blacked out, physically covered, obstructed, or defocused — i.e. deliberately tampered with or blocked?",
+    # HSE situational rules (see cvti.detector.situational)
+    "baseline_fire_smoke": "Does this frame show visible fire, flames, smoke, or hazardous haze in a {environment_type}?",
+    "fire_smoke": "Does this frame show visible fire, flames, smoke, or hazardous haze in a {environment_type}?",
+    "panic_running": "Does this brief sequence show a person running or moving with panic/urgency in a {environment_type}? Someone walking calmly is NOT panic.",
+    "unsafe_crowd_formation": "Does this frame show an unsafe crowd or tight group formation in a {environment_type}? A few people spread out normally is NOT unsafe.",
 }
 
 # Some detectors carry their meaning in the detector name rather than the rule name;
@@ -133,9 +138,10 @@ _DETECTOR_QUESTIONS: dict[str, str] = {
                      "just standing, walking, browsing, sitting, or working a till/desk with no "
                      "interaction). If the person is reaching for, grabbing, concealing, or moving "
                      "off with items — or moving in a rushed/furtive way — confirm it."),
-    "fire_smoke": "Do these frames show real fire (flames) or smoke? Confirm only genuine combustion or smoke. Sunset/sunlight, orange or red signage, reflections, screens, and coloured lighting are NOT fire.",
+    "fire": "Does this frame show visible fire, flames, smoke, or hazardous haze? Sunset/sunlight, orange or red signage, reflections, screens, and coloured lighting are NOT fire.",
     "person_fall": "Do these frames show a person who has collapsed or is lying on the ground (fallen, fainted, or knocked down) and NOT getting up — a possible medical emergency? Someone sitting, crouching, kneeling, bending down, or deliberately lying down is NOT a fall.",
-    "crowd_surge": "Do these frames show a dangerous crowd event — overcrowding, a sudden rush, panic, or a stampede? A normal number of people moving calmly is NOT a threat.",
+    "running": "Does this brief sequence show a person running or moving with panic/urgency? Someone walking calmly is NOT panic.",
+    "crowd_formation": "Does this frame show an unsafe crowd or tight group formation blocking movement or exits? A few people spread out normally is NOT unsafe.",
 }
 
 

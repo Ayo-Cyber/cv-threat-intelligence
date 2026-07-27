@@ -215,14 +215,6 @@ CREATE TABLE IF NOT EXISTS events (
     reviewed_at TEXT,
     latency_s REAL        -- detection -> TrueSight-verified wall-clock seconds
 );
-CREATE TABLE IF NOT EXISTS suppressions (
-    -- Every alert TrueSight REJECTED — the false alarms the operator never sees.
-    -- We keep the reason AND the evidence (frames + clip) so the operator can
-    -- review what was filtered and confirm the gate was right.
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts REAL, iso TEXT, camera_id TEXT, rule TEXT, priority TEXT,
-    confidence REAL, reason TEXT, evidence_dir TEXT
-);
 """
 
 
@@ -248,7 +240,6 @@ class AlertSink:
             pass       # already there
         self._db.commit()
         self.persisted = 0
-        self.suppressed = 0
 
     def handle(self, alert: Any, result: Any) -> None:
         if result is None:
@@ -257,39 +248,11 @@ class AlertSink:
         print(f"[{tag}] {alert.camera_id} :: {alert.rule_name} ({alert.priority.upper()}) "
               f"— {alert.title} | conf={result.confidence:.2f} | {result.reason}")
         if not result.confirmed:
-            try:
-                self._record_suppression(alert, result)   # the noise-suppression story
-            except Exception as exc:  # noqa: BLE001
-                print(f"[alert-sink error] {str(exc)[:140]}")
             return
         try:
             self._persist(alert, result)
         except Exception as exc:  # noqa: BLE001 - persistence must not kill the gate
             print(f"[alert-sink error] {str(exc)[:140]}")
-
-    def _record_suppression(self, alert: Any, result: Any) -> None:
-        ts = time.time()
-        iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ts))
-        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(ts))
-        payload = alert.payload or {}
-        # Save the evidence for suppressions too, so the operator can watch what
-        # TrueSight filtered out and confirm the call. Kept under a `suppressed/`
-        # subfolder to stay separate from confirmed events.
-        ev_dir = self.events_dir / "suppressed" / f"{stamp}_{alert.camera_id}_{alert.rule_name}"
-        if self.save_evidence and (payload.get("frames")):
-            ev_dir.mkdir(parents=True, exist_ok=True)
-            self._write_evidence(ev_dir, payload)
-            ev_str = str(ev_dir)
-        else:
-            ev_str = None
-        with self._lock:
-            self._db.execute(
-                "INSERT INTO suppressions (ts,iso,camera_id,rule,priority,confidence,reason,evidence_dir) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (ts, iso, alert.camera_id, alert.rule_name, alert.priority,
-                 float(getattr(result, "confidence", 0.0)), getattr(result, "reason", ""), ev_str))
-            self._db.commit()
-        self.suppressed += 1
 
     def _write_evidence(self, ev_dir: Path, payload: dict) -> None:
         """Write the evidence stills + a clip.mp4 for an alert (confirmed OR suppressed).

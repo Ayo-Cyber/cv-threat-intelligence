@@ -104,9 +104,19 @@ class PerCameraState:
     weapons: bool = False
     theft: bool = False
     tamper: bool = False              # camera block/tamper detection (pure CV)
-    fire: bool = False                # fire + smoke detection (pure CV pre-filter)
     fall: bool = False                # person collapsed / on the ground (person boxes)
-    crowd: bool = False               # crowd gathering + stampede (counts + motion)
+    # HSE situational detectors (cvti.detector.situational) — cheap candidate
+    # generators the VLM gate then confirms.
+    fire_smoke: bool = False          # fire / smoke visual candidate
+    running: bool = False             # sustained fast person movement (panic)
+    crowd_formation: bool = False     # tight group formation
+    running_min_speed_ratio: float = 0.18
+    running_min_frames: int = 3
+    crowd_min_people: int = 4
+    crowd_min_frames: int = 3
+    crowd_max_cluster_ratio: float = 0.24
+    fire_min_frames: int = 3
+    fire_min_hot_area_ratio: float = 0.012
     video_action: bool = False
     video_action_model: Any = None    # shared VideoMAEActionModel instance
     pose_conf: float = 0.35
@@ -130,8 +140,9 @@ class PerCameraState:
     _video_runtime: Any = field(default=None, init=False, repr=False)
     _va_index: int = field(default=0, init=False, repr=False)
     _tamper_det: Any = field(default=None, init=False, repr=False)
-    _fire_det: Any = field(default=None, init=False, repr=False)
     _fall_det: Any = field(default=None, init=False, repr=False)
+    _fire_det: Any = field(default=None, init=False, repr=False)
+    _running_det: Any = field(default=None, init=False, repr=False)
     _crowd_det: Any = field(default=None, init=False, repr=False)
     # Rolling recent frames (~2s at 5 FPS) so the gate gets per-rule evidence
     # (motion-peak span for violence, sharpest single frame for weapons).
@@ -271,15 +282,16 @@ class PerCameraState:
                     timestamp=timestamp, extra=t))
 
         # Fire + smoke — pure CV pre-filter on the raw frame (no person needed).
-        if self.fire:
+        if self.fire_smoke:
             if self._fire_det is None:
-                from cvti.detector.fire import FireSmokeDetector
-                self._fire_det = FireSmokeDetector()
+                from cvti.detector.situational import FireSmokeCandidateDetector
+                self._fire_det = FireSmokeCandidateDetector(
+                    min_frames=self.fire_min_frames,
+                    min_hot_area_ratio=self.fire_min_hot_area_ratio)
             f = self._fire_det.update(image, timestamp)
             if f is not None:
                 raw_events.append(RawEvent(
-                    detector="fire_smoke", active=True,
-                    title=("FIRE SUSPECTED" if f["kind"] == "fire" else "SMOKE SUSPECTED"),
+                    detector="fire", active=True, title="POSSIBLE FIRE OR SMOKE",
                     level="critical", timestamp=timestamp, extra=f))
 
         if self._video_runtime is not None:
@@ -289,10 +301,12 @@ class PerCameraState:
             detections = filter_person_detections(detections, frame_hw)
         tracked = self._tracker.update_with_detections(detections)
 
-        # Fall + crowd work off tracked PERSON boxes (COCO class 0). Extract once.
-        if self.fall or self.crowd:
-            person_boxes = _person_boxes(tracked)
+        # Fall / panic-running / crowd-formation work off tracked PERSON boxes.
+        if self.fall or self.running or self.crowd_formation:
+            person_boxes = _person_boxes(tracked)   # [(tid, x1, y1, x2, y2), ...]
             frame_area = float(frame_hw[0] * frame_hw[1])
+            people = [{"track_id": tid, "bbox": (int(x1), int(y1), int(x2), int(y2))}
+                      for (tid, x1, y1, x2, y2) in person_boxes]
             if self.fall:
                 if self._fall_det is None:
                     from cvti.detector.fall import FallDetector
@@ -303,17 +317,29 @@ class PerCameraState:
                         detector="person_fall", active=True, title="PERSON COLLAPSED",
                         person_id=fl.get("track_id"), level="critical",
                         timestamp=timestamp, extra=fl))
-            if self.crowd:
+            if self.running:
+                if self._running_det is None:
+                    from cvti.detector.situational import RunningPanicDetector
+                    self._running_det = RunningPanicDetector(
+                        min_speed_ratio=self.running_min_speed_ratio,
+                        min_frames=self.running_min_frames)
+                for p in people:
+                    r = self._running_det.update(p["track_id"], p["bbox"], timestamp, image.shape)
+                    if r is not None:
+                        raw_events.append(RawEvent(
+                            detector="running", active=True, title="PANIC RUNNING DETECTED",
+                            person_id=p["track_id"], level="high", timestamp=timestamp, extra=r))
+            if self.crowd_formation:
                 if self._crowd_det is None:
-                    from cvti.detector.crowd import CrowdDetector
-                    self._crowd_det = CrowdDetector()
-                cr = self._crowd_det.update(len(person_boxes), image, timestamp)
-                if cr is not None:
+                    from cvti.detector.situational import CrowdFormationDetector
+                    self._crowd_det = CrowdFormationDetector(
+                        min_people=self.crowd_min_people, min_frames=self.crowd_min_frames,
+                        max_cluster_ratio=self.crowd_max_cluster_ratio)
+                c = self._crowd_det.update(people, timestamp, image.shape)
+                if c is not None:
                     raw_events.append(RawEvent(
-                        detector="crowd_surge", active=True,
-                        title=("STAMPEDE SUSPECTED" if cr["kind"] == "stampede" else "CROWD GATHERING"),
-                        level=("critical" if cr["kind"] == "stampede" else "high"),
-                        timestamp=timestamp, extra=cr))
+                        detector="crowd_formation", active=True, title="UNSAFE CROWD FORMATION",
+                        level="medium", timestamp=timestamp, extra=c))
 
         zone_by_pid: dict[Any, str | None] = {}   # person_id -> zone, for presence alerts
         if self.zone_monitor is not None:
@@ -406,9 +432,16 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 video_action_model=video_action_model,
                 concealment=bool(cam.get("concealment")), violence=bool(cam.get("violence")),
                 weapons=bool(cam.get("weapons")), theft=bool(cam.get("theft")),
-                tamper=bool(cam.get("tamper")),
-                fire=bool(cam.get("fire")), fall=bool(cam.get("fall")),
-                crowd=bool(cam.get("crowd")),
+                tamper=bool(cam.get("tamper")), fall=bool(cam.get("fall")),
+                fire_smoke=bool(cam.get("fire_smoke")), running=bool(cam.get("running")),
+                crowd_formation=bool(cam.get("crowd_formation")),
+                running_min_speed_ratio=float(cam.get("running_min_speed_ratio", 0.18)),
+                running_min_frames=int(cam.get("running_min_frames", 3)),
+                crowd_min_people=int(cam.get("crowd_min_people", 4)),
+                crowd_min_frames=int(cam.get("crowd_min_frames", 3)),
+                crowd_max_cluster_ratio=float(cam.get("crowd_max_cluster_ratio", 0.24)),
+                fire_min_frames=int(cam.get("fire_min_frames", 3)),
+                fire_min_hot_area_ratio=float(cam.get("fire_min_hot_area_ratio", 0.012)),
                 video_action=bool(cam.get("video_action")),
             ),
         }

@@ -38,10 +38,6 @@ class Backend(QObject):
         return self._safe(self._core.counts)
 
     @pyqtSlot(result=str)
-    def stats(self) -> str:
-        return self._safe(self._core.stats)
-
-    @pyqtSlot(result=str)
     def presets(self) -> str:
         return self._safe(self._core.presets)
 
@@ -106,10 +102,6 @@ class Backend(QObject):
     def listEventsLite(self, limit: int) -> str:
         # no base64 frames — cheap enough to poll every few seconds
         return self._safe(lambda: self._core.list_events(limit or 100, embed_frames=False))
-
-    @pyqtSlot(int, result=str)
-    def listSuppressions(self, limit: int) -> str:
-        return self._safe(lambda: self._core.list_suppressions(limit or 60))
 
     @pyqtSlot(str, str, result=str)
     def review(self, event_id: str, label: str) -> str:

@@ -457,31 +457,6 @@ class ConsoleBackend:
         b64 = base64.b64encode(clip.read_bytes()).decode()
         return {"uri": "data:video/mp4;base64," + b64}
 
-    def list_suppressions(self, limit: int = 60, embed_frames: bool = True) -> list[dict]:
-        """The false alarms TrueSight rejected — with evidence, so the operator can
-        watch what was filtered and confirm the gate was right."""
-        db, frame_base = self._effective_db()
-        try:
-            con = self._connect(db)
-        except sqlite3.OperationalError:
-            return []
-        try:
-            rows = con.execute(
-                "SELECT * FROM suppressions ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
-        except sqlite3.OperationalError:
-            con.close()
-            return []
-        con.close()
-        out = []
-        for r in rows:
-            e = dict(r)
-            e["suppressed"] = True
-            e["review"] = "suppressed"
-            if embed_frames:
-                e["frames"] = self._frames_as_data_uris(e.get("evidence_dir"), frame_base)
-            out.append(e)
-        return out
-
     def search_events(self, query: str, limit: int = 200) -> dict:
         """Ask-your-cameras: natural-language search over past events.
 
@@ -598,38 +573,3 @@ class ConsoleBackend:
         except sqlite3.OperationalError:
             pending = 0
         return {"cameras": n_cams, "pending_alerts": pending}
-
-    def stats(self) -> dict:
-        """Noise-suppression story: what TrueSight reviewed, escalated, and suppressed.
-
-        escalated = confirmed alerts (rows in events); suppressed = rejected false
-        alarms (rows in suppressions); reviewed = the two combined. Also the median
-        verify latency, so the demo can say 'verified in ~Ns'."""
-        db, _ = self._effective_db()
-        escalated = suppressed = 0
-        latencies: list[float] = []
-        try:
-            con = self._connect(db)
-            try:
-                escalated = con.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-            except sqlite3.OperationalError:
-                escalated = 0
-            try:
-                suppressed = con.execute("SELECT COUNT(*) FROM suppressions").fetchone()[0]
-            except sqlite3.OperationalError:
-                suppressed = 0
-            try:
-                latencies = [r[0] for r in con.execute(
-                    "SELECT latency_s FROM events WHERE latency_s IS NOT NULL").fetchall()]
-            except sqlite3.OperationalError:
-                latencies = []
-            con.close()
-        except sqlite3.OperationalError:
-            pass
-        reviewed = escalated + suppressed
-        med = None
-        if latencies:
-            s = sorted(latencies)
-            med = round(s[len(s) // 2], 1)
-        return {"reviewed": reviewed, "escalated": escalated,
-                "suppressed": suppressed, "median_latency_s": med}
