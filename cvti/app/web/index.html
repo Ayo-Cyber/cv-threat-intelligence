@@ -157,8 +157,8 @@
   .alist .scroll{flex:1;overflow:auto}
   .arow{display:flex;gap:10px;padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--c-border)}
   .arow:hover{background:var(--c-raised)} .arow.sel{background:var(--c-raised);box-shadow:inset 3px 0 0 var(--c-accent)}
-  .afilter{display:flex;gap:4px;padding:9px 12px;border-bottom:1px solid var(--c-border);flex:none}
-  .atab{all:unset;cursor:pointer;font-size:12px;font-weight:600;color:var(--c-mut);padding:6px 10px;border-radius:7px;display:flex;align-items:center;gap:6px}
+  .afilter{display:flex;flex-wrap:wrap;gap:3px;padding:9px 10px;border-bottom:1px solid var(--c-border);flex:none}
+  .atab{all:unset;cursor:pointer;font-size:11.5px;font-weight:600;color:var(--c-mut);padding:5px 8px;border-radius:7px;display:flex;align-items:center;gap:5px;white-space:nowrap}
   .atab:hover{background:var(--c-raised)} .atab.on{background:var(--c-accent-soft);color:var(--c-text)}
   .acnt{font-family:var(--ff-mono);font-size:10.5px;background:var(--c-border);color:var(--c-mut);padding:1px 6px;border-radius:99px;min-width:16px;text-align:center}
   .atab.on .acnt{background:var(--c-accent);color:#fff}
@@ -829,7 +829,7 @@ function paintAlerts(){
   var shown = alertsFor(filt); state.shown = shown;
   var selId = state.selected && state.selected.id;
   state.selected = shown.filter(function(e){return e.id===selId;})[0] || shown[0] || null;
-  var TABS = [["active","Needs review",c.active],["true","True",c["true"]],["false","False",c["false"]],["all","All",state.events.length],["suppressed","Suppressed",supN]];
+  var TABS = [["active","Review",c.active],["true","True",c["true"]],["false","False",c["false"]],["all","All",state.events.length],["suppressed","Suppressed",supN]];
   var bar = '<div class="afilter">'+TABS.map(function(t){
     return '<button class="atab'+(filt===t[0]?" on":"")+(t[0]==="suppressed"?" supptab":"")+'" onclick="setAlertFilter(\''+t[0]+'\')">'+esc(t[1])+'<span class="acnt">'+t[2]+'</span></button>';
   }).join("")+'</div>';

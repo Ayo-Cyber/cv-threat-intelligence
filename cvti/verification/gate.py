@@ -132,7 +132,13 @@ _QUESTIONS: dict[str, str] = {
 _DETECTOR_QUESTIONS: dict[str, str] = {
     "weapons": "Does this frame clearly show a real weapon (gun, knife, blade) being held, carried, or brandished by a person? A phone, tool, bottle, or empty hand is NOT a weapon.",
     "camera_tampering": _QUESTIONS["camera_tampering"],
-    "video_action": "Does this frame show the specific threat, or just a person present/moving normally? A weak action model flagged it — confirm only a genuine threatening action.",
+    "video_action": ("A specialised, fine-tuned theft/action model has flagged this short "
+                     "sequence with HIGH confidence — and it reads MOTION across the clip, which "
+                     "you cannot fully see in these few stills. Treat its flag as a strong prior. "
+                     "CONFIRM unless the frames clearly show ordinary, innocent behaviour (a person "
+                     "just standing, walking, browsing, sitting, or working a till/desk with no "
+                     "interaction). If the person is reaching for, grabbing, concealing, or moving "
+                     "off with items — or moving in a rushed/furtive way — confirm it."),
     "fire_smoke": "Do these frames show real fire (flames) or smoke? Confirm only genuine combustion or smoke. Sunset/sunlight, orange or red signage, reflections, screens, and coloured lighting are NOT fire.",
     "person_fall": "Do these frames show a person who has collapsed or is lying on the ground (fallen, fainted, or knocked down) and NOT getting up — a possible medical emergency? Someone sitting, crouching, kneeling, bending down, or deliberately lying down is NOT a fall.",
     "crowd_surge": "Do these frames show a dangerous crowd event — overcrowding, a sudden rush, panic, or a stampede? A normal number of people moving calmly is NOT a threat.",
