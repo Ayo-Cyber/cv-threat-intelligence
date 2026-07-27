@@ -291,11 +291,15 @@ class AlertSink:
             for i, f in enumerate(frames):
                 cv2.imwrite(str(ev_dir / f"frame_{i:02d}.jpg"), f)
             # Prefer a REAL continuous video of the event window; fall back to the
-            # held-stills slideshow when no continuous buffer was captured.
+            # held-stills slideshow only when there's no continuous buffer at all.
+            # clip_fps comes from video timestamps that can reset when a demo clip
+            # loops, so treat an out-of-range value as unknown and use a sane default
+            # rather than throwing away a perfectly good continuous window.
             clip_frames = payload.get("clip_frames") or []
             clip_fps = float(payload.get("clip_fps") or 0.0)
-            if clip_frames and clip_fps > 0:
-                self._write_video_clip(ev_dir / "clip.mp4", clip_frames, clip_fps)
+            if len(clip_frames) >= 6:
+                fps = clip_fps if 1.0 <= clip_fps <= 60.0 else 4.0
+                self._write_video_clip(ev_dir / "clip.mp4", clip_frames, fps)
             else:
                 self._write_clip(ev_dir / "clip.mp4", frames)
 
