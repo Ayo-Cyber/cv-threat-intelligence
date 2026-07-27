@@ -1,0 +1,12 @@
+{
+  "_comment": "Lean 4-camera demo tuned for a sharp live run: 3 cameras that reliably CONFIRM a threat (theft) + 1 that reliably gets SUPPRESSED (normal till/desk work TrueSight rejects), so the noise-suppression counter, alerts, timeline, map, live-wall flash, and real-video clips all have something to show. Fewer cameras than the 6-cam wall = higher per-camera fps (clips fill), lower gate latency. Every alert is still TrueSight-verified.",
+  "name": "Argus Demo",
+  "notify": "console",
+  "configured": true,
+  "cameras": [
+    {"id": "shop_1",  "source": "data/test_clips/theft_shop_01.mp4",                              "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "shop_2",  "source": "data/test_clips/theft_shop_02.mp4",                              "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "yt_shop", "source": "data/test_clips/theft_yt_01.mp4",                                "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
+    {"id": "till",    "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",    "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true}
+  ]
+}
