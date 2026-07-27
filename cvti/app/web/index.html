@@ -70,7 +70,87 @@
   .trow:last-child{border-bottom:none}
   .dot{width:7px;height:7px;border-radius:99px;display:inline-block;margin-right:6px}
   /* alerts */
-  .alerts{display:flex;height:100%;min-height:0}
+  .alertswrap{display:flex;flex-direction:column;height:100%;min-height:0}
+  .alerts{display:flex;flex:1;min-height:0}
+  /* noise-suppression hero bar (the differentiator: TrueSight kills the false alarms) */
+  .noisehero{flex:none;display:flex;align-items:center;gap:26px;padding:14px 22px;border-bottom:1px solid var(--c-border);
+    background:linear-gradient(90deg,var(--c-raised),transparent)}
+  .nh-item{display:flex;flex-direction:column;gap:1px}
+  .nh-n{font-family:var(--ff-mono);font-size:24px;font-weight:600;line-height:1;color:var(--c-text)}
+  .nh-l{font-size:11px;color:var(--c-mut);letter-spacing:.02em}
+  .nh-say{margin-left:auto;font-size:12.5px;color:var(--c-sub);max-width:280px;text-align:right;line-height:1.4}
+  .nh-say b{color:var(--c-live);font-family:var(--ff-mono)}
+  .stats .suppress{color:var(--c-live);font-weight:600}
+  .stats .suppress b{color:var(--c-live)}
+  /* Ask your cameras */
+  .askpad{max-width:960px}
+  .askbar{display:flex;gap:10px;margin-top:6px}
+  .askbar input{flex:1;font-size:15px;padding:12px 14px;border-radius:9px;border:1px solid var(--c-border2);
+    background:var(--c-raised);color:var(--c-text)}
+  .askbar input:focus{outline:none;border-color:var(--c-accent)}
+  .askchips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+  .askchip{font-size:12px;padding:5px 11px;border-radius:99px;border:1px solid var(--c-border2);
+    background:transparent;color:var(--c-sub);cursor:pointer}
+  .askchip:hover{border-color:var(--c-accent);color:var(--c-accent)}
+  .askanswer{font-size:14.5px;margin:20px 0 6px;line-height:1.5}
+  .askgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:12px}
+  .askcard{border:1px solid var(--c-border);border-radius:10px;overflow:hidden;background:var(--c-raised)}
+  .askcard img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#000}
+  .asknoimg{aspect-ratio:16/9;display:grid;place-items:center;color:var(--c-sub);background:var(--c-feed);font-size:12px}
+  .askmeta{padding:11px 13px}
+  /* Site map / floor plan */
+  .floorplan{position:relative;width:100%;max-width:900px;aspect-ratio:16/9;border:1px solid var(--c-border2);
+    border-radius:14px;background:var(--c-raised);overflow:hidden}
+  .fp-grid{position:absolute;inset:0;background-image:linear-gradient(var(--c-border) 1px,transparent 1px),linear-gradient(90deg,var(--c-border) 1px,transparent 1px);
+    background-size:40px 40px;opacity:.4}
+  .pin{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;z-index:1}
+  .pindot{width:16px;height:16px;border-radius:99px;background:var(--c-live);box-shadow:0 0 0 4px rgba(34,197,94,.18);flex:none}
+  .pindot.alert,.pin.alerting .pindot{background:var(--sev-crit);box-shadow:0 0 0 4px rgba(239,68,68,.25)}
+  .pin.alerting{z-index:3}
+  .pin.alerting .pindot{animation:pinpulse 1s infinite}
+  @keyframes pinpulse{0%,100%{box-shadow:0 0 0 3px rgba(239,68,68,.5),0 0 12px rgba(239,68,68,.6)}50%{box-shadow:0 0 0 9px rgba(239,68,68,0),0 0 12px rgba(239,68,68,.9)}}
+  .pinlabel{font-size:11px;font-weight:600;color:var(--c-text);background:var(--c-bg);padding:2px 8px;border-radius:99px;border:1px solid var(--c-border);white-space:nowrap}
+  .pinalert{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);white-space:nowrap;
+    font-size:10.5px;font-weight:800;letter-spacing:.03em;color:#fff;background:var(--sev-crit);padding:3px 8px;border-radius:5px;
+    text-transform:uppercase;display:none}
+  .pin.alerting .pinalert{display:block}
+  /* offline / local-only proof badge */
+  .netbadge{margin-top:8px;font-size:11px;font-weight:700;letter-spacing:.02em;padding:4px 9px;border-radius:6px;
+    display:inline-block;border:1px solid var(--c-border2);color:var(--c-live)}
+  .netbadge.offline{background:rgba(34,197,94,.14);border-color:var(--c-live);color:var(--c-live);animation:netflash .5s ease-out}
+  @keyframes netflash{0%{transform:scale(1.08)}100%{transform:scale(1)}}
+  /* detection -> verification timeline */
+  .timeline{display:flex;align-items:center;gap:0;margin-top:16px;padding:12px 4px}
+  .tl-step{display:flex;align-items:center;gap:9px}
+  .tl-dot{width:11px;height:11px;border-radius:99px;background:var(--c-border2);flex:none;box-shadow:0 0 0 3px var(--c-raised)}
+  .tl-dot.on{background:var(--c-live)}
+  .tl-t{font-size:12.5px;font-weight:700;color:var(--c-text);white-space:nowrap}
+  .tl-s{font-size:10.5px;color:var(--c-mut);white-space:nowrap}
+  .tl-line{flex:1;height:2px;background:var(--c-border);position:relative;margin:0 10px;min-width:26px}
+  .tl-lat{position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-family:var(--ff-mono);
+    font-size:10px;color:var(--c-accent);background:var(--c-bg);padding:0 5px;white-space:nowrap}
+  /* incident report modal */
+  .report{background:#fff;color:#111;max-width:720px;width:92%;max-height:88vh;overflow:auto;border-radius:12px;
+    margin:4vh auto;padding:0;box-shadow:0 24px 80px rgba(0,0,0,.5)}
+  .report .rhead{display:flex;align-items:center;gap:12px;padding:20px 26px;border-bottom:2px solid #111}
+  .report .rbrand{font-size:20px;font-weight:800;letter-spacing:.02em}
+  .report .rsev{margin-left:auto;font-size:11px;font-weight:800;letter-spacing:.06em;color:#fff;padding:4px 12px;border-radius:5px}
+  .report .rbody{padding:22px 26px}
+  .report h3{margin:0 0 4px;font-size:19px}
+  .report .rgrid{display:grid;grid-template-columns:120px 1fr;gap:6px 16px;margin:16px 0;font-size:13px}
+  .report .rgrid .k{color:#666;font-weight:600}
+  .report .rgrid .v{font-family:var(--ff-mono);color:#111}
+  .report .rreason{background:#f4f5f7;border-left:3px solid #111;padding:12px 14px;font-size:13.5px;line-height:1.5;border-radius:0 6px 6px 0}
+  .report .rframes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+  .report .rframes img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;border:1px solid #ddd}
+  .report .rfoot{padding:14px 26px;border-top:1px solid #e3e3e3;display:flex;gap:10px;align-items:center;font-size:11px;color:#888}
+  .reportmodal{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);overflow:auto}
+  @media print{
+    body.printing-report #cv,body.printing-report #wizard{display:none!important}
+    body.printing-report .reportmodal{position:static;background:#fff;overflow:visible}
+    body.printing-report .noprint{display:none!important}
+    body.printing-report .report{box-shadow:none;margin:0;max-width:none;max-height:none}
+  }
   .alist{width:390px;flex:none;border-right:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0}
   .alist .scroll{flex:1;overflow:auto}
   .arow{display:flex;gap:10px;padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--c-border)}
@@ -144,8 +224,10 @@
   .livedot{width:8px;height:8px;border-radius:99px;background:var(--c-live);animation:pulse 1.6s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
   /* a camera that's actively alerting */
-  .tile.alerting{border-color:var(--sev-crit)!important;animation:alertpulse 1.1s infinite}
-  @keyframes alertpulse{0%,100%{box-shadow:0 0 0 2px var(--sev-crit),0 0 14px rgba(239,68,68,.35)}50%{box-shadow:0 0 0 2px var(--sev-crit),0 0 26px rgba(239,68,68,.65)}}
+  .tile.alerting{border-color:var(--alertcol,var(--sev-crit))!important;animation:alertpulse 1.1s infinite;z-index:1}
+  @keyframes alertpulse{0%,100%{box-shadow:0 0 0 2px var(--alertcol,var(--sev-crit)),0 0 14px rgba(239,68,68,.35)}50%{box-shadow:0 0 0 2px var(--alertcol,var(--sev-crit)),0 0 26px rgba(239,68,68,.65)}}
+  .tile.justfired{animation:alertpulse 1.1s infinite, tileflash .5s ease-out}
+  @keyframes tileflash{0%{transform:scale(1.04);filter:brightness(1.8)}100%{transform:scale(1);filter:brightness(1)}}
   .talert{position:absolute;top:0;left:0;right:0;padding:9px 11px 16px;display:none;
     background:linear-gradient(180deg,rgba(220,38,38,.94),rgba(220,38,38,0))}
   .tile.alerting .talert{display:block}
@@ -205,7 +287,8 @@
     <div class="navfoot">
       <div class="row" style="gap:8px"><span class="dot" id="monDot" style="background:var(--c-sub)"></span>
         <span id="monLabel" style="font-weight:600;color:#c7cdd8">Idle</span></div>
-      <div class="mono" id="monGate" style="margin-top:6px">gate local · offline OK</div>
+      <div class="mono" id="monGate" style="margin-top:6px">TrueSight · on-device</div>
+      <div class="netbadge" id="netBadge" title="Argus runs entirely on this machine — it needs no internet, and nothing leaves your network">🔒 Local-only</div>
       <div style="margin-top:4px;color:#3d4a66">Argus Edge v0.9</div>
     </div>
   </nav>
@@ -215,6 +298,8 @@
       <div class="stats">
         <span><b id="stCams">0</b> cameras</span>
         <span><b id="stPending">0</b> to review</span>
+        <span class="suppress" id="stSuppressWrap" title="False alarms TrueSight verified and suppressed — you never saw them">
+          🛡 <b id="stSuppressed">0</b> suppressed</span>
         <button class="btn sm" id="monBtn" onclick="toggleMonitor()">▶ Start monitoring</button>
         <button class="themebtn" onclick="toggleTheme()">◐ theme</button>
       </div>
@@ -228,7 +313,7 @@
 <script>
 "use strict";
 var backend = null, state = {route:"cameras", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[]};
-var NAV = [["cameras","Cameras"],["alerts","Alerts"],["live","Live"],["rules","Rules"],["system","System"]];
+var NAV = [["cameras","Cameras"],["alerts","Alerts"],["live","Live"],["map","Map"],["ask","Ask"],["rules","Rules"],["system","System"]];
 var SEV = {critical:"var(--sev-crit)",high:"var(--sev-high)",medium:"var(--sev-med)",low:"var(--sev-low)"};
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
@@ -276,19 +361,108 @@ function toggleMonitor(){
 function refreshCounts(){
   call("counts",[],function(c){ if(c&&!c.error){ state.pending=c.pending_alerts||0;
     $("stCams").textContent=c.cameras||0; $("stPending").textContent=c.pending_alerts||0; renderNav(); } });
+  refreshStats();
+}
+function refreshStats(){
+  call("stats",[],function(s){ if(!s||s.error) return; state.stats=s;
+    var el=$("stSuppressed"); if(el) el.textContent=s.suppressed||0;
+    var wrap=$("stSuppressWrap"); if(wrap) wrap.style.display=(s.suppressed>0?"":"none");
+    var hero=$("noiseHero"); if(hero) hero.innerHTML=noiseHeroHTML(s); });
+}
+function noiseHeroHTML(s){
+  s=s||state.stats||{}; var rev=s.reviewed||0, escl=s.escalated||0, sup=s.suppressed||0;
+  var pct = rev? Math.round(sup/rev*100):0;
+  var lat = (s.median_latency_s!=null)? ('· verified in ~'+s.median_latency_s+'s median'):'';
+  return '<div class="nh-item"><div class="nh-n">'+rev+'</div><div class="nh-l">reviewed by TrueSight</div></div>'
+    +'<div class="nh-item"><div class="nh-n" style="color:var(--sev-crit)">'+escl+'</div><div class="nh-l">escalated to you</div></div>'
+    +'<div class="nh-item"><div class="nh-n" style="color:var(--c-live)">'+sup+'</div><div class="nh-l">false alarms suppressed</div></div>'
+    +'<div class="nh-say">🛡 <b>'+pct+'%</b> of activity filtered out as noise '+lat+'</div>';
 }
 
 function render(){
-  var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",rules:"Rules",system:"System"}[state.route];
+  var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",map:"Site map",ask:"Ask your cameras",rules:"Rules",system:"System"}[state.route];
   $("title").textContent = t;
   if(state.route==="cameras") return renderCameras();
   if(state.route==="alerts") return renderAlerts();
   if(state.route==="live") return renderLive();
+  if(state.route==="map") return renderMap();
+  if(state.route==="ask") return renderAsk();
   if(state.route==="rules") return renderRules();
   if(state.route==="system") return renderSystem();
   $("screen").innerHTML='<div class="pad"><h2>'+t+'</h2><p class="mut">Coming soon.</p></div>';
 }
 
+/* ---------- Ask your cameras (NL search over past events) ---------- */
+var ASK_EXAMPLES = ["anyone near the till", "theft in the last hour", "fire or smoke",
+                    "someone on the ground", "weapons", "crowd forming"];
+function renderAsk(){
+  var chips = ASK_EXAMPLES.map(function(q){ return '<button class="askchip" onclick="askRun(\''+esc(q)+'\')">'+esc(q)+'</button>'; }).join("");
+  $("screen").innerHTML='<div class="pad askpad">'
+    +'<div class="askhead"><h2 style="margin:0 0 4px">Ask your cameras</h2>'
+    +'<p class="mut" style="margin:0 0 14px">Search everything Argus has seen, in plain English. TrueSight reads the footage log and finds what you mean — not just keywords.</p>'
+    +'<div class="askbar"><input id="askInput" placeholder="e.g. anyone loitering near the entrance after dark" '
+    +'onkeydown="if(event.key===\'Enter\')askRun()"><button class="btn" onclick="askRun()">Search</button></div>'
+    +'<div class="askchips">'+chips+'</div></div>'
+    +'<div id="askResults" class="askresults"><div class="mut" style="margin-top:24px">Ask a question to search your event history.</div></div></div>';
+}
+function askRun(q){
+  var inp=$("askInput"); if(q&&inp) inp.value=q; var query=(inp&&inp.value||q||"").trim();
+  if(!query) return;
+  var res=$("askResults"); if(res) res.innerHTML='<div class="row" style="margin-top:24px;gap:10px"><span class="spin"></span><span class="mut">TrueSight is searching your footage…</span></div>';
+  call("searchEvents",[query],function(r){
+    if(!res) return;
+    if(!r || r.error){ res.innerHTML='<div class="mut" style="margin-top:24px">Search failed: '+esc((r&&r.error)||"unknown")+'</div>'; return; }
+    var m=r.matches||[];
+    var head='<div class="askanswer">'+(r.answer?('<b>'+esc(r.answer)+'</b>'):('Found '+m.length+' event'+(m.length===1?'':'s')+'.'))
+      +' <span class="mut" style="font-size:11.5px">· '+m.length+' match'+(m.length===1?'':'es')+' · via '+esc(r.engine||"search")+'</span></div>';
+    if(!m.length){ res.innerHTML=head+'<div class="mut" style="margin-top:14px">Nothing matched. Try different wording, or check the Alerts tab.</div>'; return; }
+    var cards=m.map(function(e){
+      var fr=(e.frames&&e.frames[0])||"";
+      var sev=SEV[e.priority]||SEV.low;
+      return '<div class="askcard">'+(fr?'<img src="'+fr+'">':'<div class="asknoimg">no frame</div>')
+        +'<div class="askmeta"><div class="row" style="gap:8px"><span class="sevbadge" style="background:'+sev+';font-size:9px;padding:2px 7px">'+esc((e.priority||"").toUpperCase())+'</span>'
+        +'<b>'+esc(e.rule)+'</b><span style="flex:1"></span><span class="mono mut" style="font-size:11px">'+esc(e.camera_id)+'</span></div>'
+        +'<div class="mut" style="font-size:12px;margin-top:5px;line-height:1.4">'+esc(e.reason||"")+'</div>'
+        +'<div class="mono sub" style="font-size:11px;margin-top:6px">'+esc((e.iso||"").replace("T"," "))+'</div></div></div>';
+    }).join("");
+    res.innerHTML=head+'<div class="askgrid">'+cards+'</div>';
+  });
+}
+/* ---------- Site map (cameras light up on alert) ---------- */
+function renderMap(){
+  $("screen").innerHTML='<div class="pad mut">Loading site map…</div>';
+  call("listCameras",[],function(cs){ state.mapCams=(Array.isArray(cs)?cs:[]); drawMap(); });
+}
+function drawMap(){
+  var cams=state.mapCams||[];
+  if(!cams.length){ $("screen").innerHTML='<div class="pad"><h2>Site map</h2><p class="mut">No cameras configured yet — add cameras and they\'ll appear here. Pins light up the moment TrueSight confirms a threat.</p></div>'; return; }
+  var n=cams.length, cols=Math.ceil(Math.sqrt(n)), rows=Math.ceil(n/cols);
+  var pins=cams.map(function(c,i){
+    // stored position (map_x/map_y as 0..1) if present, else auto-grid
+    var col=i%cols, row=Math.floor(i/cols);
+    var x=(c.map_x!=null? c.map_x*100 : ((col+0.5)/cols)*100);
+    var y=(c.map_y!=null? c.map_y*100 : ((row+0.5)/rows)*100);
+    return '<div class="pin" id="pin-'+esc(c.id)+'" style="left:'+x+'%;top:'+y+'%" onclick="go(\'live\')" title="'+esc(c.id)+' — click for live view">'
+      +'<div class="pinalert" id="pinalert-'+esc(c.id)+'"></div>'
+      +'<span class="pindot"></span><span class="pinlabel">'+esc(c.id)+'</span></div>';
+  }).join("");
+  $("screen").innerHTML='<div class="pad"><div class="row" style="margin-bottom:12px"><h2 style="margin:0">Site map</h2>'
+    +'<span class="mut" style="font-size:12px">camera layout · a pin flashes red when TrueSight confirms a threat there</span></div>'
+    +'<div class="floorplan"><div class="fp-grid"></div>'+pins+'</div>'
+    +'<div class="row" style="margin-top:10px;gap:16px;font-size:12px" class="mut">'
+    +'<span class="mut"><span class="pindot" style="position:static;display:inline-block;vertical-align:middle"></span> live</span>'
+    +'<span class="mut"><span class="pindot alert" style="position:static;display:inline-block;vertical-align:middle"></span> threat confirmed</span></div></div>';
+  updateMapPins();
+}
+function updateMapPins(){
+  var active={};
+  (state.latestEvents||[]).forEach(function(e){ if(e.review==="new" && !active[e.camera_id]) active[e.camera_id]=e; });
+  (state.mapCams||[]).forEach(function(c){
+    var pin=$("pin-"+c.id), ov=$("pinalert-"+c.id), a=active[c.id]; if(!pin) return;
+    if(a){ pin.classList.add("alerting"); if(ov) ov.textContent="⚠ "+a.rule; }
+    else { pin.classList.remove("alerting"); if(ov) ov.textContent=""; }
+  });
+}
 /* ---------- Cameras ---------- */
 function renderCameras(){
   call("presets",[],function(p){ state.presets = (p&&!p.error)?p:{}; });
@@ -376,13 +550,29 @@ function renderLive(){
 function updateLiveAlertTiles(){
   var active = {};   // camera -> its latest unreviewed alert
   (state.latestEvents||[]).forEach(function(e){ if(e.review==="new" && !active[e.camera_id]) active[e.camera_id]=e; });
+  var wall = document.querySelector(".wall");
+  var prev = state._alertingCams || {};
+  var now = {};
   (state.liveCams||[]).forEach(function(c){
     var tile=$("tile-"+c.id), ov=$("talert-"+c.id), a=active[c.id];
     if(!tile) return;
-    if(a){ tile.classList.add("alerting");
-      if(ov) ov.innerHTML='<div class="r">⚠ '+esc(a.rule)+'</div><div class="why">'+esc(a.reason||"")+'</div>'; }
-    else { tile.classList.remove("alerting"); if(ov) ov.innerHTML=""; }
+    if(a){
+      now[c.id]=true;
+      tile.classList.add("alerting");
+      // colour the ring by severity (critical stays red; high = amber)
+      tile.style.setProperty("--alertcol", SEV[a.priority]||SEV.critical);
+      if(ov) ov.innerHTML='<div class="r">⚠ '+esc(a.rule)+'</div><div class="why">'+esc(a.reason||"")+'</div>';
+      if(!prev[c.id] && wall){                 // NEW fire this cycle
+        wall.insertBefore(tile, wall.firstChild);   // jump to the front of the wall
+        tile.classList.remove("justfired"); void tile.offsetWidth;   // restart the flash
+        tile.classList.add("justfired");
+      }
+    } else {
+      tile.classList.remove("alerting","justfired"); tile.style.removeProperty("--alertcol");
+      if(ov) ov.innerHTML="";
+    }
   });
+  state._alertingCams = now;
 }
 function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function(){
   if(state.route!=="live" && !state.liveModal){ stopLive(); return; }
@@ -432,7 +622,10 @@ function renderSystem(){
         +  '<div class="row" style="margin-top:9px"><input id="sysName" value="'+esc(s.name||"")+'" style="flex:1;max-width:340px">'
         +    '<button class="btn sm" onclick="saveSiteName()">Save</button><span id="sysNameOk" style="color:var(--c-live);font-size:12px"></span></div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px"><div class="syslabel">Notifications</div>'
-        +  '<div class="sysnotifies">'+rows+'</div></div>'
+        +  '<div class="sysnotifies">'+rows+'</div>'
+        +  '<div class="row" style="margin-top:12px;gap:10px;align-items:center">'
+        +    '<button class="btn sm" onclick="sendTestAlert(this)">📲 Send test alert</button>'
+        +    '<span id="testNotifyMsg" class="sub" style="font-size:12px"></span></div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px"><div class="syslabel">Local AI gate</div>'
         +  '<div class="row" style="gap:10px;margin-top:9px"><span class="statusdot" style="background:'+mc+'"></span>'
         +    '<b style="font-size:14px">TrueSight</b><span class="mut" style="font-size:11.5px">on-device vision AI</span>'
@@ -650,11 +843,13 @@ function paintAlerts(){
   var empty = filt==="active"
     ? '<div class="empty" style="margin-top:40px"><div style="font-size:22px;font-weight:600">✓ All clear</div><p class="mut">Nothing to review. New threats appear here the moment the gate confirms one.</p></div>'
     : '<div class="empty" style="margin-top:40px"><div style="font-size:18px;font-weight:600">Nothing here</div><p class="mut">No alerts with this label yet.</p></div>';
-  $("screen").innerHTML = '<div class="alerts">'
-    + '<div class="alist">'+bar+'<div class="scroll">'+(shown.length?list:empty)+'</div>'
-    +   '<div style="flex:none;padding:8px 14px;border-top:1px solid var(--c-border)" class="kbd">label an alert → it clears from Needs review</div></div>'
-    + '<div class="adetail" id="detail">'+renderDetail()+'</div></div>';
-  startClipMedia();
+  $("screen").innerHTML = '<div class="alertswrap">'
+    + '<div class="noisehero" id="noiseHero">'+noiseHeroHTML(state.stats)+'</div>'
+    + '<div class="alerts">'
+    +   '<div class="alist">'+bar+'<div class="scroll">'+(shown.length?list:empty)+'</div>'
+    +     '<div style="flex:none;padding:8px 14px;border-top:1px solid var(--c-border)" class="kbd">label an alert → it clears from Needs review</div></div>'
+    +   '<div class="adetail" id="detail">'+renderDetail()+'</div></div></div>';
+  startClipMedia(); refreshStats();
 }
 function setAlertFilter(f){ state.alertFilter=f; state.selected=null; paintAlerts(); }
 function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(function(){
@@ -687,6 +882,7 @@ function renderDetail(){
     +'<span class="mut">track <b class="mono" style="color:var(--c-text)">'+esc(a.track_id||"—")+'</b></span>'
     +'<span class="mut">object <b class="mono" style="color:var(--c-text)">'+esc(a.object_label||"—")+'</b></span></div>'
     +clip
+    +timelineHTML(a)
     +'<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why TrueSight confirmed this</div>'
     +'<p style="margin:0;font-size:14px;line-height:1.5">'+esc(a.reason||"")+'</p>'
     +'<div class="row" style="margin-top:12px"><span class="mut" style="font-size:11px">confidence</span><div class="confbar"><div style="width:'+confPct+'%;background:'+sev+'"></div></div><span class="mono">'+(Number(a.confidence)||0).toFixed(2)+'</span></div></div>'
@@ -694,12 +890,59 @@ function renderDetail(){
     +'<button class="btn" onclick="doReview(\'ack\')">'+(a.review==="ack"?"Acknowledged ✓":"Acknowledge")+'</button>'
     +'<button class="btn ghost" style="border-color:var(--sev-crit);color:var(--sev-crit)" onclick="doReview(\'true\')">True threat</button>'
     +'<button class="btn ghost" onclick="doReview(\'false\')">False alarm</button>'
-    +'<span class="sub" style="margin-left:6px;font-size:11.5px">'+(reviewed?("Labeled: "+a.review):"Your label retrains the site model.")+'</span></div>';
+    +'<span style="flex:1"></span>'
+    +'<button class="btn ghost sm" onclick="openReport()">⧉ Incident report</button></div>'
+    +'<div class="sub" style="margin-top:8px;font-size:11.5px">'+(reviewed?("Labeled: "+a.review):"Your label retrains the site model.")+'</div>';
+}
+/* #3 detection -> verification timeline: makes the pipeline legible + fast-feeling */
+function timelineHTML(a){
+  var lat = a.latency_s;
+  var latTxt = (lat!=null)? (Number(lat).toFixed(1)+'s') : '—';
+  return '<div class="timeline">'
+    +'<div class="tl-step"><span class="tl-dot"></span><div><div class="tl-t">Detected</div><div class="tl-s">'+esc(a.rule)+' on '+esc(a.camera_id)+'</div></div></div>'
+    +'<div class="tl-line"><span class="tl-lat">'+latTxt+'</span></div>'
+    +'<div class="tl-step"><span class="tl-dot on"></span><div><div class="tl-t">Verified by TrueSight</div><div class="tl-s">confidence '+(Number(a.confidence)||0).toFixed(2)+'</div></div></div>'
+    +'<div class="tl-line"></div>'
+    +'<div class="tl-step"><span class="tl-dot on"></span><div><div class="tl-t">You were notified</div><div class="tl-s">'+esc((a.iso||"").replace("T"," "))+'</div></div></div>'
+    +'</div>';
 }
 function doReview(label){ var a=state.selected; if(!a)return;
   a.review=label; state.alertsSig="";     // local + force poll to reconcile
   paintAlerts();                          // instant: clears from Needs review, selects next
   call("review",[String(a.id),label],function(r){ refreshCounts(); }); }
+/* #5 incident report: a clean, printable/exportable evidence card */
+function openReport(){ var a=state.selected; if(!a) return;
+  var m=$("reportModal"); if(!m){ m=document.createElement("div"); m.id="reportModal"; (document.getElementById("modalRoot")||document.body).appendChild(m); }
+  var sev=SEV[a.priority]||SEV.low;
+  var fr=(a.frames||[]).slice(0,3);
+  var lat=a.latency_s!=null? Number(a.latency_s).toFixed(1)+'s':'—';
+  m.className="reportmodal";
+  m.innerHTML='<div class="report" id="reportCard">'
+    +'<div class="rhead"><span class="rbrand">Argus</span><span style="color:#888;font-size:12px">Incident Report</span>'
+    +'<span class="rsev" style="background:'+sev+'">'+esc((a.priority||"").toUpperCase())+'</span></div>'
+    +'<div class="rbody"><h3>'+esc(a.rule)+'</h3>'
+    +'<div style="color:#666;font-size:12px">Verified by TrueSight · on-device AI</div>'
+    +'<div class="rgrid">'
+    +'<span class="k">Incident ID</span><span class="v">#'+esc(a.id)+'</span>'
+    +'<span class="k">Date / time</span><span class="v">'+esc((a.iso||"").replace("T"," "))+'</span>'
+    +'<span class="k">Camera</span><span class="v">'+esc(a.camera_id)+'</span>'
+    +'<span class="k">Zone</span><span class="v">'+esc(a.zone||"—")+'</span>'
+    +'<span class="k">Confidence</span><span class="v">'+(Number(a.confidence)||0).toFixed(2)+'</span>'
+    +'<span class="k">Verify latency</span><span class="v">'+esc(lat)+'</span>'
+    +'</div>'
+    +'<div style="color:#666;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">TrueSight assessment</div>'
+    +'<div class="rreason">'+esc(a.reason||"")+'</div>'
+    +(fr.length?'<div class="rframes">'+fr.map(function(f){return '<img src="'+f+'">';}).join("")+'</div>':'')
+    +'</div>'
+    +'<div class="rfoot"><span>Generated by Argus · runs fully on-device · nothing left this network</span><span style="flex:1"></span>'
+    +'<button class="btn sm noprint" onclick="printReport()">Print / Save PDF</button>'
+    +'<button class="btn ghost sm noprint" onclick="closeReport()">Close</button></div>'
+    +'</div>';
+  m.onclick=function(e){ if(e.target===m) closeReport(); };
+}
+function closeReport(){ var m=$("reportModal"); if(m) m.remove(); }
+function printReport(){ document.body.classList.add("printing-report");
+  window.print(); setTimeout(function(){ document.body.classList.remove("printing-report"); }, 600); }
 /* event clip: auto-loop the evidence frames as a short video.
    Slower, readable playback — each frame holds ~0.55s, with a longer pause on the
    last frame before looping so the threat doesn't flash past or snap back jarringly. */
@@ -913,13 +1156,37 @@ function wizFinish(){ wizSaveSite();
   call("setSite",[wiz.site.name, wiz.site.notify],function(){
     call("markConfigured",[],function(){ closeWizard(); startApp(); }); }); }
 
+function sendTestAlert(btn){
+  var msg=$("testNotifyMsg"); if(btn){ btn.disabled=true; btn.textContent="Sending…"; }
+  if(msg){ msg.style.color="var(--c-mut)"; msg.textContent="sending through your configured channel…"; }
+  call("sendTestNotification",[],function(r){
+    if(btn){ btn.disabled=false; btn.textContent="📲 Send test alert"; }
+    if(!msg) return;
+    if(r&&r.ok){ msg.style.color="var(--c-live)"; msg.textContent="✓ Sent via "+(r.via||"console")+" — check your device."; }
+    else { msg.style.color="var(--sev-crit)"; msg.textContent="✕ "+((r&&r.error)||"failed")+" (via "+((r&&r.via)||"?")+")"; }
+  });
+}
 function wizCheckGateStandalone(){ var el=$("sysGate"); if(el) el.textContent="Checking VLM gate…";
   call("gateStatus",[],function(g){ if(!el) return; if(g.error){el.textContent=g.error;return;}
     var msg = g.mode==="live"?"● Live — TrueSight (on-device verification)":g.mode==="no-model"?"● Ollama up, model not installed — run setup to download":"● Ollama offline — gate falls back to mock";
     el.textContent = msg; }); }
 
+/* ---------- offline / local-only proof (#9) ---------- */
+function updateNetBadge(){
+  var b=$("netBadge"); if(!b) return;
+  var online = (typeof navigator!=="undefined") ? navigator.onLine : true;
+  if(online){ b.className="netbadge"; b.textContent="🔒 Local-only";
+    b.title="Argus runs entirely on this machine — nothing leaves your network."; }
+  else { b.className="netbadge offline"; b.textContent="✓ Offline · still running";
+    b.title="Internet is down and Argus is still detecting and verifying — 100% on-device."; }
+}
+function initNetWatch(){
+  updateNetBadge();
+  window.addEventListener("online", updateNetBadge);
+  window.addEventListener("offline", updateNetBadge);
+}
 /* ---------- boot ---------- */
-function startApp(){ renderNav(); refreshCounts(); refreshMonitor(); startGlobalWatch(); render(); }
+function startApp(){ renderNav(); refreshCounts(); refreshMonitor(); startGlobalWatch(); initNetWatch(); render(); }
 
 /* ---------- global alert watch: badge + sound + live-tile flags, any screen ---------- */
 function startGlobalWatch(){ if(state.globalTimer) return; state.globalTimer=setInterval(pollAlertsGlobal, 3000); pollAlertsGlobal(); }
@@ -933,6 +1200,8 @@ function pollAlertsGlobal(){
     renderNav();
     maybeChime(evs);
     if(state.route==="live") updateLiveAlertTiles();
+    if(state.route==="map") updateMapPins();
+    refreshStats();
   });
 }
 function maybeChime(evs){

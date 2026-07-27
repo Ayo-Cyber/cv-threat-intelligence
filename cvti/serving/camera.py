@@ -17,6 +17,7 @@ video) are injected by the pipeline; everything stateful is per camera.
 from __future__ import annotations
 
 import json
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -82,7 +83,8 @@ def _to_queued(camera_id: str, alert: Any, timestamp: float, zone: str | None,
         zone=zone,
         object_label=alert.object_label,
         payload={"candidate": alert, "frames": frames, "scene": scene,
-                 "clip_frames": clip_frames or [], "clip_fps": clip_fps},
+                 "clip_frames": clip_frames or [], "clip_fps": clip_fps,
+                 "enqueued_at": time.time()},   # wall-clock, for verify-latency
     )
 
 

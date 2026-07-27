@@ -212,7 +212,14 @@ CREATE TABLE IF NOT EXISTS events (
     confidence REAL, reason TEXT, track_id INTEGER, zone TEXT,
     object_label TEXT, evidence_dir TEXT,
     review TEXT,          -- NULL=new, 'ack', 'true', 'false' (operator label)
-    reviewed_at TEXT
+    reviewed_at TEXT,
+    latency_s REAL        -- detection -> TrueSight-verified wall-clock seconds
+);
+CREATE TABLE IF NOT EXISTS suppressions (
+    -- Every alert TrueSight REJECTED — the false alarms the operator never sees.
+    -- This is the noise-suppression story, so we keep the count + a sample reason.
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL, iso TEXT, camera_id TEXT, rule TEXT, confidence REAL, reason TEXT
 );
 """
 
@@ -231,9 +238,15 @@ class AlertSink:
         self.save_evidence = save_evidence
         self._lock = threading.Lock()
         self._db = sqlite3.connect(self.db_path, check_same_thread=False)
-        self._db.execute(_SCHEMA)
+        self._db.executescript(_SCHEMA)
+        # Migrate older DBs that predate the latency column.
+        try:
+            self._db.execute("ALTER TABLE events ADD COLUMN latency_s REAL")
+        except sqlite3.OperationalError:
+            pass       # already there
         self._db.commit()
         self.persisted = 0
+        self.suppressed = 0
 
     def handle(self, alert: Any, result: Any) -> None:
         if result is None:
@@ -242,11 +255,27 @@ class AlertSink:
         print(f"[{tag}] {alert.camera_id} :: {alert.rule_name} ({alert.priority.upper()}) "
               f"— {alert.title} | conf={result.confidence:.2f} | {result.reason}")
         if not result.confirmed:
+            try:
+                self._record_suppression(alert, result)   # the noise-suppression story
+            except Exception as exc:  # noqa: BLE001
+                print(f"[alert-sink error] {str(exc)[:140]}")
             return
         try:
             self._persist(alert, result)
         except Exception as exc:  # noqa: BLE001 - persistence must not kill the gate
             print(f"[alert-sink error] {str(exc)[:140]}")
+
+    def _record_suppression(self, alert: Any, result: Any) -> None:
+        ts = time.time()
+        iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ts))
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO suppressions (ts,iso,camera_id,rule,confidence,reason) "
+                "VALUES (?,?,?,?,?,?)",
+                (ts, iso, alert.camera_id, alert.rule_name,
+                 float(getattr(result, "confidence", 0.0)), getattr(result, "reason", "")))
+            self._db.commit()
+        self.suppressed += 1
 
     def _persist(self, alert: Any, result: Any) -> None:
         ts = time.time()
@@ -270,21 +299,26 @@ class AlertSink:
             else:
                 self._write_clip(ev_dir / "clip.mp4", frames)
 
+        # detection -> verified wall-clock latency (queue wait + TrueSight time).
+        enq = payload.get("enqueued_at")
+        latency_s = round(ts - enq, 2) if isinstance(enq, (int, float)) else None
+
         event = {
             "ts": ts, "iso": iso, "camera_id": alert.camera_id, "rule": alert.rule_name,
             "priority": alert.priority, "confidence": float(result.confidence),
             "reason": result.reason, "track_id": alert.track_id, "zone": alert.zone,
             "object_label": alert.object_label, "evidence_dir": str(ev_dir),
+            "latency_s": latency_s,
         }
         (ev_dir / "event.json").write_text(json.dumps(event, indent=2))
 
         with self._lock:
             self._db.execute(
                 "INSERT INTO events (ts,iso,camera_id,rule,priority,confidence,reason,"
-                "track_id,zone,object_label,evidence_dir) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "track_id,zone,object_label,evidence_dir,latency_s) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ts, iso, alert.camera_id, alert.rule_name, alert.priority,
                  float(result.confidence), result.reason, alert.track_id, alert.zone,
-                 alert.object_label, str(ev_dir)))
+                 alert.object_label, str(ev_dir), latency_s))
             self._db.commit()
         self.persisted += 1
         self.notifier.notify(event)

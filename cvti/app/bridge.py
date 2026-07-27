@@ -38,6 +38,10 @@ class Backend(QObject):
         return self._safe(self._core.counts)
 
     @pyqtSlot(result=str)
+    def stats(self) -> str:
+        return self._safe(self._core.stats)
+
+    @pyqtSlot(result=str)
     def presets(self) -> str:
         return self._safe(self._core.presets)
 
@@ -106,6 +110,14 @@ class Backend(QObject):
     @pyqtSlot(str, str, result=str)
     def review(self, event_id: str, label: str) -> str:
         return self._safe(lambda: self._core.set_review(event_id, label))
+
+    @pyqtSlot(result=str)
+    def sendTestNotification(self) -> str:
+        return self._safe(self._core.send_test_notification)
+
+    @pyqtSlot(str, result=str)
+    def searchEvents(self, query: str) -> str:
+        return self._safe(lambda: self._core.search_events(query))
 
     @pyqtSlot(str, result=str)
     def eventClip(self, evidence_dir: str) -> str:

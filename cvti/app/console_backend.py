@@ -251,6 +251,25 @@ class ConsoleBackend:
     def mark_configured(self) -> dict:
         return onboarding.set_site_meta(self.site_path, configured=True)
 
+    def send_test_notification(self) -> dict:
+        """Fire a synthetic alert through the site's configured notifier so the
+        operator can confirm Telegram/WhatsApp/webhook actually reaches their phone."""
+        from cvti.serving.alert_sink import build_notifier
+        meta = onboarding.get_site_meta(self.site_path)
+        notify = (meta.get("notify") or "console").strip()
+        event = {
+            "ts": time.time(), "iso": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "camera_id": "test_camera", "rule": "test_alert", "priority": "high",
+            "confidence": 0.99, "zone": None, "track_id": None, "object_label": None,
+            "reason": "✅ Test alert from Argus — your notifications are working.",
+            "evidence_dir": None,
+        }
+        try:
+            build_notifier(notify).notify(event)
+            return {"ok": True, "via": notify}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "via": notify, "error": str(exc)[:200]}
+
     def gate_status(self, model: str = vlm.DEFAULT_MODEL) -> dict:
         return vlm.gate_status(model)
 
@@ -438,6 +457,64 @@ class ConsoleBackend:
         b64 = base64.b64encode(clip.read_bytes()).decode()
         return {"uri": "data:video/mp4;base64," + b64}
 
+    def search_events(self, query: str, limit: int = 200) -> dict:
+        """Ask-your-cameras: natural-language search over past events.
+
+        TrueSight reads a compact catalogue of events and returns the ones that
+        match the plain-English query (e.g. 'anyone near the till after 6pm').
+        Falls back to keyword matching if the local model isn't reachable."""
+        query = (query or "").strip()
+        if not query:
+            return {"query": "", "matches": [], "answer": "", "engine": "none"}
+        events = self.list_events(limit, embed_frames=False)
+        if not events:
+            return {"query": query, "matches": [], "answer": "No events recorded yet.", "engine": "none"}
+        catalogue = "\n".join(
+            f"[{e['id']}] {e.get('iso','')} cam={e.get('camera_id')} rule={e.get('rule')} "
+            f"zone={e.get('zone') or '-'} :: {e.get('reason','')}" for e in events)
+        ids, answer, engine = self._vlm_search(query, catalogue)
+        if ids is None:                     # local model unavailable -> keyword fallback
+            terms = [t for t in query.lower().split() if len(t) > 2]
+            ids = [e["id"] for e in events if any(
+                t in (str(e.get("reason", "")) + " " + str(e.get("rule", "")) + " "
+                      + str(e.get("camera_id", "")) + " " + str(e.get("zone", ""))).lower()
+                for t in terms)]
+            answer, engine = "", "keyword"
+        idset = set(ids)
+        matches = [e for e in events if e["id"] in idset]
+        _, frame_base = self._effective_db()
+        for e in matches[:24]:              # attach evidence only to the matches shown
+            e["frames"] = self._frames_as_data_uris(e.get("evidence_dir"), frame_base)
+        return {"query": query, "matches": matches, "answer": answer, "engine": engine}
+
+    def _vlm_search(self, query: str, catalogue: str):
+        """Ask the local model which event IDs match. Returns (ids, answer, engine)
+        or (None, '', '') if the model is unreachable (caller does keyword fallback)."""
+        import urllib.error
+        import urllib.request
+        prompt = (
+            "You are a security-footage search assistant. Below is a catalogue of past "
+            "CCTV events (one per line, prefixed with [id]). Return ONLY the events that "
+            "match the user's query. Reason over the description, camera, zone, and time.\n"
+            "Respond with a single JSON object and nothing else:\n"
+            '{"ids": [matching ids as integers], "answer": "one short sentence summarising what you found"}\n\n'
+            f"EVENTS:\n{catalogue}\n\nQUERY: {query}\n")
+        payload = {"model": "gemma3:4b", "temperature": 0,
+                   "messages": [{"role": "user", "content": prompt}]}
+        try:
+            req = urllib.request.Request(
+                "http://localhost:11434/v1/chat/completions",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"content-type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=40) as r:
+                body = json.loads(r.read().decode("utf-8"))
+            txt = body["choices"][0]["message"]["content"]
+            data = json.loads(txt[txt.find("{"): txt.rfind("}") + 1])
+            ids = [int(i) for i in data.get("ids", []) if str(i).strip().lstrip("-").isdigit()]
+            return ids, str(data.get("answer", "")).strip(), "TrueSight"
+        except Exception:  # noqa: BLE001 - unreachable/parse error -> keyword fallback
+            return None, "", ""
+
     def _frames_as_data_uris(self, evidence_dir: str | None,
                              frame_base: "Path | None" = None, cap: int = 5) -> list[str]:
         d = Path(evidence_dir or "")
@@ -496,3 +573,38 @@ class ConsoleBackend:
         except sqlite3.OperationalError:
             pending = 0
         return {"cameras": n_cams, "pending_alerts": pending}
+
+    def stats(self) -> dict:
+        """Noise-suppression story: what TrueSight reviewed, escalated, and suppressed.
+
+        escalated = confirmed alerts (rows in events); suppressed = rejected false
+        alarms (rows in suppressions); reviewed = the two combined. Also the median
+        verify latency, so the demo can say 'verified in ~Ns'."""
+        db, _ = self._effective_db()
+        escalated = suppressed = 0
+        latencies: list[float] = []
+        try:
+            con = self._connect(db)
+            try:
+                escalated = con.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+            except sqlite3.OperationalError:
+                escalated = 0
+            try:
+                suppressed = con.execute("SELECT COUNT(*) FROM suppressions").fetchone()[0]
+            except sqlite3.OperationalError:
+                suppressed = 0
+            try:
+                latencies = [r[0] for r in con.execute(
+                    "SELECT latency_s FROM events WHERE latency_s IS NOT NULL").fetchall()]
+            except sqlite3.OperationalError:
+                latencies = []
+            con.close()
+        except sqlite3.OperationalError:
+            pass
+        reviewed = escalated + suppressed
+        med = None
+        if latencies:
+            s = sorted(latencies)
+            med = round(s[len(s) // 2], 1)
+        return {"reviewed": reviewed, "escalated": escalated,
+                "suppressed": suppressed, "median_latency_s": med}
