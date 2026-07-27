@@ -829,7 +829,7 @@ function paintAlerts(){
   var shown = alertsFor(filt); state.shown = shown;
   var selId = state.selected && state.selected.id;
   state.selected = shown.filter(function(e){return e.id===selId;})[0] || shown[0] || null;
-  var TABS = [["active","Review",c.active],["true","True",c["true"]],["false","False",c["false"]],["all","All",state.events.length],["suppressed","Suppressed",supN]];
+  var TABS = [["active","Needs review",c.active],["true","True",c["true"]],["false","False",c["false"]],["all","All",state.events.length]];
   var bar = '<div class="afilter">'+TABS.map(function(t){
     return '<button class="atab'+(filt===t[0]?" on":"")+(t[0]==="suppressed"?" supptab":"")+'" onclick="setAlertFilter(\''+t[0]+'\')">'+esc(t[1])+'<span class="acnt">'+t[2]+'</span></button>';
   }).join("")+'</div>';

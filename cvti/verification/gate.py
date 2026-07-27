@@ -74,42 +74,36 @@ Rules:
 """
 
 _COT_PROMPT_TEMPLATE = """\
-You are the FINAL verification check for a CCTV security system. A cheap computer-vision
-detector has flagged a possible event, but that detector is frequently WRONG — it over-fires
-on ordinary activity. Your job is to REFUTE its claim unless the frames clearly prove it.
+You are the verification step for a CCTV security system. A detector has flagged a possible
+event. Your job is to PASS REAL THREATS THROUGH to a human reviewer and filter out only the
+OBVIOUS false alarms. Missing a real threat is much worse than passing on a scene the human
+glances at and dismisses — so when in doubt, confirm.
 You are shown one or more frames from the SAME short event (a brief sequence in time).
 
 Scene context:
 - Environment: {environment_type}
 - Description: {scene_description}
 
-The detector's UNRELIABLE hypothesis (a claim to disprove, NOT a fact):
+The detector's report (usually right; you are just catching its occasional mistakes):
 - Rule: {rule_name}
 - Detector: {detector}
-- Claimed detection: {title}
+- Detection: {title}
 - Person tracked: {person_id}
 - Object involved: {object_label}
 
 Question: {question}
 
-You are TRIAGING for a human reviewer, not making a courtroom judgement.
-
-Reason step by step FIRST (plain text, no JSON yet). Judge the frames INDEPENDENTLY — do
-not assume the detector is right, but do not manufacture innocent excuses either:
-1. Given the environment, what is normal, expected behaviour here?
-2. What is the person ACTUALLY doing across the frames (hands, body, motion)? Describe only
-   what you can literally see, not what the detector claims.
-3. Is what you see genuinely consistent with the SPECIFIC threat in the question, or is it
-   plainly an ordinary activity (standing, walking, browsing, working a till, an empty scene)?
+Reason briefly FIRST (plain text, no JSON yet):
+1. What is the person actually doing across the frames (hands, body, motion)?
+2. Is that plainly an ordinary, harmless activity (just standing, walking, browsing, an empty
+   scene, working a till/desk with no interaction) — or could it be the threat?
 
 Then on the FINAL line, output ONLY this JSON object (no markdown, nothing after it):
 {{"confirmed": true or false, "confidence": 0.0 to 1.0, "reason": "one sentence", "alert_priority": "{priority}"}}
 
-REJECT plainly ordinary scenes — that is how you kill false positives. CONFIRM when the
-frames genuinely show a visible cue of the specific threat; you do not need absolute proof,
-only a real reason to escalate to a human (a missed real threat is worse than a reviewed
-false alarm). Do not confirm merely because the detector said so. Confidence reflects
-certainty in your OWN verdict.
+REJECT only when the scene is CLEARLY ordinary and harmless — that filters the obvious false
+positives. Otherwise CONFIRM: you do not need proof, just a plausible reason it could be the
+threat. When genuinely unsure, CONFIRM and let the human decide.
 """
 
 _QUESTIONS: dict[str, str] = {
@@ -180,7 +174,7 @@ class VerificationGate:
         save_dir: Path | str | None = None,
         base_url: str = "",
         cot: bool = True,
-        min_confidence: float = 0.5,
+        min_confidence: float = 0.35,
     ) -> None:
         self.provider = provider
         self.cot = cot
