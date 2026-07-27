@@ -519,16 +519,22 @@ function renderLive(){
     updateLiveAlertTiles();   // reflect any current alerts immediately
   });
 }
+var LIVE_ALERT_WINDOW = 8;   // seconds a tile shows its label after an event, then it clears
 function updateLiveAlertTiles(){
-  var active = {};   // camera -> its latest unreviewed alert
-  (state.latestEvents||[]).forEach(function(e){ if(e.review==="new" && !active[e.camera_id]) active[e.camera_id]=e; });
+  var nowS = Date.now()/1000;
+  var active = {};   // camera -> its most RECENT event
+  (state.latestEvents||[]).forEach(function(e){
+    if(!active[e.camera_id] || (e.ts||0) > (active[e.camera_id].ts||0)) active[e.camera_id]=e; });
   var wall = document.querySelector(".wall");
   var prev = state._alertingCams || {};
   var now = {};
   (state.liveCams||[]).forEach(function(c){
     var tile=$("tile-"+c.id), ov=$("talert-"+c.id), a=active[c.id];
     if(!tile) return;
-    if(a){
+    // Only show the label while the event is HAPPENING (fresh); once recorded it
+    // leaves, and only returns when another event fires on this camera.
+    var fresh = a && (nowS - (a.ts||0) < LIVE_ALERT_WINDOW);
+    if(fresh){
       now[c.id]=true;
       tile.classList.add("alerting");
       // colour the ring by severity (critical stays red; high = amber)
@@ -918,6 +924,8 @@ function printReport(){ document.body.classList.add("printing-report");
    Slower, readable playback — each frame holds ~0.55s, with a longer pause on the
    last frame before looping so the threat doesn't flash past or snap back jarringly. */
 var CLIP_FRAME_MS = 550, CLIP_LOOP_PAUSE_MS = 1200;
+function clipPace(){ var n=(state.clipFrames||[]).length;
+  return n>10 ? 140 : (n>5 ? 300 : CLIP_FRAME_MS); }   // many frames -> play like video
 function clipPaint(i){
   var n=state.clipFrames?state.clipFrames.length:0; if(!n) return;
   var counter=$("clipCounter"); if(counter) counter.textContent=(i+1)+" / "+n;
@@ -926,20 +934,22 @@ function clipPaint(i){
   var ce=$("clipthumb_"+i); if(ce){ ce.classList.add("on"); if(ce.scrollIntoView) ce.scrollIntoView({block:"nearest",inline:"nearest"}); }
   state.clipThumb=i;
 }
-function startClip(){ stopClip(); var a=state.selected; var fr=a&&a.frames;
+function startClip(){ stopClip();
+  var fr=state.clipFrames;
   if(!fr||fr.length<2){ return; }
-  state.clipFrames=fr; state.clipIdx=0; state.clipThumb=null;
+  state.clipIdx=0; state.clipThumb=null;
   var img=$("clipImg"); if(img) img.src=fr[0]; clipPaint(0);
+  var per=clipPace();
   function tick(){
     var im=$("clipImg"); if(!im){ stopClip(); return; }
     var wasLast = state.clipIdx >= state.clipFrames.length-1;
     state.clipIdx = wasLast ? 0 : state.clipIdx+1;
     im.src=state.clipFrames[state.clipIdx];
     clipPaint(state.clipIdx);
-    var atLast = state.clipIdx===state.clipFrames.length-1;   // hold the final frame longer before looping
-    state.clipTimer=setTimeout(tick, atLast ? CLIP_LOOP_PAUSE_MS : CLIP_FRAME_MS);
+    var atLast = state.clipIdx===state.clipFrames.length-1;   // brief pause before looping
+    state.clipTimer=setTimeout(tick, atLast ? Math.max(per, 700) : per);
   }
-  state.clipTimer=setTimeout(tick, CLIP_FRAME_MS);
+  state.clipTimer=setTimeout(tick, per);
 }
 function stopClip(){ if(state.clipTimer){ clearTimeout(state.clipTimer); state.clipTimer=null; }
   var v=$("clipVideo"); if(v){ try{ v.pause(); }catch(e){} } }
@@ -948,25 +958,23 @@ function clipSeek(i){
   if(v && v.style.display!=="none" && v.duration){                 // video mode: seek to that fraction
     v.currentTime = (i/Math.max(1,(state.clipFrames?state.clipFrames.length:1)))*v.duration; clipPaint(i); return; }
   state.clipIdx=i; var img=$("clipImg"); if(img&&state.clipFrames&&state.clipFrames[i]) img.src=state.clipFrames[i]; clipPaint(i); }
-/* Try to play the REAL event video (clip.mp4). Fall back to the stills cine-loop
-   if the engine didn't capture a continuous clip. Cache per event so the 3s alert
-   poll (which re-renders the detail) doesn't re-download the video each time. */
+/* Play the event as a smooth IMAGE cine-loop over its full frame set — no video
+   codec involved (QtWebEngine can't reliably decode the mp4). Fetch the frames for
+   the selected event and cache them so the 3s alert poll doesn't re-download. */
 function startClipMedia(){ stopClip(); var a=state.selected; if(!a) return;
-  var fr=a.frames||[]; state.clipFrames=fr; state.clipIdx=0; state.clipThumb=null;
+  var v=$("clipVideo"); if(v) v.style.display="none";   // never use the <video> element
+  state.clipFrames=(a.frames||[]).slice(); state.clipIdx=0; state.clipThumb=null;
+  var img=$("clipImg"); if(img&&state.clipFrames[0]) img.src=state.clipFrames[0];
+  if(state.clipFrames.length>=2) startClip();           // start with thumbnails, upgrade below
   state.clipCache = state.clipCache||{};
   var key=a.evidence_dir||("id"+a.id);
-  function useMedia(uri){
-    var v=$("clipVideo"), im=$("clipImg"), c=$("clipCounter"), p=$("clipProg");
-    if(uri && v){ v.src=uri; v.style.display="block"; if(im) im.style.display="none";
-      if(c) c.style.display="none"; if(p) p.style.display="none";
-      var t=$("clipStrip"); if(t) t.style.display="none";     // real video: strip is redundant
-      try{ v.play(); }catch(e){} }
-    else if(fr.length>=2){ if(v) v.style.display="none"; startClip(); }   // fallback: slideshow
+  function useFrames(frames){
+    if(state.selected!==a) return;
+    if(frames && frames.length>=2){ state.clipFrames=frames; startClip(); }
   }
-  if(key in state.clipCache){ useMedia(state.clipCache[key]); return; }
+  if(key in state.clipCache){ useFrames(state.clipCache[key]); return; }
   call("eventClip",[a.evidence_dir||""],function(r){
-    var uri=(r&&r.uri)||null; state.clipCache[key]=uri;
-    if(state.selected===a) useMedia(uri); }); }
+    var frames=(r&&r.frames)||null; state.clipCache[key]=frames; useFrames(frames); }); }
 
 /* ---------- theme + boot ---------- */
 function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }

@@ -451,11 +451,14 @@ class ConsoleBackend:
         d = Path(evidence_dir or "")
         if not d.exists() and frame_base and evidence_dir:
             d = frame_base / evidence_dir
+        # Return ALL the event's frames (for the smooth image cine-loop the app plays)
+        # plus the mp4 as a data URI (archival / download).
+        frames = self._frames_as_data_uris(evidence_dir, frame_base, cap=120)
         clip = d / "clip.mp4"
-        if not clip.exists():
-            return {"uri": None}
-        b64 = base64.b64encode(clip.read_bytes()).decode()
-        return {"uri": "data:video/mp4;base64," + b64}
+        uri = None
+        if clip.exists():
+            uri = "data:video/mp4;base64," + base64.b64encode(clip.read_bytes()).decode()
+        return {"uri": uri, "frames": frames}
 
     def search_events(self, query: str, limit: int = 200) -> dict:
         """Ask-your-cameras: natural-language search over past events.

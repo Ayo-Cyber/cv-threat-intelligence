@@ -255,15 +255,21 @@ class AlertSink:
             print(f"[alert-sink error] {str(exc)[:140]}")
 
     def _write_evidence(self, ev_dir: Path, payload: dict) -> None:
-        """Write the evidence stills + a clip.mp4 for an alert (confirmed OR suppressed).
+        """Write the event's frames + a clip.mp4.
 
-        Prefers a REAL continuous video from the JPEG window; falls back to a
-        held-stills slideshow only when there is no continuous buffer to work with."""
+        The app plays a smooth IMAGE cine-loop (no video-codec dependency — QtWebEngine
+        can't always decode the mp4), so we save the whole CONTINUOUS window as
+        individual JPEGs (they're already JPEG bytes -> written straight to disk). The
+        mp4 is still written for archival / Telegram."""
         import cv2
         frames = payload.get("frames") or []
-        for i, f in enumerate(frames):
-            cv2.imwrite(str(ev_dir / f"frame_{i:02d}.jpg"), f)
         clip_frames = payload.get("clip_frames") or []
+        if clip_frames:
+            for i, jb in enumerate(clip_frames):
+                (ev_dir / f"frame_{i:03d}.jpg").write_bytes(jb)
+        else:
+            for i, f in enumerate(frames):
+                cv2.imwrite(str(ev_dir / f"frame_{i:03d}.jpg"), f)
         clip_fps = float(payload.get("clip_fps") or 0.0)
         if len(clip_frames) >= 6:
             fps = clip_fps if 1.0 <= clip_fps <= 60.0 else 4.0
