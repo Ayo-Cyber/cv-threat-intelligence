@@ -107,6 +107,10 @@ class Backend(QObject):
         # no base64 frames — cheap enough to poll every few seconds
         return self._safe(lambda: self._core.list_events(limit or 100, embed_frames=False))
 
+    @pyqtSlot(int, result=str)
+    def listSuppressions(self, limit: int) -> str:
+        return self._safe(lambda: self._core.list_suppressions(limit or 60))
+
     @pyqtSlot(str, str, result=str)
     def review(self, event_id: str, label: str) -> str:
         return self._safe(lambda: self._core.set_review(event_id, label))

@@ -457,6 +457,31 @@ class ConsoleBackend:
         b64 = base64.b64encode(clip.read_bytes()).decode()
         return {"uri": "data:video/mp4;base64," + b64}
 
+    def list_suppressions(self, limit: int = 60, embed_frames: bool = True) -> list[dict]:
+        """The false alarms TrueSight rejected — with evidence, so the operator can
+        watch what was filtered and confirm the gate was right."""
+        db, frame_base = self._effective_db()
+        try:
+            con = self._connect(db)
+        except sqlite3.OperationalError:
+            return []
+        try:
+            rows = con.execute(
+                "SELECT * FROM suppressions ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
+        except sqlite3.OperationalError:
+            con.close()
+            return []
+        con.close()
+        out = []
+        for r in rows:
+            e = dict(r)
+            e["suppressed"] = True
+            e["review"] = "suppressed"
+            if embed_frames:
+                e["frames"] = self._frames_as_data_uris(e.get("evidence_dir"), frame_base)
+            out.append(e)
+        return out
+
     def search_events(self, query: str, limit: int = 200) -> dict:
         """Ask-your-cameras: natural-language search over past events.
 

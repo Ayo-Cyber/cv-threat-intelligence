@@ -217,9 +217,11 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE TABLE IF NOT EXISTS suppressions (
     -- Every alert TrueSight REJECTED — the false alarms the operator never sees.
-    -- This is the noise-suppression story, so we keep the count + a sample reason.
+    -- We keep the reason AND the evidence (frames + clip) so the operator can
+    -- review what was filtered and confirm the gate was right.
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts REAL, iso TEXT, camera_id TEXT, rule TEXT, confidence REAL, reason TEXT
+    ts REAL, iso TEXT, camera_id TEXT, rule TEXT, priority TEXT,
+    confidence REAL, reason TEXT, evidence_dir TEXT
 );
 """
 
@@ -268,14 +270,43 @@ class AlertSink:
     def _record_suppression(self, alert: Any, result: Any) -> None:
         ts = time.time()
         iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ts))
+        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(ts))
+        payload = alert.payload or {}
+        # Save the evidence for suppressions too, so the operator can watch what
+        # TrueSight filtered out and confirm the call. Kept under a `suppressed/`
+        # subfolder to stay separate from confirmed events.
+        ev_dir = self.events_dir / "suppressed" / f"{stamp}_{alert.camera_id}_{alert.rule_name}"
+        if self.save_evidence and (payload.get("frames")):
+            ev_dir.mkdir(parents=True, exist_ok=True)
+            self._write_evidence(ev_dir, payload)
+            ev_str = str(ev_dir)
+        else:
+            ev_str = None
         with self._lock:
             self._db.execute(
-                "INSERT INTO suppressions (ts,iso,camera_id,rule,confidence,reason) "
-                "VALUES (?,?,?,?,?,?)",
-                (ts, iso, alert.camera_id, alert.rule_name,
-                 float(getattr(result, "confidence", 0.0)), getattr(result, "reason", "")))
+                "INSERT INTO suppressions (ts,iso,camera_id,rule,priority,confidence,reason,evidence_dir) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (ts, iso, alert.camera_id, alert.rule_name, alert.priority,
+                 float(getattr(result, "confidence", 0.0)), getattr(result, "reason", ""), ev_str))
             self._db.commit()
         self.suppressed += 1
+
+    def _write_evidence(self, ev_dir: Path, payload: dict) -> None:
+        """Write the evidence stills + a clip.mp4 for an alert (confirmed OR suppressed).
+
+        Prefers a REAL continuous video from the JPEG window; falls back to a
+        held-stills slideshow only when there is no continuous buffer to work with."""
+        import cv2
+        frames = payload.get("frames") or []
+        for i, f in enumerate(frames):
+            cv2.imwrite(str(ev_dir / f"frame_{i:02d}.jpg"), f)
+        clip_frames = payload.get("clip_frames") or []
+        clip_fps = float(payload.get("clip_fps") or 0.0)
+        if len(clip_frames) >= 6:
+            fps = clip_fps if 1.0 <= clip_fps <= 60.0 else 4.0
+            self._write_video_clip(ev_dir / "clip.mp4", clip_frames, fps)
+        elif frames:
+            self._write_clip(ev_dir / "clip.mp4", frames)
 
     def _persist(self, alert: Any, result: Any) -> None:
         ts = time.time()
@@ -287,21 +318,7 @@ class AlertSink:
 
         frames = payload.get("frames") or []
         if self.save_evidence and frames:
-            import cv2
-            for i, f in enumerate(frames):
-                cv2.imwrite(str(ev_dir / f"frame_{i:02d}.jpg"), f)
-            # Prefer a REAL continuous video of the event window; fall back to the
-            # held-stills slideshow only when there's no continuous buffer at all.
-            # clip_fps comes from video timestamps that can reset when a demo clip
-            # loops, so treat an out-of-range value as unknown and use a sane default
-            # rather than throwing away a perfectly good continuous window.
-            clip_frames = payload.get("clip_frames") or []
-            clip_fps = float(payload.get("clip_fps") or 0.0)
-            if len(clip_frames) >= 6:
-                fps = clip_fps if 1.0 <= clip_fps <= 60.0 else 4.0
-                self._write_video_clip(ev_dir / "clip.mp4", clip_frames, fps)
-            else:
-                self._write_clip(ev_dir / "clip.mp4", frames)
+            self._write_evidence(ev_dir, payload)
 
         # detection -> verified wall-clock latency (queue wait + TrueSight time).
         enq = payload.get("enqueued_at")
