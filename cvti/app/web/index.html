@@ -86,7 +86,7 @@
   .frames img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--c-border);background:var(--c-feed)}
   /* event clip player (auto-looping evidence frames) */
   .clipwrap{position:relative;margin-top:14px;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--c-border);box-shadow:0 6px 24px rgba(0,0,0,.28)}
-  .clipwrap img{width:100%;height:100%;object-fit:contain;background:#000;display:block;transition:opacity .22s ease}
+  .clipwrap img,.clipwrap video{width:100%;height:100%;object-fit:contain;background:#000;display:block;transition:opacity .22s ease}
   .clipbadge{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.62);color:#fff;font-size:11px;font-weight:700;
     padding:3px 9px;border-radius:6px;letter-spacing:.03em;display:flex;align-items:center;gap:6px}
   .clipbadge .dot{width:6px;height:6px;border-radius:99px;background:var(--sev-crit);animation:clippulse 1.4s ease-in-out infinite}
@@ -654,7 +654,7 @@ function paintAlerts(){
     + '<div class="alist">'+bar+'<div class="scroll">'+(shown.length?list:empty)+'</div>'
     +   '<div style="flex:none;padding:8px 14px;border-top:1px solid var(--c-border)" class="kbd">label an alert → it clears from Needs review</div></div>'
     + '<div class="adetail" id="detail">'+renderDetail()+'</div></div>';
-  startClip();
+  startClipMedia();
 }
 function setAlertFilter(f){ state.alertFilter=f; state.selected=null; paintAlerts(); }
 function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(function(){
@@ -663,14 +663,16 @@ function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(func
     var sig=evs.map(function(e){return e.id+":"+e.review;}).join(",");
     if(sig!==state.alertsSig){ state.events=evs; state.alertsSig=sig; paintAlerts(); refreshCounts(); } }); }, 3000); }
 function stopAlertsPoll(){ if(state.alertsTimer){ clearInterval(state.alertsTimer); state.alertsTimer=null; } stopClip(); }
-function selectAlert(i){ state.selected = state.shown[i]; $("detail").innerHTML = renderDetail(); startClip();
+function selectAlert(i){ state.selected = state.shown[i]; $("detail").innerHTML = renderDetail(); startClipMedia();
   document.querySelectorAll(".arow").forEach(function(el,idx){el.classList.toggle("sel",idx===i);}); }
 function renderDetail(){
   var a = state.selected; if(!a) return '<p class="mut">Select an alert to review it.</p>';
   var sev = SEV[a.priority]||SEV.low;
   var fr = a.frames||[];
   var clip = fr.length
-    ? '<div class="clipwrap"><img id="clipImg" src="'+fr[0]+'" alt="">'
+    ? '<div class="clipwrap">'
+      +'<video id="clipVideo" style="display:none" autoplay loop muted playsinline controls poster="'+fr[0]+'"></video>'
+      +'<img id="clipImg" src="'+fr[0]+'" alt="">'
       +'<div class="clipbadge"><span class="dot"></span>EVENT CLIP</div>'
       +'<div class="clipcounter" id="clipCounter">1 / '+fr.length+'</div>'
       +'<div class="clipprog" id="clipProg"></div></div>'
@@ -725,8 +727,32 @@ function startClip(){ stopClip(); var a=state.selected; var fr=a&&a.frames;
   }
   state.clipTimer=setTimeout(tick, CLIP_FRAME_MS);
 }
-function stopClip(){ if(state.clipTimer){ clearTimeout(state.clipTimer); state.clipTimer=null; } }
-function clipSeek(i){ state.clipIdx=i; var img=$("clipImg"); if(img&&state.clipFrames&&state.clipFrames[i]) img.src=state.clipFrames[i]; clipPaint(i); }
+function stopClip(){ if(state.clipTimer){ clearTimeout(state.clipTimer); state.clipTimer=null; }
+  var v=$("clipVideo"); if(v){ try{ v.pause(); }catch(e){} } }
+function clipSeek(i){
+  var v=$("clipVideo");
+  if(v && v.style.display!=="none" && v.duration){                 // video mode: seek to that fraction
+    v.currentTime = (i/Math.max(1,(state.clipFrames?state.clipFrames.length:1)))*v.duration; clipPaint(i); return; }
+  state.clipIdx=i; var img=$("clipImg"); if(img&&state.clipFrames&&state.clipFrames[i]) img.src=state.clipFrames[i]; clipPaint(i); }
+/* Try to play the REAL event video (clip.mp4). Fall back to the stills cine-loop
+   if the engine didn't capture a continuous clip. Cache per event so the 3s alert
+   poll (which re-renders the detail) doesn't re-download the video each time. */
+function startClipMedia(){ stopClip(); var a=state.selected; if(!a) return;
+  var fr=a.frames||[]; state.clipFrames=fr; state.clipIdx=0; state.clipThumb=null;
+  state.clipCache = state.clipCache||{};
+  var key=a.evidence_dir||("id"+a.id);
+  function useMedia(uri){
+    var v=$("clipVideo"), im=$("clipImg"), c=$("clipCounter"), p=$("clipProg");
+    if(uri && v){ v.src=uri; v.style.display="block"; if(im) im.style.display="none";
+      if(c) c.style.display="none"; if(p) p.style.display="none";
+      var t=$("clipStrip"); if(t) t.style.display="none";     // real video: strip is redundant
+      try{ v.play(); }catch(e){} }
+    else if(fr.length>=2){ if(v) v.style.display="none"; startClip(); }   // fallback: slideshow
+  }
+  if(key in state.clipCache){ useMedia(state.clipCache[key]); return; }
+  call("eventClip",[a.evidence_dir||""],function(r){
+    var uri=(r&&r.uri)||null; state.clipCache[key]=uri;
+    if(state.selected===a) useMedia(uri); }); }
 
 /* ---------- theme + boot ---------- */
 function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }

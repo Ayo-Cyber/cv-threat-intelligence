@@ -1,0 +1,11 @@
+{
+  "_comment": "Safety wall: exercises the new baseline detectors — fire/smoke, person-fall, crowd/stampede — plus violence. Every trigger is verified by TrueSight (the VLM gate). 'synthetic_fire.mp4' is a generated flame clip so the fire path has a positive without sourcing footage; for a real positive fire/crowd demo, point a camera at real footage. Fall is enabled on the incident cam (person goes down) and crowd on the street cam.",
+  "name": "Safety Watch",
+  "notify": "console",
+  "configured": true,
+  "cameras": [
+    {"id": "fire_test", "source": "data/test_clips/synthetic_fire.mp4",     "config": "configs/all_threats_video_v1.json", "fire": true},
+    {"id": "incident",  "source": "data/test_clips/stabbing_event.mp4",      "config": "configs/all_threats_video_v1.json", "fall": true, "violence": true},
+    {"id": "street",    "source": "data/test_clips/normal_street_01.mp4",    "config": "configs/all_threats_video_v1.json", "crowd": true, "fall": true}
+  ]
+}

@@ -68,6 +68,30 @@ class AlertSinkTests(unittest.TestCase):
         self.assertEqual(self.sink.persisted, 0)
 
 
+class VideoClipTests(unittest.TestCase):
+    def test_write_video_clip_is_real_realtime_video(self):
+        import tempfile
+        import cv2
+        import numpy as np
+        from pathlib import Path
+        from cvti.serving.alert_sink import AlertSink
+        jpegs = []
+        for i in range(12):                       # 12 continuous frames at src ~4fps
+            fr = np.full((120, 160, 3), 20, np.uint8)
+            cv2.putText(fr, str(i), (60, 70), 0, 2, (0, 200, 255), 3)
+            ok, b = cv2.imencode(".jpg", fr)
+            jpegs.append(b.tobytes())
+        sink = AlertSink.__new__(AlertSink)       # only need the method
+        out = Path(tempfile.mkdtemp()) / "clip.mp4"
+        sink._write_video_clip(out, jpegs, src_fps=4.0, container_fps=24)
+        self.assertTrue(out.exists())
+        cap = cv2.VideoCapture(str(out))
+        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        self.assertEqual(n, 12 * 6)               # each source frame held 24/4 = 6x
+        # -> 72 frames / 24fps = 3.0s == 12 frames / 4fps real-time. A real video.
+
+
 class NotifierFactoryTests(unittest.TestCase):
     def test_build_notifier_variants(self):
         from cvti.serving.alert_sink import ConsoleNotifier, TelegramNotifier, WebhookNotifier

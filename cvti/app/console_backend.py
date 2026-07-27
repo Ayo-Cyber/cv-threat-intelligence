@@ -423,6 +423,21 @@ class ConsoleBackend:
             out.append(e)
         return out
 
+    def event_clip(self, evidence_dir: str | None) -> dict:
+        """Return the event's real-video clip.mp4 as a data URI (lazy, per-selection).
+
+        Works for both a live run (absolute evidence_dir) and the bundled playback
+        demo (evidence_dir relative to the demo bundle)."""
+        _, frame_base = self._effective_db()
+        d = Path(evidence_dir or "")
+        if not d.exists() and frame_base and evidence_dir:
+            d = frame_base / evidence_dir
+        clip = d / "clip.mp4"
+        if not clip.exists():
+            return {"uri": None}
+        b64 = base64.b64encode(clip.read_bytes()).decode()
+        return {"uri": "data:video/mp4;base64," + b64}
+
     def _frames_as_data_uris(self, evidence_dir: str | None,
                              frame_base: "Path | None" = None, cap: int = 5) -> list[str]:
         d = Path(evidence_dir or "")

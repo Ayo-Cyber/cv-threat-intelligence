@@ -107,6 +107,12 @@ class Backend(QObject):
     def review(self, event_id: str, label: str) -> str:
         return self._safe(lambda: self._core.set_review(event_id, label))
 
+    @pyqtSlot(str, result=str)
+    def eventClip(self, evidence_dir: str) -> str:
+        # Lazily fetch the selected event's real-video clip.mp4 as a data URI
+        # (embedding every event's video in listEvents would be far too heavy).
+        return self._safe(lambda: self._core.event_clip(evidence_dir))
+
     # --- first-run setup wizard ---
     @pyqtSlot(result=str)
     def setupState(self) -> str:

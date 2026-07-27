@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import cv2
+
 from cvti.contracts import RawEvent
 from cvti.event_adapters import zone_states_to_events
 from cvti.rules.customization import CustomizationEngine
@@ -41,10 +43,35 @@ _WEAPON_BORDER_MARGIN_RATIO = 0.03
 _MIN_THREAT_FRAMES = 3
 
 
+def _person_boxes(tracked: Any) -> list:
+    """Extract (track_id, x1, y1, x2, y2) person boxes from an sv.Detections.
+
+    COCO person class is 0; if no class_id is present (already person-filtered) we
+    keep every box. track_id falls back to the row index when the tracker hasn't
+    assigned one yet."""
+    boxes: list = []
+    xyxy = getattr(tracked, "xyxy", None)
+    if xyxy is None:
+        return boxes
+    cls = getattr(tracked, "class_id", None)
+    tids = getattr(tracked, "tracker_id", None)
+    for i in range(len(xyxy)):
+        if cls is not None and cls[i] is not None and int(cls[i]) != 0:
+            continue
+        x1, y1, x2, y2 = (float(v) for v in xyxy[i][:4])
+        tid = int(tids[i]) if tids is not None and tids[i] is not None else i
+        boxes.append((tid, x1, y1, x2, y2))
+    return boxes
+
+
 def _to_queued(camera_id: str, alert: Any, timestamp: float, zone: str | None,
-               frames: list, scene: dict | None) -> QueuedAlert:
+               frames: list, scene: dict | None,
+               clip_frames: list | None = None, clip_fps: float = 0.0) -> QueuedAlert:
     # Evidence frames are captured NOW because the async gate verifies later,
     # by which point the live frame is gone.
+    #  * `frames`      — a few sharp stills, for the VLM gate + thumbnails.
+    #  * `clip_frames` — the continuous JPEG-encoded window (~last N seconds) so the
+    #                    sink can write a REAL video of the event, not a slideshow.
     return QueuedAlert(
         camera_id=camera_id,
         rule_name=alert.rule_name,
@@ -54,7 +81,8 @@ def _to_queued(camera_id: str, alert: Any, timestamp: float, zone: str | None,
         track_id=alert.person_id,
         zone=zone,
         object_label=alert.object_label,
-        payload={"candidate": alert, "frames": frames, "scene": scene},
+        payload={"candidate": alert, "frames": frames, "scene": scene,
+                 "clip_frames": clip_frames or [], "clip_fps": clip_fps},
     )
 
 
@@ -74,6 +102,9 @@ class PerCameraState:
     weapons: bool = False
     theft: bool = False
     tamper: bool = False              # camera block/tamper detection (pure CV)
+    fire: bool = False                # fire + smoke detection (pure CV pre-filter)
+    fall: bool = False                # person collapsed / on the ground (person boxes)
+    crowd: bool = False               # crowd gathering + stampede (counts + motion)
     video_action: bool = False
     video_action_model: Any = None    # shared VideoMAEActionModel instance
     pose_conf: float = 0.35
@@ -97,9 +128,16 @@ class PerCameraState:
     _video_runtime: Any = field(default=None, init=False, repr=False)
     _va_index: int = field(default=0, init=False, repr=False)
     _tamper_det: Any = field(default=None, init=False, repr=False)
+    _fire_det: Any = field(default=None, init=False, repr=False)
+    _fall_det: Any = field(default=None, init=False, repr=False)
+    _crowd_det: Any = field(default=None, init=False, repr=False)
     # Rolling recent frames (~2s at 5 FPS) so the gate gets per-rule evidence
     # (motion-peak span for violence, sharpest single frame for weapons).
     _frame_buffer: deque = field(default_factory=lambda: deque(maxlen=10), init=False, repr=False)
+    # Longer CONTINUOUS window, JPEG-encoded (kept light for RAM), so a confirmed
+    # alert can be replayed as a real video of the event lead-up, not a slideshow.
+    # ~48 frames ≈ 8-12s at typical pipeline fps. Holds (timestamp, jpeg_bytes).
+    _clip_buffer: deque = field(default_factory=lambda: deque(maxlen=48), init=False, repr=False)
 
     def __post_init__(self) -> None:
         import warnings
@@ -210,6 +248,11 @@ class PerCameraState:
 
         frame_hw = image.shape[:2]
         self._frame_buffer.append(image)
+        # Continuous replay buffer: encode this frame to JPEG (cheap, ~1ms) and keep
+        # a rolling window with timestamps so a confirmed alert replays as real video.
+        ok_enc, enc = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        if ok_enc:
+            self._clip_buffer.append((timestamp, enc.tobytes()))
 
         # Camera tamper/block runs on the raw frame — independent of any person,
         # since a covered camera shows nothing. Cheap CV, every frame.
@@ -225,12 +268,50 @@ class PerCameraState:
                     title=f"CAMERA BLOCKED ({t['kind']})", level="high",
                     timestamp=timestamp, extra=t))
 
+        # Fire + smoke — pure CV pre-filter on the raw frame (no person needed).
+        if self.fire:
+            if self._fire_det is None:
+                from cvti.detector.fire import FireSmokeDetector
+                self._fire_det = FireSmokeDetector()
+            f = self._fire_det.update(image, timestamp)
+            if f is not None:
+                raw_events.append(RawEvent(
+                    detector="fire_smoke", active=True,
+                    title=("FIRE SUSPECTED" if f["kind"] == "fire" else "SMOKE SUSPECTED"),
+                    level="critical", timestamp=timestamp, extra=f))
+
         if self._video_runtime is not None:
             self._video_runtime.add_frame(image, frame_index=self._va_index)
             self._va_index += 1
         if self.person_filter and self.zone_monitor is not None:
             detections = filter_person_detections(detections, frame_hw)
         tracked = self._tracker.update_with_detections(detections)
+
+        # Fall + crowd work off tracked PERSON boxes (COCO class 0). Extract once.
+        if self.fall or self.crowd:
+            person_boxes = _person_boxes(tracked)
+            frame_area = float(frame_hw[0] * frame_hw[1])
+            if self.fall:
+                if self._fall_det is None:
+                    from cvti.detector.fall import FallDetector
+                    self._fall_det = FallDetector()
+                fl = self._fall_det.update(person_boxes, frame_area, timestamp)
+                if fl is not None:
+                    raw_events.append(RawEvent(
+                        detector="person_fall", active=True, title="PERSON COLLAPSED",
+                        person_id=fl.get("track_id"), level="critical",
+                        timestamp=timestamp, extra=fl))
+            if self.crowd:
+                if self._crowd_det is None:
+                    from cvti.detector.crowd import CrowdDetector
+                    self._crowd_det = CrowdDetector()
+                cr = self._crowd_det.update(len(person_boxes), image, timestamp)
+                if cr is not None:
+                    raw_events.append(RawEvent(
+                        detector="crowd_surge", active=True,
+                        title=("STAMPEDE SUSPECTED" if cr["kind"] == "stampede" else "CROWD GATHERING"),
+                        level=("critical" if cr["kind"] == "stampede" else "high"),
+                        timestamp=timestamp, extra=cr))
 
         zone_by_pid: dict[Any, str | None] = {}   # person_id -> zone, for presence alerts
         if self.zone_monitor is not None:
@@ -271,6 +352,14 @@ class PerCameraState:
         from cvti.verification.frame_select import select_evidence_frames
 
         recent = list(self._frame_buffer)
+        # Snapshot the continuous replay window once (shared by all alerts this frame).
+        clip_snap = list(self._clip_buffer)
+        clip_frames = [j for _, j in clip_snap]
+        clip_fps = 0.0
+        if len(clip_snap) >= 2:
+            span = clip_snap[-1][0] - clip_snap[0][0]
+            if span > 0:
+                clip_fps = (len(clip_snap) - 1) / span
         out = []
         for a in alerts:
             # Zone is only meaningful for presence (zone) alerts; for other
@@ -278,7 +367,8 @@ class PerCameraState:
             zone = zone_by_pid.get(a.person_id) if a.detector == "presence" else None
             frames, _ = select_evidence_frames(recent, a.rule_name)
             out.append(_to_queued(self.camera_id, a, timestamp, zone,
-                                  frames or [image], self.scene_context))
+                                  frames or [image], self.scene_context,
+                                  clip_frames=clip_frames, clip_fps=clip_fps))
         return out
 
 
@@ -315,6 +405,8 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 concealment=bool(cam.get("concealment")), violence=bool(cam.get("violence")),
                 weapons=bool(cam.get("weapons")), theft=bool(cam.get("theft")),
                 tamper=bool(cam.get("tamper")),
+                fire=bool(cam.get("fire")), fall=bool(cam.get("fall")),
+                crowd=bool(cam.get("crowd")),
                 video_action=bool(cam.get("video_action")),
             ),
         }

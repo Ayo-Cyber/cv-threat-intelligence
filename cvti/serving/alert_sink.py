@@ -261,7 +261,14 @@ class AlertSink:
             import cv2
             for i, f in enumerate(frames):
                 cv2.imwrite(str(ev_dir / f"frame_{i:02d}.jpg"), f)
-            self._write_clip(ev_dir / "clip.mp4", frames)
+            # Prefer a REAL continuous video of the event window; fall back to the
+            # held-stills slideshow when no continuous buffer was captured.
+            clip_frames = payload.get("clip_frames") or []
+            clip_fps = float(payload.get("clip_fps") or 0.0)
+            if clip_frames and clip_fps > 0:
+                self._write_video_clip(ev_dir / "clip.mp4", clip_frames, clip_fps)
+            else:
+                self._write_clip(ev_dir / "clip.mp4", frames)
 
         event = {
             "ts": ts, "iso": iso, "camera_id": alert.camera_id, "rule": alert.rule_name,
@@ -281,6 +288,38 @@ class AlertSink:
             self._db.commit()
         self.persisted += 1
         self.notifier.notify(event)
+
+    def _write_video_clip(self, path: Path, jpeg_frames: list, src_fps: float,
+                          container_fps: int = 24) -> None:
+        """Write a REAL video of the event from the continuous JPEG window.
+
+        The pipeline captures frames at `src_fps` (e.g. ~4). We re-time them onto a
+        player-friendly `container_fps` by repeating each source frame, so the clip
+        plays at TRUE real-time speed (duration = n/src_fps) but decodes smoothly in
+        any player — real footage of the event, not a slideshow of stills.
+        """
+        import cv2
+        import numpy as np
+        if not jpeg_frames:
+            return
+        imgs = []
+        for jb in jpeg_frames:
+            im = cv2.imdecode(np.frombuffer(jb, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if im is not None:
+                imgs.append(im)
+        if not imgs:
+            return
+        h, w = imgs[0].shape[:2]
+        repeat = max(1, int(round(container_fps / max(src_fps, 0.1))))
+        for fourcc in ("avc1", "mp4v"):        # prefer H.264, fall back to MPEG-4
+            vw = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*fourcc), container_fps, (w, h))
+            if vw.isOpened():
+                for im in imgs:
+                    out = im if im.shape[:2] == (h, w) else cv2.resize(im, (w, h))
+                    for _ in range(repeat):
+                        vw.write(out)
+                vw.release()
+                return
 
     def _write_clip(self, path: Path, frames: list, fps: int = 12,
                     hold_seconds: float = 0.5) -> None:
