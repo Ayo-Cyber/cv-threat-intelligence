@@ -1,0 +1,46 @@
+{
+  "_comment": "Deluxe Paints Nigeria manufacturing/HSE demo. Replace sources with real fire/smoke, running, and crowd clips as available. Uses Ayo's productionized cvti.serving.pipeline path.",
+  "name": "Deluxe Paints Nigeria HSE Demo",
+  "notify": "console",
+  "configured": true,
+  "cameras": [
+    {
+      "id": "production_floor_fire_watch",
+      "source": "data/hse_demo/fire_videos.1406/pos/posVideo1.868.mp4",
+      "config": "configs/manufacturing_hse_v1.json",
+      "environment_type": "manufacturing_floor",
+      "scene_description": "Paint manufacturing or warehouse floor where visible flame, smoke, haze, panic movement, or unsafe gathering may indicate an HSE incident.",
+      "fire_smoke": true,
+      "running": false,
+      "crowd_formation": false,
+      "tamper": false
+    },
+    {
+      "id": "factory_aisle_panic_watch",
+      "source": "data/hse_demo/Crowd-Activity-All.mp4",
+      "config": "configs/manufacturing_hse_v1.json",
+      "environment_type": "manufacturing_floor",
+      "scene_description": "Factory aisle or production corridor where people should normally walk calmly; running may indicate panic, accident response, or evacuation.",
+      "fire_smoke": false,
+      "running": true,
+      "running_min_speed_ratio": 0.07,
+      "running_min_frames": 3,
+      "crowd_formation": false,
+      "tamper": false
+    },
+    {
+      "id": "assembly_area_crowd_watch",
+      "source": "data/anomaly/119.mp4",
+      "config": "configs/manufacturing_hse_v1.json",
+      "environment_type": "manufacturing_floor",
+      "scene_description": "Manufacturing assembly or loading area where a tight crowd can block movement, exits, or emergency response.",
+      "fire_smoke": false,
+      "running": false,
+      "crowd_formation": true,
+      "crowd_min_people": 3,
+      "crowd_min_frames": 2,
+      "crowd_max_cluster_ratio": 0.32,
+      "tamper": false
+    }
+  ]
+}
