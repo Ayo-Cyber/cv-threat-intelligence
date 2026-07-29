@@ -73,3 +73,4 @@ data/anomaly-*.zip
 
 # Generated playback-demo bundle (built by packaging/build_demo_data.py)
 packaging/demo_data/
+configs/live_camera.json
