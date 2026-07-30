@@ -240,6 +240,28 @@ class AlertSink:
             pass       # already there
         self._db.commit()
         self.persisted = 0
+        # Feedback loop: a calibration file (written by the FeedbackManager from
+        # operator labels) tells us which (camera, rule) pairs are chronically wrong.
+        # Demoted pairs are still stored (so the operator keeps correcting them) but
+        # don't page anyone. Hot-reloaded when the file changes.
+        from cvti.feedback.calibration import Calibration
+        self._calib_path = self.root / "calibration.json"
+        self._calib_mtime = 0.0
+        self.calibration = Calibration()
+        self._reload_calibration()
+
+    def _reload_calibration(self) -> None:
+        from cvti.feedback.calibration import Calibration
+        try:
+            mtime = self._calib_path.stat().st_mtime
+        except OSError:
+            return
+        if mtime != self._calib_mtime:
+            self.calibration = Calibration.load(self._calib_path)
+            self._calib_mtime = mtime
+            demoted = self.calibration.demoted_keys()
+            if demoted:
+                print(f"[calibration] loaded — demoting (no page): {', '.join(demoted)}")
 
     def handle(self, alert: Any, result: Any) -> None:
         if result is None:
@@ -311,7 +333,13 @@ class AlertSink:
                  alert.object_label, str(ev_dir), latency_s))
             self._db.commit()
         self.persisted += 1
-        self.notifier.notify(event)
+        # Feedback loop: chronically-wrong (camera, rule) pairs are stored but not paged.
+        self._reload_calibration()
+        if self.calibration.demoted(alert.camera_id, alert.rule_name):
+            print(f"[calibrated] {alert.camera_id} :: {alert.rule_name} demoted by feedback "
+                  f"— stored, NOT notified")
+        else:
+            self.notifier.notify(event)
 
     def _write_video_clip(self, path: Path, jpeg_frames: list, src_fps: float,
                           container_fps: int = 24) -> None:

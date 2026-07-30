@@ -38,6 +38,14 @@ class Backend(QObject):
         return self._safe(self._core.counts)
 
     @pyqtSlot(result=str)
+    def learningStats(self) -> str:
+        return self._safe(self._core.learning_stats)
+
+    @pyqtSlot(result=str)
+    def learningCalibrate(self) -> str:
+        return self._safe(self._core.learning_calibrate)
+
+    @pyqtSlot(result=str)
     def presets(self) -> str:
         return self._safe(self._core.presets)
 

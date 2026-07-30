@@ -558,6 +558,19 @@ class ConsoleBackend:
         con.close()
         return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": True}
 
+    def learning_stats(self) -> dict:
+        """Feedback / reinforcement-training status for the Learning screen."""
+        from cvti.feedback.manager import FeedbackManager
+        db, _ = self._effective_db()
+        return FeedbackManager(db).status()
+
+    def learning_calibrate(self) -> dict:
+        """Re-run online calibration from the operator's labels (writes calibration.json;
+        the running engine hot-reloads it and stops paging on chronically-wrong rules)."""
+        from cvti.feedback.manager import FeedbackManager
+        db, _ = self._effective_db()
+        return FeedbackManager(db).calibrate()
+
     def counts(self) -> dict:
         """Header/nav summary numbers."""
         cams = self.list_cameras()

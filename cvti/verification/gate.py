@@ -145,6 +145,27 @@ _DETECTOR_QUESTIONS: dict[str, str] = {
 }
 
 
+def _format_examples(examples: list | None) -> str:
+    """Turn recent operator feedback into a short few-shot block appended to the
+    prompt, so the gate calibrates to THIS site (e.g. learns that a given camera's
+    'crowd' flags are usually false)."""
+    if not examples:
+        return ""
+    lines = []
+    for e in examples[:4]:
+        # accept dicts or LabeledEvent-like objects
+        review = getattr(e, "review", None) or (e.get("review") if isinstance(e, dict) else None)
+        reason = getattr(e, "reason", None) or (e.get("reason") if isinstance(e, dict) else "")
+        if review not in ("true", "false"):
+            continue
+        verdict = "was a REAL threat" if review == "true" else "was a FALSE alarm"
+        lines.append(f'- A prior similar alert here {verdict}: "{str(reason)[:120]}"')
+    if not lines:
+        return ""
+    return ("\n\nRecent operator feedback on THIS camera for this kind of alert "
+            "(use it to calibrate — the operator is the ground truth):\n" + "\n".join(lines))
+
+
 def _build_question(rule_name: str, environment_type: str, detector: str = "") -> str:
     # Prefer a rule-specific question; else fall back to a detector-specific one so
     # weapons/tamper/video-action get verified for the RIGHT thing (not a generic
@@ -203,6 +224,7 @@ class VerificationGate:
         frame: Any,               # a single numpy BGR frame OR a list of them (multi-frame)
         alert: CandidateAlert,
         scene_context: dict | None = None,
+        examples: list | None = None,   # past operator feedback for this (camera, rule)
     ) -> VerificationResult:
         self._call_count += 1
         context = scene_context or {}
@@ -222,6 +244,9 @@ class VerificationGate:
                 alert.rule_name, environment_type, getattr(alert, "detector", "")),
             priority=alert.priority,
         )
+        mem = _format_examples(examples)
+        if mem:
+            prompt += mem
 
         frames = frame if isinstance(frame, list) else [frame]
         frames_bytes = [_encode_frame(f) for f in frames]

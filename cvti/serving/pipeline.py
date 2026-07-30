@@ -214,12 +214,29 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     sink = AlertSink(output_dir, notifier=build_notifier(notify))
 
     save_dir = Path(output_dir) / "gate"
+    # Feedback loop: give the gate this site's recent operator-labeled examples for
+    # each (camera, rule) as few-shot memory (cached ~60s). Empty on a fresh DB.
+    from cvti.feedback.store import FeedbackStore
+    _fb_store = FeedbackStore(str(Path(output_dir) / "events.db"))
+    _fb_cache: dict = {}
+
+    def _examples_provider(camera: str, rule: str) -> list:
+        import time as _t
+        key = (camera, rule)
+        ent = _fb_cache.get(key)
+        if ent and (_t.time() - ent[0]) < 60:
+            return ent[1]
+        ex = _fb_store.examples(camera, rule, k=4)
+        _fb_cache[key] = (_t.time(), ex)
+        return ex
+
     gate_pool = GatePool(
         queue,
         gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
                                               base_url=gate_base_url, save_dir=save_dir),
         workers=gate_workers,
         on_verdict=sink.handle,
+        examples_provider=_examples_provider,
     ).start()
 
     pipe = MultiStreamPipeline(sources, weights=weights, target_fps=target_fps, imgsz=imgsz,

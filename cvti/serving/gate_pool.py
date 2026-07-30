@@ -30,12 +30,15 @@ BYPASS_DETECTORS: set[str] = set()
 class GatePool:
     def __init__(self, queue: AlertQueue, *, gate_factory: Callable[[], Any],
                  workers: int = 1, min_interval: float = 0.0,
-                 on_verdict: VerdictHandler | None = None) -> None:
+                 on_verdict: VerdictHandler | None = None,
+                 examples_provider: Callable[[str, str], list] | None = None) -> None:
         self.queue = queue
         self.gate_factory = gate_factory
         self.workers = max(1, workers)
         self.min_interval = min_interval
         self.on_verdict = on_verdict or self._default_verdict
+        # feedback loop: (camera, rule) -> recent operator-labeled examples for the gate
+        self.examples_provider = examples_provider
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._active = 0  # verdicts currently in flight (for graceful drain)
@@ -83,7 +86,14 @@ class GatePool:
                     if getattr(candidate, "detector", "") in BYPASS_DETECTORS:
                         result = self._bypass(candidate, alert)   # deterministic -> instant
                     else:
-                        result = gate.verify(p.get("frames"), candidate, p.get("scene"))
+                        examples = None
+                        if self.examples_provider is not None:
+                            try:
+                                examples = self.examples_provider(alert.camera_id, alert.rule_name)
+                            except Exception:  # noqa: BLE001 - feedback lookup must never break the gate
+                                examples = None
+                        result = gate.verify(p.get("frames"), candidate, p.get("scene"),
+                                             examples=examples)
                     self.verified += 1
                     if result is not None and result.confirmed:
                         self.confirmed += 1

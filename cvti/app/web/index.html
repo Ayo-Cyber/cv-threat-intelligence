@@ -88,6 +88,23 @@
   .askcard img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#000}
   .asknoimg{aspect-ratio:16/9;display:grid;place-items:center;color:var(--c-sub);background:var(--c-feed);font-size:12px}
   .askmeta{padding:11px 13px}
+  /* Learning screen */
+  .lhero{display:flex;align-items:center;gap:26px;padding:16px 20px;border:1px solid var(--c-border);border-radius:12px;
+    background:linear-gradient(90deg,var(--c-raised),transparent);margin-bottom:14px}
+  .lh-item{display:flex;flex-direction:column;gap:1px}
+  .lh-n{font-family:var(--ff-mono);font-size:24px;font-weight:600;line-height:1;color:var(--c-text)}
+  .lh-l{font-size:11px;color:var(--c-mut)}
+  .lh-say{margin-left:auto;max-width:300px;text-align:right;font-size:12px;color:var(--c-sub);line-height:1.4}
+  .lh-say b{color:var(--sev-crit)}
+  .ldemote{font-size:12.5px;color:var(--c-sub);background:var(--c-raised);border:1px solid var(--c-border);
+    border-radius:8px;padding:9px 13px;margin-bottom:12px}
+  .lpanel{border:1px solid var(--c-border);border-radius:10px;overflow:hidden}
+  .ltable{width:100%;border-collapse:collapse;font-size:13px}
+  .ltable th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--c-mut);
+    padding:9px 12px;border-bottom:1px solid var(--c-border);background:var(--c-raised)}
+  .ltable td{padding:9px 12px;border-bottom:1px solid var(--c-border)}
+  .ltable tr:last-child td{border-bottom:none}
+  .lbadge{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:99px;border:1px solid}
   /* Site map / floor plan */
   .floorplan{position:relative;width:100%;max-width:900px;aspect-ratio:16/9;border:1px solid var(--c-border2);
     border-radius:14px;background:var(--c-raised);overflow:hidden}
@@ -301,7 +318,7 @@
 <script>
 "use strict";
 var backend = null, state = {route:"cameras", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[]};
-var NAV = [["cameras","Cameras"],["alerts","Alerts"],["live","Live"],["map","Map"],["ask","Ask"],["rules","Rules"],["system","System"]];
+var NAV = [["cameras","Cameras"],["alerts","Alerts"],["live","Live"],["map","Map"],["ask","Ask"],["learning","Learning"],["rules","Rules"],["system","System"]];
 var SEV = {critical:"var(--sev-crit)",high:"var(--sev-high)",medium:"var(--sev-med)",low:"var(--sev-low)"};
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
@@ -352,13 +369,14 @@ function refreshCounts(){
 }
 
 function render(){
-  var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",map:"Site map",ask:"Ask your cameras",rules:"Rules",system:"System"}[state.route];
+  var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",map:"Site map",ask:"Ask your cameras",learning:"Learning",rules:"Rules",system:"System"}[state.route];
   $("title").textContent = t;
   if(state.route==="cameras") return renderCameras();
   if(state.route==="alerts") return renderAlerts();
   if(state.route==="live") return renderLive();
   if(state.route==="map") return renderMap();
   if(state.route==="ask") return renderAsk();
+  if(state.route==="learning") return renderLearning();
   if(state.route==="rules") return renderRules();
   if(state.route==="system") return renderSystem();
   $("screen").innerHTML='<div class="pad"><h2>'+t+'</h2><p class="mut">Coming soon.</p></div>';
@@ -400,6 +418,42 @@ function askRun(q){
     res.innerHTML=head+'<div class="askgrid">'+cards+'</div>';
   });
 }
+/* ---------- Learning (feedback / reinforcement loop) ---------- */
+function renderLearning(){
+  $("screen").innerHTML='<div class="pad mut">Loading learning status…</div>';
+  call("learningStats",[],function(s){ if(!s||s.error){ $("screen").innerHTML='<div class="pad"><h2>Learning</h2><p class="mut">'+esc((s&&s.error)||"unavailable")+'</p></div>'; return; } drawLearning(s); });
+}
+function pct(x){ return x==null? "—" : Math.round(x*100)+"%"; }
+function drawLearning(s){
+  var L=s.labels||{}, prec=s.overall_precision, dem=s.demoted||[], rules=s.rules||[], model=s.model||{};
+  var head='<div class="lhero">'
+    +'<div class="lh-item"><div class="lh-n">'+(L.reviewed||0)+'</div><div class="lh-l">labels from operators</div></div>'
+    +'<div class="lh-item"><div class="lh-n" style="color:var(--c-live)">'+(L.positive||0)+'</div><div class="lh-l">confirmed real</div></div>'
+    +'<div class="lh-item"><div class="lh-n" style="color:var(--sev-crit)">'+(L.negative||0)+'</div><div class="lh-l">marked false alarm</div></div>'
+    +'<div class="lh-item"><div class="lh-n">'+pct(prec)+'</div><div class="lh-l">gate precision</div></div>'
+    +'<div class="lh-say">Operator labels teach the system: noisy rules get <b>demoted</b> (stop paging), and every label becomes training data.</div></div>';
+  var rowsHtml = rules.length ? rules.map(function(r){
+    var col=r.action==="demote"?"var(--sev-crit)":r.action==="trusted"?"var(--c-live)":"var(--c-mut)";
+    return '<tr><td><b>'+esc(r.camera_id)+'</b></td><td class="mono">'+esc(r.rule)+'</td>'
+      +'<td style="text-align:center;color:var(--c-live)">'+r.positive+'</td>'
+      +'<td style="text-align:center;color:var(--sev-crit)">'+r.negative+'</td>'
+      +'<td style="text-align:center" class="mono">'+pct(r.precision)+'</td>'
+      +'<td style="text-align:center"><span class="lbadge" style="color:'+col+';border-color:'+col+'">'+esc(r.action)+'</span></td></tr>';
+  }).join("") : '<tr><td colspan="6" class="mut" style="padding:16px">No labels yet — review a few alerts (True threat / False alarm) and they\'ll appear here.</td></tr>';
+  var mv=model.active;
+  var modelHtml = mv ? ('active model v'+mv.version+' · '+ (mv.metrics&&mv.metrics.clips?mv.metrics.clips+' clips':'') ) : 'baseline model (no retrain yet)';
+  $("screen").innerHTML='<div class="pad" style="max-width:900px">'
+    +'<div class="row" style="margin-bottom:10px"><h2 style="margin:0">Learning</h2><span style="flex:1"></span>'
+    +'<button class="btn sm" onclick="runCalibrate(this)">↻ Re-run calibration</button></div>'
+    +head
+    +(dem.length?'<div class="ldemote">🔕 Demoted (stored but not paging): <b>'+dem.map(esc).join(", ")+'</b></div>':'')
+    +'<div class="lpanel"><table class="ltable"><thead><tr><th>Camera</th><th>Rule</th><th>Real</th><th>False</th><th>Precision</th><th>Action</th></tr></thead>'
+    +'<tbody>'+rowsHtml+'</tbody></table></div>'
+    +'<div class="row" style="margin-top:14px;gap:16px;font-size:12.5px"><span class="mut">Detector model: <b style="color:var(--c-text)">'+esc(modelHtml)+'</b></span>'
+    +'<span class="mut">retrain via <b class="mono">python -m cvti.feedback.manager retrain --run</b></span></div></div>';
+}
+function runCalibrate(btn){ if(btn){ btn.disabled=true; btn.textContent="Calibrating…"; }
+  call("learningCalibrate",[],function(r){ renderLearning(); }); }
 /* ---------- Site map (cameras light up on alert) ---------- */
 function renderMap(){
   $("screen").innerHTML='<div class="pad mut">Loading site map…</div>';
