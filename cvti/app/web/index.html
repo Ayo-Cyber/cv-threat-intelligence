@@ -105,6 +105,13 @@
   .ltable td{padding:9px 12px;border-bottom:1px solid var(--c-border)}
   .ltable tr:last-child td{border-bottom:none}
   .lbadge{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:99px;border:1px solid}
+  /* alert sort toggle + threat-class colour coding */
+  .asort{display:inline-flex;gap:2px;background:var(--c-raised);border-radius:7px;padding:2px}
+  .asortb{all:unset;cursor:pointer;font-size:11px;font-weight:600;color:var(--c-mut);padding:4px 9px;border-radius:5px}
+  .asortb.on{background:var(--c-accent-soft);color:var(--c-text)}
+  .cchip{font-size:9.5px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;padding:1px 6px;border-radius:99px;border:1px solid;flex:none}
+  .agroup{padding:9px 14px 4px;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+  .arow{border-left:3px solid transparent}
   /* Site map / floor plan */
   .floorplan{position:relative;width:100%;max-width:900px;aspect-ratio:16/9;border:1px solid var(--c-border2);
     border-radius:14px;background:var(--c-raised);overflow:hidden}
@@ -850,25 +857,63 @@ function alertsFor(filt){
   if(filt==="active") return state.events.filter(function(e){return e.review==="new";});
   return state.events.filter(function(e){return e.review===filt;});
 }
+/* Threat class -> label / colour / icon, so alerts can be grouped and colour-coded
+   by TYPE (separate from severity). First matching pattern wins. */
+var THREAT_CLASS = [
+  [/theft|conceal|shoplift|video_theft/i, "Theft",     "#f59e0b", "🛍"],
+  [/fire|smoke/i,                          "Fire",      "#ef4444", "🔥"],
+  [/violence|assault|fight/i,              "Violence",  "#dc2626", "🥊"],
+  [/weapon|gun|knife/i,                    "Weapon",    "#b91c1c", "🔪"],
+  [/loiter|presence/i,                     "Loitering", "#8b5cf6", "🚶"],
+  [/run|panic/i,                           "Panic",     "#fb7185", "🏃"],
+  [/crowd|stampede/i,                      "Crowd",     "#eab308", "👥"],
+  [/fall|collapse|person_down/i,           "Fall",      "#06b6d4", "🩹"],
+  [/tamper|block/i,                        "Tamper",    "#94a3b8", "🚫"]
+];
+function threatClass(rule){ rule=String(rule||"");
+  for(var i=0;i<THREAT_CLASS.length;i++){ if(THREAT_CLASS[i][0].test(rule))
+    return {label:THREAT_CLASS[i][1], color:THREAT_CLASS[i][2], icon:THREAT_CLASS[i][3]}; }
+  return {label:"Other", color:"#9aa4b2", icon:"⚠"};
+}
+function setAlertSort(m){ state.alertSort=m; paintAlerts(); }
 function paintAlerts(){
   var filt = state.alertFilter || "active";
+  var sortMode = state.alertSort || "time";
   var c = {active:0, "true":0, "false":0};
   state.events.forEach(function(e){ if(e.review==="new")c.active++; else if(e.review==="true")c["true"]++; else if(e.review==="false")c["false"]++; });
-  var shown = alertsFor(filt); state.shown = shown;
+  var shown = alertsFor(filt);
+  if(sortMode==="class"){                       // group by threat type, newest within a type
+    shown = shown.slice().sort(function(a,b){
+      var ca=threatClass(a.rule).label, cb=threatClass(b.rule).label;
+      if(ca!==cb) return ca<cb?-1:1; return (b.ts||0)-(a.ts||0); });
+  }
+  state.shown = shown;
   var selId = state.selected && state.selected.id;
   state.selected = shown.filter(function(e){return e.id===selId;})[0] || shown[0] || null;
   var TABS = [["active","Needs review",c.active],["true","True",c["true"]],["false","False",c["false"]],["all","All",state.events.length]];
   var bar = '<div class="afilter">'+TABS.map(function(t){
     return '<button class="atab'+(filt===t[0]?" on":"")+'" onclick="setAlertFilter(\''+t[0]+'\')">'+esc(t[1])+'<span class="acnt">'+t[2]+'</span></button>';
-  }).join("")+'</div>';
+  }).join("")
+    +'<span style="flex:1"></span><span class="asort">'
+    +'<button class="asortb'+(sortMode==="time"?" on":"")+'" onclick="setAlertSort(\'time\')">Newest</button>'
+    +'<button class="asortb'+(sortMode==="class"?" on":"")+'" onclick="setAlertSort(\'class\')">By type</button></span></div>';
+  var prevClass=null;
   var list = shown.map(function(a,i){
     var sel = state.selected && state.selected.id===a.id ? " sel":"";
     var st = a.review==="true"?"TRUE":a.review==="false"?"FALSE":a.review==="ack"?"ACK":"NEW";
-    return '<div class="arow'+sel+'" onclick="selectAlert('+i+')"><span class="dot" style="margin-top:4px;background:'+(SEV[a.priority]||SEV.low)+'"></span>'
-      +'<div style="flex:1;min-width:0"><div class="row" style="gap:8px"><span style="font-weight:700">'+esc(a.rule)+'</span>'
-      +'<span class="mono mut" style="font-size:11px">'+esc(a.camera_id)+'</span><span style="flex:1"></span>'
-      +'<span class="mono mut" style="font-size:11px">'+esc((a.iso||"").split("T")[1]||"")+'</span></div>'
+    var tc = threatClass(a.rule);
+    var header = "";
+    if(sortMode==="class" && tc.label!==prevClass){ prevClass=tc.label;
+      header = '<div class="agroup" style="color:'+tc.color+'"><span>'+tc.icon+' '+esc(tc.label)+'</span></div>'; }
+    return header
+      +'<div class="arow'+sel+'" style="border-left:3px solid '+tc.color+'" onclick="selectAlert('+i+')">'
+      +'<span class="dot" style="margin-top:4px;background:'+(SEV[a.priority]||SEV.low)+'"></span>'
+      +'<div style="flex:1;min-width:0"><div class="row" style="gap:8px">'
+      +'<span class="cchip" style="color:'+tc.color+';border-color:'+tc.color+'">'+tc.icon+' '+esc(tc.label)+'</span>'
+      +'<span style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.rule)+'</span>'
+      +'<span style="flex:1"></span><span class="mono mut" style="font-size:11px">'+esc((a.iso||"").split("T")[1]||"")+'</span></div>'
       +'<div class="row" style="gap:8px;margin-top:3px"><span style="font-size:10px;font-weight:700;letter-spacing:.05em;color:'+(SEV[a.priority]||SEV.low)+'">'+esc((a.priority||"").toUpperCase())+'</span>'
+      +'<span class="mono mut" style="font-size:11px">'+esc(a.camera_id)+'</span>'
       +'<span class="mono sub" style="font-size:11px">'+(a.confidence!=null?Number(a.confidence).toFixed(2):"")+'</span><span style="flex:1"></span>'
       +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;color:var(--c-mut);background:var(--c-raised)">'+st+'</span></div></div></div>';
   }).join("");
