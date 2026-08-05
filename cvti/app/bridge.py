@@ -46,6 +46,14 @@ class Backend(QObject):
         return self._safe(self._core.learning_calibrate)
 
     @pyqtSlot(result=str)
+    def feedSources(self) -> str:
+        return self._safe(self._core.feed_sources)
+
+    @pyqtSlot(str, result=str)
+    def switchFeed(self, key: str) -> str:
+        return self._safe(lambda: self._core.switch_feed(key))
+
+    @pyqtSlot(result=str)
     def presets(self) -> str:
         return self._safe(self._core.presets)
 

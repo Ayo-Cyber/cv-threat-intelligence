@@ -112,6 +112,13 @@
   .cchip{font-size:9.5px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;padding:1px 6px;border-radius:99px;border:1px solid;flex:none}
   .agroup{padding:9px 14px 4px;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
   .arow{border-left:3px solid transparent}
+  /* feed-source toggle in the header */
+  .feedtog{display:inline-flex;align-items:center;gap:3px;background:var(--c-raised);border-radius:8px;padding:3px 3px 3px 9px}
+  .feedtog:empty{display:none}
+  .feedlbl{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--c-mut);margin-right:3px}
+  .feedb{all:unset;cursor:pointer;font-size:11.5px;font-weight:600;color:var(--c-mut);padding:4px 10px;border-radius:6px}
+  .feedb.on{background:var(--c-accent);color:#fff}
+  .feedb:disabled{opacity:.5}
   /* Site map / floor plan */
   .floorplan{position:relative;width:100%;max-width:900px;aspect-ratio:16/9;border:1px solid var(--c-border2);
     border-radius:14px;background:var(--c-raised);overflow:hidden}
@@ -312,6 +319,7 @@
       <div class="stats">
         <span><b id="stCams">0</b> cameras</span>
         <span><b id="stPending">0</b> to review</span>
+        <span class="feedtog" id="feedTog"></span>
         <button class="btn sm" id="monBtn" onclick="toggleMonitor()">▶ Start monitoring</button>
         <button class="themebtn" onclick="toggleTheme()">◐ theme</button>
       </div>
@@ -373,6 +381,26 @@ function toggleMonitor(){
 function refreshCounts(){
   call("counts",[],function(c){ if(c&&!c.error){ state.pending=c.pending_alerts||0;
     $("stCams").textContent=c.cameras||0; $("stPending").textContent=c.pending_alerts||0; renderNav(); } });
+}
+/* feed-source switcher: flip the app + engine between demo videos and live cams */
+function refreshFeedToggle(){
+  call("feedSources",[],function(r){ var el=$("feedTog"); if(!el||!r||!r.sources||r.sources.length<2){ if(el) el.innerHTML=""; return; }
+    el.innerHTML='<span class="feedlbl">Feed</span>'+r.sources.map(function(s){
+      return '<button class="feedb'+(s.key===r.active?" on":"")+'" onclick="switchFeed(\''+s.key+'\')">'+esc(s.label)+'</button>';
+    }).join(""); });
+}
+function switchFeed(key){
+  var el=$("feedTog"); if(el) el.querySelectorAll(".feedb").forEach(function(b){b.disabled=true;});
+  if($("monGate")) $("monGate").textContent="switching feed…";
+  call("switchFeed",[key],function(r){
+    refreshFeedToggle();
+    if($("monGate")) $("monGate").textContent = (r&&r.ok)? ("feed: "+key+(r.engine_restarted?" · engine restarting":"")) : ("switch failed: "+((r&&r.error)||"?"));
+    // reflect the new source everywhere
+    refreshCounts(); refreshMonitor();
+    if(state.route==="live"){ stopLive(); render(); }
+    else if(state.route==="alerts"){ state.alertsSig=""; render(); }
+    else render();
+  });
 }
 
 function render(){
@@ -1264,7 +1292,7 @@ function initNetWatch(){
   window.addEventListener("offline", updateNetBadge);
 }
 /* ---------- boot ---------- */
-function startApp(){ renderNav(); refreshCounts(); refreshMonitor(); startGlobalWatch(); initNetWatch(); render(); }
+function startApp(){ renderNav(); refreshCounts(); refreshFeedToggle(); refreshMonitor(); startGlobalWatch(); initNetWatch(); render(); }
 
 /* ---------- global alert watch: badge + sound + live-tile flags, any screen ---------- */
 function startGlobalWatch(){ if(state.globalTimer) return; state.globalTimer=setInterval(pollAlertsGlobal, 3000); pollAlertsGlobal(); }

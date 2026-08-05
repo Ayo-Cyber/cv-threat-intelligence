@@ -1,0 +1,7 @@
+{
+  "zones": [
+    {"name": "watch", "kind": "restricted", "anchors": ["BOTTOM_CENTER"],
+     "dwell_alert_seconds": 1.5,
+     "polygon": [[2,2],[1276,2],[1276,716],[2,716]]}
+  ]
+}

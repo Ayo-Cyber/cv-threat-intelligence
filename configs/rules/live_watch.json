@@ -1,0 +1,8 @@
+{
+  "use_case_id": "live_watch",
+  "rules": [
+    {"name": "panic_running", "trigger": {"detector": "running"}, "priority": "high"},
+    {"name": "loitering_watch", "trigger": {"detector": "presence"},
+     "context_filter": "zone == 'watch' and dwell_seconds >= 1.5", "priority": "medium"}
+  ]
+}

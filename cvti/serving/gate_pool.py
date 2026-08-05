@@ -24,7 +24,10 @@ VerdictHandler = Callable[[QueuedAlert, Any], None]
 # exists to kill. The VLM now verifies covered-camera and weapon claims too, with
 # detector-specific gate questions.) Left as an empty, overridable set so a
 # genuinely deterministic detector could opt back in later if ever needed.
-BYPASS_DETECTORS: set[str] = set()
+# 'presence' (loitering/dwell) is a deterministic geometric fact — someone stood in
+# the zone past the dwell threshold. Auto-confirm it instead of asking the VLM (which
+# would reject "a person standing on a street" as not-a-threat). Demo/loitering path.
+BYPASS_DETECTORS: set[str] = {"presence"}
 
 
 class GatePool:

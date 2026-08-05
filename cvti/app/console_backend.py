@@ -389,6 +389,79 @@ class ConsoleBackend:
         running = bool(self._monitor and self._monitor.poll() is None)
         return {"running": running, "pid": (self._monitor.pid if running else None)}
 
+    # --- feed source switcher: flip between demo videos and live cameras ---
+    def _feeds_registry(self) -> dict:
+        p = Path("configs/feeds.json")
+        if not p.exists():
+            return {"sources": []}
+        try:
+            return json.loads(p.read_text())
+        except Exception:  # noqa: BLE001
+            return {"sources": []}
+
+    def feed_sources(self) -> dict:
+        """The switchable feed sources + which one is active (matched by config path)."""
+        reg = self._feeds_registry()
+        active = None
+        srcs = []
+        for s in reg.get("sources", []):
+            is_active = str(Path(s.get("config", "")).resolve()) == str(Path(self.site_path).resolve())
+            if is_active:
+                active = s["key"]
+            srcs.append({"key": s["key"], "label": s["label"], "kind": s.get("kind", "demo")})
+        return {"sources": srcs, "active": active}
+
+    def switch_feed(self, key: str) -> dict:
+        """Point the app (and, if running, the engine) at another feed source.
+        For live sources, resolve fresh stream URLs first (they expire)."""
+        reg = self._feeds_registry()
+        src = next((s for s in reg.get("sources", []) if s["key"] == key), None)
+        if not src:
+            return {"ok": False, "error": f"unknown feed source '{key}'"}
+        if src.get("kind") == "live":
+            res = self._resolve_live_config(src)
+            if not res.get("ok"):
+                return res
+        was_running = bool(self._monitor and self._monitor.poll() is None)
+        if was_running:
+            self.stop_monitoring()
+        self.site_path = src["config"]
+        restarted = False
+        if was_running and not getattr(sys, "frozen", False):
+            self.start_monitoring()
+            restarted = True
+        return {"ok": True, "active": key, "kind": src.get("kind", "demo"),
+                "config": src["config"], "engine_restarted": restarted}
+
+    def _resolve_live_config(self, src: dict) -> dict:
+        """Resolve each YouTube id to a fresh HLS URL (yt-dlp) and write the live
+        config with running + the shared loitering watch-zone."""
+        import shutil
+        if not shutil.which("yt-dlp"):
+            return {"ok": False, "error": "yt-dlp not installed — needed for live feeds. pip install yt-dlp"}
+        cams = []
+        for name, vid in src.get("youtube", []):
+            try:
+                out = subprocess.run(
+                    ["yt-dlp", "-g", "--extractor-args", "youtube:player_client=android",
+                     "-f", "best[height<=720]/best", f"https://www.youtube.com/watch?v={vid}"],
+                    capture_output=True, text=True, timeout=40)
+                url = (out.stdout or "").strip().splitlines()[0] if out.stdout.strip() else ""
+            except Exception:  # noqa: BLE001
+                url = ""
+            if url:
+                cams.append({"id": name, "source": url,
+                             "config": "configs/rules/live_watch.json",
+                             "zones": "configs/zones/live_watch.json",
+                             "environment_type": "public area",
+                             "scene_description": "A public street/plaza/terminal; a person lingering (loitering) or running may signal an incident.",
+                             "running": True, "running_min_speed_ratio": 0.08, "running_min_frames": 3})
+        if not cams:
+            return {"ok": False, "error": "could not resolve any live feed (try `yt-dlp -U`)"}
+        Path(src["config"]).write_text(json.dumps(
+            {"name": "Live Dashboard", "notify": "console", "configured": True, "cameras": cams}, indent=2))
+        return {"ok": True, "resolved": len(cams)}
+
     def setup_state(self) -> dict:
         """Everything the wizard needs to decide whether to show + where to resume."""
         meta = self.get_site()

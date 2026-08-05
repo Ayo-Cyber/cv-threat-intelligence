@@ -1,0 +1,13 @@
+{
+  "_comment": "Feed sources the operator can switch between in the app. 'demo' = bundled clips (reliable canned threats); 'live' = real public EarthCam feeds (URLs resolved fresh via yt-dlp on switch).",
+  "sources": [
+    {"key": "demo", "label": "Demo Videos", "kind": "demo", "config": "configs/deluxe_demo.json"},
+    {"key": "live", "label": "Live EarthCams", "kind": "live", "config": "configs/live_camera.json",
+     "youtube": [
+       ["Dublin Street", "3nyPER2kzqk"],
+       ["LaGuardia Airport", "OUBslrCqREs"],
+       ["Venice Canal", "mt7uE-n0YPI"],
+       ["Heathrow Airport", "201MyYKtXaQ"]
+     ]}
+  ]
+}
