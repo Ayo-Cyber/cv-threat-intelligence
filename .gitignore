@@ -73,4 +73,21 @@ data/anomaly-*.zip
 
 # Generated playback-demo bundle (built by packaging/build_demo_data.py)
 packaging/demo_data/
+
+# ── Runtime-written configs (per deployment, not source) ─────────────────────
+# The app writes a zone + rules file per camera when you draw a zone in-app, and
+# resolves live stream URLs into live_camera.json. Those are operator data tied
+# to one machine — only the curated defaults we ship are tracked.
 configs/live_camera.json
+configs/webcam.json
+configs/zones/*
+configs/rules/*
+!configs/zones/live_watch.json
+!configs/rules/live_watch.json
+!configs/zones/.gitkeep
+!configs/rules/.gitkeep
+
+# ── Handoff artifacts (regenerate with git bundle / git format-patch) ────────
+argus-work.bundle
+argus-patches/
+*.bundle
