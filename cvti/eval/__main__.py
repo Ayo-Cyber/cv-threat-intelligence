@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 
 from cvti.eval.dataset import describe, load_dataset
-from cvti.eval.harness import EvalHarness
+from cvti.eval.harness import EvalHarness, GateUnavailable
 from cvti.eval.metrics import compare_stages, render_report
 
 
@@ -69,7 +69,17 @@ def main() -> None:
                           gate=gate, target_fps=args.target_fps,
                           max_seconds_per_clip=args.max_seconds, out_dir=args.out,
                           run_key=run_key)
-    results = harness.run(clips)
+    try:
+        results = harness.run(clips)
+    except GateUnavailable as exc:
+        print(f"\n[eval] ABORTED — {exc}")
+        print("[eval] No numbers written: a run without a working gate would report "
+              "everything as 'suppressed', which is meaningless.")
+        raise SystemExit(2) from None
+    except KeyboardInterrupt:
+        print("\n[eval] interrupted — completed clips are checkpointed; "
+              "re-run the same command to resume.")
+        raise SystemExit(130) from None
 
     rows = [r.to_dict() for r in results]
     summary = compare_stages(rows)

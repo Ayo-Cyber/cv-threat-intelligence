@@ -21,6 +21,10 @@ from typing import Any
 from cvti.eval.dataset import EvalClip
 
 
+class GateUnavailable(RuntimeError):
+    """The verification gate is unreachable — abort rather than report fake numbers."""
+
+
 @dataclass
 class ClipResult:
     name: str
@@ -63,6 +67,30 @@ class EvalHarness:
         # Checkpoints are per RUN KEY (gate + detectors). Resuming a real ollama
         # run from mock results would silently report fake numbers.
         self.run_key = run_key
+        self.gate_errors = 0            # consecutive gate failures
+        self.max_gate_errors = 5        # abort past this — see _confirm()
+
+    def preflight(self) -> None:
+        """Fail fast if the gate can't answer, instead of producing a whole run of
+        'rejections' that are really connection errors."""
+        if self.gate is None:
+            return
+        import numpy as np
+
+        from cvti.contracts import CandidateAlert
+        probe = CandidateAlert(
+            rule_name="preflight", detector="video_action", title="preflight probe",
+            person_id=None, object_label=None, priority="low", timestamp=0.0)
+        frame = np.zeros((64, 64, 3), dtype=np.uint8)
+        try:
+            self.gate.verify([frame], probe, {"environment_type": "test",
+                                              "scene_description": "preflight"})
+        except Exception as exc:  # noqa: BLE001
+            raise GateUnavailable(
+                f"verification gate unreachable: {str(exc)[:160]}\n"
+                "  If you meant to use the local VLM, start it first:  ollama serve\n"
+                "  (and make sure the model is pulled:  ollama pull gemma3:4b)"
+            ) from exc
         self._model = None
         self._names = None
         self._threat_classes = None
@@ -153,14 +181,24 @@ class EvalHarness:
         try:
             verdict = self.gate.verify(payload.get("frames"), payload.get("candidate"),
                                        payload.get("scene"))
+            self.gate_errors = 0        # a success clears the streak
             return bool(verdict is not None and verdict.confirmed)
-        except Exception as exc:  # noqa: BLE001 - a gate error is not a confirmation
+        except Exception as exc:  # noqa: BLE001
+            # A gate error is NOT a rejection. Counting it as one would report
+            # "TrueSight suppressed everything" — fake numbers that look real.
+            self.gate_errors += 1
             print(f"[eval] gate error on {alert.rule_name}: {str(exc)[:90]}")
+            if self.gate_errors >= self.max_gate_errors:
+                raise GateUnavailable(
+                    f"{self.gate_errors} consecutive gate failures — aborting so the run "
+                    f"cannot report bogus suppression numbers. Last error: {str(exc)[:120]}"
+                ) from exc
             return False
 
     # --- the whole set, resumable ---
     def run(self, clips: list[EvalClip], *, resume: bool = True,
             progress: bool = True) -> list[ClipResult]:
+        self.preflight()      # cheap: one probe verdict before committing to the set
         safe = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in self.run_key)
         results_path = self.out_dir / f"clip_results_{safe}.jsonl"
         done: dict[str, dict] = {}
