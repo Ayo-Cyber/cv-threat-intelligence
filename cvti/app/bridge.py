@@ -51,7 +51,12 @@ class Backend(QObject):
 
     @pyqtSlot(str, result=str)
     def switchFeed(self, key: str) -> str:
+        # returns immediately; the switch runs on a background thread
         return self._safe(lambda: self._core.switch_feed(key))
+
+    @pyqtSlot(result=str)
+    def feedSwitchStatus(self) -> str:
+        return self._safe(self._core.feed_switch_status)
 
     @pyqtSlot(result=str)
     def presets(self) -> str:

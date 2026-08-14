@@ -403,18 +403,35 @@ function refreshFeedToggle(){
       return '<button class="feedb'+(s.key===r.active?" on":"")+'" onclick="switchFeed(\''+s.key+'\')">'+esc(s.label)+'</button>';
     }).join(""); });
 }
+/* Switching is ASYNC: the backend returns at once and works in the background
+   (resolving live URLs + restarting the engine takes many seconds). We poll for
+   progress so the window never freezes. */
 function switchFeed(key){
   var el=$("feedTog"); if(el) el.querySelectorAll(".feedb").forEach(function(b){b.disabled=true;});
-  if($("monGate")) $("monGate").textContent="switching feed…";
+  setFeedStatus("switching feed…");
   call("switchFeed",[key],function(r){
-    refreshFeedToggle();
-    if($("monGate")) $("monGate").textContent = (r&&r.ok)? ("feed: "+key+(r.engine_restarted?" · engine restarting":"")) : ("switch failed: "+((r&&r.error)||"?"));
-    // reflect the new source everywhere
-    refreshCounts(); refreshMonitor();
-    if(state.route==="live"){ stopLive(); render(); }
-    else if(state.route==="alerts"){ state.alertsSig=""; render(); }
-    else render();
+    if(r && r.error){ finishSwitch({error:r.error}); return; }
+    pollFeedSwitch(0);
   });
+}
+function setFeedStatus(txt){ var g=$("monGate"); if(g) g.textContent=txt; }
+function pollFeedSwitch(n){
+  if(n>150){ finishSwitch({error:"timed out"}); return; }        // ~2.5 min ceiling
+  call("feedSwitchStatus",[],function(s){
+    if(!s || s.error){ finishSwitch({error:(s&&s.error)||"failed"}); return; }
+    if(s.busy){ setFeedStatus(s.status||"switching…"); setTimeout(function(){ pollFeedSwitch(n+1); },1000); return; }
+    finishSwitch(s);
+  });
+}
+function finishSwitch(s){
+  var el=$("feedTog"); if(el) el.querySelectorAll(".feedb").forEach(function(b){b.disabled=false;});
+  refreshFeedToggle();
+  setFeedStatus(s && s.error ? ("switch failed: "+s.error)
+    : ("feed: "+(s.active||"")+(s.engine_restarted?" · engine restarting":"")));
+  refreshCounts(); refreshMonitor();
+  if(state.route==="live"){ stopLive(); render(); }
+  else if(state.route==="alerts"){ state.alertsSig=""; render(); }
+  else render();
 }
 
 function render(){

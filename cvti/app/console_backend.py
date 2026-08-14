@@ -427,26 +427,54 @@ class ConsoleBackend:
         return {"sources": srcs, "active": active}
 
     def switch_feed(self, key: str) -> dict:
-        """Point the app (and, if running, the engine) at another feed source.
-        For live sources, resolve fresh stream URLs first (they expire)."""
+        """Start switching the app (and, if running, the engine) to another feed.
+
+        Returns IMMEDIATELY and does the work on a background thread — resolving
+        live stream URLs takes seconds per feed and restarting the engine takes
+        more, and doing that inline would freeze the Qt UI thread. Poll
+        feed_switch_status() for progress."""
+        import threading
+        st = getattr(self, "_switch_state", None)
+        if st and st.get("busy"):
+            return {"ok": False, "busy": True, "status": st.get("status", "switching…")}
         reg = self._feeds_registry()
         src = next((s for s in reg.get("sources", []) if s["key"] == key), None)
         if not src:
             return {"ok": False, "error": f"unknown feed source '{key}'"}
-        if src.get("kind") == "live":
-            res = self._resolve_live_config(src)
-            if not res.get("ok"):
-                return res
-        was_running = bool(self._monitor and self._monitor.poll() is None)
-        if was_running:
-            self.stop_monitoring()
-        self.site_path = src["config"]
-        restarted = False
-        if was_running and not getattr(sys, "frozen", False):
-            self.start_monitoring()
-            restarted = True
-        return {"ok": True, "active": key, "kind": src.get("kind", "demo"),
-                "config": src["config"], "engine_restarted": restarted}
+        self._switch_state = {"busy": True, "status": "starting…", "error": None,
+                              "active": None, "done": False}
+        threading.Thread(target=self._do_switch, args=(src, key),
+                         name="feed-switch", daemon=True).start()
+        return {"ok": True, "busy": True, "status": "switching…"}
+
+    def feed_switch_status(self) -> dict:
+        """Progress of an in-flight switch_feed (the UI polls this)."""
+        return dict(getattr(self, "_switch_state", {"busy": False, "done": True}))
+
+    def _do_switch(self, src: dict, key: str) -> None:
+        st = self._switch_state
+        try:
+            if src.get("kind") == "live":
+                st["status"] = "resolving live streams…"
+                res = self._resolve_live_config(src)
+                if not res.get("ok"):
+                    st.update(busy=False, done=True, error=res.get("error", "resolve failed"))
+                    return
+            was_running = bool(self._monitor and self._monitor.poll() is None)
+            if was_running:
+                st["status"] = "stopping engine…"
+                self.stop_monitoring()
+            self.site_path = src["config"]
+            restarted = False
+            if was_running and not getattr(sys, "frozen", False):
+                st["status"] = "restarting engine…"
+                self.start_monitoring()
+                restarted = True
+            st.update(busy=False, done=True, active=key, error=None,
+                      kind=src.get("kind", "demo"), config=src["config"],
+                      engine_restarted=restarted, status="done")
+        except Exception as exc:  # noqa: BLE001 - a failed switch must not wedge the UI
+            st.update(busy=False, done=True, error=str(exc)[:200], status="failed")
 
     def _resolve_live_config(self, src: dict) -> dict:
         """Resolve each YouTube id to a fresh HLS URL (yt-dlp) and write the live
@@ -454,23 +482,34 @@ class ConsoleBackend:
         import shutil
         if not shutil.which("yt-dlp"):
             return {"ok": False, "error": "yt-dlp not installed — needed for live feeds. pip install yt-dlp"}
-        cams = []
-        for name, vid in src.get("youtube", []):
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _resolve_one(entry):
+            name, vid = entry
             try:
                 out = subprocess.run(
                     ["yt-dlp", "-g", "--extractor-args", "youtube:player_client=android",
                      "-f", "best[height<=720]/best", f"https://www.youtube.com/watch?v={vid}"],
-                    capture_output=True, text=True, timeout=40)
-                url = (out.stdout or "").strip().splitlines()[0] if out.stdout.strip() else ""
-            except Exception:  # noqa: BLE001
-                url = ""
-            if url:
-                cams.append({"id": name, "source": url,
-                             "config": "configs/rules/live_watch.json",
-                             "zones": "configs/zones/live_watch.json",
-                             "environment_type": "public area",
-                             "scene_description": "A public street/plaza/terminal; a person lingering (loitering) or running may signal an incident.",
-                             "running": True, "running_min_speed_ratio": 0.08, "running_min_frames": 3})
+                    capture_output=True, text=True, timeout=25)
+                return name, ((out.stdout or "").strip().splitlines() or [""])[0]
+            except Exception:  # noqa: BLE001 - a dead feed shouldn't sink the others
+                return name, ""
+
+        feeds = list(src.get("youtube", []))
+        cams = []
+        # Resolve every feed CONCURRENTLY — sequential resolves made the switch
+        # take ~4x longer than it needed to.
+        with ThreadPoolExecutor(max_workers=min(6, max(1, len(feeds)))) as pool:
+            for name, url in pool.map(_resolve_one, feeds):
+                if url:
+                    cams.append({
+                        "id": name, "source": url,
+                        "config": "configs/rules/live_watch.json",
+                        "zones": "configs/zones/live_watch.json",
+                        "environment_type": "public area",
+                        "scene_description": "A public street/plaza/terminal; a person lingering (loitering) or running may signal an incident.",
+                        "running": True, "running_min_speed_ratio": 0.08,
+                        "running_min_frames": 3})
         if not cams:
             return {"ok": False, "error": "could not resolve any live feed (try `yt-dlp -U`)"}
         Path(src["config"]).write_text(json.dumps(
