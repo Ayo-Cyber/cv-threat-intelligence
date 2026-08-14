@@ -57,13 +57,18 @@ def main() -> None:
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Results are only comparable within the same gate + detector set, so the
+    # checkpoint is keyed by them (a mock run can never be resumed as a real one).
+    run_key = f"{args.gate}-{args.detectors.replace(',', '+')}"
     if args.fresh:
-        (out_dir / "clip_results.jsonl").unlink(missing_ok=True)
+        for f in out_dir.glob("clip_results_*.jsonl"):
+            f.unlink(missing_ok=True)
 
     gate = _build_gate(args.gate, args.gate_model, str(out_dir / "gate"))
     harness = EvalHarness(detectors=tuple(d.strip() for d in args.detectors.split(",") if d.strip()),
                           gate=gate, target_fps=args.target_fps,
-                          max_seconds_per_clip=args.max_seconds, out_dir=args.out)
+                          max_seconds_per_clip=args.max_seconds, out_dir=args.out,
+                          run_key=run_key)
     results = harness.run(clips)
 
     rows = [r.to_dict() for r in results]
@@ -72,12 +77,18 @@ def main() -> None:
             "detectors": args.detectors, "dataset": args.dataset,
             "max_seconds_per_clip": args.max_seconds}
     payload = {"meta": meta, "dataset": info, "summary": summary, "clips": rows}
-    (out_dir / "metrics.json").write_text(json.dumps(payload, indent=2))
     report = render_report(summary, info, meta)
-    (out_dir / "report.md").write_text(report)
+    # latest-run files, plus gate-tagged copies so a mock run never overwrites a
+    # real measured one (and vice versa)
+    tag = args.gate
+    for name, text in (("metrics.json", json.dumps(payload, indent=2)), ("report.md", report)):
+        (out_dir / name).write_text(text)
+        stem, _, ext = name.partition(".")
+        (out_dir / f"{stem}-{tag}.{ext}").write_text(text)
 
     print("\n" + report)
-    print(f"[eval] wrote {out_dir/'metrics.json'} and {out_dir/'report.md'}")
+    print(f"[eval] wrote {out_dir/'metrics.json'} and {out_dir/'report.md'} "
+          f"(also tagged -{tag})")
     if args.gate == "mock":
         print("[eval] NOTE: --gate mock confirms everything. Re-run with --gate ollama "
               "for real suppression numbers.")

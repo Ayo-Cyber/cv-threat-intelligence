@@ -48,7 +48,7 @@ class EvalHarness:
                  detectors: tuple = ("concealment", "video_action"),
                  gate: Any = None, target_fps: float = 4.0,
                  max_seconds_per_clip: float = 30.0,
-                 out_dir: str = "runs/eval") -> None:
+                 out_dir: str = "runs/eval", run_key: str = "default") -> None:
         self.config = config
         self.baseline = baseline
         self.weights = weights
@@ -60,6 +60,9 @@ class EvalHarness:
         self.max_seconds_per_clip = max_seconds_per_clip
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
+        # Checkpoints are per RUN KEY (gate + detectors). Resuming a real ollama
+        # run from mock results would silently report fake numbers.
+        self.run_key = run_key
         self._model = None
         self._names = None
         self._threat_classes = None
@@ -158,7 +161,8 @@ class EvalHarness:
     # --- the whole set, resumable ---
     def run(self, clips: list[EvalClip], *, resume: bool = True,
             progress: bool = True) -> list[ClipResult]:
-        results_path = self.out_dir / "clip_results.jsonl"
+        safe = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in self.run_key)
+        results_path = self.out_dir / f"clip_results_{safe}.jsonl"
         done: dict[str, dict] = {}
         if resume and results_path.exists():
             for line in results_path.read_text().splitlines():

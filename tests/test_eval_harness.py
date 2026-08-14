@@ -104,9 +104,9 @@ class DatasetTests(unittest.TestCase):
 class ResumeTests(unittest.TestCase):
     def test_completed_clips_are_skipped_on_resume(self):
         d = Path(tempfile.mkdtemp())
-        (d / "clip_results.jsonl").write_text(json.dumps(
+        (d / "clip_results_k.jsonl").write_text(json.dumps(
             ClipResult("a.mp4", "/x/a.mp4", True, candidates=2, confirmed=1).to_dict()) + "\n")
-        h = EvalHarness(out_dir=str(d))
+        h = EvalHarness(out_dir=str(d), run_key="k")
         # would need models if it actually ran the clip; resume must avoid that
         h.run_clip = lambda clip: self.fail("should not re-run a checkpointed clip")
         out = h.run([EvalClip("/x/a.mp4", True)], progress=False)
