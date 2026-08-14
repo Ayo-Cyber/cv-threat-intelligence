@@ -117,3 +117,32 @@ class ResumeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SensitivityTests(unittest.TestCase):
+    """The recall/precision trade-off is a measured setting, not a hidden constant."""
+
+    def test_strict_overrides_the_theft_question(self):
+        from cvti.verification.gate import _build_question
+        bal = _build_question("video_theft_candidate", "retail", "video_action", "balanced")
+        strict = _build_question("video_theft_candidate", "retail", "video_action", "strict")
+        self.assertNotEqual(bal, strict)
+        # the strict preset is what stopped 'taking an item off a shelf' counting as theft
+        self.assertIn("NORMAL SHOPPING", strict)
+        self.assertNotIn("NORMAL SHOPPING", bal)
+
+    def test_unknown_sensitivity_falls_back_to_balanced(self):
+        from cvti.verification.gate import VerificationGate
+        self.assertEqual(VerificationGate(sensitivity="nonsense").sensitivity, "balanced")
+
+    def test_measured_numbers_are_published_with_their_dataset(self):
+        from cvti.verification.gate import SENSITIVITY_MEASURED
+        for key in ("balanced", "strict"):
+            m = SENSITIVITY_MEASURED[key]
+            self.assertTrue(0 < m["recall"] <= 1 and 0 < m["precision"] <= 1)
+        # strict trades recall for precision — that is the whole point
+        self.assertLess(SENSITIVITY_MEASURED["strict"]["recall"],
+                        SENSITIVITY_MEASURED["balanced"]["recall"])
+        self.assertGreater(SENSITIVITY_MEASURED["strict"]["precision"],
+                           SENSITIVITY_MEASURED["balanced"]["precision"])
+        self.assertIn("held-out", SENSITIVITY_MEASURED["_dataset"])

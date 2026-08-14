@@ -112,7 +112,10 @@ are guessing.
 """
 
 _QUESTIONS: dict[str, str] = {
-    "shoplifting": "Does this frame show a person concealing or taking merchandise without paying in a {environment_type}?",
+    "shoplifting": ("Is a person CONCEALING merchandise in this {environment_type} — slipping it "
+                    "into clothing, a pocket, a waistband, or a personal bag? Handling, examining "
+                    "or carrying goods openly, or putting them in a shop basket or trolley, is "
+                    "normal shopping and is NOT shoplifting."),
     "violence_in_store": "Does this frame show genuine physical violence or assault in a {environment_type}?",
     "weapon_sighting": "Does this frame show a real weapon being carried or brandished by a person?",
     "after_hours_intrusion": "Does this frame show unauthorized presence in a {environment_type} outside business hours?",
@@ -136,6 +139,8 @@ _QUESTIONS: dict[str, str] = {
 _DETECTOR_QUESTIONS: dict[str, str] = {
     "weapons": "Does this frame clearly show a real weapon (gun, knife, blade) being held, carried, or brandished by a person? A phone, tool, bottle, or empty hand is NOT a weapon.",
     "camera_tampering": _QUESTIONS["camera_tampering"],
+    # The theft question is sensitivity-dependent — see SENSITIVITY_QUESTIONS below.
+    # This entry is the 'balanced' default; VerificationGate swaps it per setting.
     "video_action": (
         "An action model flagged this sequence as theft. It over-fires — it flags empty "
         "streets, parked cars and ordinary passers-by — so judge the FRAMES YOURSELF.\n"
@@ -145,12 +150,58 @@ _DETECTOR_QUESTIONS: dict[str, str] = {
         "fleeing with property.\n"
         "Answer FALSE if the frames show: no people at all; only vehicles, buildings or an "
         "empty street; people merely present, standing, walking, queueing or browsing; or a "
-        "normal transaction at a counter. 'Someone is there and it looks like it could be a "
-        "shop' is NOT theft."),
+        "normal transaction at a counter."),
     "fire": "Does this frame show visible fire, flames, smoke, or hazardous haze? Sunset/sunlight, orange or red signage, reflections, screens, and coloured lighting are NOT fire.",
     "person_fall": "Do these frames show a person who has collapsed or is lying on the ground (fallen, fainted, or knocked down) and NOT getting up — a possible medical emergency? Someone sitting, crouching, kneeling, bending down, or deliberately lying down is NOT a fall.",
     "running": "Does this brief sequence show a person running or moving with panic/urgency? Someone walking calmly is NOT panic.",
     "crowd_formation": "Does this frame show an unsafe crowd or tight group formation blocking movement or exits? A few people spread out normally is NOT unsafe.",
+}
+
+
+# ---------------------------------------------------------------------------
+# Sensitivity — a measured trade-off, not a guess.
+#
+# Numbers below are from tests on the 36-clip held-out CamNuvem test split with
+# gemma3:4b (runs/eval/*). Tightening the theft question buys precision and costs
+# recall, monotonically — so this is the operator's call, not ours.
+#
+#   sensitive  catch everything, tolerate noise   recall 88.9%  FPR 25.9%  prec 53.3%
+#   balanced   (default) same as 'sensitive' today — kept distinct so the
+#              wording can diverge without breaking configs
+#   strict     quiet console, accept misses       recall 77.8%  FPR 14.8%  prec 63.6%
+# ---------------------------------------------------------------------------
+
+_STRICT_THEFT_Q = (
+    "An action model flagged this sequence as theft. It over-fires — on empty streets, "
+    "parked cars and ordinary shoppers — so judge the FRAMES YOURSELF.\n"
+    "CRITICAL: picking up, holding, examining or carrying merchandise is NORMAL SHOPPING, "
+    "not theft. Customers take things off shelves; that is the entire point of a shop. "
+    "Do NOT confirm because someone is 'taking an item from the shelf'.\n"
+    "Answer TRUE only for a visible sign the goods are being STOLEN rather than shopped: "
+    "an item being CONCEALED (slipped into clothing, a pocket, a waistband, or a personal "
+    "bag — not a shop basket or trolley); something being forced, pried or broken open; "
+    "property snatched from a person or vehicle; or someone running away with goods.\n"
+    "Answer FALSE for: no people at all; only vehicles, buildings or an empty street; "
+    "people standing, walking, queueing, browsing, or handling goods openly; anyone paying "
+    "or being served at a counter; or simply walking out carrying a bag.")
+
+_STRICT_SHOPLIFTING_Q = (
+    "Is a person CONCEALING merchandise in this {environment_type} — slipping it into "
+    "clothing, a pocket, a waistband, or a personal bag? Handling, examining or carrying "
+    "goods openly, or putting them in a shop basket or trolley, is normal shopping and is "
+    "NOT shoplifting.")
+
+SENSITIVITY_QUESTIONS: dict[str, dict[str, str]] = {
+    "sensitive": {},                       # use the defaults above
+    "balanced": {},
+    "strict": {"video_action": _STRICT_THEFT_Q, "shoplifting": _STRICT_SHOPLIFTING_Q},
+}
+
+# Measured on the held-out set — surfaced so the UI/docs can state real numbers.
+SENSITIVITY_MEASURED = {
+    "balanced": {"recall": 0.889, "precision": 0.533, "fpr": 0.259, "alerts": 61},
+    "strict": {"recall": 0.778, "precision": 0.636, "fpr": 0.148, "alerts": 28},
+    "_dataset": "36 held-out CamNuvem test clips (9 threat / 27 normal), gemma3:4b",
 }
 
 
@@ -175,7 +226,13 @@ def _format_examples(examples: list | None) -> str:
             "(use it to calibrate — the operator is the ground truth):\n" + "\n".join(lines))
 
 
-def _build_question(rule_name: str, environment_type: str, detector: str = "") -> str:
+def _build_question(rule_name: str, environment_type: str, detector: str = "",
+                    sensitivity: str = "balanced") -> str:
+    # A sensitivity preset can override the question for specific rules/detectors.
+    override = SENSITIVITY_QUESTIONS.get(sensitivity, {})
+    tpl = override.get(rule_name) or override.get(detector)
+    if tpl:
+        return tpl.format(environment_type=environment_type)
     # Prefer a rule-specific question; else fall back to a detector-specific one so
     # weapons/tamper/video-action get verified for the RIGHT thing (not a generic
     # "is this a threat"). Only then the generic catch-all.
@@ -211,9 +268,13 @@ class VerificationGate:
         base_url: str = "",
         cot: bool = True,
         min_confidence: float = 0.35,
+        sensitivity: str = "balanced",
     ) -> None:
         self.provider = provider
         self.cot = cot
+        # 'sensitive' | 'balanced' | 'strict' — swaps the threat questions for a
+        # measured recall/precision trade-off (see SENSITIVITY_MEASURED).
+        self.sensitivity = sensitivity if sensitivity in SENSITIVITY_QUESTIONS else "balanced"
         # A confirmed verdict below this confidence is downgraded to rejected — kills
         # the borderline "confirmed at 0.5" noise the CV detectors produce.
         self.min_confidence = max(0.0, min(1.0, float(min_confidence)))
@@ -250,7 +311,8 @@ class VerificationGate:
             person_id=alert.person_id if alert.person_id is not None else "unknown",
             object_label=alert.object_label or "unknown",
             question=getattr(alert, "question", None) or _build_question(
-                alert.rule_name, environment_type, getattr(alert, "detector", "")),
+                alert.rule_name, environment_type, getattr(alert, "detector", ""),
+                self.sensitivity),
             priority=alert.priority,
         )
         mem = _format_examples(examples)

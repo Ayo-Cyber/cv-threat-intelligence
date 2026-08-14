@@ -21,13 +21,13 @@ from cvti.eval.harness import EvalHarness, GateUnavailable
 from cvti.eval.metrics import compare_stages, render_report
 
 
-def _build_gate(kind: str, model: str, save_dir: str | None):
+def _build_gate(kind: str, model: str, save_dir: str | None, sensitivity: str = "balanced"):
     if kind == "none":
         return None
     from cvti.verification.gate import VerificationGate
     provider = "mock" if kind == "mock" else kind
     return VerificationGate(provider=provider, model=("" if kind == "mock" else model),
-                            save_dir=save_dir)
+                            save_dir=save_dir, sensitivity=sensitivity)
 
 
 def main() -> None:
@@ -38,6 +38,8 @@ def main() -> None:
     p.add_argument("--gate", choices=("ollama", "mock", "none"), default="mock",
                    help="ollama = real measurement; mock = wiring check; none = Stage 1 only.")
     p.add_argument("--gate-model", default="gemma3:4b")
+    p.add_argument("--sensitivity", choices=("sensitive", "balanced", "strict"),
+                   default="balanced", help="verification strictness to measure")
     p.add_argument("--detectors", default="concealment,video_action",
                    help="comma-separated detectors to enable.")
     p.add_argument("--max-seconds", type=float, default=30.0, help="max seconds analysed per clip.")
@@ -59,12 +61,12 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     # Results are only comparable within the same gate + detector set, so the
     # checkpoint is keyed by them (a mock run can never be resumed as a real one).
-    run_key = f"{args.gate}-{args.detectors.replace(',', '+')}"
+    run_key = f"{args.gate}-{args.sensitivity}-{args.detectors.replace(',', '+')}"
     if args.fresh:
         for f in out_dir.glob("clip_results_*.jsonl"):
             f.unlink(missing_ok=True)
 
-    gate = _build_gate(args.gate, args.gate_model, str(out_dir / "gate"))
+    gate = _build_gate(args.gate, args.gate_model, str(out_dir / "gate"), args.sensitivity)
     harness = EvalHarness(detectors=tuple(d.strip() for d in args.detectors.split(",") if d.strip()),
                           gate=gate, target_fps=args.target_fps,
                           max_seconds_per_clip=args.max_seconds, out_dir=args.out,
@@ -83,14 +85,14 @@ def main() -> None:
 
     rows = [r.to_dict() for r in results]
     summary = compare_stages(rows)
-    meta = {"gate": args.gate, "gate_model": args.gate_model if args.gate == "ollama" else None,
+    meta = {"gate": args.gate, "sensitivity": args.sensitivity, "gate_model": args.gate_model if args.gate == "ollama" else None,
             "detectors": args.detectors, "dataset": args.dataset,
             "max_seconds_per_clip": args.max_seconds}
     payload = {"meta": meta, "dataset": info, "summary": summary, "clips": rows}
     report = render_report(summary, info, meta)
     # latest-run files, plus gate-tagged copies so a mock run never overwrites a
     # real measured one (and vice versa)
-    tag = args.gate
+    tag = f"{args.gate}-{args.sensitivity}"
     for name, text in (("metrics.json", json.dumps(payload, indent=2)), ("report.md", report)):
         (out_dir / name).write_text(text)
         stem, _, ext = name.partition(".")

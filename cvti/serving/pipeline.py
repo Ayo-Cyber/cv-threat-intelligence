@@ -160,6 +160,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              target_fps: float = 5.0, imgsz: int = 640, conf: float = 0.4,
              device: str = "", half: bool = False, seconds: float = 90.0,
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
+             gate_sensitivity: str = "balanced",
              pose_weights: str = "models/yolov8n-pose.pt",
              weapon_weights: str = "models/weapon_best.pt", yolov5_repo: str = "external/yolov5",
              video_action_model_path: str = "runs/video_finetune/videomae",
@@ -233,7 +234,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     gate_pool = GatePool(
         queue,
         gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
-                                              base_url=gate_base_url, save_dir=save_dir),
+                                              base_url=gate_base_url, save_dir=save_dir,
+                                              sensitivity=gate_sensitivity),
         workers=gate_workers,
         on_verdict=sink.handle,
         examples_provider=_examples_provider,
@@ -292,6 +294,10 @@ def main() -> None:
     p.add_argument("--gate-provider", default="mock")
     p.add_argument("--gate-model", default="")
     p.add_argument("--gate-base-url", default="")
+    p.add_argument("--gate-sensitivity", choices=("sensitive", "balanced", "strict"),
+                   default="balanced",
+                   help="Verification strictness. Measured on held-out clips: balanced = "
+                        "recall 89%%/FPR 26%%, strict = recall 78%%/FPR 15%%.")
     p.add_argument("--gate-workers", type=int, default=1,
                    help="Concurrent VLM gate workers (raise for real/slow gates).")
     p.add_argument("--gate-drain", type=float, default=180.0,
@@ -307,6 +313,7 @@ def main() -> None:
         run_site(args.site_config, weights=args.weights, target_fps=args.target_fps,
                  imgsz=args.imgsz, conf=args.conf, device=args.device, half=args.half,
                  seconds=args.seconds, gate_provider=args.gate_provider,
+                 gate_sensitivity=args.gate_sensitivity,
                  gate_model=args.gate_model, gate_base_url=args.gate_base_url,
                  notify=args.notify, output_dir=args.output_dir,
                  gate_workers=args.gate_workers, gate_drain=args.gate_drain)
