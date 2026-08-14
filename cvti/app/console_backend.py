@@ -74,8 +74,19 @@ class ConsoleBackend:
     def presets(self) -> dict:
         return onboarding.RULE_PRESETS
 
-    # detectors the operator can toggle per camera (drive which models run)
-    RULE_FLAGS = ("concealment", "video_action", "violence", "weapons", "theft", "tamper")
+    # Detectors the operator can toggle per camera (drive which models run).
+    # Must stay in sync with PerCameraState's flags in cvti/serving/camera.py.
+    RULE_FLAGS = ("concealment", "video_action", "violence", "weapons", "theft", "tamper",
+                  "fire_smoke", "running", "crowd_formation", "fall")
+
+    # Tuning params a detector needs to behave sensibly. Applied when it is first
+    # switched on so a toggle "just works" without hand-editing the site config;
+    # never overwrite a value the operator has already set.
+    DETECTOR_DEFAULTS = {
+        "running": {"running_min_speed_ratio": 0.08, "running_min_frames": 3},
+        "crowd_formation": {"crowd_min_people": 5, "crowd_min_frames": 3,
+                            "crowd_max_cluster_ratio": 0.32},
+    }
 
     def set_camera_rules(self, camera_id: str, rules: dict) -> dict:
         """Update which threat detectors run on a camera (+ optional rule preset).
@@ -86,7 +97,11 @@ class ConsoleBackend:
             return {"error": f"camera '{camera_id}' not found"}
         for k in self.RULE_FLAGS:
             if k in rules:
+                turning_on = bool(rules[k]) and not cam.get(k)
                 cam[k] = bool(rules[k])
+                if turning_on:      # seed this detector's tuning params (don't clobber)
+                    for pk, pv in self.DETECTOR_DEFAULTS.get(k, {}).items():
+                        cam.setdefault(pk, pv)
         if rules.get("config"):
             cam["config"] = rules["config"]
         onboarding.add_camera(self.site_path, cam)   # upsert by id

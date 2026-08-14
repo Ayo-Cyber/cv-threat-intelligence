@@ -271,12 +271,26 @@
   .lmalert{background:var(--sev-crit);color:#fff;padding:4px 10px;border-radius:6px;font-family:var(--ff-sans);font-size:12px;font-weight:700}
   /* rules page */
   .rulecard{padding:15px 17px;margin-bottom:12px}
-  .detrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-  .detchip{all:unset;cursor:pointer;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;
-    padding:8px 13px;border-radius:8px;border:1px solid var(--c-border2);color:var(--c-mut);user-select:none}
-  .detchip:hover{border-color:var(--c-accent)}
+  .detrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+  .detchip{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;
+    padding:8px 12px;border-radius:9px;border:1px solid var(--c-border2);color:var(--c-mut);user-select:none;
+    transition:border-color .12s ease,background .12s ease,transform .08s ease}
+  .detchip:hover{border-color:var(--c-accent);transform:translateY(-1px)}
+  .detchip:active{transform:translateY(0)}
+  .detchip:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}
   .detchip.on{border-color:var(--c-accent);background:var(--c-accent-soft);color:var(--c-text)}
-  .detchip .dt{font-size:11px;color:var(--c-sub)} .detchip.on .dt{color:var(--c-accent)}
+  .detchip .di{font-size:13px;filter:grayscale(1);opacity:.55}
+  .detchip.on .di{filter:none;opacity:1}
+  .detchip .dt{font-size:10px;color:var(--c-sub);margin-left:1px}
+  .detchip.on .dt{color:var(--c-accent)}
+  /* detector groups: Security vs Safety/HSE */
+  .detgroup{margin-top:12px}
+  .detghead{display:flex;align-items:baseline;gap:9px;font-size:12px}
+  .detghead b{font-size:12px;letter-spacing:.02em}
+  .detghead .mut{font-size:11px}
+  .detgcount{margin-left:auto;font-family:var(--ff-mono);font-size:10.5px;font-weight:600;color:var(--c-mut);
+    background:var(--c-raised);border-radius:99px;padding:1px 8px}
+  .detgcount.on{background:var(--c-accent);color:#fff}
   /* scene context + custom threats */
   .scenehint{font-size:12px;color:var(--c-mut);margin-top:10px;padding:9px 11px;background:var(--c-bg);
     border-radius:8px;border:1px solid var(--c-border);line-height:1.45}
@@ -716,14 +730,22 @@ function toggleNotify(ch){
 }
 
 /* ---------- Rules (threats per camera) ---------- */
+/* [key, label, tooltip, defaultOn, group, icon] — icons match the alert threat
+   classes so a chip here reads the same as the alert it produces. */
 var DETECTORS=[
-  ["concealment","Concealment","shoplifting — item hidden on body",true],
-  ["video_action","Video theft","fine-tuned AI reads the action (VideoMAE)",true],
-  ["violence","Violence","fighting / assault",false],
-  ["weapons","Weapons","gun / knife visible",false],
-  ["theft","Zone theft","takes item + leaves a zone",false],
-  ["tamper","Camera block","lens covered / sprayed / defocused / blacked out",false]
+  ["concealment","Concealment","Shoplifting — an item hidden on the body",true,"security","🛍"],
+  ["video_action","Video theft","Fine-tuned AI reads the action itself (VideoMAE)",true,"security","🎞"],
+  ["violence","Violence","Fighting or assault between people",false,"security","🥊"],
+  ["weapons","Weapons","A gun or knife visible in frame",false,"security","🔪"],
+  ["theft","Zone theft","Takes an item and leaves a defined zone",false,"security","📦"],
+  ["tamper","Camera block","Lens covered, sprayed, defocused or blacked out",false,"security","🚫"],
+  ["fire_smoke","Fire & smoke","Visible flame or smoke — an HSE emergency",false,"safety","🔥"],
+  ["running","Panic running","People suddenly running — panic or evacuation",false,"safety","🏃"],
+  ["crowd_formation","Crowd forming","A tight crowd that can block exits or movement",false,"safety","👥"],
+  ["fall","Person down","Someone collapsed on the ground — medical emergency",false,"safety","🩹"]
 ];
+var DET_GROUPS=[["security","Security","Theft, violence & intrusion"],
+                ["safety","Safety / HSE","Fire, panic, crowding & medical"]];
 function renderRules(){
   call("presets",[],function(pr){ state.presets = (pr&&!pr.error)?pr:{}; });
   call("listCameras",[],function(cams){
@@ -734,10 +756,21 @@ function renderRules(){
       return;
     }
     var cards = cams.map(function(c){
-      var dets = DETECTORS.map(function(d){
-        var on = !!c[d[0]];
-        return '<button class="detchip'+(on?" on":"")+'" onclick="toggleRule(\''+esc(c.id)+'\',\''+d[0]+'\',this)" title="'+esc(d[2])+'">'
-          +'<span class="dt">'+(on?"●":"○")+'</span>'+esc(d[1])+'</button>';
+      // chips grouped Security / Safety, each group showing how many are live
+      var dets = DET_GROUPS.map(function(g){
+        var inGroup = DETECTORS.filter(function(d){ return d[4]===g[0]; });
+        var onCount = inGroup.filter(function(d){ return !!c[d[0]]; }).length;
+        var chips = inGroup.map(function(d){
+          var on = !!c[d[0]];
+          return '<button class="detchip'+(on?" on":"")+'" data-det="'+d[0]+'" '
+            +'onclick="toggleRule(\''+esc(c.id)+'\',\''+d[0]+'\',this)" title="'+esc(d[2])+'">'
+            +'<span class="di">'+d[5]+'</span><span class="dl">'+esc(d[1])+'</span>'
+            +'<span class="dt">'+(on?"●":"○")+'</span></button>';
+        }).join("");
+        return '<div class="detgroup"><div class="detghead"><b>'+esc(g[1])+'</b>'
+          +'<span class="mut">'+esc(g[2])+'</span>'
+          +'<span class="detgcount'+(onCount?" on":"")+'">'+onCount+'/'+inGroup.length+'</span></div>'
+          +'<div class="detrow">'+chips+'</div></div>';
       }).join("");
       var native = DETECTORS.filter(function(d){return c[d[0]];}).length;
       var customs = (c.custom_threats||[]);
@@ -751,7 +784,7 @@ function renderRules(){
         +'<span class="mut rcount" style="font-size:12px">'+(native+customs.length)+' threat'+((native+customs.length)===1?"":"s")+' watched</span></div>'
         +'<div class="scenehint" id="scene-'+esc(c.id)+'"><span class="mut">reading scene…</span></div>'
         +'<div class="syslabel" style="margin-top:12px">Built-in detectors</div>'
-        +'<div class="detrow">'+dets+'</div>'
+        +dets
         +'<div class="row" style="margin-top:10px;gap:8px"><span class="mut" style="font-size:12px">rule set</span>'
         +'<select onchange="setRulePreset(\''+esc(c.id)+'\',this.value)">'+presetOpts+'</select></div>'
         +'<div class="syslabel" style="margin-top:16px">Your own rules — in plain English, for this place</div>'
@@ -864,6 +897,10 @@ function toggleRule(camId, det, btn){
   var card = btn.closest(".rulecard");
   if(card){ var n = card.querySelectorAll(".detchip.on").length + card.querySelectorAll(".customthreat").length;
     var cnt = card.querySelector(".rcount"); if(cnt) cnt.textContent = n+" threat"+(n===1?"":"s")+" watched"; }
+  var grp = btn.closest(".detgroup");   // keep this group's n/total badge in step
+  if(grp){ var gc = grp.querySelector(".detgcount");
+    var onN = grp.querySelectorAll(".detchip.on").length, tot = grp.querySelectorAll(".detchip").length;
+    if(gc){ gc.textContent = onN+"/"+tot; gc.classList.toggle("on", onN>0); } }
   var payload={}; payload[det]=next;
   call("setCameraRules",[camId, JSON.stringify(payload)],function(){});   // persist in background
 }
