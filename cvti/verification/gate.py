@@ -94,16 +94,21 @@ The detector's report (usually right; you are just catching its occasional mista
 Question: {question}
 
 Reason briefly FIRST (plain text, no JSON yet):
-1. What is the person actually doing across the frames (hands, body, motion)?
-2. Is that plainly an ordinary, harmless activity (just standing, walking, browsing, an empty
-   scene, working a till/desk with no interaction) — or could it be the threat?
+1. Are there any PEOPLE in these frames? If not, the answer is almost always false.
+2. What is the person actually doing — describe only what you can literally SEE (hands, body,
+   what they are holding or touching). Do not describe what the detector claims.
+3. Does what you see match the SPECIFIC threat in the question, or is it ordinary activity
+   (standing, walking, queueing, browsing, working a counter, an empty street)?
 
 Then on the FINAL line, output ONLY this JSON object (no markdown, nothing after it):
-{{"confirmed": true or false, "confidence": 0.0 to 1.0, "reason": "one sentence", "alert_priority": "{priority}"}}
+{{"confirmed": true or false, "confidence": 0.0 to 1.0, "reason": "one sentence naming the
+visible evidence, or why there is none", "alert_priority": "{priority}"}}
 
-REJECT only when the scene is CLEARLY ordinary and harmless — that filters the obvious false
-positives. Otherwise CONFIRM: you do not need proof, just a plausible reason it could be the
-threat. When genuinely unsure, CONFIRM and let the human decide.
+Confirm ONLY when you can name a concrete visible cue of that specific threat. Ordinary
+activity and empty scenes are false — rejecting them is the job. Do not confirm merely
+because the detector flagged it, and do not invent detail you cannot see. Set confidence to
+how sure you are of YOUR OWN verdict: high when the evidence is unmistakable, low when you
+are guessing.
 """
 
 _QUESTIONS: dict[str, str] = {
@@ -131,13 +136,17 @@ _QUESTIONS: dict[str, str] = {
 _DETECTOR_QUESTIONS: dict[str, str] = {
     "weapons": "Does this frame clearly show a real weapon (gun, knife, blade) being held, carried, or brandished by a person? A phone, tool, bottle, or empty hand is NOT a weapon.",
     "camera_tampering": _QUESTIONS["camera_tampering"],
-    "video_action": ("A specialised, fine-tuned theft/action model has flagged this short "
-                     "sequence with HIGH confidence — and it reads MOTION across the clip, which "
-                     "you cannot fully see in these few stills. Treat its flag as a strong prior. "
-                     "CONFIRM unless the frames clearly show ordinary, innocent behaviour (a person "
-                     "just standing, walking, browsing, sitting, or working a till/desk with no "
-                     "interaction). If the person is reaching for, grabbing, concealing, or moving "
-                     "off with items — or moving in a rushed/furtive way — confirm it."),
+    "video_action": (
+        "An action model flagged this sequence as theft. It over-fires — it flags empty "
+        "streets, parked cars and ordinary passers-by — so judge the FRAMES YOURSELF.\n"
+        "Answer TRUE only if you can point to a person doing something concrete: taking, "
+        "grabbing or carrying off goods; concealing an item on their body or in a bag; "
+        "forcing, prying or breaking something open; snatching from a person or vehicle; or "
+        "fleeing with property.\n"
+        "Answer FALSE if the frames show: no people at all; only vehicles, buildings or an "
+        "empty street; people merely present, standing, walking, queueing or browsing; or a "
+        "normal transaction at a counter. 'Someone is there and it looks like it could be a "
+        "shop' is NOT theft."),
     "fire": "Does this frame show visible fire, flames, smoke, or hazardous haze? Sunset/sunlight, orange or red signage, reflections, screens, and coloured lighting are NOT fire.",
     "person_fall": "Do these frames show a person who has collapsed or is lying on the ground (fallen, fainted, or knocked down) and NOT getting up — a possible medical emergency? Someone sitting, crouching, kneeling, bending down, or deliberately lying down is NOT a fall.",
     "running": "Does this brief sequence show a person running or moving with panic/urgency? Someone walking calmly is NOT panic.",
