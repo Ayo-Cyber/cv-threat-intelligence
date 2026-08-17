@@ -307,9 +307,40 @@ class ConsoleBackend:
         clips = sorted(Path("data/test_clips").glob("*.mp4"))[:count]
         return [{"id": p.stem, "source": str(p)} for p in clips]
 
+    def _engine_frame_port(self) -> int:
+        """The engine's frame-publisher port, if it's running and serving.
+
+        When the engine is up it has already decoded every stream and knows where
+        everyone is, so we display ITS frames (with boxes) rather than opening the
+        same videos again — decode is the dominant per-camera cost."""
+        try:
+            info = json.loads((Path(self.db_path).parent / "frames.json").read_text())
+            port = int(info.get("port") or 0)
+        except Exception:  # noqa: BLE001
+            return 0
+        if not port:
+            return 0
+        try:      # only trust it if it actually answers
+            import urllib.request
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/cameras", timeout=1.5) as r:
+                cams = json.loads(r.read().decode()).get("cameras") or []
+            return port if cams else 0
+        except Exception:  # noqa: BLE001
+            return 0
+
     def live_start(self, count: int = 6) -> dict:
         from cvti.app.live_wall import FrameServer, LiveWall
         self.live_stop()
+        # Prefer the engine's already-decoded frames (no second decode, live boxes).
+        port = self._engine_frame_port()
+        if port:
+            try:
+                import urllib.request
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/cameras", timeout=1.5) as r:
+                    cams = json.loads(r.read().decode()).get("cameras") or []
+                return {"cameras": [{"id": c} for c in cams], "port": port, "source": "engine"}
+            except Exception:  # noqa: BLE001
+                pass          # fall through to decoding ourselves
         sources = self._live_sources(count)
         if not sources:
             return {"cameras": [], "port": 0}
@@ -317,7 +348,7 @@ class ConsoleBackend:
         self._fs = FrameServer(self._live)
         port = self._fs.start()
         # cameras + the localhost port the UI fetches JPEG frames from
-        return {"cameras": [{"id": s["id"]} for s in sources], "port": port}
+        return {"cameras": [{"id": s["id"]} for s in sources], "port": port, "source": "app"}
 
     def live_frames(self) -> dict:
         return self._live.frames() if self._live else {}

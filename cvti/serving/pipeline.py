@@ -45,7 +45,8 @@ class MultiStreamPipeline:
                  target_fps: float = 5.0, tick_seconds: float = 0.15, imgsz: int = 640,
                  conf: float = 0.4, device: str = "", half: bool = False,
                  max_batch: int = 32, on_result: ResultHandler | None = None,
-                 camera_states: dict[str, Any] | None = None, alert_queue: Any = None) -> None:
+                 camera_states: dict[str, Any] | None = None, alert_queue: Any = None,
+                 publisher: Any = None) -> None:
         self.sources = sources
         self.weights = weights
         self.target_fps = target_fps
@@ -57,6 +58,8 @@ class MultiStreamPipeline:
         self.max_batch = max_batch
         self._camera_states = camera_states
         self._alert_queue = alert_queue
+        # Publishes frames (with boxes) so the UI never decodes the stream twice.
+        self.publisher = publisher
         # When per-camera states + a queue are supplied, route detections through
         # them (track -> zones -> rules -> alert queue). Otherwise just count.
         if on_result is not None:
@@ -100,10 +103,20 @@ class MultiStreamPipeline:
             return
         detections = sv.Detections.from_ultralytics(result)          # tracking / zones
         object_detections = extract_detections(result, self._names, self._threat_classes)  # weapons/violence/theft
-        for alert in state.process(detections, frame.image, frame.timestamp,
-                                   object_detections=object_detections):
+        alerts = state.process(detections, frame.image, frame.timestamp,
+                               object_detections=object_detections)
+        for alert in alerts:
             if self._alert_queue.add(alert):
                 self.alerts_queued += 1
+        # Publish this frame for the UI instead of letting it decode the stream a
+        # second time. We already have the frame AND the tracks, so the boxes are free.
+        if self.publisher is not None:
+            boxes = [(tid, *box) for tid, box in
+                     (getattr(state, "_box_by_track", None) or {}).items()]
+            if alerts:
+                self.publisher.mark_alerting(
+                    frame.camera_id, {a.track_id for a in alerts if a.track_id is not None})
+            self.publisher.publish(frame.camera_id, frame.image, boxes)
 
     def _all_ended(self) -> bool:
         return all(d.ended and not d.read_latest() for d in self._decoders.values())
@@ -160,7 +173,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              target_fps: float = 5.0, imgsz: int = 640, conf: float = 0.4,
              device: str = "", half: bool = False, seconds: float = 90.0,
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
-             gate_sensitivity: str = "balanced",
+             gate_sensitivity: str = "balanced", publish_frames: bool = True,
              pose_weights: str = "models/yolov8n-pose.pt",
              weapon_weights: str = "models/weapon_best.pt", yolov5_repo: str = "external/yolov5",
              video_action_model_path: str = "runs/video_finetune/videomae",
@@ -241,9 +254,14 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         examples_provider=_examples_provider,
     ).start()
 
+    # The UI reads frames from here instead of opening every stream a second time
+    # (decode is the dominant per-camera cost) — and gets live boxes for free.
+    from cvti.serving.frame_publisher import FramePublisher
+    publisher = FramePublisher().start(output_dir) if publish_frames else None
+
     pipe = MultiStreamPipeline(sources, weights=weights, target_fps=target_fps, imgsz=imgsz,
                                conf=conf, device=device, half=half, camera_states=states,
-                               alert_queue=queue)
+                               alert_queue=queue, publisher=publisher)
     pipe.start()
     # Live agent mapping: infer each camera's scene (reusing the local VLM) so the
     # gate reasons with real context. Background, non-blocking; only for a local
@@ -312,6 +330,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             drained = gate_pool.drain(timeout=gate_drain)
             print(f"[site] gate drained cleanly={drained}")
         gate_pool.stop()
+        if publisher is not None:
+            print(f"[frames] published {publisher.published} frame(s)")
+            publisher.stop()
         sink.close()
     print(f"[site] alerts_queued={pipe.alerts_queued} gate={gate_pool.stats()}")
     print(f"[site] persisted {sink.persisted} confirmed event(s) -> {output_dir}/events.db")
@@ -335,6 +356,8 @@ def main() -> None:
     p.add_argument("--gate-provider", default="mock")
     p.add_argument("--gate-model", default="")
     p.add_argument("--gate-base-url", default="")
+    p.add_argument("--no-publish-frames", action="store_true",
+                   help="Do not serve frames to the UI (it will decode streams itself).")
     p.add_argument("--gate-sensitivity", choices=("sensitive", "balanced", "strict"),
                    default="balanced",
                    help="Verification strictness. Measured on held-out clips: balanced = "
@@ -355,6 +378,7 @@ def main() -> None:
                  imgsz=args.imgsz, conf=args.conf, device=args.device, half=args.half,
                  seconds=args.seconds, gate_provider=args.gate_provider,
                  gate_sensitivity=args.gate_sensitivity,
+                 publish_frames=not args.no_publish_frames,
                  gate_model=args.gate_model, gate_base_url=args.gate_base_url,
                  notify=args.notify, output_dir=args.output_dir,
                  gate_workers=args.gate_workers, gate_drain=args.gate_drain)
