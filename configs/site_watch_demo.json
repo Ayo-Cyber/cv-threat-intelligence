@@ -1,0 +1,25 @@
+{
+  "_comment": "Watches: describe a subject in plain English and Argus follows them. The tracker supplies geometry; the VLM only picks which numbered person matches. Needs a local VLM gate (--gate-provider ollama).",
+  "name": "Watch Demo",
+  "notify": "console",
+  "configured": true,
+  "cameras": [
+    {
+      "id": "Retail Aisle 4",
+      "source": "data/test_clips/theft_shop_02.mp4",
+      "config": "configs/all_threats_video_v1.json",
+      "concealment": true,
+      "video_action": true,
+      "watches": [
+        {
+          "name": "red-jacket",
+          "description": "the person wearing a red jacket"
+        },
+        {
+          "name": "repeat-visitor",
+          "description": "anyone who keeps returning to the same shelf"
+        }
+      ]
+    }
+  ]
+}

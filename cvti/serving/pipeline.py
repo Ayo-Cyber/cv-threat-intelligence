@@ -249,10 +249,26 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # gate reasons with real context. Background, non-blocking; only for a local
     # VLM gate (ollama/local). Cameras run generic until their scene lands.
     custom_scanner = None
+    watch_runner = None      # defined here: teardown references it on every path
     if gate_provider in ("ollama", "local"):
         from cvti.serving.scene_map import map_cameras_async
         map_cameras_async(cams_cfg, states, model=gate_model or "gemma3:4b",
                           base_url=gate_base_url or "http://localhost:11434/v1")
+        # Watches: plain-English subjects to FOLLOW. Binds a description to a
+        # tracked person (via numbered boxes) and keeps a case open for them.
+        if any(c.get("watches") for c in cams_cfg):
+            from cvti.serving.watch_runner import WatchRunner
+
+            def _latest_frame(cam_id: str):
+                d = pipe._decoders.get(cam_id)
+                f = d.read_latest() if d else None
+                return f.image if f is not None else None
+
+            watch_runner = WatchRunner(
+                cams_cfg, states, sink, model=gate_model or "gemma3:4b",
+                base_url=gate_base_url or "http://localhost:11434/v1",
+                frame_source=_latest_frame).start()
+
         # Customer-written rules run as a slow VLM scan (the VLM is the detector).
         if any(c.get("custom_threats") for c in cams_cfg):
             from cvti.serving.custom_rules import CustomRuleScanner
@@ -283,6 +299,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         pipe.stop()
         if custom_scanner is not None:
             custom_scanner.stop()
+        if watch_runner is not None:
+            watch_runner.stop()
+            act = watch_runner.active_cases()
+            if act or watch_runner.opened:
+                print(f"[watch] cases opened={watch_runner.opened} still_active={len(act)}")
         # Let in-flight VLM verdicts finish (a real gate is ~12s/verify, so the
         # queue keeps draining after the streams end) before tearing down.
         pending = queue.pending_count
