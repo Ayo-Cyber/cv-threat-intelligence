@@ -260,9 +260,26 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                 cams_cfg, sink, model=gate_model or "gemma3:4b",
                 base_url=gate_base_url or "http://localhost:11434/v1").start()
     print(f"[site] {len(states)} camera(s) | gate={gate_provider} | notify={notify} | rules per camera")
+
+    # Escalation ticker: re-notify alerts nobody acknowledged in time. Cheap poll,
+    # daemon so it never holds shutdown open.
+    import threading as _threading
+    _esc_stop = _threading.Event()
+
+    def _escalation_loop() -> None:
+        while not _esc_stop.wait(30.0):
+            try:
+                sink.run_escalations()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[routing] escalation tick failed: {str(exc)[:90]}")
+
+    _esc_thread = _threading.Thread(target=_escalation_loop, name="escalations", daemon=True)
+    _esc_thread.start()
+
     try:
         pipe.run(max_seconds=seconds)
     finally:
+        _esc_stop.set()
         pipe.stop()
         if custom_scanner is not None:
             custom_scanner.stop()
@@ -277,6 +294,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         sink.close()
     print(f"[site] alerts_queued={pipe.alerts_queued} gate={gate_pool.stats()}")
     print(f"[site] persisted {sink.persisted} confirmed event(s) -> {output_dir}/events.db")
+    if getattr(sink, "routing", None) and sink.routing.rules:
+        print(f"[site] routed={sink.routed} escalated={sink.escalated} "
+              f"pending_escalation={sink.escalations.pending_count}")
 
 
 def main() -> None:

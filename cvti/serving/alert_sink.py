@@ -223,7 +223,8 @@ class AlertSink:
     GatePool on_verdict callback (also prints every verdict, confirmed or not)."""
 
     def __init__(self, output_dir: str | Path, *, notifier: Any = None,
-                 save_evidence: bool = True, iso_now: str | None = None) -> None:
+                 save_evidence: bool = True, iso_now: str | None = None,
+                 routing_path: str | Path | None = "configs/routing.json") -> None:
         self.root = Path(output_dir)
         self.events_dir = self.root / "events"
         self.events_dir.mkdir(parents=True, exist_ok=True)
@@ -240,6 +241,18 @@ class AlertSink:
             pass       # already there
         self._db.commit()
         self.persisted = 0
+        # Routing: send each alert to the channels its rule names (severity, camera,
+        # time-of-day…), falling back to the site-wide notifier. Escalation re-sends
+        # anything still unacknowledged after the rule's deadline.
+        from cvti.serving.routing import EscalationTracker, RoutingPolicy
+        self.routing = RoutingPolicy.load(routing_path) if routing_path else RoutingPolicy()
+        self.escalations = EscalationTracker(is_acknowledged=self._is_acknowledged)
+        self._notifier_cache: dict = {}
+        self.routed = 0
+        self.escalated = 0
+        if self.routing.rules:
+            print(f"[routing] {len(self.routing.rules)} rule(s) loaded "
+                  f"(default: {self.routing.default})")
         # Feedback loop: a calibration file (written by the FeedbackManager from
         # operator labels) tells us which (camera, rule) pairs are chronically wrong.
         # Demoted pairs are still stored (so the operator keeps correcting them) but
@@ -275,6 +288,55 @@ class AlertSink:
             self._persist(alert, result)
         except Exception as exc:  # noqa: BLE001 - persistence must not kill the gate
             print(f"[alert-sink error] {str(exc)[:140]}")
+
+    # --- routing ---------------------------------------------------------
+    def _is_acknowledged(self, event_id: Any) -> bool:
+        """Has an operator handled this alert yet? (any review label clears it)"""
+        try:
+            with self._lock:
+                row = self._db.execute(
+                    "SELECT review FROM events WHERE id=?", (event_id,)).fetchone()
+            return bool(row and row[0] and row[0] != "new")
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _notifier_for(self, spec: str) -> Any:
+        """Build (and cache) a notifier per channel spec — building a Telegram or
+        Twilio client per alert would be wasteful."""
+        if spec not in self._notifier_cache:
+            self._notifier_cache[spec] = build_notifier(spec)
+        return self._notifier_cache[spec]
+
+    def _dispatch(self, event: dict, event_id: Any = None) -> None:
+        """Send an event to whichever channels its routing rule names."""
+        spec, rule_name = self.routing.channels_for(event)
+        target = self._notifier_for(spec) if self.routing.rules else self.notifier
+        try:
+            target.notify(event)
+            self.routed += 1
+        except Exception as exc:  # noqa: BLE001 - a channel failing must not kill the sink
+            print(f"[routing] '{rule_name}' -> {spec} failed: {str(exc)[:110]}")
+        if event_id is not None:
+            rule = self.routing.match(event)
+            if rule:
+                self.escalations.register(event_id, event, rule)
+
+    def run_escalations(self) -> int:
+        """Re-send alerts nobody acknowledged in time. Call periodically."""
+        sent = 0
+        for item in self.escalations.due():
+            ev = dict(item["event"])
+            ev["escalated"] = True
+            ev["reason"] = f"ESCALATED (unacknowledged): {ev.get('reason', '')}"
+            try:
+                self._notifier_for(item["to"]).notify(ev)
+                sent += 1
+                self.escalated += 1
+                print(f"[routing] escalated {ev.get('camera_id')}::{ev.get('rule')} "
+                      f"-> {item['to']} (rule '{item['rule']}')")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[routing] escalation to {item['to']} failed: {str(exc)[:110]}")
+        return sent
 
     def _write_evidence(self, ev_dir: Path, payload: dict) -> None:
         """Write the event's frames + a clip.mp4.
@@ -325,21 +387,25 @@ class AlertSink:
         (ev_dir / "event.json").write_text(json.dumps(event, indent=2))
 
         with self._lock:
-            self._db.execute(
+            cur = self._db.execute(
                 "INSERT INTO events (ts,iso,camera_id,rule,priority,confidence,reason,"
                 "track_id,zone,object_label,evidence_dir,latency_s) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ts, iso, alert.camera_id, alert.rule_name, alert.priority,
                  float(result.confidence), result.reason, alert.track_id, alert.zone,
                  alert.object_label, str(ev_dir), latency_s))
+            event_id = cur.lastrowid
             self._db.commit()
         self.persisted += 1
+        event["id"] = event_id
         # Feedback loop: chronically-wrong (camera, rule) pairs are stored but not paged.
         self._reload_calibration()
         if self.calibration.demoted(alert.camera_id, alert.rule_name):
             print(f"[calibrated] {alert.camera_id} :: {alert.rule_name} demoted by feedback "
                   f"— stored, NOT notified")
         else:
-            self.notifier.notify(event)
+            # Routed to the channels this alert's rule names; registers escalation
+            # if nobody acknowledges it in time.
+            self._dispatch(event, event_id)
 
     def _write_video_clip(self, path: Path, jpeg_frames: list, src_fps: float,
                           container_fps: int = 24) -> None:

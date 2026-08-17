@@ -1,0 +1,34 @@
+{
+  "_comment": "Alert routing. Copy to configs/routing.json to activate. FIRST MATCHING RULE WINS, so put specific rules above general ones; anything unmatched falls back to `default`, so an alert can never be silently dropped. Channels: console | webhook:<url> | telegram:<token>:<chat_id> | whatsapp (Twilio creds from env) — comma-separate to fan out.",
+  "default": "console",
+  "rules": [
+    {
+      "_comment": "Life-safety first: fire, weapons and violence page the guard immediately, and escalate to a second channel if nobody acknowledges within 5 minutes.",
+      "name": "critical-to-guard",
+      "when": {"priority": ["critical"]},
+      "notify": "console",
+      "escalate_after_minutes": 5,
+      "escalate_to": "console"
+    },
+    {
+      "_comment": "One camera, one owner — the stockroom manager gets stockroom alerts.",
+      "name": "stockroom-owner",
+      "when": {"camera": ["Loading Bay", "stockroom"]},
+      "notify": "console"
+    },
+    {
+      "_comment": "Out of hours nobody is on the shop floor, so anything at all goes to the on-call phone.",
+      "name": "night-shift",
+      "when": {"between": ["18:00", "06:00"]},
+      "notify": "console",
+      "escalate_after_minutes": 10,
+      "escalate_to": "console"
+    },
+    {
+      "_comment": "Loitering is worth logging but should not wake anyone.",
+      "name": "loitering-log-only",
+      "when": {"rule": ["loitering_watch"], "priority": ["medium", "low"]},
+      "notify": "console"
+    }
+  ]
+}
