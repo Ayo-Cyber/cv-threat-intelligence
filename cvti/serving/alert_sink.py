@@ -82,7 +82,11 @@ class TelegramNotifier:
         if not d.exists():
             return []
         imgs = sorted(p for p in d.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png"))
-        return imgs[:cap]
+        # Lead with the annotated subject shot when there is one — on a phone the
+        # first picture is what gets looked at, and it should point at the person.
+        subject = [p for p in imgs if p.name == "subject.jpg"]
+        rest = [p for p in imgs if p.name != "subject.jpg"]
+        return (subject + rest)[:cap]
 
     def notify(self, event: dict) -> None:
         import urllib.parse
@@ -213,7 +217,8 @@ CREATE TABLE IF NOT EXISTS events (
     object_label TEXT, evidence_dir TEXT,
     review TEXT,          -- NULL=new, 'ack', 'true', 'false' (operator label)
     reviewed_at TEXT,
-    latency_s REAL        -- detection -> TrueSight-verified wall-clock seconds
+    latency_s REAL,       -- detection -> TrueSight-verified wall-clock seconds
+    bbox TEXT             -- "x1,y1,x2,y2" of the subject when it fired (may be NULL)
 );
 """
 
@@ -239,6 +244,10 @@ class AlertSink:
             self._db.execute("ALTER TABLE events ADD COLUMN latency_s REAL")
         except sqlite3.OperationalError:
             pass       # already there
+        try:
+            self._db.execute("ALTER TABLE events ADD COLUMN bbox TEXT")
+        except sqlite3.OperationalError:
+            pass
         self._db.commit()
         self.persisted = 0
         # Routing: send each alert to the channels its rule names (severity, camera,
@@ -338,6 +347,28 @@ class AlertSink:
                 print(f"[routing] escalation to {item['to']} failed: {str(exc)[:110]}")
         return sent
 
+    @staticmethod
+    def _annotate(frame: Any, bbox: tuple | None, label: str, priority: str = "high") -> Any:
+        """Draw the subject's box on a copy of the frame, so evidence shows WHO."""
+        if not bbox:
+            return frame
+        import cv2
+        colours = {"critical": (60, 60, 220), "high": (60, 140, 240),
+                   "medium": (60, 200, 240), "low": (160, 160, 160)}   # BGR
+        col = colours.get(str(priority).lower(), colours["high"])
+        out = frame.copy()
+        h, w = out.shape[:2]
+        x1, y1, x2, y2 = (max(0, min(int(v), lim)) for v, lim in
+                          zip(bbox, (w, h, w, h)))
+        cv2.rectangle(out, (x1, y1), (x2, y2), col, 3)
+        if label:
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+            ty = y1 - 8 if y1 > th + 12 else min(h - 4, y2 + th + 8)
+            cv2.rectangle(out, (x1, ty - th - 6), (x1 + tw + 10, ty + 4), col, -1)
+            cv2.putText(out, label, (x1 + 5, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (255, 255, 255), 2, cv2.LINE_AA)
+        return out
+
     def _write_evidence(self, ev_dir: Path, payload: dict) -> None:
         """Write the event's frames + a clip.mp4.
 
@@ -354,6 +385,18 @@ class AlertSink:
         else:
             for i, f in enumerate(frames):
                 cv2.imwrite(str(ev_dir / f"frame_{i:03d}.jpg"), f)
+        # A single annotated "who" shot: the frame closest to the moment it fired,
+        # with the subject boxed. Deliberately NOT drawn on every clip frame — the
+        # subject moves, so a fixed box across the window would point at the wrong
+        # place and mislead the operator.
+        bbox = payload.get("bbox")
+        if bbox and frames:
+            cand = payload.get("candidate")
+            label = f"#{getattr(cand, 'person_id', '')} {getattr(cand, 'title', '')}".strip()
+            shot = self._annotate(frames[-1], bbox, label[:40],
+                                  getattr(cand, "priority", "high"))
+            cv2.imwrite(str(ev_dir / "subject.jpg"), shot)
+
         clip_fps = float(payload.get("clip_fps") or 0.0)
         if len(clip_frames) >= 6:
             fps = clip_fps if 1.0 <= clip_fps <= 60.0 else 4.0
@@ -383,16 +426,17 @@ class AlertSink:
             "reason": result.reason, "track_id": alert.track_id, "zone": alert.zone,
             "object_label": alert.object_label, "evidence_dir": str(ev_dir),
             "latency_s": latency_s,
+            "bbox": ",".join(str(int(v)) for v in payload["bbox"]) if payload.get("bbox") else None,
         }
         (ev_dir / "event.json").write_text(json.dumps(event, indent=2))
 
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO events (ts,iso,camera_id,rule,priority,confidence,reason,"
-                "track_id,zone,object_label,evidence_dir,latency_s) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "track_id,zone,object_label,evidence_dir,latency_s,bbox) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ts, iso, alert.camera_id, alert.rule_name, alert.priority,
                  float(result.confidence), result.reason, alert.track_id, alert.zone,
-                 alert.object_label, str(ev_dir), latency_s))
+                 alert.object_label, str(ev_dir), latency_s, event["bbox"]))
             event_id = cur.lastrowid
             self._db.commit()
         self.persisted += 1

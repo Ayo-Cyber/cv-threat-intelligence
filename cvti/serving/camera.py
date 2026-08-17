@@ -67,7 +67,8 @@ def _person_boxes(tracked: Any) -> list:
 
 def _to_queued(camera_id: str, alert: Any, timestamp: float, zone: str | None,
                frames: list, scene: dict | None,
-               clip_frames: list | None = None, clip_fps: float = 0.0) -> QueuedAlert:
+               clip_frames: list | None = None, clip_fps: float = 0.0,
+               bbox: tuple | None = None) -> QueuedAlert:
     # Evidence frames are captured NOW because the async gate verifies later,
     # by which point the live frame is gone.
     #  * `frames`      — a few sharp stills, for the VLM gate + thumbnails.
@@ -84,7 +85,10 @@ def _to_queued(camera_id: str, alert: Any, timestamp: float, zone: str | None,
         object_label=alert.object_label,
         payload={"candidate": alert, "frames": frames, "scene": scene,
                  "clip_frames": clip_frames or [], "clip_fps": clip_fps,
-                 "enqueued_at": time.time()},   # wall-clock, for verify-latency
+                 "enqueued_at": time.time(),    # wall-clock, for verify-latency
+                 # where the subject was when this fired, so evidence can point at
+                 # WHO — an alert with no box makes the operator hunt the frame.
+                 "bbox": bbox},
     )
 
 
@@ -301,6 +305,11 @@ class PerCameraState:
             detections = filter_person_detections(detections, frame_hw)
         tracked = self._tracker.update_with_detections(detections)
 
+        # Track -> box for EVERY frame (cheap): lets an alert record where its
+        # subject was, so evidence can point at who rather than at a whole frame.
+        self._box_by_track = {tid: (int(x1), int(y1), int(x2), int(y2))
+                              for (tid, x1, y1, x2, y2) in _person_boxes(tracked)}
+
         # Fall / panic-running / crowd-formation work off tracked PERSON boxes.
         if self.fall or self.running or self.crowd_formation:
             person_boxes = _person_boxes(tracked)   # [(tid, x1, y1, x2, y2), ...]
@@ -394,9 +403,11 @@ class PerCameraState:
             # detectors leave it None so the dedup key isn't polluted.
             zone = zone_by_pid.get(a.person_id) if a.detector == "presence" else None
             frames, _ = select_evidence_frames(recent, a.rule_name)
+            bbox = getattr(self, "_box_by_track", {}).get(a.person_id)
             out.append(_to_queued(self.camera_id, a, timestamp, zone,
                                   frames or [image], self.scene_context,
-                                  clip_frames=clip_frames, clip_fps=clip_fps))
+                                  clip_frames=clip_frames, clip_fps=clip_fps,
+                                  bbox=bbox))
         return out
 
 

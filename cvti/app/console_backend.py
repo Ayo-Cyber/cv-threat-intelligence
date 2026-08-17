@@ -566,6 +566,7 @@ class ConsoleBackend:
             e["review"] = e.get("review") or "new"
             if embed_frames:
                 e["frames"] = self._frames_as_data_uris(e.get("evidence_dir"), frame_base)
+                e["subject"] = self._subject_uri(e.get("evidence_dir"), frame_base)
             out.append(e)
         return out
 
@@ -654,10 +655,25 @@ class ConsoleBackend:
             return []
         uris = []
         for p in sorted(d.iterdir()):
+            # subject.jpg is the annotated "who" shot, shown on its own — including
+            # it here would make a box flash at the end of every cine-loop.
+            if p.name == "subject.jpg":
+                continue
             if p.suffix.lower() in (".jpg", ".jpeg", ".png") and len(uris) < cap:
                 b64 = base64.b64encode(p.read_bytes()).decode()
                 uris.append(f"data:image/jpeg;base64,{b64}")
         return uris
+
+    def _subject_uri(self, evidence_dir: str | None,
+                     frame_base: "Path | None" = None) -> str | None:
+        """The annotated frame with the subject boxed, if one was saved."""
+        d = Path(evidence_dir or "")
+        if not d.exists() and frame_base and evidence_dir:
+            d = frame_base / evidence_dir
+        p = d / "subject.jpg"
+        if not p.exists():
+            return None
+        return "data:image/jpeg;base64," + base64.b64encode(p.read_bytes()).decode()
 
     def set_review(self, event_id: int | str, label: str) -> dict:
         if label not in _REVIEW_VALUES:
