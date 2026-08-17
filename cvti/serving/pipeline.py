@@ -174,6 +174,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              device: str = "", half: bool = False, seconds: float = 90.0,
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
              gate_sensitivity: str = "balanced", publish_frames: bool = True,
+             memory_guard: bool = True, memory_warn_gb: float = 2.0,
+             memory_critical_gb: float = 1.0,
              pose_weights: str = "models/yolov8n-pose.pt",
              weapon_weights: str = "models/weapon_best.pt", yolov5_repo: str = "external/yolov5",
              video_action_model_path: str = "runs/video_finetune/videomae",
@@ -293,6 +295,17 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             custom_scanner = CustomRuleScanner(
                 cams_cfg, sink, model=gate_model or "gemma3:4b",
                 base_url=gate_base_url or "http://localhost:11434/v1").start()
+    # Watch our own footprint: on an edge box, running out means swapping, and a
+    # swapping box misses every camera. Shed load on purpose instead.
+    mem_guard = None
+    if memory_guard:
+        from cvti.serving.memory_guard import MemoryGuard, build_default_actions
+        warn_actions, crit_actions = build_default_actions(pipe, states)
+        mem_guard = MemoryGuard(warn_available_gb=memory_warn_gb,
+                                critical_available_gb=memory_critical_gb,
+                                warn_actions=warn_actions,
+                                critical_actions=crit_actions).start()
+
     print(f"[site] {len(states)} camera(s) | gate={gate_provider} | notify={notify} | rules per camera")
 
     # Escalation ticker: re-notify alerts nobody acknowledged in time. Cheap poll,
@@ -330,6 +343,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             drained = gate_pool.drain(timeout=gate_drain)
             print(f"[site] gate drained cleanly={drained}")
         gate_pool.stop()
+        if mem_guard is not None:
+            mem_guard.stop()
+            if mem_guard.mitigations:
+                print(f"[memory] shed load {len(mem_guard.mitigations)} time(s): "
+                      f"{'; '.join(mem_guard.mitigations)}")
         if publisher is not None:
             print(f"[frames] published {publisher.published} frame(s)")
             publisher.stop()
@@ -356,6 +374,10 @@ def main() -> None:
     p.add_argument("--gate-provider", default="mock")
     p.add_argument("--gate-model", default="")
     p.add_argument("--gate-base-url", default="")
+    p.add_argument("--no-memory-guard", action="store_true",
+                   help="Do not shed load under memory pressure (may swap).")
+    p.add_argument("--memory-warn-gb", type=float, default=2.0)
+    p.add_argument("--memory-critical-gb", type=float, default=1.0)
     p.add_argument("--no-publish-frames", action="store_true",
                    help="Do not serve frames to the UI (it will decode streams itself).")
     p.add_argument("--gate-sensitivity", choices=("sensitive", "balanced", "strict"),
@@ -379,6 +401,9 @@ def main() -> None:
                  seconds=args.seconds, gate_provider=args.gate_provider,
                  gate_sensitivity=args.gate_sensitivity,
                  publish_frames=not args.no_publish_frames,
+                 memory_guard=not args.no_memory_guard,
+                 memory_warn_gb=args.memory_warn_gb,
+                 memory_critical_gb=args.memory_critical_gb,
                  gate_model=args.gate_model, gate_base_url=args.gate_base_url,
                  notify=args.notify, output_dir=args.output_dir,
                  gate_workers=args.gate_workers, gate_drain=args.gate_drain)
