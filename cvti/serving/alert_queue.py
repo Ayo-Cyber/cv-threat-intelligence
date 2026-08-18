@@ -48,7 +48,10 @@ class QueuedAlert:
 class AlertQueue:
     """Dedup + priority-ordered throttle in front of the VLM gate."""
 
-    def __init__(self, *, cooldown_seconds: float = 8.0, bucket_seconds: float = 2.0,
+    # 8s let one incident arrive as a dozen near-identical alerts. An operator
+    # reads repeats as noise, so the same camera+rule+subject is collapsed for a
+    # minute — one incident, one alert.
+    def __init__(self, *, cooldown_seconds: float = 60.0, bucket_seconds: float = 2.0,
                  max_pending: int = 256) -> None:
         self.cooldown_seconds = cooldown_seconds
         self.bucket_seconds = bucket_seconds

@@ -403,7 +403,18 @@ class PerCameraState:
             # detectors leave it None so the dedup key isn't polluted.
             zone = zone_by_pid.get(a.person_id) if a.detector == "presence" else None
             frames, _ = select_evidence_frames(recent, a.rule_name)
-            bbox = getattr(self, "_box_by_track", {}).get(a.person_id)
+            # Whole-frame detectors (video-action, fire) carry no person_id, so an
+            # alert would arrive with nothing to point at. If exactly one person is
+            # tracked, that's who it's about; with several, box the most prominent
+            # (largest) one. An empty scene stays unboxed — correct for fire.
+            # Pose-based detectors (concealment) number people in their own ID
+            # space, so a person_id may not exist in the ByteTrack map either —
+            # fall back for any unresolved id, not just a missing one.
+            boxes = getattr(self, "_box_by_track", {}) or {}
+            bbox = boxes.get(a.person_id)
+            if bbox is None and boxes:
+                bbox = max(boxes.values(),
+                           key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
             out.append(_to_queued(self.camera_id, a, timestamp, zone,
                                   frames or [image], self.scene_context,
                                   clip_frames=clip_frames, clip_fps=clip_fps,

@@ -4,11 +4,67 @@
   "notify": "console,whatsapp",
   "configured": true,
   "cameras": [
-    {"id": "yt_shop",    "source": "data/test_clips/theft_yt_01.mp4",   "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
-    {"id": "shop_1",     "source": "data/test_clips/theft_shop_01.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
-    {"id": "shop_2",     "source": "data/test_clips/theft_shop_02.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
-    {"id": "store_1",    "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",     "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
-    {"id": "store_2",    "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/316.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true},
-    {"id": "store_3",    "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/318.mp4", "config": "configs/all_threats_video_v1.json", "concealment": true, "video_action": true}
+    {
+      "id": "store_2",
+      "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/316.mp4",
+      "config": "configs/all_threats_video_v1.json",
+      "concealment": true,
+      "video_action": true,
+      "violence": true,
+      "weapons": true,
+      "theft": true
+    },
+    {
+      "id": "store_3",
+      "source": "CamNuvem Robbery Dataset/videos/samples/training/theft/318.mp4",
+      "config": "configs/all_threats_video_v1.json",
+      "concealment": true,
+      "video_action": true,
+      "violence": true,
+      "weapons": true,
+      "theft": true
+    },
+    {
+      "id": "shop_1",
+      "source": "data/test_clips/theft_shop_01.mp4",
+      "config": "configs/all_threats_video_v1.json",
+      "concealment": true,
+      "video_action": true,
+      "violence": true,
+      "weapons": true,
+      "theft": true
+    },
+    {
+      "id": "store_1",
+      "source": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",
+      "config": "configs/all_threats_video_v1.json",
+      "concealment": true,
+      "video_action": true,
+      "violence": true,
+      "weapons": true,
+      "theft": true
+    },
+    {
+      "id": "shop_2",
+      "source": "data/test_clips/theft_shop_02.mp4",
+      "config": "configs/all_threats_v1.json",
+      "concealment": true,
+      "video_action": true,
+      "violence": true,
+      "weapons": true,
+      "theft": true
+    },
+    {
+      "id": "yt_shop",
+      "source": "data/test_clips/theft_yt_01.mp4",
+      "config": "configs/rules/yt_shop.json",
+      "concealment": true,
+      "video_action": true,
+      "violence": true,
+      "weapons": true,
+      "theft": true,
+      "zones": "configs/zones/yt_shop.json",
+      "_base_config": "configs/all_threats_video_v1.json"
+    }
   ]
 }
