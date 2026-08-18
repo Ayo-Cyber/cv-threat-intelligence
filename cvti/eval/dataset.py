@@ -29,6 +29,9 @@ _LOCAL_LABELS = [
     ("stabbing", True, "violence"),
     ("weapons_", True, "weapons"),
     ("synthetic_fire", True, "fire"),
+    ("fire_", True, "fire"),
+    ("crowd_", True, "crowd"),
+    ("fall_", True, "fall"),
     ("normal_", False, ""),
     ("empty_", False, ""),
 ]
@@ -77,11 +80,13 @@ def _local_clips() -> list[EvalClip]:
 
 
 def load_dataset(which: str = "camnuvem", limit: int = 0,
-                 limit_per_class: int = 0) -> list[EvalClip]:
+                 limit_per_class: int = 0, kind: str = "") -> list[EvalClip]:
     """Build the labeled clip list.
 
     which: 'camnuvem' (held-out, the honest one) | 'local' | 'all'
     limit: cap the TOTAL clips (interleaved so both classes stay represented).
+    kind:  measure one threat only ('fire', 'crowd', 'theft'...) — keeps that
+           kind's positives plus all negatives.
     """
     if which == "camnuvem":
         clips = _camnuvem_clips(limit_per_class)
@@ -89,6 +94,11 @@ def load_dataset(which: str = "camnuvem", limit: int = 0,
         clips = _local_clips()
     else:
         clips = _camnuvem_clips(limit_per_class) + _local_clips()
+
+    if kind:
+        # Measuring ONE threat: keep that kind's positives, and every negative.
+        # Without this a theft clip (is_threat=True) counts as a missed fire.
+        clips = [c for c in clips if (c.kind == kind) or not c.is_threat]
 
     if limit and len(clips) > limit:
         # interleave threat/normal so a small --limit still measures both

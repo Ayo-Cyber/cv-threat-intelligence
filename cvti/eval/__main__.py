@@ -35,6 +35,7 @@ def main() -> None:
     p.add_argument("--dataset", choices=("camnuvem", "local", "all"), default="camnuvem",
                    help="camnuvem = the held-out test split (the honest one).")
     p.add_argument("--limit", type=int, default=0, help="cap total clips (keeps both classes).")
+    p.add_argument("--kind", default="", help="measure one threat only: fire|crowd|theft|violence")
     p.add_argument("--gate", choices=("ollama", "mock", "none"), default="mock",
                    help="ollama = real measurement; mock = wiring check; none = Stage 1 only.")
     p.add_argument("--gate-model", default="gemma3:4b")
@@ -48,7 +49,7 @@ def main() -> None:
     p.add_argument("--fresh", action="store_true", help="ignore checkpoints and re-run everything.")
     args = p.parse_args()
 
-    clips = load_dataset(args.dataset, limit=args.limit)
+    clips = load_dataset(args.dataset, limit=args.limit, kind=args.kind)
     if not clips:
         print(f"[eval] no clips found for --dataset {args.dataset}. "
               "Is the CamNuvem dataset present?")
@@ -61,7 +62,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     # Results are only comparable within the same gate + detector set, so the
     # checkpoint is keyed by them (a mock run can never be resumed as a real one).
-    run_key = f"{args.gate}-{args.sensitivity}-{args.detectors.replace(',', '+')}"
+    run_key = f"{args.gate}-{args.sensitivity}-{args.kind or 'all'}-{args.detectors.replace(',', '+')}"
     if args.fresh:
         for f in out_dir.glob("clip_results_*.jsonl"):
             f.unlink(missing_ok=True)
@@ -92,7 +93,7 @@ def main() -> None:
     report = render_report(summary, info, meta)
     # latest-run files, plus gate-tagged copies so a mock run never overwrites a
     # real measured one (and vice versa)
-    tag = f"{args.gate}-{args.sensitivity}"
+    tag = f"{args.gate}-{args.sensitivity}-{args.kind or 'all'}"
     for name, text in (("metrics.json", json.dumps(payload, indent=2)), ("report.md", report)):
         (out_dir / name).write_text(text)
         stem, _, ext = name.partition(".")
