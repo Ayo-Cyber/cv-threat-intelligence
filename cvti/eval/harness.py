@@ -51,6 +51,7 @@ class EvalHarness:
                  video_model: str = "runs/video_finetune/videomae",
                  detectors: tuple = ("concealment", "video_action"),
                  gate: Any = None, target_fps: float = 4.0,
+                 imgsz: int = 640, conf: float = 0.25,
                  max_seconds_per_clip: float = 30.0,
                  out_dir: str = "runs/eval", run_key: str = "default") -> None:
         self.config = config
@@ -60,6 +61,10 @@ class EvalHarness:
         self.video_model = video_model
         self.detectors = detectors
         self.gate = gate                      # None = Stage 1 only
+        # Dense crowds need more pixels: at 640 the person detector resolves only
+        # 0-2 individuals in a packed scene, starving any count-based detector.
+        self.imgsz = imgsz
+        self.conf = conf
         self.target_fps = target_fps
         self.max_seconds_per_clip = max_seconds_per_clip
         self.out_dir = Path(out_dir)
@@ -69,6 +74,13 @@ class EvalHarness:
         self.run_key = run_key
         self.gate_errors = 0            # consecutive gate failures
         self.max_gate_errors = 5        # abort past this — see _confirm()
+        # Lazily-loaded shared models. Must be initialised HERE: preflight() returns
+        # early when there is no gate, so leaving them there broke --gate none.
+        self._model = None
+        self._names = None
+        self._threat_classes = None
+        self._pose = None
+        self._video = None
 
     def preflight(self) -> None:
         """Fail fast if the gate can't answer, instead of producing a whole run of
@@ -91,11 +103,6 @@ class EvalHarness:
                 "  If you meant to use the local VLM, start it first:  ollama serve\n"
                 "  (and make sure the model is pulled:  ollama pull gemma3:4b)"
             ) from exc
-        self._model = None
-        self._names = None
-        self._threat_classes = None
-        self._pose = None
-        self._video = None
 
     # --- model loading (once, shared across every clip) ---
     def _load_models(self) -> None:
@@ -160,7 +167,8 @@ class EvalHarness:
                 ts = idx / src_fps
                 if ts > self.max_seconds_per_clip:
                     break
-                result = self._model(frame, verbose=False)[0]
+                result = self._model(frame, imgsz=self.imgsz, conf=self.conf,
+                                     verbose=False)[0]
                 dets = sv.Detections.from_ultralytics(result)
                 objs = extract_detections(result, self._names, self._threat_classes)
                 for alert in state.process(dets, frame, ts, object_detections=objs):

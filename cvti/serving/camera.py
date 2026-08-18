@@ -339,12 +339,18 @@ class PerCameraState:
                             detector="running", active=True, title="PANIC RUNNING DETECTED",
                             person_id=p["track_id"], level="high", timestamp=timestamp, extra=r))
             if self.crowd_formation:
+                # Count from the RAW detections, not the tracked ones: ByteTrack
+                # exists to give people stable identities, and it drops
+                # low-confidence boxes to do that. In a packed scene those dropped
+                # boxes ARE the crowd, so tracking starved the count to zero.
+                raw_people = [{"track_id": i, "bbox": (int(x1), int(y1), int(x2), int(y2))}
+                              for i, (_t, x1, y1, x2, y2) in enumerate(_person_boxes(detections))]
                 if self._crowd_det is None:
                     from cvti.detector.situational import CrowdFormationDetector
                     self._crowd_det = CrowdFormationDetector(
                         min_people=self.crowd_min_people, min_frames=self.crowd_min_frames,
                         max_cluster_ratio=self.crowd_max_cluster_ratio)
-                c = self._crowd_det.update(people, timestamp, image.shape)
+                c = self._crowd_det.update(raw_people or people, timestamp, image.shape)
                 if c is not None:
                     raw_events.append(RawEvent(
                         detector="crowd_formation", active=True, title="UNSAFE CROWD FORMATION",

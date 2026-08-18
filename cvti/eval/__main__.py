@@ -45,6 +45,8 @@ def main() -> None:
                    help="comma-separated detectors to enable.")
     p.add_argument("--max-seconds", type=float, default=30.0, help="max seconds analysed per clip.")
     p.add_argument("--target-fps", type=float, default=4.0)
+    p.add_argument("--imgsz", type=int, default=640, help="detector input size")
+    p.add_argument("--conf", type=float, default=0.25)
     p.add_argument("--out", default="runs/eval")
     p.add_argument("--fresh", action="store_true", help="ignore checkpoints and re-run everything.")
     args = p.parse_args()
@@ -62,7 +64,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     # Results are only comparable within the same gate + detector set, so the
     # checkpoint is keyed by them (a mock run can never be resumed as a real one).
-    run_key = f"{args.gate}-{args.sensitivity}-{args.kind or 'all'}-{args.detectors.replace(',', '+')}"
+    run_key = f"{args.gate}-{args.sensitivity}-{args.kind or 'all'}-{args.detectors.replace(',', '+')}-{args.imgsz}"
     if args.fresh:
         for f in out_dir.glob("clip_results_*.jsonl"):
             f.unlink(missing_ok=True)
@@ -70,6 +72,7 @@ def main() -> None:
     gate = _build_gate(args.gate, args.gate_model, str(out_dir / "gate"), args.sensitivity)
     harness = EvalHarness(detectors=tuple(d.strip() for d in args.detectors.split(",") if d.strip()),
                           gate=gate, target_fps=args.target_fps,
+                          imgsz=args.imgsz, conf=args.conf,
                           max_seconds_per_clip=args.max_seconds, out_dir=args.out,
                           run_key=run_key)
     try:
