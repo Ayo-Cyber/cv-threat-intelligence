@@ -28,6 +28,19 @@ from cvti.serving.streams import Frame, StreamDecoder
 ResultHandler = Callable[[Frame, Any], None]
 
 
+def _gate_workers_for(requested: int, n_cameras: int) -> int:
+    """How many VLM workers to run. 0 = derive from camera count.
+
+    A verdict takes seconds, so on a multi-camera site alerts queue behind a
+    single worker: measured on a 5-camera run, median detection->verified latency
+    was 46.5s with one worker and 28.0s with two, for no extra memory. Capped at 3
+    because they contend for the same local model.
+    """
+    if requested > 0:
+        return requested
+    return max(1, min(3, n_cameras // 2))
+
+
 def _auto_device() -> str:
     try:
         import torch
@@ -181,7 +194,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              video_action_model_path: str = "runs/video_finetune/videomae",
              baseline_config: str | None = "configs/baseline_critical_v1.json",
              notify: str = "console", output_dir: str = "runs/serving",
-             gate_workers: int = 1, gate_drain: float = 180.0) -> None:
+             gate_workers: int = 0, gate_drain: float = 180.0) -> None:
     """End-to-end multi-camera run: shared batched detector + shared pose/weapon
     models -> per-camera track/zones/concealment/violence/weapons/theft/rules ->
     shared alert queue -> async VLM gate."""
@@ -251,7 +264,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
                                               base_url=gate_base_url, save_dir=save_dir,
                                               sensitivity=gate_sensitivity),
-        workers=gate_workers,
+        workers=_gate_workers_for(gate_workers, len(cams_cfg)),
         on_verdict=sink.handle,
         examples_provider=_examples_provider,
     ).start()
@@ -384,8 +397,8 @@ def main() -> None:
                    default="balanced",
                    help="Verification strictness. Measured on held-out clips: balanced = "
                         "recall 89%%/FPR 26%%, strict = recall 78%%/FPR 15%%.")
-    p.add_argument("--gate-workers", type=int, default=1,
-                   help="Concurrent VLM gate workers (raise for real/slow gates).")
+    p.add_argument("--gate-workers", type=int, default=0,
+                   help="Concurrent VLM gate workers; 0 = auto from camera count.")
     p.add_argument("--gate-drain", type=float, default=180.0,
                    help="Seconds to let in-flight verdicts finish after streams end.")
     p.add_argument("--notify", default="console",

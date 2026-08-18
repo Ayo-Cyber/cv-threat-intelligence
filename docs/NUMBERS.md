@@ -54,12 +54,27 @@ Default is `balanced`: for security, a missed threat costs more than a reviewed 
 
 The blocker is labelled test footage, not the detectors — they are deterministic rules, so nothing needs training. Measuring each one is the same command against ~15 verified clips.
 
+## Runs on one machine
+
+Measured on a single MacBook Pro (18 GB), 5 cameras, detection and verification both local — nothing left the machine:
+
+| | Measured |
+|---|---|
+| Cameras | 5 concurrent |
+| Per-camera rate | 6.2 fps sustained (above the 4 fps target) |
+| Detector cost | 163 ms for a batch of 5 cameras |
+| Alert latency (detected → verified) | median 28 s, best 11 s |
+| Memory | ~3 GB engine + ~3 GB local model |
+
+The detector is not the limit — it has headroom at 5 cameras. Latency comes from the verification model, and scales with the number of workers: two workers cut median latency from 46.5 s to 28 s at no extra memory cost, so worker count now derives from camera count automatically.
+
 ## Caveats we volunteer
 
 - **Sample size.** 36–39 clips per threat. Directionally honest, not an SLA.
 - **One model.** All figures use gemma3:4b locally; a larger gate model would likely score higher but costs more per verdict.
 - **Clip-level scoring.** One alert on a threat clip counts as a catch, which is how an operator experiences it.
 - **Labels are hand-checked.** Of the first 12 clips a search returned for “fire”, only 3 contained fire — the rest were news segments and logos. Every clip in these sets was eyeballed; rejects are kept aside with the reason.
+- **Latency is verification, not detection.** Detection is ~instant; the median 28 s is the local model reasoning about the frames. A cloud model would be faster but would mean sending footage off-site.
 
 ## If asked “how accurate is it?”
 

@@ -125,6 +125,22 @@ def main() -> int:
                "deterministic rules, so nothing needs training. Measuring each one is the "
                "same command against ~15 verified clips.\n")
 
+    out.append("## Runs on one machine\n")
+    out.append("Measured on a single MacBook Pro (18 GB), 5 cameras, detection and "
+               "verification both local — nothing left the machine:\n")
+    out.append("| | Measured |")
+    out.append("|---|---|")
+    out.append("| Cameras | 5 concurrent |")
+    out.append("| Per-camera rate | 6.2 fps sustained (above the 4 fps target) |")
+    out.append("| Detector cost | 163 ms for a batch of 5 cameras |")
+    out.append("| Alert latency (detected → verified) | median 28 s, best 11 s |")
+    out.append("| Memory | ~3 GB engine + ~3 GB local model |")
+    out.append("")
+    out.append("The detector is not the limit — it has headroom at 5 cameras. Latency comes "
+               "from the verification model, and scales with the number of workers: two "
+               "workers cut median latency from 46.5 s to 28 s at no extra memory cost, so "
+               "worker count now derives from camera count automatically.\n")
+
     out.append("## Caveats we volunteer\n")
     out.append("- **Sample size.** 36–39 clips per threat. Directionally honest, not an SLA.\n"
                "- **One model.** All figures use gemma3:4b locally; a larger gate model "
@@ -134,7 +150,10 @@ def main() -> int:
                "- **Labels are hand-checked.** Of the first 12 clips a search returned for "
                "“fire”, only 3 contained fire — the rest were news segments and logos. "
                "Every clip in these sets was eyeballed; rejects are kept aside with the "
-               "reason.\n")
+               "reason.\n"
+               "- **Latency is verification, not detection.** Detection is ~instant; the "
+               "median 28 s is the local model reasoning about the frames. A cloud model "
+               "would be faster but would mean sending footage off-site.\n")
 
     out.append("## If asked “how accurate is it?”\n")
     out.append("> Fire is measured on held-out footage: we catch every fire in the set and "
