@@ -51,6 +51,9 @@ def main() -> None:
     p.add_argument("--db", default="runs/site/events.db")
     args = p.parse_args()
 
+    from cvti.logging_setup import setup_logging
+    setup_logging(Path(args.db).parent, component="argus-app")
+
     try:
         from PyQt6.QtCore import Qt, QUrl
         from PyQt6.QtWebChannel import QWebChannel

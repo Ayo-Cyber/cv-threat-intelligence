@@ -171,6 +171,10 @@ class Backend(QObject):
         return self._safe(self._core.mark_configured)
 
     @pyqtSlot(result=str)
+    def downloadDiagnostics(self) -> str:
+        return self._safe(self._core.download_diagnostics)
+
+    @pyqtSlot(result=str)
     def gateStatus(self) -> str:
         return self._safe(self._core.gate_status)
 

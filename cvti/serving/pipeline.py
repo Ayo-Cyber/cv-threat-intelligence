@@ -450,6 +450,12 @@ def main() -> None:
                    help="Where confirmed events + evidence + events.db are written.")
     args = p.parse_args()
 
+    # Before anything else: a failure during model loading is exactly the kind
+    # that used to vanish. Component-scoped because the app runs this as a
+    # subprocess pointed at the same output dir.
+    from cvti.logging_setup import setup_logging
+    setup_logging(args.output_dir, component="argus-engine")
+
     # Fail fast and readably — a traceback here reads as a crash, and this is a
     # deliberate refusal the operator needs to act on.
     from cvti.verification.gate import MockGateRefused, assert_engine_gate_allowed

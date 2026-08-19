@@ -7,10 +7,14 @@ import shutil
 import sys
 from pathlib import Path
 
+# PyInstaller sets both `frozen` and `_MEIPASS`; other freezers set only the
+# first. Reading `_MEIPASS` unguarded turns that into an AttributeError at
+# import time, which takes the whole app down before anything can log why.
+_SOURCE_BASE = Path(__file__).parent.parent.resolve()
 if getattr(sys, "frozen", False):
-    _BASE = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    _BASE = Path(getattr(sys, "_MEIPASS", _SOURCE_BASE))
 else:
-    _BASE = Path(__file__).parent.parent.resolve()
+    _BASE = _SOURCE_BASE
 
 
 def resource_path(relative: str) -> Path:
