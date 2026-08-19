@@ -599,7 +599,11 @@ var LINK_UI = {
 function linkCell(link){
   var st = (link && link.state) || "unknown";
   var ui = LINK_UI[st] || LINK_UI.unknown;
-  var age = link && link.time_in_state ? " · "+fmtAge(link.time_in_state) : "";
+  /* Liveness is the age of the last FRAME, not of the connection state — a
+     connected camera whose frames stopped is exactly the ambiguity to remove. */
+  var age = "";
+  if(link && st==="connected" && link.last_frame_age_s!=null) age = " · frame "+fmtAge(link.last_frame_age_s)+" ago";
+  else if(link && link.time_in_state) age = " · "+fmtAge(link.time_in_state);
   var rc = link && link.reconnects ? ' <span class="mut" title="reconnections">↻'+link.reconnects+'</span>' : "";
   return '<span><span class="dot" style="background:'+ui[0]+'"></span>'
     + '<span style="color:'+ui[0]+'">'+esc(ui[1])+'</span>'
@@ -911,9 +915,24 @@ function renderSystem(){
    operator seeing "0 errors" for a dead engine would be worse than seeing nothing. */
 function gateEngineRows(e){
   if(!e || !e.updated_at) return '<div class="mut" style="font-size:12px;margin-top:6px">Engine not running — no verification stats yet.</div>';
+  var out0 = "";
+  if(e.status){
+    var sc = e.status==="critical"?"var(--sev-crit)":e.status==="degraded"?"var(--sev-high)":"var(--c-live)";
+    out0 = '<div class="row" style="gap:10px;margin-top:10px;align-items:center">'
+      + '<span class="dot" style="background:'+sc+'"></span>'
+      + '<b style="color:'+sc+';text-transform:uppercase;font-size:12px">'+esc(e.status)+'</b>'
+      + '<span class="mut" style="font-size:12px">up '+fmtAge(e.uptime_s||0)
+      + (e.memory && e.memory.available_gb!=null ? ' · '+e.memory.available_gb+' GB free' : '')
+      + (e.median_latency_s!=null ? ' · verify median '+e.median_latency_s+'s' : '')
+      + '</span></div>'
+      + ((e.reasons||[]).length
+          ? '<div style="font-size:12px;margin-top:6px;color:'+sc+'">'
+            + e.reasons.map(esc).join("<br>") + '</div>'
+          : "");
+  }
   var err = e.errors||0;
   var ec = err ? "var(--sev-high)" : "var(--c-live)";
-  var out = '<div class="row" style="gap:22px;margin-top:10px;font-size:13px">'
+  var out = out0 + '<div class="row" style="gap:22px;margin-top:10px;font-size:13px">'
     + '<span class="mut">verified <b>'+(e.verified||0)+'</b></span>'
     + '<span class="mut">confirmed <b>'+(e.confirmed||0)+'</b></span>'
     + '<span class="mut">rejected <b>'+(e.rejected||0)+'</b></span>'

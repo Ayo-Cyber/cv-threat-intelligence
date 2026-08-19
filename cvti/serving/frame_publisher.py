@@ -39,7 +39,11 @@ class FramePublisher:
     """Holds the latest JPEG per camera and serves it over loopback HTTP."""
 
     def __init__(self, *, quality: int = 70, draw_boxes: bool = True,
-                 max_width: int = 640, token: str = "") -> None:
+                 max_width: int = 640, token: str = "",
+                 health_provider=None) -> None:
+        # /health serves whatever this returns — the engine passes its live
+        # health-doc builder in. None means the route 404s honestly.
+        self.health_provider = health_provider
         # Generated per run, handed to the app through frames.json. Not a
         # user credential — a capability for the one process that needs frames.
         self.token = token or secrets.token_urlsafe(24)
@@ -144,6 +148,17 @@ class FramePublisher:
                         self._send(404, b"no frame", "text/plain")
                     else:
                         self._send(200, data, "image/jpeg")
+                elif path == "/health":
+                    if pub.health_provider is None:
+                        self._send(404, b"no health provider", "text/plain")
+                    else:
+                        try:
+                            doc = pub.health_provider()
+                            self._send(200, json.dumps(doc, default=str).encode(),
+                                       "application/json")
+                        except Exception:  # noqa: BLE001 - a health probe must not kill the server
+                            log.error("[frames] /health provider failed", exc_info=True)
+                            self._send(500, b"health provider failed", "text/plain")
                 elif path in ("/cameras", "/"):
                     self._send(200, json.dumps(pub.snapshot()).encode(), "application/json")
                 else:
