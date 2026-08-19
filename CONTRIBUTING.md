@@ -6,6 +6,21 @@
 everything goes through a branch and a pull request, including one-line fixes
 and documentation.
 
+What GitHub enforces on `main`:
+
+| Rule | Setting |
+|---|---|
+| Direct pushes | blocked — a PR is required |
+| Required check | **Test suite** must pass |
+| Branch freshness | must be up to date with `main` before merging |
+| Approvals required | 0 — a solo maintainer can merge their own PR once CI is green |
+| Force pushes / deletion | blocked |
+| Conversation resolution | required before merge |
+
+Admins are *not* subject to these rules, deliberately: it leaves one escape
+hatch for a genuine emergency. Using it should feel like a decision, not a
+shortcut.
+
 ```bash
 git checkout main && git pull
 git checkout -b <type>/<short-description>
