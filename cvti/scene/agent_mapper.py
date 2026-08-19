@@ -423,7 +423,8 @@ def read_http_error_body(exc: urlerror.HTTPError) -> str:
     """
     try:
         raw = exc.read().decode("utf-8", errors="replace").strip()
-    except Exception:  # noqa: BLE001 - diagnostics only, never mask the original error
+    except Exception as exc:  # noqa: BLE001 - diagnostics only, never mask the original error
+        log.debug("scene field extraction failed", exc_info=True)
         return ""
     if not raw:
         return ""
@@ -749,7 +750,8 @@ class AgentMapper:
             from cvti.utils import resource_path
             self._prompt_path = prompt_path or resource_path(str(DEFAULT_PROMPT_PATH))
             self._schema_path = schema_path or resource_path(str(DEFAULT_SCHEMA_PATH))
-        except Exception:  # noqa: BLE001 - fall back to CWD-relative defaults in dev
+        except Exception as exc:  # noqa: BLE001 - fall back to CWD-relative defaults in dev
+            log.debug("prompt path unreadable; using the default", exc_info=True)
             self._prompt_path = prompt_path or DEFAULT_PROMPT_PATH
             self._schema_path = schema_path or DEFAULT_SCHEMA_PATH
 

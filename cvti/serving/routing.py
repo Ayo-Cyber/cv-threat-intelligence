@@ -101,7 +101,7 @@ class RoutingPolicy:
         try:
             data = json.loads(p.read_text())
         except Exception:  # noqa: BLE001 - a broken policy must not stop alerting
-            log.error(f"[routing] could not parse {p}; using default channel only")
+            log.error(f"[routing] could not parse {p}; using default channel only", exc_info=True)
             return cls(default=default)
         rules = [RoutingRule(r.get("name", f"rule{i}"), r.get("when", {}),
                              r.get("notify", default),
@@ -158,7 +158,8 @@ class EscalationTracker:
             try:
                 if self.is_acknowledged(eid):
                     continue                       # handled in time — nothing to do
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                log.warning("acknowledgement check failed; escalating rather than assuming handled", exc_info=True)
                 pass
             out.append({"event_id": eid, **item})
         return out

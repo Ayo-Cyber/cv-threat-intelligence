@@ -159,6 +159,6 @@ def reset_for_tests() -> None:
         root.removeHandler(handler)
         try:
             handler.close()
-        except Exception:  # noqa: BLE001 - closing a handler must never fail a test
-            pass
+        except Exception:  # noqa: BLE001 - SILENT-OK: this is logging tearing
+            pass                # itself down; there is no logger left to report to.
     _configured.clear()

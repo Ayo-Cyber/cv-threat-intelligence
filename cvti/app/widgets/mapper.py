@@ -13,6 +13,10 @@ from PyQt6.QtWidgets import (
     QPushButton, QVBoxLayout, QWidget,
 )
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 class MapperPanel(QWidget):
     scene_context_updated = pyqtSignal(dict)   # emitted when mapper finishes
@@ -94,6 +98,7 @@ class MapperPanel(QWidget):
             self._set_output(pretty, env, None)
             self.scene_context_updated.emit(context)
         except Exception as exc:
+            log.warning("scene mapping failed", exc_info=True)
             self._set_output("", "", str(exc))
 
     def _set_output(self, text: str, env: str, error: str | None) -> None:

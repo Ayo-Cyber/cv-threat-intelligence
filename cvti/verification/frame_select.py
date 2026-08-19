@@ -18,6 +18,10 @@ from typing import Any
 
 import numpy as np
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 # rule-name / detector keyword -> how many frames to send the gate
 _RULE_FRAMES = {
     "weapon": 1, "weapons": 1, "gun": 1, "knife": 1,
@@ -44,7 +48,8 @@ def _sharpness(frame: np.ndarray) -> float:
         import cv2
         g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return float(cv2.Laplacian(g, cv2.CV_64F).var())
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.debug("blur score unavailable for a frame", exc_info=True)
         return 0.0
 
 
@@ -52,7 +57,8 @@ def _motion_scores(frames: list[np.ndarray]) -> list[float]:
     """Per-frame motion = mean abs diff vs the previous frame (downscaled+gray)."""
     try:
         import cv2
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.debug("blur scoring unavailable", exc_info=True)
         return [0.0] * len(frames)
     small = []
     for f in frames:

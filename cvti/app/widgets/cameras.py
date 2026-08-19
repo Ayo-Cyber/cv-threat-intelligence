@@ -18,6 +18,10 @@ from PyQt6.QtWidgets import (
 
 from cvti.serving import onboarding
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 class _TestWorker(QThread):
     done = pyqtSignal(dict)
@@ -30,6 +34,7 @@ class _TestWorker(QThread):
         try:
             self.done.emit(onboarding.test_url(self._url))
         except Exception as exc:  # noqa: BLE001
+            log.warning("camera test failed", exc_info=True)
             self.done.emit({"ok": False, "error": str(exc)[:160]})
 
 
@@ -43,7 +48,8 @@ class _ScanWorker(QThread):
     def run(self) -> None:
         try:
             self.done.emit(onboarding.scan_subnet(self._cidr))
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.warning("camera scan failed", exc_info=True)
             self.done.emit([])
 
 
@@ -212,6 +218,7 @@ class CamerasPanel(QWidget):
         try:
             onboarding.add_camera(self.site_path, {k: v for k, v in cam.items() if v is not None})
         except Exception as exc:  # noqa: BLE001
+            log.warning("adding a camera failed", exc_info=True)
             QMessageBox.warning(self, "Add camera", str(exc))
             return
         self.status.setText(f"✓ Added — saved to {self.site_path}")

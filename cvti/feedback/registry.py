@@ -11,6 +11,10 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 DEFAULT_REGISTRY = "runs/models/registry.json"
 
 
@@ -24,7 +28,8 @@ class ModelRegistry:
             return {"active": None, "versions": []}
         try:
             return json.loads(p.read_text())
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.warning("model registry unreadable; using baseline model", exc_info=True)
             return {"active": None, "versions": []}
 
     def _save(self, data: dict) -> None:

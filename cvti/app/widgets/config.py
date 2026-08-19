@@ -14,6 +14,10 @@ from PyQt6.QtWidgets import (
 
 from cvti.utils import writable_configs_dir
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 class ConfigPanel(QWidget):
     config_changed = pyqtSignal(str)
@@ -101,6 +105,7 @@ class ConfigPanel(QWidget):
             self.editor.setPlainText(Path(path).read_text())
             self.status_label.setText(f"Loaded {name}")
         except Exception as exc:
+            log.warning("loading config failed", exc_info=True)
             self.status_label.setText(f"Error loading: {exc}")
 
     def _apply(self) -> None:
@@ -117,6 +122,7 @@ class ConfigPanel(QWidget):
             self.status_label.setText("Saved.")
             self.config_changed.emit(path)
         except Exception as exc:
+            log.error("saving config failed", exc_info=True)
             QMessageBox.critical(self, "Save Failed", str(exc))
 
     def current_config_path(self) -> str:

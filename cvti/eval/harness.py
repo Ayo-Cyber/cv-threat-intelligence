@@ -125,7 +125,7 @@ class EvalHarness:
                 from cvti.video_action_model import VideoMAEActionModel
                 self._video = VideoMAEActionModel(self.video_model)
             except Exception as exc:  # noqa: BLE001
-                log.warning(f"[eval] video-action model unavailable ({str(exc)[:70]}) — skipping")
+                log.warning(f"[eval] video-action model unavailable ({str(exc)[:70]}) — skipping", exc_info=True)
 
     def _state_for(self, clip: EvalClip):
         from cvti.rules.customization import CustomizationEngine
@@ -180,6 +180,7 @@ class EvalHarness:
                     if self.gate is not None and self._confirm(alert):
                         res.confirmed += 1
         except Exception as exc:  # noqa: BLE001 - one bad clip must not sink the run
+            log.warning("clip evaluation failed; recorded on the result", exc_info=True)
             res.error = str(exc)[:200]
         finally:
             cap.release()
@@ -198,7 +199,7 @@ class EvalHarness:
             # A gate error is NOT a rejection. Counting it as one would report
             # "TrueSight suppressed everything" — fake numbers that look real.
             self.gate_errors += 1
-            log.error(f"[eval] gate error on {alert.rule_name}: {str(exc)[:90]}")
+            log.error(f"[eval] gate error on {alert.rule_name}: {str(exc)[:90]}", exc_info=True)
             if self.gate_errors >= self.max_gate_errors:
                 raise GateUnavailable(
                     f"{self.gate_errors} consecutive gate failures — aborting so the run "

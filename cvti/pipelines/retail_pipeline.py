@@ -179,7 +179,7 @@ def main() -> None:
                     verdict = gate.verify(evidence_frames, top, scene_context)
                 except Exception as exc:  # noqa: BLE001 - a transient gate/API error must not kill the run
                     log.error(f"[gate error] {top.rule_name} person #{top.person_id} — "
-                          f"{str(exc)[:140]} (alert held, not raised)")
+                          f"{str(exc)[:140]} (alert held, not raised)", exc_info=True)
                     verdict = None
                 if verdict is not None and verdict.confirmed and (ts - last_event_t) >= args.cooldown:
                     event_count += 1

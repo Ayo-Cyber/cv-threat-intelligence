@@ -57,6 +57,8 @@ class GatePool:
         # operator whether Ollama is down or the model is returning garbage.
         self.last_error = ""
         self.last_error_at = 0.0
+        from cvti.health import component
+        self._health = component("gate")
 
     def start(self) -> "GatePool":
         for i in range(self.workers):
@@ -100,20 +102,23 @@ class GatePool:
                         if self.examples_provider is not None:
                             try:
                                 examples = self.examples_provider(alert.camera_id, alert.rule_name)
-                            except Exception:  # noqa: BLE001 - feedback lookup must never break the gate
+                            except Exception as exc:  # noqa: BLE001 - feedback lookup must never break the gate
+                                log.debug("feedback example lookup failed", exc_info=True)
                                 examples = None
                         result = gate.verify(p.get("frames"), candidate, p.get("scene"),
                                              examples=examples)
                     self.verified += 1
+                    self._health.ok()
                     if result is not None and result.confirmed:
                         self.confirmed += 1
                     else:
                         self.rejected += 1
                 except Exception as exc:  # noqa: BLE001 - a gate error must not kill the worker
                     self.errors += 1
+                    self._health.failed(exc, log, f"verifying {alert.rule_name}")
                     self.last_error = f"{alert.camera_id}::{alert.rule_name} — {str(exc)[:160]}"
                     self.last_error_at = time.time()
-                    log.error(f"[gate error] {self.last_error}")
+                    log.error(f"[gate error] {self.last_error}", exc_info=True)
                     result = None
                 finally:
                     self._active -= 1

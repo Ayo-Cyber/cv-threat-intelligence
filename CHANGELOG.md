@@ -26,6 +26,12 @@ to fail silently, and the claims survivable under scrutiny.
   a packaged build logs go to the per-user application-support directory, since
   the working directory may not be writable and there is no terminal to fall
   back on.
+- **Per-component error counters** (`cvti.health`), shown in the System panel
+  with frames processed, error count, error rate and last error per camera. A
+  component failing on more than 1 in 10 attempts is flagged degraded. Logging
+  is rate-limited — first few occurrences of each error type, then one in a
+  hundred — so a detector throwing every frame cannot fill the disk with its own
+  traceback while the counter still carries the true scale.
 - **Download diagnostics** (System panel). Zips logs and a health snapshot —
   versions, disk, gate status, event *counts* — for support. It contains no
   camera images, no video, and no event rows: this is a surveillance product,
@@ -78,6 +84,16 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Fixed
 
+- **One failing camera no longer stops the other five.** `process()` guarded its
+  detector section, but tracking, zones, rule evaluation and evidence selection
+  sat outside it — a failure there propagated out and stopped every camera. The
+  comment inside promised one bad detector could not kill the camera loop; it
+  now does.
+- **68 broad `except Exception` handlers all leave a record**, with the
+  traceback. 22 swallowed entirely. Catching is not handling: without this,
+  "this detector correctly found nothing" and "this detector has thrown on every
+  frame for a week" are the same silence. Exemptions must carry a `SILENT-OK`
+  comment saying why, and a test enforces it.
 - **A gate that cannot decide no longer reports "safe".** `_parse_response`
   returned `confirmed=False` on any exception — the same value it returns when
   TrueSight examines a frame and rejects it. A fire during an Ollama restart was

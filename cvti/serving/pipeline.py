@@ -120,8 +120,17 @@ class MultiStreamPipeline:
             return
         detections = sv.Detections.from_ultralytics(result)          # tracking / zones
         object_detections = extract_detections(result, self._names, self._threat_classes)  # weapons/violence/theft
-        alerts = state.process(detections, frame.image, frame.timestamp,
-                               object_detections=object_detections)
+        # `process` guards its detector section, but everything around it —
+        # tracking, zones, rule evaluation, evidence selection — was unguarded,
+        # so a failure there propagated out through run() and stopped EVERY
+        # camera. The comment inside promised one bad detector could not kill the
+        # camera loop; this is what makes that true.
+        try:
+            alerts = state.process(detections, frame.image, frame.timestamp,
+                                   object_detections=object_detections)
+        except Exception as exc:  # noqa: BLE001 - one camera must not stop the rest
+            state._health.failed(exc, log, "processing a frame")
+            return
         for alert in alerts:
             if self._alert_queue.add(alert):
                 self.alerts_queued += 1
@@ -231,7 +240,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             weapon_model = load_detection_model(weapon_weights, yolov5_repo, preferred_kind="yolov5")
             log.info(f"[site] shared weapon model loaded ({weapon_weights})")
         except Exception as exc:  # noqa: BLE001
-            log.warning(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled")
+            log.warning(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled", exc_info=True)
     # Load ONE shared video-action model iff any camera enables it (best-effort).
     video_action_model = None
     if any(c.get("video_action") for c in cams_cfg):
@@ -240,7 +249,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             video_action_model = VideoMAEActionModel(video_action_model_path)
             log.info(f"[site] shared video-action model loaded ({video_action_model_path})")
         except Exception as exc:  # noqa: BLE001
-            log.warning(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled")
+            log.warning(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled", exc_info=True)
     cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
                                video_action_model=video_action_model, baseline_config=baseline_config)
     sources = {cid: c["source"] for cid, c in cams.items()}
@@ -341,7 +350,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             try:
                 sink.run_escalations()
             except Exception as exc:  # noqa: BLE001
-                log.error(f"[routing] escalation tick failed: {str(exc)[:90]}")
+                log.error(f"[routing] escalation tick failed: {str(exc)[:90]}", exc_info=True)
 
     _esc_thread = _threading.Thread(target=_escalation_loop, name="escalations", daemon=True)
     _esc_thread.start()
@@ -354,10 +363,15 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     _ledger_seen = {"confirmed": 0, "rejected": 0, "deduped": 0, "errors": 0}
 
     def _write_health() -> None:
+        from cvti.health import snapshot as health_snapshot
         st = gate_pool.stats()
         st.update({"provider": gate_provider, "model": gate_model,
                    "mock": mock_gate, "banner": MOCK_GATE_BANNER if mock_gate else "",
                    "updated_at": time.time()})
+        # Per-component counters. Without these, "this detector found nothing"
+        # and "this detector has thrown on every frame for a week" are the same
+        # silence.
+        st["health"] = health_snapshot()
         try:
             _health_path.write_text(json.dumps(st))
         except OSError:
@@ -371,7 +385,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             for k in _ledger_seen:
                 _ledger_seen[k] = st.get(k) or 0
         except Exception as exc:  # noqa: BLE001 - bookkeeping never stops the engine
-            log.error(f"[value] suppression ledger write failed: {str(exc)[:90]}")
+            log.error(f"[value] suppression ledger write failed: {str(exc)[:90]}", exc_info=True)
 
     def _health_loop() -> None:
         while not _esc_stop.wait(3.0):
