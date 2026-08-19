@@ -855,8 +855,13 @@ class ConsoleBackend:
             "inputs": {"review_minutes": review_minutes, "guard_hourly_cost": guard_rate,
                        "incident_value": incident_value},
             "money": money,
-            # An empty ledger and a genuinely quiet week look identical otherwise.
+            # Three states, not two. A database with incidents but no ledger —
+            # the bundled playback demo, or any run from before suppression was
+            # recorded — would otherwise render "0 false alarms prevented, 0.0
+            # hours saved", which reads as the product doing nothing rather than
+            # as a measurement we never took.
             "has_data": bool(raw_alerts or incidents),
+            "has_verification_history": bool(raw_alerts),
         }
 
     def counts(self) -> dict:

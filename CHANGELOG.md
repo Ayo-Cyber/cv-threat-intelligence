@@ -48,6 +48,11 @@ to fail silently, and the claims survivable under scrutiny.
 - **Fire headline restated** as *"100% recall on 9 held-out positive clips
   (95% CI 70.1–100%)"*. The point estimate alone invited the first question a
   technical reader asks, and lost the room when the answer was nine.
+- **The Value screen distinguishes "no false alarms" from "no measurement".**
+  A database with incidents but no suppression ledger — the bundled playback
+  demo, or any run predating the ledger — would have rendered *0 false alarms
+  prevented, 0.0 hours saved*, which reads as the product doing nothing rather
+  than as a measurement never taken.
 - **Rejected and deduped alerts are counted apart.** Both cost an operator
   attention, but only a rejected one is a false alarm. Rolling them together
   would have inflated the headline claim several times over.
