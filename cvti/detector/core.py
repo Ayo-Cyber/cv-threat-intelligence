@@ -515,15 +515,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--gate-provider",
-        default="mock",
-        choices=("mock", "anthropic", "openrouter"),
-        help="VLM provider for the Verification Gate. 'mock' confirms all for testing; 'anthropic' = Claude Vision; "
-             "'openrouter' = Gemma 4 / other vision models via OpenRouter.",
+        default="ollama",
+        choices=("ollama", "local", "anthropic", "openrouter", "openai_compatible", "mock"),
+        help="VLM provider for the Verification Gate. Default 'ollama' = the on-device "
+             "model, offline and free. 'anthropic'/'openrouter' send frames off-device. "
+             "'mock' confirms EVERYTHING without looking and needs ARGUS_ALLOW_MOCK_GATE=1.",
     )
     parser.add_argument(
         "--gate-model",
         default="",
-        help="Override the gate model (empty = provider default: claude-sonnet-4-6 / google/gemma-4-26b-a4b-it:free).",
+        help="Override the gate model (empty = the provider default, e.g. gemma3:4b for ollama).",
+    )
+    parser.add_argument(
+        "--gate-base-url",
+        default="",
+        help="Override the gate endpoint (e.g. a non-default Ollama host).",
     )
     parser.add_argument(
         "--gate-api-key-env",
@@ -1862,6 +1868,7 @@ def main() -> None:
     verification_gate = VerificationGate(
         provider=args.gate_provider,
         model=args.gate_model,
+        base_url=args.gate_base_url,
         api_key_env=args.gate_api_key_env,
         save_dir=output_root / "gate" if args.gate_provider != "mock" else None,
     )

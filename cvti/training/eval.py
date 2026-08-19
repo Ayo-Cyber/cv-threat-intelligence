@@ -281,7 +281,7 @@ def generate_template(clips_dir: str) -> None:
     for clip in clips:
         log.info(f"{clip},violence,")  # user fills in threat_class and has_threat
     if not clips:
-        emit("# No video files found in", clips_dir, file=sys.stderr)
+        emit("# No video files found in", clips_dir, err=True)
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +604,7 @@ def main() -> None:
         return
 
     if not args.ground_truth:
-        emit("Error: --ground-truth is required unless --generate-template is used.", file=sys.stderr)
+        emit("Error: --ground-truth is required unless --generate-template is used.", err=True)
         sys.exit(1)
 
     rows = load_ground_truth(args.ground_truth)
