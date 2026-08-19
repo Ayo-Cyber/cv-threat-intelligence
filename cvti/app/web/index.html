@@ -758,21 +758,32 @@ function drawValue(v){
   }
 
   // The whole product in one line: what you would have seen vs what you were shown.
-  var compare = v.raw_alerts ? '<div class="vcompare">'
+  var compare = v.has_verification_history ? '<div class="vcompare">'
     +'<div class="vside raw"><div class="n">'+v.raw_alerts+'</div>'
     +'<div class="l">alerts raw detectors would have put in front of you</div></div>'
     +'<div class="varrow">→</div>'
     +'<div class="vside kept"><div class="n">'+v.shown+'</div>'
-    +'<div class="l">alerts TrueSight actually showed you</div></div></div>' : '';
+    +'<div class="l">alerts TrueSight actually showed you</div></div></div>'
+    // Incidents but no ledger: a playback database, or a run from before
+    // suppression was recorded. Say that, rather than printing zeros that read
+    // as "the gate removed nothing".
+    : '<div class="panel" style="padding:15px 18px;margin-bottom:14px;border-color:var(--sev-high)">'
+      +'<b>No verification history for this period.</b>'
+      +'<div class="mut" style="font-size:12.5px;margin-top:6px;line-height:1.5">'
+      +'The '+v.incidents+' incident'+(v.incidents===1?'':'s')+' below are real and reviewable, but this '
+      +'database has no record of what the gate <i>rejected</i> — so there is nothing to compare them '
+      +'against. Start monitoring and the comparison fills in as alerts are verified.</div></div>';
 
   var cards='<div class="vcards">'
     +vcard(v.incidents, "Incidents detected", "Verified threats put in front of a person. Each one is a row in Alerts with its evidence frames.")
-    +vcard(v.false_alarms_prevented, "False alarms prevented", "Detector candidates the on-device AI looked at and judged wrong. Counted separately from duplicates — only these are false alarms.")
-    +vcard(v.duplicates_collapsed, "Duplicate alerts collapsed", "Repeats of an event already queued. Not false alarms, but they would still have cost an operator a look.")
-    +vcard(v.attention_hours_saved.toFixed(1)+" h", "Attention-hours saved",
-           v.noise_removed+" alerts removed × "+(inp.review_minutes||0)+" min to triage one. Change the minutes below if that is not your number.")
-    +(m.attention_saved!=null ? vcard(money(m.attention_saved), "Guard cost avoided",
-           "Attention-hours × your guard hourly rate, in whatever currency you entered it in.") : "")
+    +(v.has_verification_history ? (
+       vcard(v.false_alarms_prevented, "False alarms prevented", "Detector candidates the on-device AI looked at and judged wrong. Counted separately from duplicates — only these are false alarms.")
+      +vcard(v.duplicates_collapsed, "Duplicate alerts collapsed", "Repeats of an event already queued. Not false alarms, but they would still have cost an operator a look.")
+      +vcard(v.attention_hours_saved.toFixed(1)+" h", "Attention-hours saved",
+             v.noise_removed+" alerts removed × "+(inp.review_minutes||0)+" min to triage one. Change the minutes below if that is not your number.")
+      +(m.attention_saved!=null ? vcard(money(m.attention_saved), "Guard cost avoided",
+             "Attention-hours × your guard hourly rate, in whatever currency you entered it in.") : "")
+     ) : "")
     +(m.incidents_value!=null ? vcard(money(m.incidents_value), "Value of incidents caught",
            v.incidents+" incidents × the per-incident value you entered. An upper bound on what was at stake, not a claim about what was recovered.") : "")
     +'</div>';
@@ -785,7 +796,9 @@ function drawValue(v){
   var trace='<div class="panel" style="padding:15px 18px"><div class="syslabel">Where these numbers come from</div>'
     +'<div class="mut" style="font-size:12.5px;margin-top:8px;line-height:1.6">'
     +'<b>'+v.incidents+'</b> incidents = confirmed events in the last '+days+' days.<br>'
-    +'<b>'+v.raw_alerts+'</b> raw = '+v.shown+' shown + '+v.false_alarms_prevented+' rejected by the AI + '+v.duplicates_collapsed+' duplicates, counted by the engine as it verified them.<br>'
+    +(v.has_verification_history
+        ? '<b>'+v.raw_alerts+'</b> raw = '+v.shown+' shown + '+v.false_alarms_prevented+' rejected by the AI + '+v.duplicates_collapsed+' duplicates, counted by the engine as it verified them.<br>'
+        : 'No suppression figures: this database has no verification history, so none are shown rather than shown as zero.<br>')
     +'Operators have labelled <b>'+(lbl["true"]||0)+'</b> of these real and <b>'+(lbl["false"]||0)+'</b> false alarms so far.<br>'
     +'Money figures are these counts × the rates you entered — nothing is extrapolated, and they are hidden until you enter a rate.'
     +'</div></div>';

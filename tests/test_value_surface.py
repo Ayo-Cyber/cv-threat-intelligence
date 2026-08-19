@@ -99,6 +99,34 @@ class ValueSummaryTest(unittest.TestCase):
             self.assertFalse(v["has_data"])
             self.assertIsNone(v["suppression_pct"])
 
+    def test_incidents_without_a_ledger_do_not_read_as_zero_suppression(self):
+        """The bundled playback demo, and any run predating the ledger.
+
+        Showing "0 false alarms prevented" for a database that never recorded
+        any would say the gate removed nothing, which is the opposite of true.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            site = Path(tmp) / "site.json"
+            site.write_text('{"cameras": []}')
+            db = Path(tmp) / "events.db"
+            AlertSink(tmp, save_evidence=False, routing_path=None).close()
+            con = sqlite3.connect(db)
+            import time as _t
+            con.execute("INSERT INTO events (ts, iso, camera_id, rule) VALUES (?,?,?,?)",
+                        (_t.time(), "now", "cam1", "theft"))
+            con.commit()
+            con.close()
+            v = ConsoleBackend(site_path=str(site), db_path=str(db),
+                               enable_demo=False).value_summary(30)
+            self.assertTrue(v["has_data"])                    # there are incidents
+            self.assertFalse(v["has_verification_history"])   # but nothing to compare them to
+            self.assertEqual(v["incidents"], 1)
+
+    def test_a_real_ledger_reports_verification_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            v = self._backend_with(tmp, shown=2, rejected=3, deduped=41).value_summary(30)
+            self.assertTrue(v["has_verification_history"])
+
     def test_incidents_come_from_confirmed_events(self):
         with tempfile.TemporaryDirectory() as tmp:
             be = self._backend_with(tmp, shown=3, rejected=9, deduped=0)
