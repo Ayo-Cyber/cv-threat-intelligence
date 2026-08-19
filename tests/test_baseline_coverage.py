@@ -63,5 +63,30 @@ class BaselineCoverageTests(unittest.TestCase):
             self.assertTrue(alerts, f"{det} event produced no alert")
 
 
+class BaselineDoesNotDuplicateTests(unittest.TestCase):
+    """The baseline is a safety net, not a second opinion."""
+
+    def _alerts(self, config, detector):
+        from cvti.contracts import RawEvent
+        from cvti.rules.customization import CustomizationEngine
+        eng = CustomizationEngine(str(ROOT / "configs" / config), baseline_path=str(BASELINE))
+        ev = RawEvent(detector=detector, active=True, title="T", level="high", timestamp=1.0)
+        return [a.rule_name for a in eng.evaluate([ev])]
+
+    def test_config_rule_wins_over_the_baseline(self):
+        # manufacturing_hse_v1 has its own panic_running rule
+        names = self._alerts("manufacturing_hse_v1.json", "running")
+        self.assertEqual(len(names), 1, f"one incident produced {names}")
+        self.assertNotIn("baseline_panic_running", names)
+
+    def test_baseline_still_covers_a_config_that_lacks_the_rule(self):
+        names = self._alerts("all_threats_video_v1.json", "running")
+        self.assertIn("baseline_panic_running", names)
+
+    def test_crowd_is_not_duplicated_either(self):
+        names = self._alerts("manufacturing_hse_v1.json", "crowd_formation")
+        self.assertEqual(len(names), 1, f"one incident produced {names}")
+
+
 if __name__ == "__main__":
     unittest.main()

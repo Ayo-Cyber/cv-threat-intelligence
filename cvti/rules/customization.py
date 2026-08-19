@@ -61,9 +61,19 @@ class CustomizationEngine:
         context = scene_context or {}
         alerts: list[CandidateAlert] = []
 
+        # The baseline is a SAFETY NET, not a second opinion: if the customer's own
+        # config already handles a detector, its rule wins and the baseline stays
+        # out of the way. Without this a camera with a panic_running rule also got
+        # baseline_panic_running, so one incident reached the operator twice under
+        # two names.
+        covered = {r.get("trigger", {}).get("detector")
+                   for r in self.rules if r.get("trigger", {}).get("detector")}
+        baseline = [r for r in self.baseline_rules
+                    if r.get("trigger", {}).get("detector") not in covered]
+
         # Baseline first so critical safety rules are always evaluated, whatever
         # the customer config says.
-        for rule in self.baseline_rules + self.rules:
+        for rule in baseline + self.rules:
             # Compound recipe (Phase 3): several signals combined by a logic op.
             if "signals" in rule:
                 compound = _eval_compound(rule, events, now)
