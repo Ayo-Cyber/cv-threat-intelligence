@@ -175,6 +175,22 @@ class Backend(QObject):
     def markConfigured(self) -> str:
         return self._safe(self._core.mark_configured)
 
+    @pyqtSlot(int, bool, result=str)
+    def setLegalHold(self, event_id: int, hold: bool) -> str:
+        return self._safe(lambda: self._core.set_legal_hold(event_id, hold))
+
+    @pyqtSlot(result=str)
+    def retentionStatus(self) -> str:
+        return self._safe(self._core.retention_status)
+
+    @pyqtSlot(float, result=str)
+    def setRetention(self, days: float) -> str:
+        return self._safe(lambda: self._core.set_retention(days))
+
+    @pyqtSlot(str, result=str)
+    def exportEvidence(self, event_ids: str) -> str:
+        return self._safe(lambda: self._core.export_evidence(event_ids))
+
     @pyqtSlot(result=str)
     def cameraLinks(self) -> str:
         return self._safe(self._core.camera_links)

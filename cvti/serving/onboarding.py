@@ -126,7 +126,8 @@ def remove_camera(site_path: str | Path, camera_id: str) -> list[dict]:
 # generic benchmarks — an ROI figure computed from someone else's assumptions is
 # worth nothing to the person signing the renewal.
 _META_KEYS = ("name", "notify", "gate", "configured",
-              "incident_value", "guard_hourly_cost", "review_minutes")
+              "incident_value", "guard_hourly_cost", "review_minutes",
+              "retention_days", "disk_warn_pct", "disk_critical_pct")
 
 # Deliberately conservative: a low review time and a modest guard rate make the
 # saving harder to argue with than a flattering one.
@@ -134,6 +135,11 @@ VALUE_DEFAULTS = {
     "incident_value": 0.0,      # 0 until the site says otherwise — no invented number
     "guard_hourly_cost": 0.0,
     "review_minutes": 2.0,      # minutes of attention one alert costs to triage
+    # Storage limitation is not optional under GDPR/NDPR, so this has a real
+    # default rather than "off" — a site that never configures it still deletes.
+    "retention_days": 30.0,
+    "disk_warn_pct": 85.0,
+    "disk_critical_pct": 95.0,
 }
 
 

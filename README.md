@@ -137,6 +137,20 @@ configs/           site configs: cameras, rules, zones per deployment
 docs/              see docs/README.md for the index
 ```
 
+## Data retention
+
+Evidence is deleted **30 days** after recording by default — frames, clips and
+the database record together. Configure it in **System → Data retention**.
+
+Two things deliberately outlive their expiry: anything an operator has placed on
+**legal hold**, and anything **not yet reviewed** (an open incident must not be
+destroyed on a timer while the question is still live). Both are counted in the
+System panel, so "why is this still here?" always has an answer.
+
+Argus warns at 85% disk and purges oldest-first at 95%, still refusing to touch
+held or unreviewed evidence. Full policy, including erasure and export:
+[docs/DATA_RETENTION.md](docs/DATA_RETENTION.md).
+
 ## Contributing
 
 `main` is protected; everything lands through a branch and a PR, and CI must be
