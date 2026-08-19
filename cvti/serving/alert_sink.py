@@ -220,6 +220,19 @@ CREATE TABLE IF NOT EXISTS events (
     latency_s REAL,       -- detection -> TrueSight-verified wall-clock seconds
     bbox TEXT             -- "x1,y1,x2,y2" of the subject when it fired (may be NULL)
 );
+
+-- What the gate threw away, per day. Only confirmed alerts become rows in
+-- `events`, so without this the product's central claim — "raw detectors would
+-- have shown you 201 alerts, we showed you 28" — has no persistent evidence
+-- behind it once the engine restarts.
+CREATE TABLE IF NOT EXISTS suppression_daily (
+    day TEXT PRIMARY KEY,        -- YYYY-MM-DD, local time
+    shown INTEGER DEFAULT 0,     -- verified, confirmed, put in front of a human
+    rejected INTEGER DEFAULT 0,  -- verified and thrown away
+    deduped INTEGER DEFAULT 0,   -- same event already queued; never verified
+    errors INTEGER DEFAULT 0,    -- the gate failed; counted, never hidden
+    updated_at REAL
+);
 """
 
 
@@ -271,6 +284,27 @@ class AlertSink:
         self._calib_mtime = 0.0
         self.calibration = Calibration()
         self._reload_calibration()
+
+    # --- suppression ledger ----------------------------------------------
+    def record_suppression(self, *, shown: int = 0, rejected: int = 0,
+                           deduped: int = 0, errors: int = 0, day: str | None = None) -> None:
+        """Add a delta to today's suppression row.
+
+        Deltas, not totals: the gate pool's counters reset with the process, and
+        a day's figure has to survive a restart to be worth quoting.
+        """
+        if not (shown or rejected or deduped or errors):
+            return
+        day = day or time.strftime("%Y-%m-%d")
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO suppression_daily (day, shown, rejected, deduped, errors, updated_at) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET "
+                "shown=shown+excluded.shown, rejected=rejected+excluded.rejected, "
+                "deduped=deduped+excluded.deduped, errors=errors+excluded.errors, "
+                "updated_at=excluded.updated_at",
+                (day, shown, rejected, deduped, errors, time.time()))
+            self._db.commit()
 
     def _reload_calibration(self) -> None:
         from cvti.feedback.calibration import Calibration

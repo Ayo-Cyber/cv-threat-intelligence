@@ -767,6 +767,98 @@ class ConsoleBackend:
         db, _ = self._effective_db()
         return FeedbackManager(db).calibrate()
 
+    # --- value surface ----------------------------------------------------
+    def set_value_inputs(self, incident_value: "float | None" = None,
+                         guard_hourly_cost: "float | None" = None,
+                         review_minutes: "float | None" = None) -> dict:
+        """The site's own money figures. Blank stays blank — see value_summary."""
+        return onboarding.set_site_meta(
+            self.site_path, incident_value=incident_value,
+            guard_hourly_cost=guard_hourly_cost, review_minutes=review_minutes)
+
+    def value_summary(self, days: int = 30) -> dict:
+        """What the system was worth over `days`, in the buyer's terms.
+
+        Suppression percentage is an engineering metric. What a buyer is actually
+        deciding about is: how many incidents did I get told about, how many
+        false alarms did I not have to look at, and how much of my guards' shift
+        did that give back.
+
+        Every figure here is a count of real rows — `incidents` from the events
+        table, the rest from the suppression ledger — so any number on the screen
+        can be walked back to the events behind it. Nothing is modelled or
+        extrapolated; the money figures are simply those counts multiplied by
+        rates the site typed in, and are omitted entirely when it hasn't.
+        """
+        db, _ = self._effective_db()
+        since = time.time() - max(1, int(days)) * 86400
+        since_day = time.strftime("%Y-%m-%d", time.localtime(since))
+
+        incidents = reviewed_true = reviewed_false = 0
+        shown = rejected = deduped = errors = 0
+        try:
+            con = self._connect(db)
+            try:
+                row = con.execute(
+                    "SELECT COUNT(*), "
+                    "SUM(CASE WHEN review='true' THEN 1 ELSE 0 END), "
+                    "SUM(CASE WHEN review='false' THEN 1 ELSE 0 END) "
+                    "FROM events WHERE ts >= ?", (since,)).fetchone()
+                incidents = row[0] or 0
+                reviewed_true = row[1] or 0
+                reviewed_false = row[2] or 0
+            except sqlite3.OperationalError:
+                pass
+            try:
+                row = con.execute(
+                    "SELECT SUM(shown), SUM(rejected), SUM(deduped), SUM(errors) "
+                    "FROM suppression_daily WHERE day >= ?", (since_day,)).fetchone()
+                shown, rejected, deduped, errors = (v or 0 for v in row)
+            except sqlite3.OperationalError:
+                pass       # ledger only exists once an engine has run
+            con.close()
+        except sqlite3.OperationalError:
+            pass
+
+        # The gate only ever sees candidates the detectors produced, so raw is
+        # exactly what an operator would have faced without verification.
+        raw_alerts = shown + rejected + deduped
+        # Kept apart on purpose. A rejected alert is one the AI looked at and
+        # judged wrong; a deduped one is a repeat of an event already queued.
+        # Both cost an operator attention, but only the first is a false alarm,
+        # and rolling them together would overstate the claim that matters most.
+        noise_removed = rejected + deduped
+        meta = self.get_site()
+        review_minutes = float(meta.get("review_minutes") or 0.0)
+        hours_saved = noise_removed * review_minutes / 60.0
+
+        money = {}
+        guard_rate = float(meta.get("guard_hourly_cost") or 0.0)
+        incident_value = float(meta.get("incident_value") or 0.0)
+        if guard_rate > 0:
+            money["attention_saved"] = round(hours_saved * guard_rate, 2)
+        if incident_value > 0:
+            money["incidents_value"] = round(incidents * incident_value, 2)
+
+        return {
+            "days": int(days),
+            "incidents": incidents,                 # confirmed, in front of a human
+            "false_alarms_prevented": rejected,     # AI looked and said no
+            "duplicates_collapsed": deduped,        # repeat of an event already queued
+            "noise_removed": noise_removed,
+            "raw_alerts": raw_alerts,               # what you would have seen
+            "shown": shown,                         # what you were actually shown
+            "suppression_pct": round(noise_removed / raw_alerts, 4) if raw_alerts else None,
+            "attention_hours_saved": round(hours_saved, 2),
+            "gate_errors": errors,                  # alerts the gate could not verify
+            "operator_labels": {"true": reviewed_true, "false": reviewed_false},
+            "inputs": {"review_minutes": review_minutes, "guard_hourly_cost": guard_rate,
+                       "incident_value": incident_value},
+            "money": money,
+            # An empty ledger and a genuinely quiet week look identical otherwise.
+            "has_data": bool(raw_alerts or incidents),
+        }
+
     def counts(self) -> dict:
         """Header/nav summary numbers."""
         cams = self.list_cameras()

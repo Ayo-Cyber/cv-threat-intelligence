@@ -312,6 +312,24 @@
   .zmcanvaswrap{position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--c-border);margin:0 auto;background:#000}
   .zmcanvaswrap img{display:block}
   .zmcanvaswrap canvas{position:absolute;top:0;left:0;cursor:crosshair}
+  /* value screen */
+  .vcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:14px}
+  .vcard{border:1px solid var(--c-border);border-radius:12px;padding:15px 17px;background:var(--c-panel)}
+  .vcard .n{font-family:var(--ff-mono);font-size:30px;font-weight:600;line-height:1.05;color:var(--c-text)}
+  .vcard .l{font-size:12px;color:var(--c-sub);margin-top:5px;font-weight:600}
+  .vcard .t{font-size:11px;color:var(--c-mut);margin-top:6px;line-height:1.45}
+  .vcompare{display:flex;align-items:stretch;gap:0;border:1px solid var(--c-border);border-radius:12px;overflow:hidden;margin-bottom:14px}
+  .vside{flex:1;padding:17px 20px}
+  .vside.raw{background:rgba(220,70,70,.07)}
+  .vside.kept{background:rgba(70,190,120,.07)}
+  .vside .n{font-family:var(--ff-mono);font-size:34px;font-weight:600;line-height:1}
+  .vside.raw .n{color:var(--sev-crit)}
+  .vside.kept .n{color:var(--c-live)}
+  .vside .l{font-size:12.5px;color:var(--c-sub);margin-top:6px}
+  .varrow{display:flex;align-items:center;padding:0 14px;color:var(--c-mut);font-size:20px}
+  .vinputs{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+  .vinputs label{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--c-mut)}
+  .vinputs input{width:130px}
   /* gate banner — the app is running unverified, and must never hide it */
   .gatebanner{background:var(--sev-crit);color:#fff;font-weight:700;letter-spacing:.4px;
     padding:9px 22px;font-size:13px;display:flex;gap:10px;align-items:center}
@@ -358,7 +376,7 @@
 <script>
 "use strict";
 var backend = null, state = {route:"cameras", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[]};
-var NAV = [["cameras","Cameras"],["alerts","Alerts"],["live","Live"],["map","Map"],["ask","Ask"],["learning","Learning"],["rules","Rules"],["system","System"]];
+var NAV = [["cameras","Cameras"],["alerts","Alerts"],["live","Live"],["map","Map"],["ask","Ask"],["value","Value"],["learning","Learning"],["rules","Rules"],["system","System"]];
 var SEV = {critical:"var(--sev-crit)",high:"var(--sev-high)",medium:"var(--sev-med)",low:"var(--sev-low)"};
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
@@ -446,7 +464,7 @@ function finishSwitch(s){
 }
 
 function render(){
-  var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",map:"Site map",ask:"Ask your cameras",learning:"Learning",rules:"Rules",system:"System"}[state.route];
+  var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",map:"Site map",ask:"Ask your cameras",value:"Value",learning:"Learning",rules:"Rules",system:"System"}[state.route];
   $("title").textContent = t;
   if(state.route==="cameras") return renderCameras();
   if(state.route==="alerts") return renderAlerts();
@@ -455,6 +473,7 @@ function render(){
   if(state.route==="ask") return renderAsk();
   if(state.route==="learning") return renderLearning();
   if(state.route==="rules") return renderRules();
+  if(state.route==="value") return renderValue();
   if(state.route==="system") return renderSystem();
   $("screen").innerHTML='<div class="pad"><h2>'+t+'</h2><p class="mut">Coming soon.</p></div>';
 }
@@ -710,6 +729,87 @@ function closeLiveModal(){ state.liveModal=null; var m=$("liveModal"); if(m) m.r
 document.addEventListener("keydown", function(e){ if(e.key==="Escape" && state.liveModal) closeLiveModal(); });
 function stopLivePoll(){ if(state.liveTimer){ clearInterval(state.liveTimer); state.liveTimer=null; } }
 function stopLive(){ stopLivePoll(); call("liveStop",[],function(){}); }
+
+/* ---------- Value (what the system was worth) ---------- */
+/* Deliberately not framed as "suppression %". The buyer is deciding about
+   incidents they heard about, alarms they didn't have to look at, and shift time
+   they got back. Same underlying counts, the frame they actually buy on. */
+function renderValue(){
+  $("screen").innerHTML='<div class="pad mut">Loading value summary…</div>';
+  call("valueSummary",[state.valueDays||30],function(v){
+    if(!v||v.error){ $("screen").innerHTML='<div class="pad"><h2>Value</h2><p class="mut">'+esc((v&&v.error)||"unavailable")+'</p></div>'; return; }
+    state.value=v; drawValue(v);
+  });
+}
+function money(n){ return n==null? null : n.toLocaleString(undefined,{maximumFractionDigits:0}); }
+function drawValue(v){
+  var days=v.days||30, m=v.money||{}, inp=v.inputs||{};
+  var head='<div class="row" style="margin-bottom:12px"><h2 style="margin:0">Value</h2>'
+    +'<span class="mut" style="font-size:12px">last '+days+' days</span><span style="flex:1"></span>'
+    +[7,30,90].map(function(d){ return '<button class="btn '+(d===days?"sm":"ghost sm")+'" onclick="setValueDays('+d+')">'+d+'d</button>'; }).join("")
+    +'</div>';
+
+  if(!v.has_data){
+    $("screen").innerHTML='<div class="pad" style="max-width:940px">'+head
+      +'<div class="panel" style="padding:20px"><b>No verification history yet.</b>'
+      +'<div class="mut" style="margin-top:7px;font-size:13px;line-height:1.5">These figures are counted from your own events — nothing here is modelled or '
+      +'estimated from someone else\'s site. Start monitoring and they fill in as alerts are verified.</div></div></div>';
+    return;
+  }
+
+  // The whole product in one line: what you would have seen vs what you were shown.
+  var compare = v.raw_alerts ? '<div class="vcompare">'
+    +'<div class="vside raw"><div class="n">'+v.raw_alerts+'</div>'
+    +'<div class="l">alerts raw detectors would have put in front of you</div></div>'
+    +'<div class="varrow">→</div>'
+    +'<div class="vside kept"><div class="n">'+v.shown+'</div>'
+    +'<div class="l">alerts TrueSight actually showed you</div></div></div>' : '';
+
+  var cards='<div class="vcards">'
+    +vcard(v.incidents, "Incidents detected", "Verified threats put in front of a person. Each one is a row in Alerts with its evidence frames.")
+    +vcard(v.false_alarms_prevented, "False alarms prevented", "Detector candidates the on-device AI looked at and judged wrong. Counted separately from duplicates — only these are false alarms.")
+    +vcard(v.duplicates_collapsed, "Duplicate alerts collapsed", "Repeats of an event already queued. Not false alarms, but they would still have cost an operator a look.")
+    +vcard(v.attention_hours_saved.toFixed(1)+" h", "Attention-hours saved",
+           v.noise_removed+" alerts removed × "+(inp.review_minutes||0)+" min to triage one. Change the minutes below if that is not your number.")
+    +(m.attention_saved!=null ? vcard(money(m.attention_saved), "Guard cost avoided",
+           "Attention-hours × your guard hourly rate, in whatever currency you entered it in.") : "")
+    +(m.incidents_value!=null ? vcard(money(m.incidents_value), "Value of incidents caught",
+           v.incidents+" incidents × the per-incident value you entered. An upper bound on what was at stake, not a claim about what was recovered.") : "")
+    +'</div>';
+
+  var caveat = v.gate_errors ? '<div class="panel" style="padding:12px 16px;margin-bottom:13px;border-color:var(--sev-high)">'
+    +'<b style="color:var(--sev-high)">'+v.gate_errors+' alert(s) could not be verified</b>'
+    +'<div class="mut" style="font-size:12px;margin-top:4px">The gate errored on these — they are counted here rather than quietly dropped from the totals.</div></div>' : '';
+
+  var lbl=v.operator_labels||{};
+  var trace='<div class="panel" style="padding:15px 18px"><div class="syslabel">Where these numbers come from</div>'
+    +'<div class="mut" style="font-size:12.5px;margin-top:8px;line-height:1.6">'
+    +'<b>'+v.incidents+'</b> incidents = confirmed events in the last '+days+' days.<br>'
+    +'<b>'+v.raw_alerts+'</b> raw = '+v.shown+' shown + '+v.false_alarms_prevented+' rejected by the AI + '+v.duplicates_collapsed+' duplicates, counted by the engine as it verified them.<br>'
+    +'Operators have labelled <b>'+(lbl["true"]||0)+'</b> of these real and <b>'+(lbl["false"]||0)+'</b> false alarms so far.<br>'
+    +'Money figures are these counts × the rates you entered — nothing is extrapolated, and they are hidden until you enter a rate.'
+    +'</div></div>';
+
+  var inputs='<div class="panel" style="padding:15px 18px;margin-top:13px"><div class="syslabel">Your site\'s numbers</div>'
+    +'<div class="vinputs" style="margin-top:10px">'
+    +'<label>Minutes to triage one alert<input id="vRev" type="number" step="0.5" min="0" value="'+(inp.review_minutes||0)+'"></label>'
+    +'<label>Guard cost per hour<input id="vGuard" type="number" step="1" min="0" value="'+(inp.guard_hourly_cost||0)+'"></label>'
+    +'<label>Value of one incident<input id="vInc" type="number" step="1" min="0" value="'+(inp.incident_value||0)+'"></label>'
+    +'<button class="btn sm" onclick="saveValueInputs(this)">Save</button></div>'
+    +'<div class="mut" style="font-size:11.5px;margin-top:9px">Leave a rate at 0 and the figure it feeds stays hidden. A number we invented for you is worth nothing to you.</div></div>';
+
+  $("screen").innerHTML='<div class="pad" style="max-width:940px">'+head+compare+cards+caveat+trace+inputs+'</div>';
+}
+function vcard(n, label, tip){
+  return '<div class="vcard"><div class="n">'+esc(String(n))+'</div><div class="l">'+esc(label)+'</div>'
+    +'<div class="t">'+esc(tip)+'</div></div>';
+}
+function setValueDays(d){ state.valueDays=d; renderValue(); }
+function saveValueInputs(btn){
+  var rev=parseFloat($("vRev").value)||0, guard=parseFloat($("vGuard").value)||0, inc=parseFloat($("vInc").value)||0;
+  if(btn){ btn.disabled=true; btn.textContent="Saving…"; }
+  call("setValueInputs",[inc,guard,rev],function(){ renderValue(); });
+}
 
 /* ---------- System (settings + health) ---------- */
 var NOTIFY_CHANNELS=[["console","Console / log","always on — shows in the terminal"],

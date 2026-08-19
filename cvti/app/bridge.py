@@ -155,6 +155,17 @@ class Backend(QObject):
     def setSite(self, name: str, notify: str) -> str:
         return self._safe(lambda: self._core.set_site(name=name or None, notify=notify or None))
 
+    @pyqtSlot(int, result=str)
+    def valueSummary(self, days: int) -> str:
+        return self._safe(lambda: self._core.value_summary(days or 30))
+
+    @pyqtSlot(float, float, float, result=str)
+    def setValueInputs(self, incident_value: float, guard_hourly_cost: float,
+                       review_minutes: float) -> str:
+        return self._safe(lambda: self._core.set_value_inputs(
+            incident_value=incident_value, guard_hourly_cost=guard_hourly_cost,
+            review_minutes=review_minutes))
+
     @pyqtSlot(result=str)
     def markConfigured(self) -> str:
         return self._safe(self._core.mark_configured)

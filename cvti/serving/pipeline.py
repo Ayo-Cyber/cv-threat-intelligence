@@ -347,6 +347,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # process from the app, so a file next to events.db is the channel — same
     # trick the frame publisher uses.
     _health_path = Path(output_dir) / "gate_health.json"
+    # Last totals written to the ledger, so each tick contributes only its delta.
+    _ledger_seen = {"confirmed": 0, "rejected": 0, "deduped": 0, "errors": 0}
 
     def _write_health() -> None:
         st = gate_pool.stats()
@@ -357,6 +359,16 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             _health_path.write_text(json.dumps(st))
         except OSError:
             pass   # health reporting must never take the engine down
+        # The value surface needs these to outlive the process — see
+        # AlertSink.record_suppression.
+        try:
+            delta = {k: (st.get(k) or 0) - v for k, v in _ledger_seen.items()}
+            sink.record_suppression(shown=delta["confirmed"], rejected=delta["rejected"],
+                                    deduped=delta["deduped"], errors=delta["errors"])
+            for k in _ledger_seen:
+                _ledger_seen[k] = st.get(k) or 0
+        except Exception as exc:  # noqa: BLE001 - bookkeeping never stops the engine
+            print(f"[value] suppression ledger write failed: {str(exc)[:90]}")
 
     def _health_loop() -> None:
         while not _esc_stop.wait(3.0):
@@ -393,8 +405,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         if publisher is not None:
             print(f"[frames] published {publisher.published} frame(s)")
             publisher.stop()
+        _write_health()          # final totals, while the sink's DB is still open
         sink.close()
-    _write_health()
     print(f"[site] alerts_queued={pipe.alerts_queued} gate={gate_pool.stats()}")
     print(f"[site] persisted {sink.persisted} confirmed event(s) -> {output_dir}/events.db")
     if getattr(sink, "routing", None) and sink.routing.rules:

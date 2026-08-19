@@ -122,7 +122,19 @@ def remove_camera(site_path: str | Path, camera_id: str) -> list[dict]:
 # Stored alongside "cameras" in the same site JSON so one file fully describes a
 # deployment. The app's setup wizard reads/writes these.
 
-_META_KEYS = ("name", "notify", "gate", "configured")
+# The last three feed the Value screen. They are the site's own numbers, not
+# generic benchmarks — an ROI figure computed from someone else's assumptions is
+# worth nothing to the person signing the renewal.
+_META_KEYS = ("name", "notify", "gate", "configured",
+              "incident_value", "guard_hourly_cost", "review_minutes")
+
+# Deliberately conservative: a low review time and a modest guard rate make the
+# saving harder to argue with than a flattering one.
+VALUE_DEFAULTS = {
+    "incident_value": 0.0,      # 0 until the site says otherwise — no invented number
+    "guard_hourly_cost": 0.0,
+    "review_minutes": 2.0,      # minutes of attention one alert costs to triage
+}
 
 
 def get_site_meta(site_path: str | Path) -> dict:
@@ -132,6 +144,11 @@ def get_site_meta(site_path: str | Path) -> dict:
     meta["notify"] = meta.get("notify") or "console"
     meta["configured"] = bool(meta.get("configured"))
     meta["camera_count"] = len(data.get("cameras", []))
+    for k, default in VALUE_DEFAULTS.items():
+        try:
+            meta[k] = float(meta.get(k)) if meta.get(k) is not None else default
+        except (TypeError, ValueError):
+            meta[k] = default
     return meta
 
 
