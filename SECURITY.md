@@ -145,7 +145,7 @@ is kept. See [docs/DATA_RETENTION.md](docs/DATA_RETENTION.md).
 
 ## Known gaps
 
-Tracked rather than hidden — see [docs/BACKLOG.md](docs/BACKLOG.md):
+Tracked rather than hidden, in `docs/BACKLOG.md`:
 
 - Application-level encryption of evidence
 - Penetration test
