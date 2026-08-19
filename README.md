@@ -1,5 +1,7 @@
 # CV Threat Intelligence POC
 
+[![Build CVTI Console (desktop app)](https://github.com/Ayo-Cyber/cv-threat-intelligence/actions/workflows/build-app.yml/badge.svg)](https://github.com/Ayo-Cyber/cv-threat-intelligence/actions/workflows/build-app.yml)
+
 This repo now contains the first starter build for the 36-hour proof of concept.
 
 The goal of this POC is simple:
