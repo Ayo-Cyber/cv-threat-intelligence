@@ -23,6 +23,8 @@ from cvti.contracts import CandidateAlert
 from cvti.serving.alert_queue import QueuedAlert
 from cvti.serving.alert_sink import AlertSink
 
+from _backend_helper import signed_in
+
 
 class _Result:
     confirmed, confidence, reason = True, 0.9, "lingering"
@@ -78,7 +80,7 @@ class BackendExposureTests(unittest.TestCase):
     def test_subject_is_separate_from_the_cine_loop_frames(self):
         d = Path(tempfile.mkdtemp())
         _fire(d, (90, 60, 160, 200))
-        be = ConsoleBackend(site_path=str(d / "s.json"), db_path=str(d / "events.db"),
+        be = signed_in(site_path=str(d / "s.json"), db_path=str(d / "events.db"),
                             enable_demo=False)
         ev = be.list_events(10)[0]
         self.assertTrue(ev["subject"].startswith("data:image/jpeg;base64,"))

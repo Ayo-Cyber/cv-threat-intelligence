@@ -8,5 +8,8 @@ authentication, authorisation and audit together or not at all.
 
 from cvti.security.accounts import AccountStore, AuthError, User
 from cvti.security.audit import AuditLog
+from cvti.security.disk import encryption_status
+from cvti.security.permissions import PermissionDenied
 
-__all__ = ["AccountStore", "AuthError", "User", "AuditLog"]
+__all__ = ["AccountStore", "AuthError", "User", "AuditLog", "PermissionDenied",
+           "encryption_status"]
