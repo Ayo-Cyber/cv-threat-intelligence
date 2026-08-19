@@ -30,7 +30,9 @@ VerdictHandler = Callable[[QueuedAlert, Any], None]
 # 'presence' (loitering/dwell) is a deterministic geometric fact — someone stood in
 # the zone past the dwell threshold. Auto-confirm it instead of asking the VLM (which
 # would reject "a person standing on a street" as not-a-threat). Demo/loitering path.
-BYPASS_DETECTORS: set[str] = {"presence"}
+# "camera_offline" joins it for a different reason: there is no frame to
+# verify. The camera is unreachable — that IS the observation.
+BYPASS_DETECTORS: set[str] = {"presence", "camera_offline"}
 
 
 class GatePool:

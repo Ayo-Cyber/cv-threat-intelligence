@@ -20,8 +20,10 @@ import argparse
 import json
 import time
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any, Callable
 
+from cvti.serving.alert_queue import QueuedAlert
 from cvti.serving.batcher import collect_batch
 from cvti.serving.streams import Frame, StreamDecoder
 from cvti.logging_setup import get_logger
@@ -63,7 +65,7 @@ class MultiStreamPipeline:
                  conf: float = 0.4, device: str = "", half: bool = False,
                  max_batch: int = 32, on_result: ResultHandler | None = None,
                  camera_states: dict[str, Any] | None = None, alert_queue: Any = None,
-                 publisher: Any = None) -> None:
+                 publisher: Any = None, on_link_change=None) -> None:
         self.sources = sources
         self.weights = weights
         self.target_fps = target_fps
@@ -77,6 +79,7 @@ class MultiStreamPipeline:
         self._alert_queue = alert_queue
         # Publishes frames (with boxes) so the UI never decodes the stream twice.
         self.publisher = publisher
+        self.on_link_change = on_link_change
         # When per-camera states + a queue are supplied, route detections through
         # them (track -> zones -> rules -> alert queue). Otherwise just count.
         if on_result is not None:
@@ -104,7 +107,9 @@ class MultiStreamPipeline:
         from cvti.detector.core import normalize_threat_classes
         self._threat_classes = normalize_threat_classes("gun,knife")
         for cam_id, src in self.sources.items():
-            self._decoders[cam_id] = StreamDecoder(cam_id, src, target_fps=self.target_fps).start()
+            self._decoders[cam_id] = StreamDecoder(
+                cam_id, src, target_fps=self.target_fps,
+                on_state_change=self.on_link_change).start()
         log.info(f"[serving] {len(self._decoders)} camera(s) | device={self.device} "
               f"half={self.half} target_fps={self.target_fps} | model={self.weights}")
 
@@ -193,6 +198,19 @@ class MultiStreamPipeline:
     def stop(self) -> None:
         for d in self._decoders.values():
             d.stop()
+
+
+@dataclass
+class _LinkEvent:
+    """A camera-link change, shaped like a candidate alert so it routes normally."""
+    detector: str
+    rule_name: str
+    priority: str
+    title: str
+    person_id: Any = None
+    object_label: Any = None
+    track_id: Any = None
+    zone: Any = None
 
 
 def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
@@ -293,9 +311,37 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     from cvti.serving.frame_publisher import FramePublisher
     publisher = FramePublisher().start(output_dir) if publish_frames else None
 
+    def _on_link_change(cam_id: str, previous: str, state: str, held: float) -> None:
+        """A camera going offline raises its own alert through normal routing.
+
+        Without this the customer believes they have coverage they do not have:
+        an unreachable camera produces no alerts, which is indistinguishable
+        from a camera watching a quiet area.
+        """
+        from cvti.serving.streams import CONNECTED, OFFLINE
+        if state not in (OFFLINE, CONNECTED) or (state == CONNECTED and previous == "reconnecting"
+                                                 and held < 1.0):
+            return
+        offline = state == OFFLINE
+        queue.add(QueuedAlert(
+            camera_id=cam_id,
+            rule_name="camera_offline" if offline else "camera_recovered",
+            priority="high" if offline else "info",
+            title=(f"CAMERA OFFLINE — unreachable for {held:.0f}s"
+                   if offline else "CAMERA RECOVERED — stream is back"),
+            timestamp=time.time(),
+            payload={"candidate": _LinkEvent(
+                detector="camera_offline",
+                rule_name="camera_offline" if offline else "camera_recovered",
+                priority="high" if offline else "info",
+                title=(f"Camera {cam_id} unreachable for {held:.0f}s" if offline
+                       else f"Camera {cam_id} is back online")),
+                     "frames": [], "scene": {}, "enqueued_at": time.time()}))
+
     pipe = MultiStreamPipeline(sources, weights=weights, target_fps=target_fps, imgsz=imgsz,
                                conf=conf, device=device, half=half, camera_states=states,
-                               alert_queue=queue, publisher=publisher)
+                               alert_queue=queue, publisher=publisher,
+                               on_link_change=_on_link_change)
     pipe.start()
     # Live agent mapping: infer each camera's scene (reusing the local VLM) so the
     # gate reasons with real context. Background, non-blocking; only for a local
@@ -372,6 +418,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         # and "this detector has thrown on every frame for a week" are the same
         # silence.
         st["health"] = health_snapshot()
+        # Link state per camera, so the UI shows coverage rather than inferring
+        # it from the absence of alerts.
+        st["cameras"] = [d.link_status() for d in pipe._decoders.values()]
         try:
             _health_path.write_text(json.dumps(st))
         except OSError:

@@ -586,16 +586,44 @@ function updateMapPins(){
   });
 }
 /* ---------- Cameras ---------- */
+/* Link state as OBSERVED, never inferred. "configured" used to show a green dot
+   whether or not the camera was reachable — and an unreachable camera raises no
+   alerts, which looks exactly like a quiet corridor. False confidence is worse
+   than visible failure. */
+var LINK_UI = {
+  connected:    ["var(--c-live)",  "live"],
+  reconnecting: ["var(--sev-high)","reconnecting"],
+  offline:      ["var(--sev-crit)","OFFLINE"],
+  unknown:      ["var(--c-sub)",   "not monitoring"]
+};
+function linkCell(link){
+  var st = (link && link.state) || "unknown";
+  var ui = LINK_UI[st] || LINK_UI.unknown;
+  var age = link && link.time_in_state ? " · "+fmtAge(link.time_in_state) : "";
+  var rc = link && link.reconnects ? ' <span class="mut" title="reconnections">↻'+link.reconnects+'</span>' : "";
+  return '<span><span class="dot" style="background:'+ui[0]+'"></span>'
+    + '<span style="color:'+ui[0]+'">'+esc(ui[1])+'</span>'
+    + '<span class="mut" style="font-size:11px">'+esc(age)+'</span>'+rc+'</span>';
+}
+function fmtAge(sec){
+  sec = Math.round(sec);
+  if(sec < 60) return sec+"s";
+  if(sec < 3600) return Math.round(sec/60)+"m";
+  return Math.round(sec/3600)+"h";
+}
 function renderCameras(){
   call("presets",[],function(p){ state.presets = (p&&!p.error)?p:{}; });
+  call("cameraLinks",[],function(l){ state.links = Array.isArray(l)?l:[]; });
   call("listCameras",[],function(cams){
     state.cameras = Array.isArray(cams)?cams:[];
+    var linkBy = {};
+    (state.links||[]).forEach(function(l){ linkBy[l.camera_id] = l; });
     var presetOpts = Object.keys(state.presets).map(function(k){return '<option value="'+esc(state.presets[k])+'">'+esc(k)+'</option>';}).join("");
     var rows = state.cameras.map(function(c){
       var sig=[c.concealment&&"conceal",c.video_action&&"video",c.violence&&"violence"].filter(Boolean).join(" · ")||"basic";
       return '<div class="trow"><span class="mono" style="font-weight:600">'+esc(c.id)+'</span>'
         +'<span class="mono mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((c.source||"").split("@").pop())+'</span>'
-        +'<span><span class="dot" style="background:var(--c-live)"></span>configured</span>'
+        + linkCell(linkBy[c.id])
         +'<span class="mut">'+esc((c.config||"").split("/").pop())+'</span>'
         +'<span class="mono sub">'+esc(sig)+'</span></div>';
     }).join("");

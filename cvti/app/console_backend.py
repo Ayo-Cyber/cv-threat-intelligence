@@ -290,6 +290,19 @@ class ConsoleBackend:
             return {"ok": False, "via": notify, "error": str(exc)[:200]}
 
     # --- diagnostics ---
+    def camera_links(self) -> list[dict]:
+        """Per-camera link state from the running engine.
+
+        Deliberately reports "unknown" when the engine is not running rather
+        than "connected": claiming coverage we cannot observe is the exact
+        failure this exists to prevent.
+        """
+        health = self._gate_health()
+        if not health:
+            return [{"camera_id": c["id"], "state": "unknown", "time_in_state": 0,
+                     "reconnects": 0} for c in self.list_cameras()]
+        return health.get("cameras") or []
+
     def download_diagnostics(self) -> dict:
         """Zip logs + a health snapshot for support. Never includes evidence.
 

@@ -176,6 +176,10 @@ class Backend(QObject):
         return self._safe(self._core.mark_configured)
 
     @pyqtSlot(result=str)
+    def cameraLinks(self) -> str:
+        return self._safe(self._core.camera_links)
+
+    @pyqtSlot(result=str)
     def downloadDiagnostics(self) -> str:
         return self._safe(self._core.download_diagnostics)
 

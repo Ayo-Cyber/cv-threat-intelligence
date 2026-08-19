@@ -26,6 +26,13 @@ to fail silently, and the claims survivable under scrutiny.
   a packaged build logs go to the per-user application-support directory, since
   the working directory may not be writable and there is no terminal to fall
   back on.
+- **Camera link state — `connected` / `reconnecting` / `offline`** — with
+  time-in-state, exponential capped backoff, bounded attempt history, and an
+  offline alert raised through normal routing after a configurable grace period.
+  Recovery is announced too. The Cameras screen now shows observed link state
+  where it previously showed a green "configured" dot regardless of whether the
+  camera was reachable, and reports `unknown` when no engine is running rather
+  than claiming coverage nobody is watching.
 - **Per-component error counters** (`cvti.health`), shown in the System panel
   with frames processed, error count, error rate and last error per camera. A
   component failing on more than 1 in 10 attempts is flagged degraded. Logging
