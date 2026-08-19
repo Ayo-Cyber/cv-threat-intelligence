@@ -137,6 +137,13 @@ configs/           site configs: cameras, rules, zones per deployment
 docs/              see docs/README.md for the index
 ```
 
+## Security
+
+Local accounts with three enforced roles, an append-only tamper-evident audit
+trail, authenticated camera endpoints, and full-disk encryption verified at
+setup. The threat model — including what is deliberately **not** defended — and
+a procurement answer sheet are in [SECURITY.md](SECURITY.md).
+
 ## Data retention
 
 Evidence is deleted **30 days** after recording by default — frames, clips and

@@ -10,6 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cvti.app.console_backend import ConsoleBackend
 
+from _backend_helper import signed_in
+
 
 def _seed_db(path: str):
     con = sqlite3.connect(path)
@@ -27,7 +29,7 @@ class ConsoleBackendTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.site = str(Path(self._tmp.name) / "site.json")
         self.db = str(Path(self._tmp.name) / "events.db")
-        self.be = ConsoleBackend(site_path=self.site, db_path=self.db, enable_demo=False)
+        self.be = signed_in(site_path=self.site, db_path=self.db, enable_demo=False)
 
     def tearDown(self):
         self._tmp.cleanup()

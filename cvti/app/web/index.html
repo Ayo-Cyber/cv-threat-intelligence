@@ -673,7 +673,14 @@ function doAdd(){ var u=$("url").value.trim(); if(!u){state.test={error:"Enter a
   call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} state.test=null; refreshCounts(); renderCameras(); }); }
 
 /* ---------- Live wall ---------- */
-function frameUrl(camId){ return "http://127.0.0.1:"+state.livePort+"/frame/"+encodeURIComponent(camId)+"?t="+(state.frameTick||0); }
+function frameUrl(camId){
+  /* The frame endpoint authenticates every route. An <img> tag cannot set a
+     header, so the capability travels as a query parameter — it binds to
+     127.0.0.1 and never leaves this machine. */
+  var tok = state.frameToken ? "&token="+encodeURIComponent(state.frameToken) : "";
+  return "http://127.0.0.1:"+state.livePort+"/frame/"+encodeURIComponent(camId)
+    +"?t="+(state.frameTick||0)+tok;
+}
 function renderLive(){
   $("screen").innerHTML='<div class="pad mut">Starting live view…</div>';
   call("liveStart",[6],function(res){
@@ -683,6 +690,7 @@ function renderLive(){
       return;
     }
     state.liveCams = cams; state.livePort = port; state.frameTick = 0;
+    state.frameToken = (res && res.token) || "";
     var tiles = cams.map(function(c){
       return '<div class="tile" id="tile-'+esc(c.id)+'" style="cursor:pointer" onclick="openLiveModal(\''+esc(c.id)+'\')" title="click to expand">'
         +'<img id="live-'+esc(c.id)+'" alt="" src="'+frameUrl(c.id)+'">'

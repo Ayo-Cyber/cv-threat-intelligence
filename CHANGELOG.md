@@ -18,6 +18,24 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Identity, three roles, and an append-only audit trail** (`cvti/security/`).
+  Local accounts with scrypt or PBKDF2 hashing, session timeout, lockout after
+  five failures. No default account and no default password ship — the first
+  owner is created at setup. `Owner` / `Operator` / `Installer` are enforced in
+  the backend, not by hiding controls: an operator cannot disable a detector and
+  an installer cannot read recorded incidents, both tested by calling past the
+  interface. The audit log is append-only (SQLite triggers refuse `UPDATE` and
+  `DELETE` even against direct SQL) and hash-chained, so a partial edit — the
+  realistic attack — is detectable and names the row it started at.
+- **Authenticated camera endpoints.** Both frame servers previously served live
+  camera frames on every route with no auth and `Access-Control-Allow-Origin: *`.
+  Every route now requires a per-run capability token, compared in constant time,
+  and the wildcard CORS header is gone. This is the hole EP-06 would have exposed
+  to the network.
+- **Disk-encryption check** (FileVault / BitLocker / LUKS), reported at setup and
+  in the System panel, with an honest `unknown` where it cannot be determined.
+- **`SECURITY.md`** — the security model, the threat model including what is
+  deliberately *not* defended, and a procurement answer sheet.
 - **Logging, with rotation and per-module attribution** (`cvti.logging_setup`).
   `get_logger(__name__)` everywhere; a rotating file handler (10 MB × 5) writing
   to `<output_dir>/logs/`, level from `ARGUS_LOG_LEVEL`. The engine and the app

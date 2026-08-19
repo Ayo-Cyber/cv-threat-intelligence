@@ -17,7 +17,10 @@ being told. Loopback only — frames never leave the box.
 """
 from __future__ import annotations
 
+import hmac
 import json
+import os
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,7 +39,10 @@ class FramePublisher:
     """Holds the latest JPEG per camera and serves it over loopback HTTP."""
 
     def __init__(self, *, quality: int = 70, draw_boxes: bool = True,
-                 max_width: int = 640) -> None:
+                 max_width: int = 640, token: str = "") -> None:
+        # Generated per run, handed to the app through frames.json. Not a
+        # user credential — a capability for the one process that needs frames.
+        self.token = token or secrets.token_urlsafe(24)
         self.quality = quality
         self.draw_boxes = draw_boxes
         self.max_width = max_width
@@ -105,15 +111,32 @@ class FramePublisher:
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", "no-store")
-                self.send_header("Access-Control-Allow-Origin", "*")
+                # No wildcard CORS. This serves live camera frames; letting any
+                # origin read them is the browser-side version of leaving the
+                # port open.
                 self.end_headers()
                 try:
                     self.wfile.write(body)
                 except (BrokenPipeError, ConnectionResetError):
                     pass                        # viewer navigated away mid-write
 
+            def _authorised(self) -> bool:
+                """Every route. There is no unauthenticated path to a frame."""
+                supplied = self.headers.get("X-Argus-Token", "")
+                if not supplied:
+                    from urllib.parse import parse_qs, urlparse
+                    supplied = (parse_qs(urlparse(self.path).query).get("token") or [""])[0]
+                # Constant-time: this endpoint is reachable from the network the
+                # moment EP-06 exposes it.
+                return hmac.compare_digest(supplied, pub.token)
+
             def do_GET(self):                   # noqa: N802 - BaseHTTPRequestHandler API
                 path = self.path.split("?", 1)[0]
+                if not self._authorised():
+                    log.warning("[frames] unauthenticated request to %s from %s",
+                                path, self.client_address[0])
+                    self._send(401, b"unauthorised", "text/plain")
+                    return
                 if path.startswith("/frame/"):
                     cam = unquote(path[len("/frame/"):])
                     data = pub.frame(cam)
@@ -134,7 +157,14 @@ class FramePublisher:
         if output_dir:                          # so the app can find us
             p = Path(output_dir) / "frames.json"
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps({"port": self.port}))
+            p.write_text(json.dumps({"port": self.port, "token": self.token}))
+            try:
+                # The token is a credential. Anyone who can read this file can
+                # read the cameras, so do not let that be everyone on the box.
+                os.chmod(p, 0o600)
+            except OSError:
+                log.warning("[frames] could not restrict permissions on %s", p,
+                            exc_info=True)
         log.info(f"[frames] publishing on http://127.0.0.1:{self.port} "
               f"(boxes={'on' if self.draw_boxes else 'off'})")
         return self
