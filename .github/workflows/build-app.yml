@@ -61,6 +61,14 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
+      # The headline precision figure is a function of prompt text in gate.py —
+      # three revisions moved it 26 points. This does not re-measure (the VLM is
+      # a 3 GB model this runner has no way to run); it enforces that the wording
+      # and the recorded measurement agree, so a prompt change cannot ship
+      # unmeasured.
+      - name: Prompt regression guard
+        run: python tools/prompt_regression.py check
+
   build:
     needs: test
     # Tags and manual runs only. A push to a branch gets the test job and stops
