@@ -103,6 +103,16 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Fixed
 
+- **The fine-tuned VideoMAE model was silently broken.** The `print()` → logging
+  conversion rewrote `print(..., file=sys.stderr)` as `emit(..., file=...)`, but
+  `emit` takes `err=True`. Every inference raised `TypeError` inside a broad
+  handler, so the headline model failed **249 times per run** while reporting
+  only `[VideoAction error]` — and no `video_theft_candidate` alert ever fired.
+  A static test now checks every `emit()` call site against the signature.
+- **`cvti-detect` could not run offline.** Its `--gate-provider` choices were
+  `mock/anthropic/openrouter`, so once the mock gate was refused the only
+  remaining options sent frames off-device. It now offers every provider the
+  gate supports and defaults to on-device `ollama`.
 - **One failing camera no longer stops the other five.** `process()` guarded its
   detector section, but tracking, zones, rule evaluation and evidence selection
   sat outside it — a failure there propagated out and stopped every camera. The

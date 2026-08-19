@@ -110,7 +110,7 @@ weapon model (`models/weapon_best.pt`) is included.
 python3 -m cvti.cli.detect \
   --source data/test_clips/violence_suspected.mp4 \
   --config configs/all_threats_v1.json \
-  --gate-provider mock \
+  --gate-provider ollama \
   --concealment \
   --max-frames 40
 ```
@@ -136,7 +136,7 @@ python3 -m cvti.cli.detect \
   --video-action-backend videomae \
   --video-action-window-seconds 4 \
   --video-action-frames 16 \
-  --gate-provider mock
+  --gate-provider ollama
 ```
 
 ### With a real VLM gate
@@ -158,7 +158,7 @@ python3 -m cvti.cli.detect \
 | `--concealment` | off | Enable pose-based concealment detector |
 | `--zones` | off | Enable restricted-zone / dwell detection |
 | `--max-frames` | 0 (all) | Stop after N frames (useful for testing) |
-| `--gate-provider` | `mock` | `mock` / `anthropic` / `openrouter` (see note) |
+| `--gate-provider` | `ollama` | `ollama` / `local` (on-device) · `anthropic` / `openrouter` (cloud) · `mock` (refused unless `ARGUS_ALLOW_MOCK_GATE=1`) |
 | `--video-action-backend` | `none` | `none` / `videomae` / `x3d` |
 | `--video-action-window-seconds` | `4.0` | Seconds of video analyzed around a triggered moment |
 | `--video-action-frames` | `16` | Frames sampled from that window |
@@ -272,9 +272,10 @@ results.
   before alerting.
 - ⚠️ CPU inference on full clips is slow; use `--max-frames` for quick checks,
   or a GPU/`--video-action-device` for real workloads.
-- ⚠️ `cvti-detect --gate-provider` argparse choices are limited to
-  `mock/anthropic/openrouter`; the gate class supports more (widen the choices
-  if you need `ollama`/`local` from this CLI).
+- ✅ *(resolved 19 Aug 2026)* `cvti-detect --gate-provider` now offers every
+  provider the gate supports, and defaults to on-device `ollama`. It previously
+  offered only `mock/anthropic/openrouter`, which meant the only offline option
+  was the one that confirms everything without looking.
 
 ---
 

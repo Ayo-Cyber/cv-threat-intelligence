@@ -278,7 +278,7 @@ class VideoMAEActionModel:
 
     def _log(self, message: str) -> None:
         if self.verbose:
-            emit(f"[VideoMAE] {message}", file=sys.stderr, flush=True)
+            emit(f"[VideoMAE] {message}", err=True, flush=True)
 
 
 class X3DActionModel:
@@ -361,7 +361,7 @@ class X3DActionModel:
 
     def _log(self, message: str) -> None:
         if self.verbose:
-            emit(f"[X3D] {message}", file=sys.stderr, flush=True)
+            emit(f"[X3D] {message}", err=True, flush=True)
 
 
 def _frames_to_x3d_tensor(frames: list[np.ndarray], torch: Any) -> Any:

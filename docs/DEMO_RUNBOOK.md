@@ -58,7 +58,7 @@ always-on baseline.
 python -m cvti.cli.detect --source data/test_clips/theft_shop_01.mp4 \
   --config configs/video_robbery_demo.json --concealment \
   --video-action-backend videomae --video-action-model runs/video_finetune/videomae \
-  --video-action-cooldown 0 --gate-provider mock
+  --gate-provider ollama --gate-model gemma3:4b
 ```
 **Expected:**
 ```
@@ -72,6 +72,9 @@ alert. And the always-on safety baseline fires in parallel."
 
 > **Do NOT pass `--video-action-cooldown 0`** in the demo — it disables throttling
 > and floods ~13 identical alerts on one clip. The default 2s cooldown paces them.
+
+*Verified 19 Aug 2026 on this exact command: `top=theft (0.986)`, one
+`video_theft_candidate` and one `baseline_violence`, both gate-confirmed.*
 
 ## Demo 2 — Zoning + loitering (customer-defined rules)
 **Shows:** draw a zone → track dwell → a customer rule fires → gate confirms.
@@ -89,7 +92,8 @@ different JSON per site."
 per-camera rules, one alert queue, async gate. Each camera runs
 object-detection + tracking + **pose-based concealment** + rules + gate.
 ```bash
-python -m cvti.serving.pipeline --site-config configs/site_multicam_demo.json --gate-provider mock
+python -m cvti.serving.pipeline --site-config configs/site_multicam_demo.json \
+  --gate-provider ollama --gate-model gemma3:4b
 ```
 **Expected:** `shared pose model loaded`, `shared video-action model loaded`,
 then **both** cameras firing `shoplifting` + `video_theft_candidate`,
@@ -107,7 +111,7 @@ flooded."
 if the customer config didn't ask for it.
 ```bash
 python -m cvti.cli.detect --source data/test_clips/violence_suspected.mp4 \
-  --config configs/shelf_zones_demo.json --gate-provider mock --max-frames 40
+  --config configs/shelf_zones_demo.json --gate-provider ollama --max-frames 40
 ```
 **Expected:** `[CONFIRMED] baseline_violence (CRITICAL) ... frames=4(motion_peak_span)`
 **Talking point:** "A narrow customer config can't hide a critical threat — the
@@ -120,8 +124,14 @@ motion-peak frames, not one blurry still."
 - **VideoMAE slow / first call laggy:** it's MPS; the probe takes ~7s per clip. Fine for a demo.
 - **A clip fires nothing:** most clips are single-signal; use the clip named for
   the threat you're showing (theft_shop_01 for theft, violence_suspected for violence).
-- **`--gate-provider mock`** auto-confirms — that's intentional for offline demo.
-  For a "real" gate, use `--gate-provider ollama` with a local model running.
+- **The gate is on by default and runs on-device.** `--gate-provider ollama`
+  is offline — nothing leaves the machine — it just costs a few seconds per
+  alert. Start it with `ollama serve` if the System panel says it is unreachable.
+- **`--gate-provider mock` is refused.** It confirms *every* alert without
+  looking, which inverts the product. It exists for wiring tests only, and the
+  engine will not start on it unless you set `ARGUS_ALLOW_MOCK_GATE=1`. If you
+  do, every screen carries a permanent red **UNVERIFIED — MOCK GATE** banner —
+  so never use it in front of an audience.
 - **Fine-tuned model path:** if `runs/video_finetune/videomae/` is missing, use the
   backup `runs/video_finetune/videomae-best-bal0.889-20260716/`.
 
