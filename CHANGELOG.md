@@ -78,6 +78,16 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Fixed
 
+- **A gate that cannot decide no longer reports "safe".** `_parse_response`
+  returned `confirmed=False` on any exception — the same value it returns when
+  TrueSight examines a frame and rejects it. A fire during an Ollama restart was
+  indistinguishable from a fire the model looked at and dismissed, and it was
+  dropped with nothing on screen. `VerificationResult.error` now separates *no
+  verdict* from *a verdict of no*, and the live path defaults to fail-visible:
+  the alert reaches the operator marked **UNVERIFIED — TrueSight could not
+  decide**, is stored flagged, and is excluded from the incident count so the
+  product is not credited for work it did not do. Configurable, because a
+  low-stakes site drowning in unverified alerts may reasonably choose otherwise.
 - **The mock gate can no longer run unannounced.** `_mock_response()` returns
   `confirmed=True` unconditionally; any config path selecting it would have
   passed every candidate and inverted the product with nothing on screen saying

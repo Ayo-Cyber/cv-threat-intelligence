@@ -221,7 +221,9 @@ CREATE TABLE IF NOT EXISTS events (
     review TEXT,          -- NULL=new, 'ack', 'true', 'false' (operator label)
     reviewed_at TEXT,
     latency_s REAL,       -- detection -> TrueSight-verified wall-clock seconds
-    bbox TEXT             -- "x1,y1,x2,y2" of the subject when it fired (may be NULL)
+    bbox TEXT,            -- "x1,y1,x2,y2" of the subject when it fired (may be NULL)
+    unverified INTEGER DEFAULT 0,  -- 1 = the gate never reached a verdict (fail-visible)
+    gate_error TEXT       -- why, when unverified
 );
 
 -- What the gate threw away, per day. Only confirmed alerts become rows in
@@ -264,6 +266,11 @@ class AlertSink:
             self._db.execute("ALTER TABLE events ADD COLUMN bbox TEXT")
         except sqlite3.OperationalError:
             pass
+        for _col, _type in (("unverified", "INTEGER DEFAULT 0"), ("gate_error", "TEXT")):
+            try:
+                self._db.execute(f"ALTER TABLE events ADD COLUMN {_col} {_type}")
+            except sqlite3.OperationalError:
+                pass   # already there
         self._db.commit()
         self.persisted = 0
         # Routing: send each alert to the channels its rule names (severity, camera,
@@ -325,9 +332,21 @@ class AlertSink:
     def handle(self, alert: Any, result: Any) -> None:
         if result is None:
             return
-        tag = "CONFIRMED" if result.confirmed else "REJECTED "
-        log.info(f"[{tag}] {alert.camera_id} :: {alert.rule_name} ({alert.priority.upper()}) "
-              f"— {alert.title} | conf={result.confidence:.2f} | {result.reason}")
+        # Three outcomes, not two. UNVERIFIED means the gate never reached a
+        # verdict — logging it as CONFIRMED would overstate what we know, and as
+        # REJECTED would claim a judgement nobody made.
+        if getattr(result, "errored", False):
+            tag, level = "UNVERIFIED", log.warning
+        elif result.confirmed:
+            tag, level = "CONFIRMED", log.info
+        else:
+            tag, level = "REJECTED ", log.info
+        level("[%s] %s :: %s (%s) — %s | conf=%.2f | %s", tag, alert.camera_id,
+              alert.rule_name, alert.priority.upper(), alert.title,
+              result.confidence, result.reason)
+        if getattr(result, "errored", False) and result.error:
+            log.warning("[gate unavailable] %s :: %s — %s",
+                        alert.camera_id, alert.rule_name, result.error)
         if not result.confirmed:
             return
         try:
@@ -464,16 +483,20 @@ class AlertSink:
             "object_label": alert.object_label, "evidence_dir": str(ev_dir),
             "latency_s": latency_s,
             "bbox": ",".join(str(int(v)) for v in payload["bbox"]) if payload.get("bbox") else None,
+            "unverified": 1 if getattr(result, "errored", False) else 0,
+            "gate_error": getattr(result, "error", "") or None,
         }
         (ev_dir / "event.json").write_text(json.dumps(event, indent=2))
 
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO events (ts,iso,camera_id,rule,priority,confidence,reason,"
-                "track_id,zone,object_label,evidence_dir,latency_s,bbox) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "track_id,zone,object_label,evidence_dir,latency_s,bbox,unverified,gate_error) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ts, iso, alert.camera_id, alert.rule_name, alert.priority,
                  float(result.confidence), result.reason, alert.track_id, alert.zone,
-                 alert.object_label, str(ev_dir), latency_s, event["bbox"]))
+                 alert.object_label, str(ev_dir), latency_s, event["bbox"],
+                 event["unverified"], event["gate_error"]))
             event_id = cur.lastrowid
             self._db.commit()
         self.persisted += 1

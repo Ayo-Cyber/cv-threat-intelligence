@@ -60,6 +60,17 @@ class VerificationResult:
     alert_priority: str
     timestamp: str
     raw_response: str = ""
+    # Why `confirmed=False` — and they are not the same thing. A rejection is a
+    # verdict: the model looked and said no. An error is the absence of a
+    # verdict: the model was unreachable, or answered with something we could
+    # not parse. Collapsing the two means a connection failure is indistinguishable
+    # from TrueSight examining a fire and deciding it is safe.
+    error: str = ""
+
+    @property
+    def errored(self) -> bool:
+        """True when no verdict was reached. Never equivalent to a rejection."""
+        return bool(self.error)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -68,4 +79,5 @@ class VerificationResult:
             "reason": self.reason,
             "alert_priority": self.alert_priority,
             "timestamp": self.timestamp,
+            "error": self.error,
         }

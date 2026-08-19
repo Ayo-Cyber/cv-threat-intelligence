@@ -814,7 +814,7 @@ class ConsoleBackend:
         since = time.time() - max(1, int(days)) * 86400
         since_day = time.strftime("%Y-%m-%d", time.localtime(since))
 
-        incidents = reviewed_true = reviewed_false = 0
+        incidents = reviewed_true = reviewed_false = unverified = 0
         shown = rejected = deduped = errors = 0
         try:
             con = self._connect(db)
@@ -829,6 +829,15 @@ class ConsoleBackend:
                 reviewed_false = row[2] or 0
             except sqlite3.OperationalError:
                 pass
+            try:
+                # An unverified alert reached the operator because the gate could
+                # NOT decide. Counting it as a detection would credit the product
+                # for work it did not do.
+                unverified = con.execute(
+                    "SELECT COUNT(*) FROM events WHERE ts >= ? AND unverified = 1",
+                    (since,)).fetchone()[0] or 0
+            except sqlite3.OperationalError:
+                unverified = 0
             try:
                 row = con.execute(
                     "SELECT SUM(shown), SUM(rejected), SUM(deduped), SUM(errors) "
@@ -862,7 +871,8 @@ class ConsoleBackend:
 
         return {
             "days": int(days),
-            "incidents": incidents,                 # confirmed, in front of a human
+            "incidents": max(0, incidents - unverified),   # gate actually confirmed these
+            "unverified": unverified,               # surfaced because the gate could not decide
             "false_alarms_prevented": rejected,     # AI looked and said no
             "duplicates_collapsed": deduped,        # repeat of an event already queued
             "noise_removed": noise_removed,
