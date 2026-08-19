@@ -25,7 +25,7 @@ SITE = ROOT / "configs" / "site_demo_live.json"  # 5-camera live-wall clips
 
 def main() -> None:
     if not SRC_DB.exists():
-        raise SystemExit(f"missing {SRC_DB} — run the engine once (see docs/SUNDAY_DEMO.md)")
+        raise SystemExit(f"missing {SRC_DB} — run the engine once (see docs/DEMO_RUNBOOK.md)")
     if DST.exists():
         shutil.rmtree(DST)
     (DST / "clips").mkdir(parents=True)

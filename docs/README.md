@@ -1,0 +1,40 @@
+# Documentation index
+
+What each document is for, and which ones are current. If a doc isn't listed
+here it's in [`archive/`](archive/) — superseded, kept for history, not to be
+followed.
+
+## Start here
+
+| Doc | What it's for |
+|---|---|
+| [SYSTEM_GUIDE.md](SYSTEM_GUIDE.md) | How the system actually works, end to end. The one to read first. |
+| [architecture.md](architecture.md) | The three-layer design and why it's shaped that way. |
+| [USER_GUIDE.md](USER_GUIDE.md) | Operating the desktop app, written for the person using it, not building it. |
+| [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md) | Exact commands to show the system working, and what each part proves. |
+
+## What we can defend
+
+| Doc | What it's for |
+|---|---|
+| [NUMBERS.md](NUMBERS.md) | Every measured figure, with its sample size and 95% interval. **Generated** — run `python tools/make_numbers_sheet.py`, never hand-edit. |
+| [GATE_MODEL_BAKEOFF.md](GATE_MODEL_BAKEOFF.md) | How the on-device gate model was chosen, and what it scored. |
+| [AUDIT.md](AUDIT.md) | Independent audit of the whole system. The backlog everything else traces to. |
+| [SPRINT_PLAN.md](SPRINT_PLAN.md) | The current three-week delivery plan. Every task cites an audit ID. |
+
+## Running and extending it
+
+| Doc | What it's for |
+|---|---|
+| [OFFLINE_VLM.md](OFFLINE_VLM.md) | Running verification fully offline against a local model. |
+| [SOFTWARE_WIRING.md](SOFTWARE_WIRING.md) | Which pipeline is which, and what calls what. |
+| [TRAINING.md](TRAINING.md) | Fine-tuning the video-action model. |
+| [TRAIN_WEAPON_MODEL.md](TRAIN_WEAPON_MODEL.md) | Training custom weapon weights. |
+
+## History
+
+| Doc | What it's for |
+|---|---|
+| [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) | Running chronological log of decisions and why they were made. Append-only; earlier entries describe the state at the time, not now. |
+| [handoffs/](handoffs/) | Point-in-time session handoffs. Snapshots, not living documents — read the newest to get caught up. |
+| [archive/](archive/) | Superseded plans and one-off briefs. Kept so decisions can be traced; **do not follow them.** |
