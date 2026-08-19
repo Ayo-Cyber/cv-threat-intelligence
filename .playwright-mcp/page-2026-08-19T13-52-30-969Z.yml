@@ -1,0 +1,33 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - navigation [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - generic [ref=f1e5]: Argus
+        - generic [ref=f1e6]: Site 01 · local
+      - generic [ref=f1e8]:
+        - generic [ref=f1e9]: Idle
+        - generic [ref=f1e12]: TrueSight · on-device
+        - generic "Argus runs entirely on this machine — it needs no internet, and nothing leaves your network" [ref=f1e13]: 🔒 Local-only
+        - generic [ref=f1e14]: Argus Edge v0.9
+    - main [ref=f1e15]:
+      - generic [ref=f1e17]:
+        - heading "Cameras" [level=1] [ref=f1e18]
+        - generic [ref=f1e19]:
+          - generic [ref=f1e20]: 0 cameras
+          - generic [ref=f1e21]: 0 to review
+          - button "▶ Start monitoring" [ref=f1e22] [cursor=pointer]
+          - button "◐ theme" [ref=f1e23] [cursor=pointer]
+      - generic [ref=f1e24]: Loading…
+  - generic [ref=f1e27]:
+    - generic [ref=f1e28]: Argus
+    - generic [ref=f1e29]: Set up this site
+    - generic [ref=f1e30]:
+      - generic [ref=f1e31]: Step 1 of 5 · Owner account
+      - paragraph [ref=f1e32]: Nothing ships with a password, so there is nothing to change — you are creating the first account now. The owner can add operators and installers later.
+      - generic [ref=f1e33]: Name
+      - textbox [active] [ref=f1e34]
+      - generic [ref=f1e35]: Password
+      - textbox [ref=f1e36]
+      - generic [ref=f1e37]: At least 8 characters. Stored hashed — it cannot be recovered, only reset.
+      - button "Create account and continue" [ref=f1e39] [cursor=pointer]
+    - generic [ref=f1e46]: "Then: cameras → zones → what to watch for → a test alert to your phone"
