@@ -46,6 +46,12 @@ QUERIES = {
         "man faints security camera",
         "slip and fall surveillance footage",
     ],
+    "violence": [
+        "cctv fight in shop footage",
+        "security camera assault footage",
+        "brawl caught on cctv store",
+        "street fight surveillance camera footage",
+    ],
 }
 
 

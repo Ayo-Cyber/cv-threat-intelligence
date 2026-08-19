@@ -122,8 +122,10 @@ def main() -> int:
             out.append(f"| {name} | ⚠️ built and demonstrable, **not yet validated** |")
     out.append("")
     out.append("\nThe blocker is labelled test footage, not the detectors — they are "
-               "deterministic rules, so nothing needs training. Measuring each one is the "
-               "same command against ~15 verified clips.\n")
+               "deterministic rules, so nothing needs training. Fire and crowd were "
+               "measurable because raw footage of them is easy to find; searching for "
+               "falls and fights mostly returns news coverage OF incidents, so those need "
+               "a proper labelled set (RWF-2000, UR Fall) rather than more searching.\n")
 
     out.append("## Runs on one machine\n")
     out.append("Measured on a single MacBook Pro (18 GB), 5 cameras, detection and "

@@ -52,7 +52,7 @@ Default is `balanced`: for security, a missed threat costs more than a reviewed 
 | Custom rules in plain English | ⚠️ built and demonstrable, **not yet validated** |
 
 
-The blocker is labelled test footage, not the detectors — they are deterministic rules, so nothing needs training. Measuring each one is the same command against ~15 verified clips.
+The blocker is labelled test footage, not the detectors — they are deterministic rules, so nothing needs training. Fire and crowd were measurable because raw footage of them is easy to find; searching for falls and fights mostly returns news coverage OF incidents, so those need a proper labelled set (RWF-2000, UR Fall) rather than more searching.
 
 ## Runs on one machine
 
