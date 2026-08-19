@@ -26,6 +26,18 @@ to fail silently, and the claims survivable under scrutiny.
   a packaged build logs go to the per-user application-support directory, since
   the working directory may not be writable and there is no terminal to fall
   back on.
+- **Retention, purge and legal hold.** Evidence is deleted 30 days after
+  recording by default (per-site configurable) — frames, clips and the database
+  row together, files first so a failure can never leave personal data on disk
+  that nothing references. Two categories deliberately outlive their expiry:
+  anything an operator places on **legal hold**, and anything **not yet
+  reviewed**, because deleting an open incident on a timer destroys the record
+  while the question is still live. Both are counted and shown, so "why is this
+  still here?" has an answer. Adds a disk warning at 85%, oldest-first emergency
+  purge at 95% that still refuses to touch held evidence, an orphan sweep for
+  evidence directories no record points to, and an evidence export so a customer
+  can keep an incident past its expiry. Policy documented in
+  [docs/DATA_RETENTION.md](docs/DATA_RETENTION.md).
 - **Camera link state — `connected` / `reconnecting` / `offline`** — with
   time-in-state, exponential capped backoff, bounded attempt history, and an
   offline alert raised through normal routing after a configurable grace period.

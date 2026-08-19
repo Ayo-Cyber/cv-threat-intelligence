@@ -865,6 +865,7 @@ function renderSystem(){
           +'<div><b>'+esc(n[1])+'</b><div class="mut" style="font-size:11.5px">'+esc(n[2])+'</div></div></label>';
       }).join("");
       var mode=g.mode||"offline";
+      call("retentionStatus",[],function(rt){ state.retention=(rt&&!rt.error)?rt:{}; paintRetention(); });
       var mc=mode==="live"?"var(--c-live)":mode==="no-model"?"var(--sev-high)":"var(--sev-crit)";
       var mt=mode==="live"?"live — verifying every alert":mode==="no-model"?"model not pulled yet":"offline — start Ollama";
       $("screen").innerHTML='<div class="pad" style="max-width:720px"><h2>System</h2>'
@@ -883,6 +884,8 @@ function renderSystem(){
         +    '<span style="flex:1"></span><button class="btn ghost sm" onclick="renderSystem()">Recheck</button></div>'
         +  '<div class="mut" style="font-size:12px;margin-top:8px">Ollama '+(g.ollama?"reachable":"not reachable")+' · model '+(g.model_present?"present":"not pulled")+'</div>'
         +  gateEngineRows(g.engine||{})+'</div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="retPanel"><div class="syslabel">Data retention</div>'
+        +  '<div id="retBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px"><div class="syslabel">Diagnostics</div>'
         +  '<div class="row" style="gap:10px;margin-top:9px;align-items:center">'
         +    '<button class="btn sm" onclick="downloadDiagnostics(this)">\u2b07 Download diagnostics</button>'
@@ -944,6 +947,45 @@ function componentRows(h){
     +'<th style="text-align:right">ok</th><th style="text-align:right">errors</th>'
     +'<th style="text-align:right">rate</th></tr></thead><tbody>'+rows+'</tbody></table>'
     + warn + '</div>';
+}
+/* Retention is a legal obligation and an operational one, so it is stated
+   plainly rather than buried: what is deleted, when, and what is being kept
+   past its expiry and why. */
+function paintRetention(){
+  var el = $("retBody"); if(!el) return;
+  var r = state.retention||{};
+  var pol = r.policy||{}, disk = r.disk||{}, held = r.held||{}, last = r.last_run||{};
+  var lvl = disk.level||"ok";
+  var dcol = lvl==="critical"?"var(--sev-crit)":lvl==="warning"?"var(--sev-high)":"var(--c-live)";
+  var heldTotal = (held.legal_hold||0)+(held.unreviewed||0);
+  el.innerHTML =
+      '<div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">'
+    +   '<span>Evidence is deleted after </span>'
+    +   '<input id="retDays" type="number" min="1" step="1" value="'+(pol.days||30)+'" style="width:70px">'
+    +   '<span> days.</span>'
+    +   '<button class="btn sm" onclick="saveRetention(this)">Save</button>'
+    +   '<span id="retMsg" style="font-size:12px"></span></div>'
+    + '<div style="margin-top:9px">Disk <b style="color:'+dcol+'">'+(disk.used_pct!=null?disk.used_pct+'% used':'unknown')+'</b>'
+    +   (disk.free_gb!=null?' · '+disk.free_gb+' GB free':'')
+    +   (lvl!=="ok"?' <b style="color:'+dcol+'">('+esc(lvl)+')</b>':'')+'</div>'
+    + (heldTotal
+        ? '<div style="margin-top:8px;color:var(--sev-high)">⚖ '+heldTotal+' expired item(s) kept: '
+          + (held.legal_hold||0)+' on legal hold, '+(held.unreviewed||0)+' still unreviewed.</div>'
+        : '<div style="margin-top:8px">Nothing is being held past its expiry.</div>')
+    + (last.at ? '<div class="mut" style="margin-top:6px;font-size:11.5px">Last purge removed '
+                 + (last.deleted||0)+' event(s).</div>' : '')
+    + '<div class="mut" style="margin-top:8px;font-size:11.5px;line-height:1.5">Frames, clips and records are '
+    + 'deleted together. Anything on legal hold, or not yet reviewed, is kept regardless — a purge must never '
+    + 'destroy an open case.</div>';
+}
+function saveRetention(btn){
+  var d = parseFloat($("retDays").value)||30;
+  if(btn){ btn.disabled=true; btn.textContent="Saving…"; }
+  call("setRetention",[d],function(){
+    if(btn){ btn.disabled=false; btn.textContent="Save"; }
+    call("retentionStatus",[],function(rt){ state.retention=(rt&&!rt.error)?rt:{}; paintRetention();
+      if($("retMsg")){ $("retMsg").style.color="var(--c-live)"; $("retMsg").textContent="saved ✓"; } });
+  });
 }
 function downloadDiagnostics(btn){
   var msg=$("diagMsg");
@@ -1268,9 +1310,47 @@ function renderDetail(){
     +'<button class="btn ghost" style="border-color:var(--sev-crit);color:var(--sev-crit)" onclick="doReview(\'true\')">True threat</button>'
     +'<button class="btn ghost" onclick="doReview(\'false\')">False alarm</button>'
     +'<span style="flex:1"></span>'
+    +'<button class="btn ghost sm" onclick="exportThisEvidence(this)">⬇ Export evidence</button>'
     +'<button class="btn ghost sm" onclick="openReport()">⧉ Incident report</button></div>'
+    +holdHTML(a)
     +'<div class="sub" style="margin-top:8px;font-size:11.5px">'+(reviewed?("Labeled: "+a.review):"Your label retrains the site model.")+'</div>';
 }
+/* Legal hold. Evidence expires on the site's retention policy; an incident
+   attached to a case must not. Shown on every alert so the exemption is a
+   visible choice, and so "why is this still here?" has an answer. */
+function holdHTML(a){
+  var held = !!Number(a.legal_hold);
+  var openCase = !a.review || a.review==="new";
+  var line = held
+    ? '<b style="color:var(--sev-high)">⚖ On legal hold</b> — kept regardless of the retention policy.'
+    : (openCase
+        ? 'Kept while unreviewed. Once you label it, it expires on the retention policy.'
+        : 'Expires on the site retention policy.');
+  return '<div class="panel" style="padding:11px 15px;margin-top:12px">'
+    + '<div class="row" style="gap:12px;align-items:center">'
+    + '<span class="mut" style="font-size:12px;flex:1">'+line+'</span>'
+    + '<button class="btn ghost sm" onclick="toggleHold('+(held?"false":"true")+')">'
+    + (held ? "Release hold" : "⚖ Place on legal hold") + '</button></div>'
+    + '<div id="holdMsg" class="sub" style="font-size:11.5px;margin-top:6px"></div></div>';
+}
+function toggleHold(hold){
+  var a = state.selected; if(!a) return;
+  call("setLegalHold",[Number(a.id), !!hold],function(r){
+    if(r&&r.ok){ a.legal_hold = hold?1:0; paintAlerts(); }
+    else if($("holdMsg")) $("holdMsg").textContent = "✕ "+((r&&r.error)||"failed");
+  });
+}
+function exportThisEvidence(btn){
+  var a = state.selected; if(!a) return;
+  if(btn){ btn.disabled=true; btn.textContent="Exporting…"; }
+  call("exportEvidence",[String(a.id)],function(r){
+    if(btn){ btn.disabled=false; btn.textContent="⬇ Export evidence"; }
+    var m=$("holdMsg"); if(!m) return;
+    if(r&&r.ok){ m.style.color="var(--c-live)"; m.textContent="✓ "+r.path+" ("+r.size_kb+" KB)"; }
+    else { m.style.color="var(--sev-crit)"; m.textContent="✕ "+((r&&r.error)||"failed"); }
+  });
+}
+
 /* The annotated "who" shot — the subject boxed at the moment the alert fired.
    Only rendered when the engine actually resolved a box for the tracked subject. */
 function subjectHTML(a){

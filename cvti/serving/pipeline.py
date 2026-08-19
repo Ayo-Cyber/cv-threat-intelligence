@@ -373,6 +373,17 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             custom_scanner = CustomRuleScanner(
                 cams_cfg, sink, model=gate_model or "gemma3:4b",
                 base_url=gate_base_url or "http://localhost:11434/v1").start()
+    # Retention. Storage limitation is not optional, and an edge box with no
+    # purge fills its disk and stops recording evidence exactly when it matters.
+    from cvti.serving.onboarding import get_site_meta
+    from cvti.serving.retention import RetentionManager, RetentionPolicy
+    try:
+        _policy = RetentionPolicy.from_site(get_site_meta(site_config_path))
+    except Exception:  # noqa: BLE001 - a bad setting must not stop monitoring
+        log.warning("retention: could not read site policy; using defaults", exc_info=True)
+        _policy = RetentionPolicy()
+    retention = RetentionManager(output_dir, _policy).start()
+
     # Watch our own footprint: on an edge box, running out means swapping, and a
     # swapping box misses every camera. Shed load on purpose instead.
     mem_guard = None
@@ -421,6 +432,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         # Link state per camera, so the UI shows coverage rather than inferring
         # it from the absence of alerts.
         st["cameras"] = [d.link_status() for d in pipe._decoders.values()]
+        st["retention"] = retention.status()
         try:
             _health_path.write_text(json.dumps(st))
         except OSError:
@@ -468,6 +480,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             if mem_guard.mitigations:
                 log.warning(f"[memory] shed load {len(mem_guard.mitigations)} time(s): "
                       f"{'; '.join(mem_guard.mitigations)}")
+        retention.stop()
         if publisher is not None:
             log.info(f"[frames] published {publisher.published} frame(s)")
             publisher.stop()

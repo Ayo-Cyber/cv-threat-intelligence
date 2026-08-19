@@ -223,7 +223,8 @@ CREATE TABLE IF NOT EXISTS events (
     latency_s REAL,       -- detection -> TrueSight-verified wall-clock seconds
     bbox TEXT,            -- "x1,y1,x2,y2" of the subject when it fired (may be NULL)
     unverified INTEGER DEFAULT 0,  -- 1 = the gate never reached a verdict (fail-visible)
-    gate_error TEXT       -- why, when unverified
+    gate_error TEXT,      -- why, when unverified
+    legal_hold INTEGER DEFAULT 0   -- 1 = exempt from retention purge, set by an operator
 );
 
 -- What the gate threw away, per day. Only confirmed alerts become rows in
@@ -266,7 +267,8 @@ class AlertSink:
             self._db.execute("ALTER TABLE events ADD COLUMN bbox TEXT")
         except sqlite3.OperationalError:
             pass
-        for _col, _type in (("unverified", "INTEGER DEFAULT 0"), ("gate_error", "TEXT")):
+        for _col, _type in (("unverified", "INTEGER DEFAULT 0"), ("gate_error", "TEXT"),
+                            ("legal_hold", "INTEGER DEFAULT 0")):
             try:
                 self._db.execute(f"ALTER TABLE events ADD COLUMN {_col} {_type}")
             except sqlite3.OperationalError:

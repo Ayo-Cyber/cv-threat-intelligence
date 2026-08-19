@@ -290,6 +290,88 @@ class ConsoleBackend:
             return {"ok": False, "via": notify, "error": str(exc)[:200]}
 
     # --- diagnostics ---
+    # --- retention / legal hold -------------------------------------------
+    def set_legal_hold(self, event_id: int, hold: bool = True) -> dict:
+        """Exempt an event's evidence from retention purge, or release it."""
+        db, _ = self._effective_db()
+        try:
+            con = self._connect(db)
+            con.execute("UPDATE events SET legal_hold = ? WHERE id = ?",
+                        (1 if hold else 0, int(event_id)))
+            con.commit()
+            con.close()
+        except sqlite3.OperationalError as exc:
+            log.warning("legal hold update failed", exc_info=True)
+            return {"ok": False, "error": str(exc)[:200]}
+        log.info("legal hold %s for event %s", "set" if hold else "released", event_id)
+        return {"ok": True, "id": int(event_id), "legal_hold": bool(hold)}
+
+    def retention_status(self) -> dict:
+        """Policy, disk, and what is being retained past expiry and why."""
+        from cvti.serving.retention import RetentionManager, RetentionPolicy
+        meta = self.get_site()
+        policy = RetentionPolicy.from_site(meta)
+        out_dir = Path(self.db_path).parent
+        db, _ = self._effective_db()
+        status = RetentionManager(out_dir, policy, db_path=db).status()
+        # The engine's own view wins when it is running — it is the process that
+        # actually purges.
+        engine = (self._gate_health() or {}).get("retention")
+        if engine:
+            status["last_run"] = engine.get("last_run") or status["last_run"]
+        return status
+
+    def set_retention(self, days: float = None) -> dict:
+        return onboarding.set_site_meta(self.site_path, retention_days=days)
+
+    def export_evidence(self, event_ids: str = "", dest: str = "") -> dict:
+        """Zip an event's evidence so a customer can keep it past expiry.
+
+        Deliberately the opposite of the diagnostics bundle: that one excludes
+        evidence because it is going to us; this one IS the evidence, and is
+        going to the person who owns it.
+        """
+        import zipfile
+        db, base = self._effective_db()
+        ids = [int(x) for x in str(event_ids).split(",") if str(x).strip().isdigit()]
+        out_dir = Path(self.db_path).parent
+        target = Path(dest) if dest else (out_dir / f"argus-evidence-{int(time.time())}.zip")
+        try:
+            con = self._connect(db)
+            sql = "SELECT * FROM events"
+            if ids:
+                sql += f" WHERE id IN ({','.join('?' * len(ids))})"
+            rows = con.execute(sql, ids).fetchall()
+            con.close()
+        except sqlite3.OperationalError as exc:
+            log.warning("evidence export query failed", exc_info=True)
+            return {"ok": False, "error": str(exc)[:200]}
+
+        exported = 0
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
+            for row in rows:
+                ev = row["evidence_dir"]
+                if not ev:
+                    continue
+                path = Path(ev)
+                if not path.is_absolute() and base:
+                    path = base / path
+                if not path.exists():
+                    continue
+                for f in sorted(path.rglob("*")):
+                    if f.is_file():
+                        zf.write(f, f"event_{row['id']}/{f.relative_to(path)}")
+                exported += 1
+            zf.writestr("MANIFEST.txt",
+                        "Argus evidence export\n"
+                        f"events: {exported}\n\n"
+                        "CONTAINS camera images and video of identifiable people.\n"
+                        "Handle under the same data-protection terms as the system itself.\n")
+        log.info("exported evidence for %d event(s) -> %s", exported, target)
+        return {"ok": True, "events": exported, "path": str(target),
+                "size_kb": round(target.stat().st_size / 1024, 1)}
+
     def camera_links(self) -> list[dict]:
         """Per-camera link state from the running engine.
 

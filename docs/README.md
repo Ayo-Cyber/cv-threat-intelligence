@@ -26,6 +26,7 @@ followed.
 
 | Doc | What it's for |
 |---|---|
+| [DATA_RETENTION.md](DATA_RETENTION.md) | What is stored, for how long, what outlives its expiry and why. Customer-facing — written to be handed to a DPO. |
 | [OFFLINE_VLM.md](OFFLINE_VLM.md) | Running verification fully offline against a local model. |
 | [SOFTWARE_WIRING.md](SOFTWARE_WIRING.md) | Which pipeline is which, and what calls what. |
 | [TRAINING.md](TRAINING.md) | Fine-tuning the video-action model. |
