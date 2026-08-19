@@ -85,7 +85,7 @@ def map_cameras_async(cams_cfg: list[dict], states: dict, *, model: str,
                     log.info("[agent-map] %s: %s — %s", cid, scene["environment_type"],
                              scene["scene_description"][:90])
             except Exception as exc:  # noqa: BLE001 - mapping must never break monitoring
-                log.warning("[agent-map] %s failed: %s", cid, str(exc)[:100])
+                log.warning("[agent-map] %s failed: %s", cid, str(exc)[:100], exc_info=True)
     t = threading.Thread(target=worker, name="agent-map", daemon=True)
     t.start()
     return t

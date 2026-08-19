@@ -286,9 +286,23 @@ class ConsoleBackend:
             build_notifier(notify).notify(event)
             return {"ok": True, "via": notify}
         except Exception as exc:  # noqa: BLE001
+            log.warning("test notification failed", exc_info=True)
             return {"ok": False, "via": notify, "error": str(exc)[:200]}
 
     # --- diagnostics ---
+    def camera_links(self) -> list[dict]:
+        """Per-camera link state from the running engine.
+
+        Deliberately reports "unknown" when the engine is not running rather
+        than "connected": claiming coverage we cannot observe is the exact
+        failure this exists to prevent.
+        """
+        health = self._gate_health()
+        if not health:
+            return [{"camera_id": c["id"], "state": "unknown", "time_in_state": 0,
+                     "reconnects": 0} for c in self.list_cameras()]
+        return health.get("cameras") or []
+
     def download_diagnostics(self) -> dict:
         """Zip logs + a health snapshot for support. Never includes evidence.
 
@@ -300,7 +314,7 @@ class ConsoleBackend:
         try:
             path = build_bundle(out_dir)
         except Exception as exc:  # noqa: BLE001 - support tooling must not crash the app
-            log.exception("diagnostics bundle failed")
+            log.exception("diagnostics bundle failed", exc_info=True)
             return {"ok": False, "error": str(exc)[:200]}
         return {"ok": True, "path": str(path),
                 "size_kb": round(path.stat().st_size / 1024, 1)}
@@ -358,7 +372,8 @@ class ConsoleBackend:
         try:
             info = json.loads((Path(self.db_path).parent / "frames.json").read_text())
             port = int(info.get("port") or 0)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.debug("engine frame port unreadable", exc_info=True)
             return 0
         if not port:
             return 0
@@ -367,7 +382,8 @@ class ConsoleBackend:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/cameras", timeout=1.5) as r:
                 cams = json.loads(r.read().decode()).get("cameras") or []
             return port if cams else 0
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.debug("engine frame port unreachable", exc_info=True)
             return 0
 
     def live_start(self, count: int = 6) -> dict:
@@ -381,7 +397,8 @@ class ConsoleBackend:
                 with urllib.request.urlopen(f"http://127.0.0.1:{port}/cameras", timeout=1.5) as r:
                     cams = json.loads(r.read().decode()).get("cameras") or []
                 return {"cameras": [{"id": c} for c in cams], "port": port, "source": "engine"}
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                log.debug("engine frames unavailable; decoding locally", exc_info=True)
                 pass          # fall through to decoding ourselves
         sources = self._live_sources(count)
         if not sources:
@@ -484,7 +501,8 @@ class ConsoleBackend:
             return {"sources": []}
         try:
             return json.loads(p.read_text())
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.warning("feeds registry unreadable; no feeds offered", exc_info=True)
             return {"sources": []}
 
     def feed_sources(self) -> dict:
@@ -547,6 +565,7 @@ class ConsoleBackend:
                       kind=src.get("kind", "demo"), config=src["config"],
                       engine_restarted=restarted, status="done")
         except Exception as exc:  # noqa: BLE001 - a failed switch must not wedge the UI
+            log.error("feed switch failed", exc_info=True)
             st.update(busy=False, done=True, error=str(exc)[:200], status="failed")
 
     def _resolve_live_config(self, src: dict) -> dict:
@@ -565,7 +584,8 @@ class ConsoleBackend:
                      "-f", "best[height<=720]/best", f"https://www.youtube.com/watch?v={vid}"],
                     capture_output=True, text=True, timeout=25)
                 return name, ((out.stdout or "").strip().splitlines() or [""])[0]
-            except Exception:  # noqa: BLE001 - a dead feed shouldn't sink the others
+            except Exception as exc:  # noqa: BLE001 - a dead feed shouldn't sink the others
+                log.debug("camera place lookup failed", exc_info=True)
                 return name, ""
 
         feeds = list(src.get("youtube", []))
@@ -716,7 +736,8 @@ class ConsoleBackend:
             data = json.loads(txt[txt.find("{"): txt.rfind("}") + 1])
             ids = [int(i) for i in data.get("ids", []) if str(i).strip().lstrip("-").isdigit()]
             return ids, str(data.get("answer", "")).strip(), "TrueSight"
-        except Exception:  # noqa: BLE001 - unreachable/parse error -> keyword fallback
+        except Exception as exc:  # noqa: BLE001 - unreachable/parse error -> keyword fallback
+            log.debug("evidence lookup failed", exc_info=True)
             return None, "", ""
 
     def _frames_as_data_uris(self, evidence_dir: str | None,

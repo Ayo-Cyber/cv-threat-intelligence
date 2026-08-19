@@ -55,11 +55,13 @@ def sample_memory() -> MemorySample:
         vm = psutil.virtual_memory()
         try:
             swap = psutil.swap_memory().used / 1e9
-        except Exception:  # noqa: BLE001 - swap is unavailable in some containers
+        except Exception as exc:  # noqa: BLE001 - swap is unavailable in some containers
+            log.debug("swap metrics unavailable on this platform", exc_info=True)
             swap = 0.0
         return MemorySample(proc.memory_info().rss / 1e9, vm.available / 1e9,
                             vm.percent, swap)
-    except Exception:  # noqa: BLE001 - never let measurement break the engine
+    except Exception as exc:  # noqa: BLE001 - never let measurement break the engine
+        log.debug("resource module unavailable", exc_info=True)
         import resource
         import sys
         raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -110,7 +112,8 @@ class MemoryGuard:
         if self.on_sample:
             try:
                 self.on_sample(s, level)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                log.warning("on_sample callback failed", exc_info=True)
                 pass
         return level
 
@@ -128,7 +131,7 @@ class MemoryGuard:
         try:
             what = action()
         except Exception as exc:  # noqa: BLE001 - a failed mitigation must not crash the engine
-            log.error(f"[memory] mitigation failed: {str(exc)[:110]}")
+            log.error(f"[memory] mitigation failed: {str(exc)[:110]}", exc_info=True)
             return
         if what:
             self.mitigations.append(what)
@@ -140,7 +143,7 @@ class MemoryGuard:
             try:
                 self.check()
             except Exception as exc:  # noqa: BLE001
-                log.error(f"[memory] check failed: {str(exc)[:110]}")
+                log.error(f"[memory] check failed: {str(exc)[:110]}", exc_info=True)
 
     def start(self) -> "MemoryGuard":
         s = sample_memory()
@@ -209,7 +212,8 @@ def build_default_actions(pipe: Any, states: dict | None = None) -> tuple[list, 
         cam_id = sorted(decoders)[-1]
         try:
             decoders[cam_id].stop()
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.warning("stopping a camera to free memory failed", exc_info=True)
             pass
         decoders.pop(cam_id, None)
         return f"stopped camera '{cam_id}' to free memory"

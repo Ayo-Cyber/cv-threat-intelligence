@@ -198,7 +198,8 @@ def _match_context_filter(
 
     try:
         return bool(eval(expr, {"__builtins__": {}}, ns))  # noqa: S307
-    except Exception:
+    except Exception as exc:
+        log.warning("rule expression is malformed; failing OPEN so the alert still fires", exc_info=True)
         return True  # don't block alert if expression is malformed
 
 

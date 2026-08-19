@@ -18,6 +18,10 @@ from cvti.app.widgets.mapper import MapperPanel
 from cvti.app.worker import DetectionWorker
 from cvti.verification import ollama
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 # Local VLM models offered for the offline gate. Gemma 3 first (client default);
 # the QAT build keeps BF16-level quality at the same ~3.3 GB as plain Q4, so it leads.
 # moondream is the low-RAM fallback (~2 GB, weaker quality); the rest are heavier.
@@ -39,6 +43,7 @@ class ModelPullWorker(QThread):
                 self.progress.emit(f"Downloading {self.model}: {line}")
             self.done.emit(True, f"{self.model} ready.")
         except Exception as exc:  # noqa: BLE001 - surface any pull failure to the UI
+            log.error("worker task failed", exc_info=True)
             self.done.emit(False, str(exc))
 
 DARK = """

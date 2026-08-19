@@ -2052,7 +2052,7 @@ def main() -> None:
                             timestamp=ts_now,
                         )
                     except Exception as exc:  # noqa: BLE001 - optional weak signal must not kill detector
-                        log.error(f"[VideoAction error] {str(exc)[:140]}")
+                        log.error(f"[VideoAction error] {str(exc)[:140]}", exc_info=True)
                 candidate_alerts = customization_engine.evaluate(raw_events, scene_context=scene_context)
                 # Phase 1: enqueue EVERY matching candidate (deduped by rule/track/
                 # object within a cooldown), not just candidate_alerts[0]. Concurrent
@@ -2085,7 +2085,7 @@ def main() -> None:
                         gate_result = verification_gate.verify(
                             evidence_frames or frame, candidate, scene_context)
                     except Exception as exc:  # noqa: BLE001 - a transient gate/API error must not kill the run
-                        log.error(f"[gate error] {candidate.rule_name} — {str(exc)[:140]} (alert held, not raised)")
+                        log.error(f"[gate error] {candidate.rule_name} — {str(exc)[:140]} (alert held, not raised)", exc_info=True)
                         continue
                     if gate_result is not None and gate_result.confirmed:
                         log.info(f"[CONFIRMED] {candidate.rule_name} ({candidate.priority.upper()}) "

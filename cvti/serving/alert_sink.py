@@ -64,7 +64,7 @@ class WebhookNotifier:
                 headers={"Content-Type": "application/json"}, method="POST")
             urllib.request.urlopen(req, timeout=self.timeout)
         except Exception as exc:  # noqa: BLE001 - a notify failure must not kill the gate
-            log.error(f"[notify webhook error] {str(exc)[:120]}")
+            log.error(f"[notify webhook error] {str(exc)[:120]}", exc_info=True)
 
 
 class TelegramNotifier:
@@ -102,7 +102,7 @@ class TelegramNotifier:
                 return
             self._send_photos(frames, self._caption(event))
         except Exception as exc:  # noqa: BLE001 - a notify failure must not kill the gate
-            log.error(f"[notify telegram error] {str(exc)[:140]}")
+            log.error(f"[notify telegram error] {str(exc)[:140]}", exc_info=True)
 
     def _send_photos(self, frames: list[Path], caption: str) -> None:
         """One photo -> sendPhoto; several -> sendMediaGroup (album)."""
@@ -163,7 +163,7 @@ class WhatsAppNotifier:
                                          headers={"Authorization": f"Basic {self.auth}"}, method="POST")
             urllib.request.urlopen(req, timeout=self.timeout)
         except Exception as exc:  # noqa: BLE001
-            log.error(f"[notify whatsapp error] {str(exc)[:140]}")
+            log.error(f"[notify whatsapp error] {str(exc)[:140]}", exc_info=True)
 
 
 class MultiNotifier:
@@ -176,7 +176,7 @@ class MultiNotifier:
             try:
                 n.notify(event)
             except Exception as exc:  # noqa: BLE001
-                log.error(f"[alert-sink] {type(n).__name__} failed: {str(exc)[:100]}")
+                log.error(f"[alert-sink] {type(n).__name__} failed: {str(exc)[:100]}", exc_info=True)
 
 
 def _build_one(spec: str) -> Any:
@@ -192,7 +192,7 @@ def _build_one(spec: str) -> Any:
         try:
             return WhatsAppNotifier.from_env()
         except Exception as exc:  # noqa: BLE001
-            log.warning(f"[alert-sink] whatsapp unavailable ({exc}); using console")
+            log.warning(f"[alert-sink] whatsapp unavailable ({exc}); using console", exc_info=True)
             return ConsoleNotifier()
     log.warning(f"[alert-sink] unknown notifier '{spec}', using console")
     return ConsoleNotifier()
@@ -352,7 +352,7 @@ class AlertSink:
         try:
             self._persist(alert, result)
         except Exception as exc:  # noqa: BLE001 - persistence must not kill the gate
-            log.error(f"[alert-sink error] {str(exc)[:140]}")
+            log.error(f"[alert-sink error] {str(exc)[:140]}", exc_info=True)
 
     # --- routing ---------------------------------------------------------
     def _is_acknowledged(self, event_id: Any) -> bool:
@@ -362,7 +362,8 @@ class AlertSink:
                 row = self._db.execute(
                     "SELECT review FROM events WHERE id=?", (event_id,)).fetchone()
             return bool(row and row[0] and row[0] != "new")
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.warning("acknowledgement lookup failed; treating as unacknowledged", exc_info=True)
             return False
 
     def _notifier_for(self, spec: str) -> Any:
@@ -380,7 +381,7 @@ class AlertSink:
             target.notify(event)
             self.routed += 1
         except Exception as exc:  # noqa: BLE001 - a channel failing must not kill the sink
-            log.error(f"[routing] '{rule_name}' -> {spec} failed: {str(exc)[:110]}")
+            log.error(f"[routing] '{rule_name}' -> {spec} failed: {str(exc)[:110]}", exc_info=True)
         if event_id is not None:
             rule = self.routing.match(event)
             if rule:
@@ -400,7 +401,7 @@ class AlertSink:
                 log.info(f"[routing] escalated {ev.get('camera_id')}::{ev.get('rule')} "
                       f"-> {item['to']} (rule '{item['rule']}')")
             except Exception as exc:  # noqa: BLE001
-                log.error(f"[routing] escalation to {item['to']} failed: {str(exc)[:110]}")
+                log.error(f"[routing] escalation to {item['to']} failed: {str(exc)[:110]}", exc_info=True)
         return sent
 
     @staticmethod

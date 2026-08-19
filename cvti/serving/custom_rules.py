@@ -84,7 +84,8 @@ class CustomRuleScanner:
         for cap in caps.values():
             try:
                 cap.release()
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                log.debug("releasing a capture failed during teardown", exc_info=True)
                 pass
 
     def _cooling(self, cam_id: str, name: str) -> bool:

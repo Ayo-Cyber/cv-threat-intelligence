@@ -162,6 +162,11 @@ class PerCameraState:
     def __post_init__(self) -> None:
         import warnings
         import supervision as sv
+        from cvti.health import component
+        # Per camera, not per detector class: an operator asks "is camera 4 ok?",
+        # and a camera whose detectors throw on every frame looks exactly like a
+        # camera watching a quiet corridor.
+        self._health = component(f"detector.{self.camera_id}")
         from cvti.detector.core import normalize_threat_classes
         # sv.ByteTrack is deprecation-proxied in supervision 0.28 (removed in
         # 0.30). It still works; silence the per-camera warning spam for now.
@@ -386,8 +391,11 @@ class PerCameraState:
             if self._video_runtime is not None:
                 raw_events += self._video_runtime.analyze_event(
                     center_frame_index=self._va_index - 1, timestamp=timestamp)
+            self._health.ok()
         except Exception as exc:  # noqa: BLE001 - a detector hiccup must not kill the camera
-            log.error(f"[{self.camera_id}] detector error: {str(exc)[:140]}")
+            # Rate-limited: a detector throwing on every frame must not fill the
+            # disk with its own traceback. The counter carries the true scale.
+            self._health.failed(exc, log, "processing a frame")
 
         if not raw_events:
             return []

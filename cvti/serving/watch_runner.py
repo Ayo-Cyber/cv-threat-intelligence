@@ -107,7 +107,7 @@ class WatchRunner:
         try:
             self.sink.handle(alert, result)
         except Exception as exc:  # noqa: BLE001 - a sink error must not stop watching
-            log.error(f"[watch] sink failed: {str(exc)[:110]}")
+            log.error(f"[watch] sink failed: {str(exc)[:110]}", exc_info=True)
 
     # --- background loop --------------------------------------------------
     def _loop(self) -> None:
@@ -120,7 +120,7 @@ class WatchRunner:
                         continue
                     self.scan_camera(cam, frame)
                 except Exception as exc:  # noqa: BLE001
-                    log.error(f"[watch] {cam.get('id')} failed: {str(exc)[:110]}")
+                    log.error(f"[watch] {cam.get('id')} failed: {str(exc)[:110]}", exc_info=True)
             for case in self.book.expire():
                 log.info(f"[watch] case closed: {case.watch} #{case.track_id} on "
                       f"{case.camera_id} after {case.duration:.0f}s / {case.sightings} sightings")

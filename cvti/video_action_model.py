@@ -15,6 +15,10 @@ import cv2
 import numpy as np
 from cvti.console import emit
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 DEFAULT_VIDEOMAE_MODEL = "MCG-NJU/videomae-base-finetuned-kinetics"
 DEFAULT_X3D_MODEL = "x3d_s"
@@ -396,7 +400,8 @@ def _kinetics400_labels() -> list[str]:
         from torchvision.models.video import R3D_18_Weights
 
         return list(R3D_18_Weights.KINETICS400_V1.meta["categories"])
-    except Exception:
+    except Exception as exc:
+        log.warning("video-action inference failed; no predictions", exc_info=True)
         return []
 
 

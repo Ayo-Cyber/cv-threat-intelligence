@@ -18,6 +18,10 @@ from pathlib import Path
 
 from cvti.feedback.store import FeedbackStore, LabeledEvent
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 # Tuning: how much evidence before we act, and the precision below which a rule is
 # "noisy" enough to demote.
 MIN_NEGATIVES = 3          # need at least this many false alarms before demoting
@@ -125,7 +129,8 @@ class Calibration:
             return cls()
         try:
             data = json.loads(p.read_text())
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            log.warning("calibration unreadable; running uncalibrated", exc_info=True)
             return cls()
         rules = {}
         for key, d in (data.get("rules") or {}).items():

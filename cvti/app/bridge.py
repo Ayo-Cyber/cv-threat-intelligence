@@ -13,6 +13,10 @@ from PyQt6.QtCore import QObject, pyqtSlot
 
 from cvti.app.console_backend import ConsoleBackend
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 def _j(obj) -> str:
     return json.dumps(obj)
@@ -27,6 +31,7 @@ class Backend(QObject):
         try:
             return _j(fn())
         except Exception as exc:  # noqa: BLE001 - surface errors to the UI, don't crash
+            log.error("backend call failed; surfaced to the UI as an error", exc_info=True)
             return _j({"error": str(exc)[:200]})
 
     @pyqtSlot(result=str)
@@ -169,6 +174,10 @@ class Backend(QObject):
     @pyqtSlot(result=str)
     def markConfigured(self) -> str:
         return self._safe(self._core.mark_configured)
+
+    @pyqtSlot(result=str)
+    def cameraLinks(self) -> str:
+        return self._safe(self._core.camera_links)
 
     @pyqtSlot(result=str)
     def downloadDiagnostics(self) -> str:

@@ -21,6 +21,10 @@ from typing import Callable, Iterator
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_MODEL = "gemma3:4b-it-qat"
 
@@ -103,7 +107,8 @@ def bundled_binary() -> str | None:
     try:
         from cvti.utils import resource_path
         candidate = resource_path(f"vendor/ollama/{plat}/{exe}")
-    except Exception:  # noqa: BLE001 - resource resolution is best-effort
+    except Exception as exc:  # noqa: BLE001 - resource resolution is best-effort
+        log.warning("local VLM call failed", exc_info=True)
         return None
     return str(candidate) if candidate.exists() else None
 

@@ -22,6 +22,10 @@ import cv2
 
 from cvti.contracts import CandidateAlert, VerificationResult
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Prompt
@@ -387,6 +391,7 @@ class VerificationGate:
         except UnsupportedProvider:
             raise                       # a config bug, not a transport blip
         except Exception as exc:  # noqa: BLE001 - transport failure is not a verdict
+            log.warning("gate transport failed; alert will be surfaced UNVERIFIED", exc_info=True)
             # Ollama down, model not pulled, request timed out. Previously this
             # propagated to the gate pool, which counted an error and dropped the
             # alert — a real fire, silently discarded, with nothing on screen.
@@ -642,6 +647,7 @@ def _parse_response(raw: str, fallback_priority: str) -> VerificationResult:
             raw_response=raw,
         )
     except Exception as exc:
+        log.warning("gate response unparseable; no verdict reached", exc_info=True)
         # NOT a rejection. The model did not render a verdict — we could not read
         # one. `error` is what tells the live path to surface this to a human
         # instead of dropping it; see FAIL_VISIBLE.

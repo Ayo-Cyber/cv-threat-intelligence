@@ -14,6 +14,10 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from cvti.utils import resource_path
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 class DetectionWorker(QThread):
     frame_ready   = pyqtSignal(np.ndarray)   # annotated BGR frame
@@ -73,6 +77,7 @@ class DetectionWorker(QThread):
             gate         = VerificationGate(provider=self.gate_provider, model=self.gate_model)
 
         except Exception as exc:
+            log.error("model/pipeline load failed", exc_info=True)
             self.status_update.emit(f"Load error: {exc}")
             return
 

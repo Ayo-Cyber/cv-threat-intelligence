@@ -23,6 +23,10 @@ from pathlib import Path
 
 from cvti.feedback.store import FeedbackStore
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 DEFAULT_CLASS_MAP = {"true": "threat", "false": "normal"}
 
 
@@ -92,6 +96,7 @@ def _frames_to_mp4(frames: list[Path], dst: Path, fps: int = 8) -> bool:
                         vw.write(im if im.shape[:2] == (h, w) else cv2.resize(im, (w, h)))
                 vw.release()
                 return True
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log.debug("dataset export step failed", exc_info=True)
         return False
     return False

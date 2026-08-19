@@ -20,8 +20,10 @@ import argparse
 import json
 import time
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any, Callable
 
+from cvti.serving.alert_queue import QueuedAlert
 from cvti.serving.batcher import collect_batch
 from cvti.serving.streams import Frame, StreamDecoder
 from cvti.logging_setup import get_logger
@@ -63,7 +65,7 @@ class MultiStreamPipeline:
                  conf: float = 0.4, device: str = "", half: bool = False,
                  max_batch: int = 32, on_result: ResultHandler | None = None,
                  camera_states: dict[str, Any] | None = None, alert_queue: Any = None,
-                 publisher: Any = None) -> None:
+                 publisher: Any = None, on_link_change=None) -> None:
         self.sources = sources
         self.weights = weights
         self.target_fps = target_fps
@@ -77,6 +79,7 @@ class MultiStreamPipeline:
         self._alert_queue = alert_queue
         # Publishes frames (with boxes) so the UI never decodes the stream twice.
         self.publisher = publisher
+        self.on_link_change = on_link_change
         # When per-camera states + a queue are supplied, route detections through
         # them (track -> zones -> rules -> alert queue). Otherwise just count.
         if on_result is not None:
@@ -104,7 +107,9 @@ class MultiStreamPipeline:
         from cvti.detector.core import normalize_threat_classes
         self._threat_classes = normalize_threat_classes("gun,knife")
         for cam_id, src in self.sources.items():
-            self._decoders[cam_id] = StreamDecoder(cam_id, src, target_fps=self.target_fps).start()
+            self._decoders[cam_id] = StreamDecoder(
+                cam_id, src, target_fps=self.target_fps,
+                on_state_change=self.on_link_change).start()
         log.info(f"[serving] {len(self._decoders)} camera(s) | device={self.device} "
               f"half={self.half} target_fps={self.target_fps} | model={self.weights}")
 
@@ -120,8 +125,17 @@ class MultiStreamPipeline:
             return
         detections = sv.Detections.from_ultralytics(result)          # tracking / zones
         object_detections = extract_detections(result, self._names, self._threat_classes)  # weapons/violence/theft
-        alerts = state.process(detections, frame.image, frame.timestamp,
-                               object_detections=object_detections)
+        # `process` guards its detector section, but everything around it —
+        # tracking, zones, rule evaluation, evidence selection — was unguarded,
+        # so a failure there propagated out through run() and stopped EVERY
+        # camera. The comment inside promised one bad detector could not kill the
+        # camera loop; this is what makes that true.
+        try:
+            alerts = state.process(detections, frame.image, frame.timestamp,
+                                   object_detections=object_detections)
+        except Exception as exc:  # noqa: BLE001 - one camera must not stop the rest
+            state._health.failed(exc, log, "processing a frame")
+            return
         for alert in alerts:
             if self._alert_queue.add(alert):
                 self.alerts_queued += 1
@@ -186,6 +200,19 @@ class MultiStreamPipeline:
             d.stop()
 
 
+@dataclass
+class _LinkEvent:
+    """A camera-link change, shaped like a candidate alert so it routes normally."""
+    detector: str
+    rule_name: str
+    priority: str
+    title: str
+    person_id: Any = None
+    object_label: Any = None
+    track_id: Any = None
+    zone: Any = None
+
+
 def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              target_fps: float = 5.0, imgsz: int = 640, conf: float = 0.4,
              device: str = "", half: bool = False, seconds: float = 90.0,
@@ -231,7 +258,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             weapon_model = load_detection_model(weapon_weights, yolov5_repo, preferred_kind="yolov5")
             log.info(f"[site] shared weapon model loaded ({weapon_weights})")
         except Exception as exc:  # noqa: BLE001
-            log.warning(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled")
+            log.warning(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled", exc_info=True)
     # Load ONE shared video-action model iff any camera enables it (best-effort).
     video_action_model = None
     if any(c.get("video_action") for c in cams_cfg):
@@ -240,7 +267,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             video_action_model = VideoMAEActionModel(video_action_model_path)
             log.info(f"[site] shared video-action model loaded ({video_action_model_path})")
         except Exception as exc:  # noqa: BLE001
-            log.warning(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled")
+            log.warning(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled", exc_info=True)
     cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
                                video_action_model=video_action_model, baseline_config=baseline_config)
     sources = {cid: c["source"] for cid, c in cams.items()}
@@ -284,9 +311,37 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     from cvti.serving.frame_publisher import FramePublisher
     publisher = FramePublisher().start(output_dir) if publish_frames else None
 
+    def _on_link_change(cam_id: str, previous: str, state: str, held: float) -> None:
+        """A camera going offline raises its own alert through normal routing.
+
+        Without this the customer believes they have coverage they do not have:
+        an unreachable camera produces no alerts, which is indistinguishable
+        from a camera watching a quiet area.
+        """
+        from cvti.serving.streams import CONNECTED, OFFLINE
+        if state not in (OFFLINE, CONNECTED) or (state == CONNECTED and previous == "reconnecting"
+                                                 and held < 1.0):
+            return
+        offline = state == OFFLINE
+        queue.add(QueuedAlert(
+            camera_id=cam_id,
+            rule_name="camera_offline" if offline else "camera_recovered",
+            priority="high" if offline else "info",
+            title=(f"CAMERA OFFLINE — unreachable for {held:.0f}s"
+                   if offline else "CAMERA RECOVERED — stream is back"),
+            timestamp=time.time(),
+            payload={"candidate": _LinkEvent(
+                detector="camera_offline",
+                rule_name="camera_offline" if offline else "camera_recovered",
+                priority="high" if offline else "info",
+                title=(f"Camera {cam_id} unreachable for {held:.0f}s" if offline
+                       else f"Camera {cam_id} is back online")),
+                     "frames": [], "scene": {}, "enqueued_at": time.time()}))
+
     pipe = MultiStreamPipeline(sources, weights=weights, target_fps=target_fps, imgsz=imgsz,
                                conf=conf, device=device, half=half, camera_states=states,
-                               alert_queue=queue, publisher=publisher)
+                               alert_queue=queue, publisher=publisher,
+                               on_link_change=_on_link_change)
     pipe.start()
     # Live agent mapping: infer each camera's scene (reusing the local VLM) so the
     # gate reasons with real context. Background, non-blocking; only for a local
@@ -341,7 +396,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             try:
                 sink.run_escalations()
             except Exception as exc:  # noqa: BLE001
-                log.error(f"[routing] escalation tick failed: {str(exc)[:90]}")
+                log.error(f"[routing] escalation tick failed: {str(exc)[:90]}", exc_info=True)
 
     _esc_thread = _threading.Thread(target=_escalation_loop, name="escalations", daemon=True)
     _esc_thread.start()
@@ -354,10 +409,18 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     _ledger_seen = {"confirmed": 0, "rejected": 0, "deduped": 0, "errors": 0}
 
     def _write_health() -> None:
+        from cvti.health import snapshot as health_snapshot
         st = gate_pool.stats()
         st.update({"provider": gate_provider, "model": gate_model,
                    "mock": mock_gate, "banner": MOCK_GATE_BANNER if mock_gate else "",
                    "updated_at": time.time()})
+        # Per-component counters. Without these, "this detector found nothing"
+        # and "this detector has thrown on every frame for a week" are the same
+        # silence.
+        st["health"] = health_snapshot()
+        # Link state per camera, so the UI shows coverage rather than inferring
+        # it from the absence of alerts.
+        st["cameras"] = [d.link_status() for d in pipe._decoders.values()]
         try:
             _health_path.write_text(json.dumps(st))
         except OSError:
@@ -371,7 +434,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             for k in _ledger_seen:
                 _ledger_seen[k] = st.get(k) or 0
         except Exception as exc:  # noqa: BLE001 - bookkeeping never stops the engine
-            log.error(f"[value] suppression ledger write failed: {str(exc)[:90]}")
+            log.error(f"[value] suppression ledger write failed: {str(exc)[:90]}", exc_info=True)
 
     def _health_loop() -> None:
         while not _esc_stop.wait(3.0):

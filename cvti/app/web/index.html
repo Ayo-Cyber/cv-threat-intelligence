@@ -586,16 +586,44 @@ function updateMapPins(){
   });
 }
 /* ---------- Cameras ---------- */
+/* Link state as OBSERVED, never inferred. "configured" used to show a green dot
+   whether or not the camera was reachable — and an unreachable camera raises no
+   alerts, which looks exactly like a quiet corridor. False confidence is worse
+   than visible failure. */
+var LINK_UI = {
+  connected:    ["var(--c-live)",  "live"],
+  reconnecting: ["var(--sev-high)","reconnecting"],
+  offline:      ["var(--sev-crit)","OFFLINE"],
+  unknown:      ["var(--c-sub)",   "not monitoring"]
+};
+function linkCell(link){
+  var st = (link && link.state) || "unknown";
+  var ui = LINK_UI[st] || LINK_UI.unknown;
+  var age = link && link.time_in_state ? " · "+fmtAge(link.time_in_state) : "";
+  var rc = link && link.reconnects ? ' <span class="mut" title="reconnections">↻'+link.reconnects+'</span>' : "";
+  return '<span><span class="dot" style="background:'+ui[0]+'"></span>'
+    + '<span style="color:'+ui[0]+'">'+esc(ui[1])+'</span>'
+    + '<span class="mut" style="font-size:11px">'+esc(age)+'</span>'+rc+'</span>';
+}
+function fmtAge(sec){
+  sec = Math.round(sec);
+  if(sec < 60) return sec+"s";
+  if(sec < 3600) return Math.round(sec/60)+"m";
+  return Math.round(sec/3600)+"h";
+}
 function renderCameras(){
   call("presets",[],function(p){ state.presets = (p&&!p.error)?p:{}; });
+  call("cameraLinks",[],function(l){ state.links = Array.isArray(l)?l:[]; });
   call("listCameras",[],function(cams){
     state.cameras = Array.isArray(cams)?cams:[];
+    var linkBy = {};
+    (state.links||[]).forEach(function(l){ linkBy[l.camera_id] = l; });
     var presetOpts = Object.keys(state.presets).map(function(k){return '<option value="'+esc(state.presets[k])+'">'+esc(k)+'</option>';}).join("");
     var rows = state.cameras.map(function(c){
       var sig=[c.concealment&&"conceal",c.video_action&&"video",c.violence&&"violence"].filter(Boolean).join(" · ")||"basic";
       return '<div class="trow"><span class="mono" style="font-weight:600">'+esc(c.id)+'</span>'
         +'<span class="mono mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((c.source||"").split("@").pop())+'</span>'
-        +'<span><span class="dot" style="background:var(--c-live)"></span>configured</span>'
+        + linkCell(linkBy[c.id])
         +'<span class="mut">'+esc((c.config||"").split("/").pop())+'</span>'
         +'<span class="mono sub">'+esc(sig)+'</span></div>';
     }).join("");
@@ -888,7 +916,34 @@ function gateEngineRows(e){
     out += '<div style="margin-top:8px;color:var(--sev-crit);font-weight:600;font-size:12.5px">'
       + '⚠ '+esc(e.banner||"UNVERIFIED — MOCK GATE")+' — alerts are not being verified.</div>';
   }
+  out += componentRows(e.health||{});
   return out;
+}
+
+/* Per-component counters. A component that throws on every frame produces the
+   same silence as one that correctly finds nothing — these tell them apart. */
+function componentRows(h){
+  var comps = h.components||[];
+  if(!comps.length) return '';
+  var deg = h.degraded||[];
+  var rows = comps.map(function(c){
+    var pct = Math.round((c.error_rate||0)*100);
+    var col = c.degraded ? "var(--sev-crit)" : (c.errors ? "var(--sev-high)" : "var(--c-mut)");
+    return '<tr><td class="mono" style="padding:3px 10px 3px 0">'+esc(c.name)+'</td>'
+      +'<td style="text-align:right;padding-right:10px">'+(c.processed||0)+'</td>'
+      +'<td style="text-align:right;padding-right:10px;color:'+col+'">'+(c.errors||0)+'</td>'
+      +'<td style="text-align:right;color:'+col+'">'+pct+'%</td></tr>';
+  }).join("");
+  var warn = deg.length
+    ? '<div style="margin-top:9px;color:var(--sev-crit);font-weight:600;font-size:12.5px">'
+      +'⚠ Degraded: '+deg.map(esc).join(", ")+' — failing on more than 1 in 10 attempts.</div>'
+    : '';
+  return '<div style="margin-top:12px"><div class="syslabel">Components</div>'
+    +'<table style="font-size:12px;margin-top:6px;width:100%;max-width:420px">'
+    +'<thead><tr class="mut"><th style="text-align:left">component</th>'
+    +'<th style="text-align:right">ok</th><th style="text-align:right">errors</th>'
+    +'<th style="text-align:right">rate</th></tr></thead><tbody>'+rows+'</tbody></table>'
+    + warn + '</div>';
 }
 function downloadDiagnostics(btn){
   var msg=$("diagMsg");

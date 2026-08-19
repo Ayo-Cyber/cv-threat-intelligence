@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 from cvti.logging_setup import get_logger
@@ -27,10 +28,26 @@ class Frame:
     timestamp: float    # seconds since decoder start
 
 
+# An offline camera produces no alerts — which looks exactly like a camera
+# watching a quiet corridor. The tamper detector answers "did someone cover
+# this?"; nothing answered "has this been unreachable since Tuesday?". In a
+# security product false confidence is worse than visible failure, so the link
+# state is explicit and reported rather than inferred from silence.
+CONNECTED = "connected"
+RECONNECTING = "reconnecting"
+OFFLINE = "offline"
+
+# How long a camera may be reconnecting before we call it offline and tell
+# someone. Short enough to catch a real outage, long enough that a camera
+# reboot or a network blip does not page anyone.
+DEFAULT_OFFLINE_GRACE = 60.0
+
+
 class StreamDecoder:
     def __init__(self, camera_id: str, source: int | str, *, target_fps: float = 5.0,
                  reconnect: bool = True, reconnect_backoff: float = 1.0,
-                 loop_files: bool = True) -> None:
+                 loop_files: bool = True, offline_grace_seconds: float = DEFAULT_OFFLINE_GRACE,
+                 on_state_change=None) -> None:
         self.camera_id = camera_id
         self.source = source
         self.target_fps = target_fps
@@ -50,6 +67,40 @@ class StreamDecoder:
         self._fps = 0.0
         self.ended = False
         self.reconnects = 0            # how many times we've re-opened a live stream
+        self.offline_grace_seconds = offline_grace_seconds
+        self.on_state_change = on_state_change
+        self.state = CONNECTED
+        self.state_since = time.time()
+        self.last_frame_at = 0.0
+        # Bounded: the useful signal is "it has been flapping", not every attempt
+        # since install.
+        self.attempt_history: deque = deque(maxlen=20)
+
+    @property
+    def time_in_state(self) -> float:
+        return time.time() - self.state_since
+
+    def _set_state(self, state: str, detail: str = "") -> None:
+        if state == self.state:
+            return
+        previous, held = self.state, self.time_in_state
+        self.state, self.state_since = state, time.time()
+        level = log.warning if state != CONNECTED else log.info
+        level("[link %s] %s -> %s after %.0fs%s", self.camera_id, previous, state,
+              held, f" ({detail})" if detail else "")
+        if self.on_state_change is not None:
+            try:
+                self.on_state_change(self.camera_id, previous, state, held)
+            except Exception:  # noqa: BLE001
+                log.warning("[link %s] state-change callback failed", self.camera_id,
+                            exc_info=True)
+
+    def link_status(self) -> dict:
+        return {"camera_id": self.camera_id, "state": self.state,
+                "time_in_state": round(self.time_in_state, 1),
+                "reconnects": self.reconnects,
+                "last_frame_at": self.last_frame_at,
+                "attempts": list(self.attempt_history)}
 
     def _is_live(self) -> bool:
         return not str(self.source).isdigit() and "://" in str(self.source)
@@ -97,12 +148,22 @@ class StreamDecoder:
             if not ok:
                 if self.reconnect and self._is_live():
                     # Live source dropped (camera reboot / network blip). Keep
-                    # reopening with a capped backoff until it comes back.
+                    # reopening with an exponential, capped backoff until it
+                    # comes back — linear retry hammers a camera that is down
+                    # for an hour, and the log with it.
                     self.reconnects += 1
                     attempt += 1
-                    backoff = min(self.reconnect_backoff * attempt, 5.0)
-                    log.warning(f"[decode {self.camera_id}] stream dropped; reopening in "
-                          f"{backoff:.0f}s (attempt {attempt})")
+                    backoff = min(self.reconnect_backoff * (2 ** (attempt - 1)), 30.0)
+                    if self.state == CONNECTED:
+                        self._set_state(RECONNECTING, "stream dropped")
+                    elif (self.state == RECONNECTING
+                          and self.time_in_state >= self.offline_grace_seconds):
+                        self._set_state(OFFLINE,
+                                        f"unreachable for {self.time_in_state:.0f}s")
+                    self.attempt_history.append(
+                        {"at": time.time(), "attempt": attempt, "backoff": backoff})
+                    log.warning("[decode %s] stream dropped; reopening in %.0fs (attempt %d)",
+                                self.camera_id, backoff, attempt)
                     cap.release()
                     self._stop.wait(backoff)   # interruptible so stop() is prompt
                     cap = self._open()
@@ -115,6 +176,11 @@ class StreamDecoder:
                 self.ended = True          # webcam exhausted / looping disabled
                 break
             attempt = 0                    # a healthy read resets the backoff
+            self.last_frame_at = time.time()
+            if self.state != CONNECTED:
+                # Recovery is announced, not silent — an operator who was told
+                # the camera went down has to be told it came back.
+                self._set_state(CONNECTED, "stream recovered")
             # VIDEO time from the original frame index so dwell/loiter thresholds
             # are correct regardless of sample rate. Wall-clock fallback if no fps.
             ts = (orig_index / self._fps) if self._fps > 1e-3 else (time.perf_counter() - self._t0)
