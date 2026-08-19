@@ -52,6 +52,28 @@ So the fastest path is:
 - keep live inference local for the demo
 - do not block the POC on Jetson or Jetson-like deployment work
 
+## Download the desktop app
+
+Signed installers for macOS, Windows and Linux are published on the
+[Releases page](https://github.com/Ayo-Cyber/cv-threat-intelligence/releases).
+
+### Verify what you downloaded
+
+Every release body lists a SHA-256 for each asset, and a `SHA256SUMS.txt` is
+attached alongside them. Check the file you got is the file we built:
+
+```bash
+# macOS / Linux
+shasum -a 256 cvti-console-macos.dmg
+
+# Windows (PowerShell)
+Get-FileHash cvti-console-windows.zip -Algorithm SHA256
+```
+
+Compare the output against the release body. If it differs, do not run it —
+tell us. (Full notarised code signing is on the roadmap; until then this is how
+you confirm integrity.)
+
 ## Quick Start
 
 ### Windows

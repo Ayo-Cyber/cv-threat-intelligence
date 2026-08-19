@@ -131,9 +131,36 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      # Minimum expected of a security product's distribution: a downloader can
+      # tell whether the file they got is the file we built. Not a substitute for
+      # notarised signing — that lands with the installer rework.
+      - name: Compute SHA-256 for every asset
+        id: sums
+        run: |
+          cd artifacts
+          find . -type f ! -name 'SHA256SUMS.txt' -print0 \
+            | sort -z | xargs -0 sha256sum \
+            | sed 's|\./||' > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          {
+            echo 'body<<SUMS_EOF'
+            echo '## Verify your download'
+            echo
+            echo 'Run `shasum -a 256 <file>` (macOS/Linux) or'
+            echo '`Get-FileHash <file> -Algorithm SHA256` (Windows) and compare:'
+            echo
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+            echo SUMS_EOF
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish release with all installers
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
+          body: ${{ steps.sums.outputs.body }}
+          append_body: true
           generate_release_notes: true
           fail_on_unmatched_files: false
