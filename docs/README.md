@@ -35,6 +35,7 @@ followed.
 
 | Doc | What it's for |
 |---|---|
+| [../plan.md](../plan.md) | The backend V1 plan. Module docstrings cite its phase numbers (`plan.md Phase 8.3`), so it stays at the repo root. |
 | [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) | Running chronological log of decisions and why they were made. Append-only; earlier entries describe the state at the time, not now. |
 | [handoffs/](handoffs/) | Point-in-time session handoffs. Snapshots, not living documents — read the newest to get caught up. |
 | [archive/](archive/) | Superseded plans and one-off briefs. Kept so decisions can be traced; **do not follow them.** |

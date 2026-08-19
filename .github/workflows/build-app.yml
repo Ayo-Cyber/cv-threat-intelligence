@@ -26,6 +26,10 @@ jobs:
   test:
     name: Test suite
     runs-on: ubuntu-latest
+    # The suite itself runs in ~10s; the rest is wheels. If this job is still
+    # going after 20 minutes something is wedged, and failing fast beats holding
+    # every PR behind a hung runner.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -33,12 +37,6 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-
-      # opencv-python (not headless) links against libGL even for imencode.
-      - name: Install OpenCV runtime deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgl1 libglib2.0-0
 
       - name: Install deps
         run: |
@@ -48,6 +46,15 @@ jobs:
             torch==2.8.0 torchvision==0.23.0
           pip install -r requirements.txt
           pip install pytest
+          # requirements.txt pins opencv-python, which links against libGL and
+          # needs system packages a headless runner doesn't have. Swap it for the
+          # headless build, which ships the same cv2 minus the GUI bindings the
+          # tests never touch. Doing this with pip rather than apt-get: installing
+          # system libs on the runner hung indefinitely on the apt lock, and this
+          # job gates every PR.
+          pip uninstall -y opencv-python
+          pip install "opencv-python-headless==4.13.0.92"
+          python -c "import cv2, numpy as np; ok, _ = cv2.imencode('.jpg', np.zeros((4,4,3), np.uint8)); assert ok; print('cv2', cv2.__version__, 'headless OK')"
 
       # `python -m pytest`, not `pytest` — the module form puts the repo root on
       # sys.path, which is how `import cvti` resolves without an install step.

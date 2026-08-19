@@ -137,6 +137,12 @@ configs/           site configs: cameras, rules, zones per deployment
 docs/              see docs/README.md for the index
 ```
 
+## Contributing
+
+`main` is protected; everything lands through a branch and a PR, and CI must be
+green. See [CONTRIBUTING.md](CONTRIBUTING.md). Changes worth noticing are
+recorded in [CHANGELOG.md](CHANGELOG.md).
+
 ## Status
 
 Pre-pilot. The system runs, is measured on three threat classes, and has zero
