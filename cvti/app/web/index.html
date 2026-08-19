@@ -312,6 +312,10 @@
   .zmcanvaswrap{position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--c-border);margin:0 auto;background:#000}
   .zmcanvaswrap img{display:block}
   .zmcanvaswrap canvas{position:absolute;top:0;left:0;cursor:crosshair}
+  /* gate banner — the app is running unverified, and must never hide it */
+  .gatebanner{background:var(--sev-crit);color:#fff;font-weight:700;letter-spacing:.4px;
+    padding:9px 22px;font-size:13px;display:flex;gap:10px;align-items:center}
+  .gatebanner .sub{font-weight:500;opacity:.9;letter-spacing:0}
   /* system page */
   .syslabel{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--c-sub)}
   .sysnotifies{display:flex;flex-direction:column;gap:2px;margin-top:8px}
@@ -334,6 +338,7 @@
     </div>
   </nav>
   <main>
+    <div id="gateBanner" class="gatebanner" hidden></div>
     <header class="bar">
       <h1 id="title">Cameras</h1>
       <div class="stats">
@@ -735,13 +740,36 @@ function renderSystem(){
         +    '<b style="font-size:14px">TrueSight</b><span class="mut" style="font-size:11.5px">on-device vision AI</span>'
         +    '<span style="color:'+mc+';font-weight:600;font-size:13px">'+esc(mt)+'</span>'
         +    '<span style="flex:1"></span><button class="btn ghost sm" onclick="renderSystem()">Recheck</button></div>'
-        +  '<div class="mut" style="font-size:12px;margin-top:8px">Ollama '+(g.ollama?"reachable":"not reachable")+' · model '+(g.model_present?"present":"not pulled")+'</div></div>'
+        +  '<div class="mut" style="font-size:12px;margin-top:8px">Ollama '+(g.ollama?"reachable":"not reachable")+' · model '+(g.model_present?"present":"not pulled")+'</div>'
+        +  gateEngineRows(g.engine||{})+'</div>'
         +'<div class="panel" style="padding:16px 18px"><div class="syslabel">Edge</div>'
         +  '<div class="row" style="gap:22px;margin-top:9px;font-size:13px"><span class="mut">runs fully offline <b style="color:var(--c-live)">✓</b></span>'
         +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">Argus Edge <b class="mono">v0.9</b></span></div></div>'
         +'<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Re-run setup wizard</button></div></div>';
     });
   });
+}
+/* Live counters from the running engine. Absent when it isn't running — an
+   operator seeing "0 errors" for a dead engine would be worse than seeing nothing. */
+function gateEngineRows(e){
+  if(!e || !e.updated_at) return '<div class="mut" style="font-size:12px;margin-top:6px">Engine not running — no verification stats yet.</div>';
+  var err = e.errors||0;
+  var ec = err ? "var(--sev-high)" : "var(--c-live)";
+  var out = '<div class="row" style="gap:22px;margin-top:10px;font-size:13px">'
+    + '<span class="mut">verified <b>'+(e.verified||0)+'</b></span>'
+    + '<span class="mut">confirmed <b>'+(e.confirmed||0)+'</b></span>'
+    + '<span class="mut">rejected <b>'+(e.rejected||0)+'</b></span>'
+    + '<span class="mut">queued <b>'+(e.pending||0)+'</b></span>'
+    + '<span class="mut">errors <b style="color:'+ec+'">'+err+'</b></span></div>';
+  if(err && e.last_error){
+    out += '<div class="mut mono" style="font-size:11.5px;margin-top:7px;color:var(--sev-high);word-break:break-word">'
+      + 'last: '+esc(String(e.last_error))+'</div>';
+  }
+  if(e.mock){
+    out += '<div style="margin-top:8px;color:var(--sev-crit);font-weight:600;font-size:12.5px">'
+      + '⚠ '+esc(e.banner||"UNVERIFIED — MOCK GATE")+' — alerts are not being verified.</div>';
+  }
+  return out;
 }
 function saveSiteName(){ var n=$("sysName").value.trim(); if(!n)return;
   call("setSite",[n,""],function(){ if($("sysNameOk"))$("sysNameOk").textContent="saved ✓"; refreshCounts(); }); }
@@ -1363,10 +1391,32 @@ function initNetWatch(){
   window.addEventListener("offline", updateNetBadge);
 }
 /* ---------- boot ---------- */
-function startApp(){ renderNav(); refreshCounts(); refreshFeedToggle(); refreshMonitor(); startGlobalWatch(); initNetWatch(); render(); }
+function startApp(){ renderNav(); refreshCounts(); refreshFeedToggle(); refreshMonitor(); startGlobalWatch(); startGateWatch(); initNetWatch(); render(); }
 
 /* ---------- global alert watch: badge + sound + live-tile flags, any screen ---------- */
 function startGlobalWatch(){ if(state.globalTimer) return; state.globalTimer=setInterval(pollAlertsGlobal, 3000); pollAlertsGlobal(); }
+
+/* Gate health, polled app-wide. Two things must be impossible to miss no matter
+   which screen you're on: running on the mock gate (nothing is being verified),
+   and the gate erroring (alerts are being dropped, not verified). */
+function startGateWatch(){ if(state.gateTimer) return; state.gateTimer=setInterval(pollGateHealth, 5000); pollGateHealth(); }
+function pollGateHealth(){
+  call("gateStatus",[],function(g){
+    state.gate = (g && !g.error) ? g : {};
+    var eng = state.gate.engine || {};
+    var b=$("gateBanner"); if(!b) return;
+    if(eng.mock){
+      b.hidden=false;
+      b.innerHTML='⚠ '+esc(eng.banner||"UNVERIFIED — MOCK GATE")
+        +'<span class="sub">every alert is being confirmed without verification — '
+        +'this build is not detecting anything.</span>';
+    } else {
+      b.hidden=true;
+    }
+    var mg=$("monGate");
+    if(mg && eng.errors){ mg.textContent="TrueSight · "+eng.errors+" gate error"+(eng.errors===1?"":"s"); }
+  });
+}
 function pollAlertsGlobal(){
   call("listEventsLite",[80],function(evs){
     if(!Array.isArray(evs)) return;

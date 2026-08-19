@@ -243,6 +243,47 @@ def _build_question(rule_name: str, environment_type: str, detector: str = "",
 
 
 # ---------------------------------------------------------------------------
+# Mock-gate safety
+# ---------------------------------------------------------------------------
+# `_mock_response()` unconditionally returns confirmed=True. That is fine for
+# wiring tests and the eval harness, which construct a VerificationGate on
+# purpose — and catastrophic for a running engine, where it silently inverts the
+# product: every candidate the cheap detectors emit becomes a confirmed alert,
+# and nothing on screen says so.
+#
+# So: constructing a mock gate stays free, but *starting an engine* on one is
+# refused unless the operator asked for it by name.
+
+ALLOW_MOCK_GATE_ENV = "ARGUS_ALLOW_MOCK_GATE"
+MOCK_GATE_BANNER = "UNVERIFIED — MOCK GATE"
+
+
+class MockGateRefused(RuntimeError):
+    """Raised when an engine is asked to start with the always-confirms gate."""
+
+
+def mock_gate_allowed() -> bool:
+    return os.environ.get(ALLOW_MOCK_GATE_ENV, "").strip() == "1"
+
+
+def assert_engine_gate_allowed(provider: str) -> bool:
+    """Gate-keep engine startup. Returns True iff running on an explicitly
+    allowed mock gate (the caller should then show the red banner).
+
+    Raises MockGateRefused for an unannounced mock gate.
+    """
+    if provider != "mock":
+        return False
+    if not mock_gate_allowed():
+        raise MockGateRefused(
+            "Refusing to start: gate provider is 'mock', which confirms EVERY alert "
+            "without verifying anything. Use --gate-provider ollama (or anthropic / "
+            f"openrouter / local). To run unverified on purpose, set {ALLOW_MOCK_GATE_ENV}=1."
+        )
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Main class
 # ---------------------------------------------------------------------------
 

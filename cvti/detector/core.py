@@ -1852,6 +1852,9 @@ def main() -> None:
         else:
             print(f"[SceneContext] Warning: context file not found: {context_path}")
 
+    from cvti.verification.gate import MOCK_GATE_BANNER, assert_engine_gate_allowed
+    mock_gate = assert_engine_gate_allowed(args.gate_provider)
+
     verification_gate = VerificationGate(
         provider=args.gate_provider,
         model=args.gate_model,
@@ -1861,7 +1864,9 @@ def main() -> None:
     if args.gate_provider != "mock":
         print(f"[VerificationGate] Provider: {args.gate_provider} ({verification_gate.model}) — alerts confirmed by VLM before recording.")
     else:
-        print("[VerificationGate] Provider: mock (all alerts auto-confirmed). Use --gate-provider openrouter/anthropic for real verification.)")
+        print(f"[VerificationGate] *** {MOCK_GATE_BANNER} *** provider=mock: all alerts auto-confirmed, "
+              "nothing is verified. Use --gate-provider ollama/openrouter/anthropic for real verification.")
+        assert mock_gate  # only reachable via the explicit opt-in above
 
     print("Starting inference loop. Press 'q' to quit.")
     try:

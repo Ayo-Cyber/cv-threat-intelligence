@@ -286,7 +286,29 @@ class ConsoleBackend:
             return {"ok": False, "via": notify, "error": str(exc)[:200]}
 
     def gate_status(self, model: str = vlm.DEFAULT_MODEL) -> dict:
-        return vlm.gate_status(model)
+        """Ollama reachability + the running engine's own view of the gate.
+
+        Two different failures look identical from the operator's chair: Ollama
+        being down, and the gate erroring on every alert while Ollama is up. The
+        first comes from probing localhost, the second only the engine knows —
+        it publishes it to gate_health.json.
+        """
+        status = vlm.gate_status(model)
+        status["engine"] = self._gate_health()
+        return status
+
+    def _gate_health(self) -> dict:
+        """Gate stats published by the engine subprocess. Empty when it isn't running."""
+        path = Path(self.db_path).parent / "gate_health.json"
+        try:
+            health = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return {}
+        # Stale file from a previous run is worse than no file — it would show a
+        # green gate for an engine that exited an hour ago.
+        if time.time() - float(health.get("updated_at") or 0) > 30:
+            return {}
+        return health
 
     def pull_model(self, model: str = vlm.DEFAULT_MODEL) -> dict:
         return vlm.start_pull(model)

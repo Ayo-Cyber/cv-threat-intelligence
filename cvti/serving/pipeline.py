@@ -17,6 +17,7 @@ Run it directly to prove cross-camera batching:
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from collections import Counter
 from typing import Any, Callable
@@ -203,7 +204,13 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     from cvti.serving.alert_queue import AlertQueue
     from cvti.serving.camera import build_camera_states, load_site_config
     from cvti.serving.gate_pool import GatePool
-    from cvti.verification.gate import VerificationGate
+    from cvti.verification.gate import MOCK_GATE_BANNER, VerificationGate, assert_engine_gate_allowed
+
+    # Before anything expensive loads: a mock gate confirms every alert without
+    # looking at it. Refuse unless the operator asked for that by name.
+    mock_gate = assert_engine_gate_allowed(gate_provider)
+    if mock_gate:
+        print(f"[site] *** {MOCK_GATE_BANNER} *** every alert will be confirmed WITHOUT verification.")
 
     site = load_site_config(site_config_path)
     cams_cfg = site["cameras"]
@@ -336,6 +343,28 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     _esc_thread = _threading.Thread(target=_escalation_loop, name="escalations", daemon=True)
     _esc_thread.start()
 
+    # Gate health, published for the UI's System panel. The engine is a separate
+    # process from the app, so a file next to events.db is the channel — same
+    # trick the frame publisher uses.
+    _health_path = Path(output_dir) / "gate_health.json"
+
+    def _write_health() -> None:
+        st = gate_pool.stats()
+        st.update({"provider": gate_provider, "model": gate_model,
+                   "mock": mock_gate, "banner": MOCK_GATE_BANNER if mock_gate else "",
+                   "updated_at": time.time()})
+        try:
+            _health_path.write_text(json.dumps(st))
+        except OSError:
+            pass   # health reporting must never take the engine down
+
+    def _health_loop() -> None:
+        while not _esc_stop.wait(3.0):
+            _write_health()
+
+    _write_health()
+    _threading.Thread(target=_health_loop, name="gate-health", daemon=True).start()
+
     try:
         pipe.run(max_seconds=seconds)
     finally:
@@ -365,6 +394,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             print(f"[frames] published {publisher.published} frame(s)")
             publisher.stop()
         sink.close()
+    _write_health()
     print(f"[site] alerts_queued={pipe.alerts_queued} gate={gate_pool.stats()}")
     print(f"[site] persisted {sink.persisted} confirmed event(s) -> {output_dir}/events.db")
     if getattr(sink, "routing", None) and sink.routing.rules:
@@ -407,6 +437,15 @@ def main() -> None:
     p.add_argument("--output-dir", default="runs/serving",
                    help="Where confirmed events + evidence + events.db are written.")
     args = p.parse_args()
+
+    # Fail fast and readably — a traceback here reads as a crash, and this is a
+    # deliberate refusal the operator needs to act on.
+    from cvti.verification.gate import MockGateRefused, assert_engine_gate_allowed
+    try:
+        assert_engine_gate_allowed(args.gate_provider)
+    except MockGateRefused as exc:
+        print(f"[site] {exc}")
+        raise SystemExit(2)
 
     if args.site_config:
         run_site(args.site_config, weights=args.weights, target_fps=args.target_fps,

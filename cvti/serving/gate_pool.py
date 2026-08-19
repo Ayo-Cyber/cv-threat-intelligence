@@ -50,6 +50,10 @@ class GatePool:
         self.confirmed = 0
         self.rejected = 0
         self.errors = 0
+        # Last failure, kept for the System panel: a count alone doesn't tell an
+        # operator whether Ollama is down or the model is returning garbage.
+        self.last_error = ""
+        self.last_error_at = 0.0
 
     def start(self) -> "GatePool":
         for i in range(self.workers):
@@ -104,7 +108,9 @@ class GatePool:
                         self.rejected += 1
                 except Exception as exc:  # noqa: BLE001 - a gate error must not kill the worker
                     self.errors += 1
-                    print(f"[gate error] {alert.camera_id}::{alert.rule_name} — {str(exc)[:120]}")
+                    self.last_error = f"{alert.camera_id}::{alert.rule_name} — {str(exc)[:160]}"
+                    self.last_error_at = time.time()
+                    print(f"[gate error] {self.last_error}")
                     result = None
                 finally:
                     self._active -= 1
@@ -134,4 +140,5 @@ class GatePool:
     def stats(self) -> dict:
         return {"verified": self.verified, "confirmed": self.confirmed,
                 "rejected": self.rejected, "errors": self.errors,
+                "last_error": self.last_error, "last_error_at": self.last_error_at,
                 "deduped": self.queue.dropped_duplicates, "pending": self.queue.pending_count}

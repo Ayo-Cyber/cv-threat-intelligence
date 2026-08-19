@@ -59,7 +59,11 @@ class DetectionWorker(QThread):
             from cvti.retail.zones import RetailZoneMonitor, filter_person_detections, load_zone_config
             from cvti.rules.customization import CustomizationEngine
             from cvti.event_adapters import zone_states_to_events, concealment_to_events
-            from cvti.verification.gate import VerificationGate
+            from cvti.verification.gate import (
+                MOCK_GATE_BANNER, VerificationGate, assert_engine_gate_allowed)
+
+            # Same guard as the serving engine: a mock gate confirms everything.
+            self.mock_gate = assert_engine_gate_allowed(self.gate_provider)
 
             pose_model   = YOLO(self.pose_weights)
             object_model = YOLO(self.object_weights)
@@ -72,7 +76,10 @@ class DetectionWorker(QThread):
             self.status_update.emit(f"Load error: {exc}")
             return
 
-        self.status_update.emit("Running…")
+        if getattr(self, "mock_gate", False):
+            self.status_update.emit(f"⚠ {MOCK_GATE_BANNER} — alerts are NOT being verified.")
+        else:
+            self.status_update.emit("Running…")
         source = int(self.source) if self.source.isdigit() else self.source
 
         last_rule_sig: str | None = None
