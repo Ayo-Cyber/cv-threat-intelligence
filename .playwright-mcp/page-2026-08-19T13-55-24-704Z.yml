@@ -1,0 +1,29 @@
+- generic [ref=f2e1]:
+  - generic [ref=f2e2]:
+    - navigation [ref=f2e3]:
+      - generic [ref=f2e4]:
+        - generic [ref=f2e5]: Argus
+        - generic [ref=f2e6]: Site 01 · local
+      - generic [ref=f2e8]:
+        - generic [ref=f2e9]: Idle
+        - generic [ref=f2e12]: TrueSight · on-device
+        - generic "Argus runs entirely on this machine — it needs no internet, and nothing leaves your network" [ref=f2e13]: 🔒 Local-only
+        - generic [ref=f2e14]: Argus Edge v0.9
+    - main [ref=f2e15]:
+      - generic [ref=f2e16]:
+        - heading "Cameras" [level=1] [ref=f2e17]
+        - generic [ref=f2e18]:
+          - generic [ref=f2e19]: 0 cameras
+          - generic [ref=f2e20]: 0 to review
+          - button "▶ Start monitoring" [ref=f2e21] [cursor=pointer]
+          - button "◐ theme" [ref=f2e22] [cursor=pointer]
+      - generic [ref=f2e23]: Loading…
+  - generic [ref=f2e26]:
+    - generic [ref=f2e27]: Argus
+    - generic [ref=f2e28]: Sign in to this site
+    - generic [ref=f2e29]:
+      - generic [ref=f2e30]: Name
+      - textbox [active] [ref=f2e31]
+      - generic [ref=f2e32]: Password
+      - textbox [ref=f2e33]
+      - button "Sign in" [ref=f2e35] [cursor=pointer]

@@ -18,6 +18,13 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Sign-in and first-run screens** (UI_SPEC §2.2). First run creates the owner
+  account — nothing ships with a password, so there is nothing to change — then
+  hands off to the existing setup wizard as steps 2–5. Sign-in shows the
+  backend's refusal message verbatim (one message for wrong password and unknown
+  user, on purpose). After sign-in the app routes to the role's landing surface,
+  the nav footer shows who is signed in, and nav items the role cannot use are
+  not rendered — courtesy only; the backend re-checks every call.
 - **Identity, three roles, and an append-only audit trail** (`cvti/security/`).
   Local accounts with scrypt or PBKDF2 hashing, session timeout, lockout after
   five failures. No default account and no default password ship — the first
@@ -121,6 +128,10 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Fixed
 
+- **An empty red strip rendered at the top of every screen.** The mock-gate
+  banner's `display:flex` overrode the `hidden` attribute's `display:none`, so
+  the banner showed as a thin empty red bar whenever the gate was *not* mock.
+  Caught during login-screen verification.
 - **The fine-tuned VideoMAE model was silently broken.** The `print()` → logging
   conversion rewrote `print(..., file=sys.stderr)` as `emit(..., file=...)`, but
   `emit` takes `err=True`. Every inference raised `TypeError` inside a broad
