@@ -32,6 +32,9 @@ models/*.pt
 # Allow placeholder / README inside models/
 !models/.gitkeep
 !models/README.md
+# ...except the weapon checkpoint, which is tracked on purpose: it is small
+# enough to ship and a fresh clone has no other way to get it.
+!models/weapon_best.pt
 
 # ── IDE & OS ─────────────────────────────────────────────────────────────────
 .cursor/
@@ -49,17 +52,34 @@ external/Weapon-Detection-System/
 vendor/ollama/
 
 # ── Video / media files (large binaries, not for git) ────────────────────────
-data/test_clips/
 data/**/*.mp4
 data/**/*.mov
 data/**/*.avi
 data/**/*.mkv
 data/**/*.webm
-tests/agent_mapper/clips/
+tests/agent_mapper/clips/*
 tests/agent_mapper/results/eval_*.csv
+# Everything under test_clips, not just video — the eval sets, partial
+# downloads and rejected-clip notes that accumulate there are all local.
+data/test_clips/*
+
+# ...with these exceptions, which are tracked on purpose. The demo site configs
+# point at these nine clips, so a fresh clone without them has nothing to run.
+# Negations must come AFTER the patterns above — last match wins.
+!data/test_clips/empty_warehouse.mp4
+!data/test_clips/normal_street_01.mp4
+!data/test_clips/normal_street_02.mp4
+!data/test_clips/stabbing_event.mp4
+!data/test_clips/theft_shop_01.mp4
+!data/test_clips/theft_shop_02.mp4
+!data/test_clips/theft_yt_01.mp4
+!data/test_clips/violence_suspected.mp4
+!data/test_clips/weapons_yt_01.mp4
+!tests/agent_mapper/clips/.gitkeep
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.log
+# eval output dir — cvti/training/eval.py writes annotated clips + JSON here
 reports/
 yolov8s-cls.pt
 
