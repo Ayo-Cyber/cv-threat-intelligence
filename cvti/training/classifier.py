@@ -14,6 +14,9 @@ from pathlib import Path
 
 import cv2
 from ultralytics import YOLO
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -41,7 +44,7 @@ BATCH_SIZE        = 16
 # ---------------------------------------------------------------------------
 
 def extract_frames(force: bool = False) -> None:
-    print("\n=== Step 1: Extracting frames ===")
+    log.info("\n=== Step 1: Extracting frames ===")
     total_written = 0
 
     # Source 1 — CamNuvem dataset (structured splits)
@@ -55,7 +58,7 @@ def extract_frames(force: bool = False) -> None:
             dst_dir.mkdir(parents=True, exist_ok=True)
 
             clips = list(src_dir.glob("*.mp4"))
-            print(f"  CamNuvem {split}/{cls}: {len(clips)} clips → {dst_dir}")
+            log.info(f"  CamNuvem {split}/{cls}: {len(clips)} clips → {dst_dir}")
             total_written += _extract_clips(clips, dst_dir, force)
 
     # Source 2 — YouTube downloads sitting directly in train/*/  as MP4s
@@ -66,14 +69,14 @@ def extract_frames(force: bool = False) -> None:
         mp4s = list(src_dir.glob("*.mp4"))
         if not mp4s:
             continue
-        print(f"  YouTube {cls}: {len(mp4s)} clips → {src_dir}")
+        log.info(f"  YouTube {cls}: {len(mp4s)} clips → {src_dir}")
         total_written += _extract_clips(mp4s, src_dir, force)
 
-    print(f"\n  Total frames written: {total_written}")
+    log.info(f"\n  Total frames written: {total_written}")
     for split in ("train", "val"):
         for cls in CLASSES:
             n = len(list((FRAMES_ROOT / split / cls).glob("*.jpg")))
-            print(f"  {split}/{cls}: {n} frames")
+            log.info(f"  {split}/{cls}: {n} frames")
 
 
 def _extract_clips(clips: list, dst_dir: Path, force: bool) -> int:
@@ -106,11 +109,11 @@ def _extract_clips(clips: list, dst_dir: Path, force: bool) -> int:
 # ---------------------------------------------------------------------------
 
 def train() -> Path:
-    print("\n=== Step 2: Training YOLOv8s-cls ===")
-    print(f"  Dataset : {FRAMES_ROOT}")
-    print(f"  Epochs  : {TRAIN_EPOCHS}")
-    print(f"  Img size: {IMAGE_SIZE}")
-    print(f"  Batch   : {BATCH_SIZE}")
+    log.info("\n=== Step 2: Training YOLOv8s-cls ===")
+    log.info(f"  Dataset : {FRAMES_ROOT}")
+    log.info(f"  Epochs  : {TRAIN_EPOCHS}")
+    log.info(f"  Img size: {IMAGE_SIZE}")
+    log.info(f"  Batch   : {BATCH_SIZE}")
 
     model = YOLO("yolov8s-cls.pt")
     results = model.train(
@@ -125,7 +128,7 @@ def train() -> Path:
         verbose=False,
     )
     best_weights = Path(results.save_dir) / "weights" / "best.pt"
-    print(f"\n  Best weights saved to: {best_weights}")
+    log.info(f"\n  Best weights saved to: {best_weights}")
     return best_weights
 
 
@@ -134,7 +137,7 @@ def train() -> Path:
 # ---------------------------------------------------------------------------
 
 def evaluate(weights: Path) -> dict:
-    print("\n=== Step 3: Evaluation metrics ===")
+    log.info("\n=== Step 3: Evaluation metrics ===")
     model = YOLO(str(weights))
 
     # Collect predictions on val set
@@ -144,7 +147,7 @@ def evaluate(weights: Path) -> dict:
     for cls_name in CLASSES:
         val_dir = FRAMES_ROOT / "val" / cls_name
         frames = list(val_dir.glob("*.jpg"))
-        print(f"  Evaluating {cls_name}: {len(frames)} frames")
+        log.info(f"  Evaluating {cls_name}: {len(frames)} frames")
 
         for frame_path in frames:
             result = model.predict(str(frame_path), verbose=False)[0]
@@ -191,7 +194,7 @@ def evaluate(weights: Path) -> dict:
     }
 
     # Print summary
-    print(f"""
+    log.info(f"""
   ┌─────────────────────────────────┐
   │   Confusion Matrix              │
   │   TP={tp:4d}   FN={fn:4d}             │
@@ -209,7 +212,7 @@ def evaluate(weights: Path) -> dict:
     report_path = RUNS_ROOT / MODEL_NAME / "metrics.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(metrics, indent=2))
-    print(f"  Metrics saved to: {report_path}")
+    log.info(f"  Metrics saved to: {report_path}")
 
     return metrics
 
@@ -228,13 +231,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    # Entrypoint: without this, log records have no handler and
+    # anything below WARNING is silently discarded.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-train")
     args = parse_args()
 
     if args.eval_only:
         weights = Path(args.weights) if args.weights else Path(RUNS_ROOT / MODEL_NAME / "weights" / "best.pt")
         if not weights.exists():
-            print(f"Weights not found: {weights}")
-            print("Run without --eval-only first to train the model.")
+            log.warning(f"Weights not found: {weights}")
+            log.info("Run without --eval-only first to train the model.")
             return
         evaluate(weights)
         return
@@ -245,9 +252,9 @@ def main() -> None:
     weights = train()
     evaluate(weights)
 
-    print("\n=== Done ===")
-    print(f"Best model : {weights}")
-    print(f"Use in detector with: --classifier-weights {weights}")
+    log.info("\n=== Done ===")
+    log.info(f"Best model : {weights}")
+    log.info(f"Use in detector with: --classifier-weights {weights}")
 
 
 if __name__ == "__main__":

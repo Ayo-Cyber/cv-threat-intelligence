@@ -262,6 +262,21 @@ class MockGateRefused(RuntimeError):
     """Raised when an engine is asked to start with the always-confirms gate."""
 
 
+class UnsupportedProvider(RuntimeError):
+    """A provider name nothing knows how to call. A config bug, never transient."""
+
+
+# What an operator sees when the gate could not reach a verdict. Deliberately
+# not phrased as a detection: it says the system does not know.
+UNVERIFIED_REASON = "UNVERIFIED — TrueSight could not decide. Review this manually."
+
+# Fail-visible: when verification is impossible, put the alert in front of a
+# human rather than discarding it. The alternative — fail-silent — means a real
+# fire disappears because Ollama was restarting, and nothing anywhere says so.
+# For a safety system the safe default is to interrupt someone.
+FAIL_VISIBLE_DEFAULT = True
+
+
 def mock_gate_allowed() -> bool:
     return os.environ.get(ALLOW_MOCK_GATE_ENV, "").strip() == "1"
 
@@ -310,9 +325,13 @@ class VerificationGate:
         cot: bool = True,
         min_confidence: float = 0.35,
         sensitivity: str = "balanced",
+        fail_visible: bool | None = None,
     ) -> None:
         self.provider = provider
         self.cot = cot
+        # Configurable, because a low-stakes deployment drowning in unverified
+        # alerts may reasonably choose otherwise. Default is fail-visible.
+        self.fail_visible = FAIL_VISIBLE_DEFAULT if fail_visible is None else bool(fail_visible)
         # 'sensitive' | 'balanced' | 'strict' — swaps the threat questions for a
         # measured recall/precision trade-off (see SENSITIVITY_MEASURED).
         self.sensitivity = sensitivity if sensitivity in SENSITIVITY_QUESTIONS else "balanced"
@@ -363,6 +382,50 @@ class VerificationGate:
         frames = frame if isinstance(frame, list) else [frame]
         frames_bytes = [_encode_frame(f) for f in frames]
 
+        try:
+            raw_response = self._call_provider(prompt, frames_bytes, alert)
+        except UnsupportedProvider:
+            raise                       # a config bug, not a transport blip
+        except Exception as exc:  # noqa: BLE001 - transport failure is not a verdict
+            # Ollama down, model not pulled, request timed out. Previously this
+            # propagated to the gate pool, which counted an error and dropped the
+            # alert — a real fire, silently discarded, with nothing on screen.
+            result = VerificationResult(
+                confirmed=self.fail_visible, confidence=0.0,
+                reason=UNVERIFIED_REASON,
+                alert_priority=alert.priority,
+                timestamp=datetime.now(timezone.utc).replace(microsecond=0)
+                .isoformat().replace("+00:00", "Z"),
+                raw_response="",
+                error=f"transport: {type(exc).__name__}: {str(exc)[:160]}")
+            if self.save_dir:
+                _save_artifacts(self.save_dir, self._call_count, frames, alert, result, "")
+            return result
+
+        result = _parse_response(raw_response, alert.priority)
+        if result.errored and self.fail_visible:
+            # A parse failure is not a verdict either. Surface it, flagged.
+            result = VerificationResult(
+                confirmed=True, confidence=0.0, reason=UNVERIFIED_REASON,
+                alert_priority=result.alert_priority, timestamp=result.timestamp,
+                raw_response=result.raw_response, error=result.error)
+
+        # Hardening: a confirmed verdict the VLM isn't confident about is not good
+        # enough. An unverified alert is exempt — it has no confidence to fall
+        # below, and downgrading it would re-hide exactly what we just surfaced.
+        if result.confirmed and not result.errored and result.confidence < self.min_confidence:
+            result = VerificationResult(
+                confirmed=False, confidence=result.confidence,
+                reason=f"Below confidence floor ({result.confidence:.2f} < {self.min_confidence:.2f}): {result.reason}",
+                alert_priority=result.alert_priority, timestamp=result.timestamp,
+                raw_response=result.raw_response)
+
+        if self.save_dir:
+            _save_artifacts(self.save_dir, self._call_count, frames, alert, result, raw_response)
+
+        return result
+
+    def _call_provider(self, prompt: str, frames_bytes: list[bytes], alert: Any) -> str:
         if self.provider == "mock":
             raw_response = _mock_response(alert)
         elif self.provider == "anthropic":
@@ -381,22 +444,9 @@ class VerificationGate:
         elif self.provider == "ollama":
             raw_response = _call_ollama(prompt, frames_bytes, self.model, self.api_key_env)
         else:
-            raise RuntimeError(f"Unsupported provider: {self.provider}")
+            raise UnsupportedProvider(f"Unsupported provider: {self.provider}")
 
-        result = _parse_response(raw_response, alert.priority)
-
-        # Hardening: a confirmed verdict the VLM isn't confident about is not good enough.
-        if result.confirmed and result.confidence < self.min_confidence:
-            result = VerificationResult(
-                confirmed=False, confidence=result.confidence,
-                reason=f"Below confidence floor ({result.confidence:.2f} < {self.min_confidence:.2f}): {result.reason}",
-                alert_priority=result.alert_priority, timestamp=result.timestamp,
-                raw_response=result.raw_response)
-
-        if self.save_dir:
-            _save_artifacts(self.save_dir, self._call_count, frames, alert, result, raw_response)
-
-        return result
+        return raw_response
 
 
 # ---------------------------------------------------------------------------
@@ -592,13 +642,17 @@ def _parse_response(raw: str, fallback_priority: str) -> VerificationResult:
             raw_response=raw,
         )
     except Exception as exc:
+        # NOT a rejection. The model did not render a verdict — we could not read
+        # one. `error` is what tells the live path to surface this to a human
+        # instead of dropping it; see FAIL_VISIBLE.
         return VerificationResult(
             confirmed=False,
             confidence=0.0,
-            reason=f"Gate parse error: {exc}",
+            reason=f"TrueSight could not decide: {exc}",
             alert_priority=fallback_priority,
             timestamp=timestamp,
             raw_response=raw,
+            error=f"parse: {str(exc)[:160]}",
         )
 
 

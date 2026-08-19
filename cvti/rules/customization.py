@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from cvti.contracts import CandidateAlert, RawEvent
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 PRIORITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "none": 0}
 
@@ -32,20 +35,20 @@ class CustomizationEngine:
     def load(self, config_path: str | Path) -> None:
         path = Path(config_path)
         if not path.exists():
-            print(f"[CustomizationEngine] Config not found: {path}")
+            log.warning(f"[CustomizationEngine] Config not found: {path}")
             return
         data = json.loads(path.read_text())
         self.use_case_id = data.get("use_case_id", "default")
         self.rules = data.get("rules", [])
-        print(f"[CustomizationEngine] Loaded {len(self.rules)} rules for use-case '{self.use_case_id}'")
+        log.info(f"[CustomizationEngine] Loaded {len(self.rules)} rules for use-case '{self.use_case_id}'")
 
     def load_baseline(self, baseline_path: str | Path) -> None:
         path = Path(baseline_path)
         if not path.exists():
-            print(f"[CustomizationEngine] Baseline config not found: {path}")
+            log.warning(f"[CustomizationEngine] Baseline config not found: {path}")
             return
         self.baseline_rules = json.loads(path.read_text()).get("rules", [])
-        print(f"[CustomizationEngine] Loaded {len(self.baseline_rules)} always-on baseline rule(s)")
+        log.info(f"[CustomizationEngine] Loaded {len(self.baseline_rules)} always-on baseline rule(s)")
 
     def has_rules(self) -> bool:
         return bool(self.rules or self.baseline_rules)

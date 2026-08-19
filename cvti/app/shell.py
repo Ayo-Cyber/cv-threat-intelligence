@@ -19,6 +19,9 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def _web_index() -> Path:
@@ -51,6 +54,9 @@ def main() -> None:
     p.add_argument("--db", default="runs/site/events.db")
     args = p.parse_args()
 
+    from cvti.logging_setup import setup_logging
+    setup_logging(Path(args.db).parent, component="argus-app")
+
     try:
         from PyQt6.QtCore import Qt, QUrl
         from PyQt6.QtWebChannel import QWebChannel
@@ -58,7 +64,7 @@ def main() -> None:
         from PyQt6.QtWebEngineWidgets import QWebEngineView
         from PyQt6.QtWidgets import QApplication, QMainWindow
     except ImportError as exc:
-        print(f"Argus Console needs PyQt6 + WebEngine ({exc}):\n"
+        log.info(f"Argus Console needs PyQt6 + WebEngine ({exc}):\n"
               "  pip install PyQt6 PyQt6-WebEngine")
         sys.exit(1)
 
@@ -103,18 +109,18 @@ def main() -> None:
         script.setRunsOnSubFrames(False)
         page.scripts().insert(script)
     else:
-        print("[warn] could not read qtwebchannel.js from Qt resources; UI bridge may not connect")
+        log.error("[warn] could not read qtwebchannel.js from Qt resources; UI bridge may not connect")
 
     def _loaded(ok: bool) -> None:
-        print(f"[cvti-console] page loaded ok={ok}")
+        log.info(f"[cvti-console] page loaded ok={ok}")
         if not ok:
-            print("[cvti-console] load FAILED — check the index.html path above")
+            log.error("[cvti-console] load FAILED — check the index.html path above")
     page.loadFinished.connect(_loaded)
 
     index = _web_index()
-    print(f"[cvti-console] loading {index}")
+    log.info(f"[cvti-console] loading {index}")
     if not index.exists():
-        print(f"[cvti-console] ERROR: {index} not found")
+        log.error(f"[cvti-console] ERROR: {index} not found")
         sys.exit(1)
     view.load(QUrl.fromLocalFile(str(index)))
 
@@ -122,7 +128,7 @@ def main() -> None:
     win.show()
     win.raise_()
     win.activateWindow()
-    print("[cvti-console] window shown — if you don't see it, check other desktops/Spaces")
+    log.info("[cvti-console] window shown — if you don't see it, check other desktops/Spaces")
     sys.exit(app.exec())
 
 

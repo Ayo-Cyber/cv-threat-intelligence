@@ -18,6 +18,20 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Logging, with rotation and per-module attribution** (`cvti.logging_setup`).
+  `get_logger(__name__)` everywhere; a rotating file handler (10 MB × 5) writing
+  to `<output_dir>/logs/`, level from `ARGUS_LOG_LEVEL`. The engine and the app
+  write separate files — they share an output directory, and two processes
+  rotating one handle loses records on POSIX and fails outright on Windows. In
+  a packaged build logs go to the per-user application-support directory, since
+  the working directory may not be writable and there is no terminal to fall
+  back on.
+- **Download diagnostics** (System panel). Zips logs and a health snapshot —
+  versions, disk, gate status, event *counts* — for support. It contains no
+  camera images, no video, and no event rows: this is a surveillance product,
+  and "send us your logs" must not quietly mean "send us your footage". The
+  bundle's manifest states what is excluded so the sender can verify it rather
+  than trust it.
 - **Value screen.** The suppression counter reframed from an engineering metric
   into what a buyer decides on: incidents detected, false alarms prevented,
   duplicate alerts collapsed, attention-hours saved. Site-configurable rates
@@ -64,6 +78,16 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Fixed
 
+- **A gate that cannot decide no longer reports "safe".** `_parse_response`
+  returned `confirmed=False` on any exception — the same value it returns when
+  TrueSight examines a frame and rejects it. A fire during an Ollama restart was
+  indistinguishable from a fire the model looked at and dismissed, and it was
+  dropped with nothing on screen. `VerificationResult.error` now separates *no
+  verdict* from *a verdict of no*, and the live path defaults to fail-visible:
+  the alert reaches the operator marked **UNVERIFIED — TrueSight could not
+  decide**, is stored flagged, and is excluded from the incident count so the
+  product is not credited for work it did not do. Configurable, because a
+  low-stakes site drowning in unverified alerts may reasonably choose otherwise.
 - **The mock gate can no longer run unannounced.** `_mock_response()` returns
   `confirmed=True` unconditionally; any config path selecting it would have
   passed every candidate and inverted the product with nothing on screen saying

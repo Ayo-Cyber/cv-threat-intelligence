@@ -21,6 +21,9 @@ from cvti.video_action_model import (
     X3DActionModel,
     sample_evenly_with_indices,
 )
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -74,10 +77,8 @@ class VideoActionRuntime:
         if self.verbose:
             top = predictions[0] if predictions else None
             if top is not None:
-                print(
-                    f"[VideoAction] {self.backend}:{self.model_name} {window.start_index}..{window.end_index} "
-                    f"top={top.label} ({top.confidence:.3f})"
-                )
+                log.info(f"[VideoAction] {self.backend}:{self.model_name} {window.start_index}..{window.end_index} "
+                    f"top={top.label} ({top.confidence:.3f})")
 
         return predictions_to_events(
             predictions,

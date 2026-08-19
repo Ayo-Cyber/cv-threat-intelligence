@@ -16,6 +16,9 @@ import sqlite3
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 _DB_PATH = "runs/serving/events.db"
 
@@ -143,8 +146,11 @@ def main() -> None:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8080)
     args = p.parse_args()
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-inbox")
+
     _DB_PATH = args.db
-    print(f"[inbox] serving {args.db} at http://{args.host}:{args.port}  (Ctrl-C to stop)")
+    log.info(f"[inbox] serving {args.db} at http://{args.host}:{args.port}  (Ctrl-C to stop)")
     HTTPServer((args.host, args.port), _Handler).serve_forever()
 
 

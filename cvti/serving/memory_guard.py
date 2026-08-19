@@ -21,6 +21,9 @@ import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 OK, WARN, CRITICAL = "ok", "warn", "critical"
 
@@ -95,10 +98,10 @@ class MemoryGuard:
         level = s.level(self.warn_available_gb, self.critical_available_gb)
         if level != self.level:
             if level != OK:
-                print(f"[memory] {level.upper()}: {s.available_gb:.1f}G available "
+                log.info(f"[memory] {level.upper()}: {s.available_gb:.1f}G available "
                       f"(engine using {s.rss_gb:.1f}G, swap {s.swap_gb:.1f}G)")
             else:
-                print(f"[memory] recovered: {s.available_gb:.1f}G available")
+                log.info(f"[memory] recovered: {s.available_gb:.1f}G available")
             self.level = level
         if level == CRITICAL:
             self._apply(self.critical_actions, "critical")
@@ -125,11 +128,11 @@ class MemoryGuard:
         try:
             what = action()
         except Exception as exc:  # noqa: BLE001 - a failed mitigation must not crash the engine
-            print(f"[memory] mitigation failed: {str(exc)[:110]}")
+            log.error(f"[memory] mitigation failed: {str(exc)[:110]}")
             return
         if what:
             self.mitigations.append(what)
-            print(f"[memory] mitigation ({tier}): {what}")
+            log.info(f"[memory] mitigation ({tier}): {what}")
 
     # --- background loop --------------------------------------------------
     def _loop(self) -> None:
@@ -137,12 +140,12 @@ class MemoryGuard:
             try:
                 self.check()
             except Exception as exc:  # noqa: BLE001
-                print(f"[memory] check failed: {str(exc)[:110]}")
+                log.error(f"[memory] check failed: {str(exc)[:110]}")
 
     def start(self) -> "MemoryGuard":
         s = sample_memory()
         self.last = s
-        print(f"[memory] guard on — {s.available_gb:.1f}G available, engine {s.rss_gb:.1f}G "
+        log.warning(f"[memory] guard on — {s.available_gb:.1f}G available, engine {s.rss_gb:.1f}G "
               f"(warn <{self.warn_available_gb}G, critical <{self.critical_available_gb}G)")
         self._thread = threading.Thread(target=self._loop, name="memory-guard", daemon=True)
         self._thread.start()

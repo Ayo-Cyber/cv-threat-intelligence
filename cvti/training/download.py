@@ -18,6 +18,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Output dirs (matches train_classifier.py structure)
@@ -98,8 +101,8 @@ def run_yt_dlp(query: str, output_dir: Path, limit: int, dry_run: bool) -> int:
     if dry_run:
         cmd += ["--simulate", "--print", "%(title)s (%(duration)ss)"]
 
-    print(f"\n  Query: \"{query}\"")
-    print(f"  → {output_dir}")
+    log.info(f"\n  Query: \"{query}\"")
+    log.info(f"  → {output_dir}")
 
     result = subprocess.run(cmd, capture_output=False)
     return result.returncode
@@ -139,60 +142,64 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    # Entrypoint: without this, log records have no handler and
+    # anything below WARNING is silently discarded.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-download")
     args = parse_args()
 
-    print("=== CV Threat Intelligence — Training Data Downloader ===")
-    print(f"Mode     : {'DRY RUN' if args.dry_run else 'DOWNLOAD'}")
-    print(f"Limit    : {args.limit} clips per query")
-    print(f"Class    : {args.cls}")
-    print(f"Theft    → {TRAIN_THEFT}")
-    print(f"Violence → {TRAIN_VIOLENCE}")
-    print(f"Normal   → {TRAIN_NORMAL}")
+    log.info("=== CV Threat Intelligence — Training Data Downloader ===")
+    log.info(f"Mode     : {'DRY RUN' if args.dry_run else 'DOWNLOAD'}")
+    log.info(f"Limit    : {args.limit} clips per query")
+    log.info(f"Class    : {args.cls}")
+    log.info(f"Theft    → {TRAIN_THEFT}")
+    log.info(f"Violence → {TRAIN_VIOLENCE}")
+    log.info(f"Normal   → {TRAIN_NORMAL}")
 
     # Check yt-dlp is available
     check = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True)
     if check.returncode != 0:
-        print("\nError: yt-dlp not found. Install with: pip install yt-dlp")
+        log.warning("\nError: yt-dlp not found. Install with: pip install yt-dlp")
         sys.exit(1)
-    print(f"yt-dlp   : {check.stdout.strip()}")
+    log.info(f"yt-dlp   : {check.stdout.strip()}")
 
     # Download theft clips
     if args.cls in ("theft", "all"):
-        print(f"\n--- Downloading THEFT clips ({len(THEFT_QUERIES)} queries × {args.limit} each) ---")
-        print(f"Existing: {count_existing(TRAIN_THEFT)} clips")
+        log.info(f"\n--- Downloading THEFT clips ({len(THEFT_QUERIES)} queries × {args.limit} each) ---")
+        log.info(f"Existing: {count_existing(TRAIN_THEFT)} clips")
         for query in THEFT_QUERIES:
             run_yt_dlp(query, TRAIN_THEFT, args.limit, args.dry_run)
             if not args.dry_run:
                 time.sleep(2)
-        print(f"\nTheft total: {count_existing(TRAIN_THEFT)} clips")
+        log.info(f"\nTheft total: {count_existing(TRAIN_THEFT)} clips")
 
     # Download violence clips
     if args.cls in ("violence", "all"):
-        print(f"\n--- Downloading VIOLENCE clips ({len(VIOLENCE_QUERIES)} queries × {args.limit} each) ---")
-        print(f"Existing: {count_existing(TRAIN_VIOLENCE)} clips")
+        log.info(f"\n--- Downloading VIOLENCE clips ({len(VIOLENCE_QUERIES)} queries × {args.limit} each) ---")
+        log.info(f"Existing: {count_existing(TRAIN_VIOLENCE)} clips")
         for query in VIOLENCE_QUERIES:
             run_yt_dlp(query, TRAIN_VIOLENCE, args.limit, args.dry_run)
             if not args.dry_run:
                 time.sleep(2)
-        print(f"\nViolence total: {count_existing(TRAIN_VIOLENCE)} clips")
+        log.info(f"\nViolence total: {count_existing(TRAIN_VIOLENCE)} clips")
 
     # Download normal clips
     if args.cls in ("normal", "all"):
-        print(f"\n--- Downloading NORMAL clips ({len(NORMAL_QUERIES)} queries × {args.limit} each) ---")
-        print(f"Existing: {count_existing(TRAIN_NORMAL)} clips")
+        log.info(f"\n--- Downloading NORMAL clips ({len(NORMAL_QUERIES)} queries × {args.limit} each) ---")
+        log.info(f"Existing: {count_existing(TRAIN_NORMAL)} clips")
         for query in NORMAL_QUERIES:
             run_yt_dlp(query, TRAIN_NORMAL, args.limit, args.dry_run)
             if not args.dry_run:
                 time.sleep(2)
-        print(f"\nNormal total: {count_existing(TRAIN_NORMAL)} clips")
+        log.info(f"\nNormal total: {count_existing(TRAIN_NORMAL)} clips")
 
-    print("\n=== Download complete ===")
-    print(f"Theft clips    : {count_existing(TRAIN_THEFT)}")
-    print(f"Violence clips : {count_existing(TRAIN_VIOLENCE)}")
-    print(f"Normal clips   : {count_existing(TRAIN_NORMAL)}")
+    log.info("\n=== Download complete ===")
+    log.info(f"Theft clips    : {count_existing(TRAIN_THEFT)}")
+    log.info(f"Violence clips : {count_existing(TRAIN_VIOLENCE)}")
+    log.info(f"Normal clips   : {count_existing(TRAIN_NORMAL)}")
     if not args.dry_run:
-        print("\nNext step — extract frames and train:")
-        print("  python3 train_classifier.py")
+        log.info("\nNext step — extract frames and train:")
+        log.info("  python3 train_classifier.py")
 
 
 if __name__ == "__main__":

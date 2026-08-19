@@ -23,6 +23,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 # Boxes are drawn in the engine (it owns the tracks), so the UI stays a dumb viewer.
 _BOX_COLOUR = (0, 200, 255)      # BGR amber for a normal tracked person
@@ -132,7 +135,7 @@ class FramePublisher:
             p = Path(output_dir) / "frames.json"
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps({"port": self.port}))
-        print(f"[frames] publishing on http://127.0.0.1:{self.port} "
+        log.info(f"[frames] publishing on http://127.0.0.1:{self.port} "
               f"(boxes={'on' if self.draw_boxes else 'off'})")
         return self
 

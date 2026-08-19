@@ -23,6 +23,9 @@ import time
 from pathlib import Path
 
 from cvti.training.video_dataset import DEFAULT_CLASS_MAP, DEFAULT_DATA_ROOT, RobberyClipDataset
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def _auto_device() -> str:
@@ -204,6 +207,10 @@ def _evaluate(backend, torch, ds: RobberyClipDataset, batch: int, pos_label: int
 
 
 def main() -> None:
+    # Entrypoint: without this, log records have no handler and
+    # anything below WARNING is silently discarded.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-finetune")
     p = argparse.ArgumentParser(description="Fine-tune VideoMAE/X3D on CamNuvem (Phase 6).")
     p.add_argument("--backend", choices=("videomae", "x3d"), default="videomae")
     p.add_argument("--base-model", default="", help="Blank = backend default.")
@@ -248,7 +255,7 @@ def main() -> None:
             tr_items, te_items = _cap_per_class(tr_items, limit), _cap_per_class(te_items, limit)
         train_ds = RobberyClipDataset(items=tr_items, frames=args.frames, class_map=class_map)
         test_ds = RobberyClipDataset(items=te_items, frames=args.frames, class_map=class_map)
-        print(f"[finetune] stratified split (val_fraction={args.val_fraction}, seed={args.seed})")
+        log.info(f"[finetune] stratified split (val_fraction={args.val_fraction}, seed={args.seed})")
     else:
         train_ds = RobberyClipDataset(args.data_root, "training", frames=args.frames,
                                       class_map=class_map, per_class_limit=limit)
@@ -256,17 +263,17 @@ def main() -> None:
                                      class_map=class_map, per_class_limit=limit)
     if len(train_ds) == 0:
         raise SystemExit(f"No training clips under {args.data_root}. Check the dataset path.")
-    print(f"[finetune] backend={args.backend} device={device} "
+    log.info(f"[finetune] backend={args.backend} device={device} "
           f"train={len(train_ds)} test={len(test_ds)} frames={args.frames}")
 
     base_model = args.base_model or _backend_default(args.backend)
     backend = _make_backend(args.backend, base_model, len(class_map), device, id2label)
     if args.unfreeze_last_block:
         backend.unfreeze_last_block()
-        print("[finetune] partial fine-tune — top block + classifier head")
+        log.info("[finetune] partial fine-tune — top block + classifier head")
     elif args.freeze_backbone:
         backend.freeze_backbone()
-        print("[finetune] backbone frozen — training classifier head only")
+        log.info("[finetune] backbone frozen — training classifier head only")
     trainable = [p for p in backend.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(trainable, lr=args.lr)
     # Class-weighted loss (inverse frequency) so a theft-heavy train set doesn't
@@ -280,7 +287,7 @@ def main() -> None:
         w = torch.tensor([n / (len(class_map) * max(1, counts.get(i, 0)))
                           for i in range(len(class_map))], dtype=torch.float, device=device)
         loss_fn = torch.nn.CrossEntropyLoss(weight=w)
-        print(f"[finetune] class counts={dict(counts)} weights={[round(x,2) for x in w.tolist()]}")
+        log.info(f"[finetune] class counts={dict(counts)} weights={[round(x,2) for x in w.tolist()]}")
 
     out_dir = Path(args.out) / args.backend
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -307,13 +314,13 @@ def main() -> None:
         row = {"epoch": epoch, "train_loss": round(running / max(1, steps), 4),
                "secs": round(time.time() - t0, 1), **metrics}
         history.append(row)
-        print(f"[epoch {epoch}] loss={row['train_loss']} "
+        log.info(f"[epoch {epoch}] loss={row['train_loss']} "
               + " ".join(f"{k}={metrics[k]}" for k in ("balanced_acc", "accuracy", "recall_theft", "fpr_normal") if k in metrics))
         if metrics.get("balanced_acc", -1) > best_score:
             best_score = metrics.get("balanced_acc", -1)
             epochs_since_best = 0
             backend.save(out_dir)
-            print(f"[epoch {epoch}] saved best (balanced_acc={best_score})")
+            log.info(f"[epoch {epoch}] saved best (balanced_acc={best_score})")
         else:
             epochs_since_best += 1
         # Persist metrics EVERY epoch so a long/unattended run stays observable
@@ -323,10 +330,10 @@ def main() -> None:
              "class_map": class_map, "epochs_planned": args.epochs,
              "best_balanced_acc": best_score, "history": history}, indent=2))
         if args.patience and epochs_since_best >= args.patience:
-            print(f"[finetune] early stop: no val improvement in {args.patience} epochs")
+            log.info(f"[finetune] early stop: no val improvement in {args.patience} epochs")
             break
 
-    print(f"[finetune] done. checkpoint + metrics in {out_dir}")
+    log.info(f"[finetune] done. checkpoint + metrics in {out_dir}")
 
 
 def _backend_default(name: str) -> str:

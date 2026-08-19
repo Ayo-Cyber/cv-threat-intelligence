@@ -60,6 +60,10 @@ from cvti.detector.core import (
     predict_with_model,
     validate_weapon_detections,
 )
+from cvti.console import emit
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -273,11 +277,11 @@ def generate_template(clips_dir: str) -> None:
         p.name for p in clips_path.iterdir()
         if p.suffix.lower() in video_extensions
     )
-    print("clip,threat_class,has_threat")
+    log.info("clip,threat_class,has_threat")
     for clip in clips:
-        print(f"{clip},violence,")  # user fills in threat_class and has_threat
+        log.info(f"{clip},violence,")  # user fills in threat_class and has_threat
     if not clips:
-        print("# No video files found in", clips_dir, file=sys.stderr)
+        emit("# No video files found in", clips_dir, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +456,7 @@ def run_clip(
         cap.release()
         if annotated_writer is not None:
             annotated_writer.release()
-            print(f"           annotated → {Path(args.annotated_dir) / clip_path.name}")
+            log.info(f"           annotated → {Path(args.annotated_dir) / clip_path.name}")
 
     detected = threat_frame_count >= args.min_detect_frames
 
@@ -507,29 +511,25 @@ def compute_overall(metrics: dict[str, ClassMetrics]) -> ClassMetrics:
 def print_metrics_table(metrics: dict[str, ClassMetrics], overall: ClassMetrics) -> None:
     header = f"{'Class':<16} {'TP':>4} {'FP':>4} {'FN':>4} {'TN':>4}  {'Prec':>6} {'Recall':>7} {'FPR':>6} {'F1':>6}"
     divider = "-" * len(header)
-    print("\n" + divider)
-    print(header)
-    print(divider)
+    log.info("\n" + divider)
+    log.info(header)
+    log.info(divider)
 
     def fmt(v: float | None) -> str:
         return f"{v:.3f}" if v is not None else "  n/a"
 
     for m in sorted(metrics.values(), key=lambda x: x.threat_class):
-        print(
-            f"{m.threat_class:<16} {m.tp:>4} {m.fp:>4} {m.fn:>4} {m.tn:>4}"
-            f"  {fmt(m.precision):>6} {fmt(m.recall):>7} {fmt(m.fpr):>6} {fmt(m.f1):>6}"
-        )
-    print(divider)
-    print(
-        f"{'OVERALL':<16} {overall.tp:>4} {overall.fp:>4} {overall.fn:>4} {overall.tn:>4}"
-        f"  {fmt(overall.precision):>6} {fmt(overall.recall):>7} {fmt(overall.fpr):>6} {fmt(overall.f1):>6}"
-    )
-    print(divider + "\n")
+        log.info(f"{m.threat_class:<16} {m.tp:>4} {m.fp:>4} {m.fn:>4} {m.tn:>4}"
+            f"  {fmt(m.precision):>6} {fmt(m.recall):>7} {fmt(m.fpr):>6} {fmt(m.f1):>6}")
+    log.info(divider)
+    log.info(f"{'OVERALL':<16} {overall.tp:>4} {overall.fp:>4} {overall.fn:>4} {overall.tn:>4}"
+        f"  {fmt(overall.precision):>6} {fmt(overall.recall):>7} {fmt(overall.fpr):>6} {fmt(overall.f1):>6}")
+    log.info(divider + "\n")
 
 
 def print_gap_analysis(metrics: dict[str, ClassMetrics]) -> None:
-    print("Gap Analysis")
-    print("------------")
+    log.info("Gap Analysis")
+    log.info("------------")
     for m in sorted(metrics.values(), key=lambda x: x.threat_class):
         issues: list[str] = []
         if m.recall is not None and m.recall < 0.6:
@@ -540,8 +540,8 @@ def print_gap_analysis(metrics: dict[str, ClassMetrics]) -> None:
             status = "OK"
         else:
             status = "; ".join(issues)
-        print(f"  {m.threat_class:<16} {status}")
-    print()
+        log.info(f"  {m.threat_class:<16} {status}")
+    log.info("")
 
 
 def save_report(
@@ -585,7 +585,7 @@ def save_report(
     report_path = Path(path)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(f"Report saved to: {report_path}")
+    log.info(f"Report saved to: {report_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +593,10 @@ def save_report(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    # Entrypoint: without this, log records have no handler and
+    # anything below WARNING is silently discarded.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-eval")
     args = parse_args()
 
     if args.generate_template:
@@ -600,13 +604,13 @@ def main() -> None:
         return
 
     if not args.ground_truth:
-        print("Error: --ground-truth is required unless --generate-template is used.", file=sys.stderr)
+        emit("Error: --ground-truth is required unless --generate-template is used.", file=sys.stderr)
         sys.exit(1)
 
     rows = load_ground_truth(args.ground_truth)
     clips_dir = Path(args.clips_dir)
 
-    print(f"Loading models...")
+    log.info(f"Loading models...")
     default_model = load_detection_model(args.weights, args.yolov5_repo)
     person_model = load_detection_model(args.person_weights, args.yolov5_repo) if args.person_weights else None
     weapon_model = (
@@ -616,8 +620,8 @@ def main() -> None:
     )
     pose_model = load_ultralytics_model(args.pose_weights) if args.pose_weights else None
 
-    print(f"Evaluating {len(rows)} clips from: {clips_dir}")
-    print(f"Min detect frames: {args.min_detect_frames} | Max frames/clip: {args.max_frames or 'unlimited'}\n")
+    log.info(f"Evaluating {len(rows)} clips from: {clips_dir}")
+    log.info(f"Min detect frames: {args.min_detect_frames} | Max frames/clip: {args.max_frames or 'unlimited'}\n")
 
     results: list[ClipResult] = []
     skipped = 0
@@ -625,12 +629,12 @@ def main() -> None:
     for i, row in enumerate(rows, 1):
         clip_path = clips_dir / row.clip
         if not clip_path.exists():
-            print(f"  [{i}/{len(rows)}] SKIP (not found): {row.clip}")
+            log.warning(f"  [{i}/{len(rows)}] SKIP (not found): {row.clip}")
             skipped += 1
             continue
 
         label_str = "THREAT" if row.has_threat else "CLEAR "
-        print(f"  [{i}/{len(rows)}] {label_str} [{row.threat_class}] {row.clip} ... ", end="", flush=True)
+        emit(f"  [{i}/{len(rows)}] {label_str} [{row.threat_class}] {row.clip} ... ", end="", flush=True)
 
         result = run_clip(
             clip_path=clip_path,
@@ -645,17 +649,17 @@ def main() -> None:
 
         outcome = "TP" if result.tp else "FP" if result.fp else "FN" if result.fn else "TN"
         detail = f"{result.threat_frames}/{result.total_frames} threat frames"
-        print(f"{outcome}  ({detail}, {result.elapsed_seconds}s)")
+        log.info(f"{outcome}  ({detail}, {result.elapsed_seconds}s)")
 
         if args.verbose and result.threats_seen:
-            print(f"           threats seen: {', '.join(result.threats_seen)}")
+            log.info(f"           threats seen: {', '.join(result.threats_seen)}")
 
     if not results:
-        print("No clips were evaluated. Check --clips-dir and --ground-truth paths.")
+        log.info("No clips were evaluated. Check --clips-dir and --ground-truth paths.")
         return
 
     if skipped:
-        print(f"\nWarning: {skipped} clip(s) not found and skipped.")
+        log.warning(f"\nWarning: {skipped} clip(s) not found and skipped.")
 
     metrics = aggregate_metrics(results)
     overall = compute_overall(metrics)

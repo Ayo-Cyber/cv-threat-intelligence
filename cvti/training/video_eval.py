@@ -21,6 +21,9 @@ from pathlib import Path
 from cvti.training.video_dataset import (
     DEFAULT_CLASS_MAP, DEFAULT_DATA_ROOT, RobberyClipDataset, pool_clips, stratified_split,
 )
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def _auto_device() -> str:
@@ -53,6 +56,10 @@ def _metrics(preds: list[int], labels: list[int], pos: int = 1) -> dict:
 
 
 def main() -> None:
+    # Entrypoint: without this, log records have no handler and
+    # anything below WARNING is silently discarded.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-video-eval")
     p = argparse.ArgumentParser(description="Evaluate a trained video model (Phase 5 metrics).")
     p.add_argument("--checkpoint", required=True, help="Saved checkpoint dir (from video_finetune).")
     p.add_argument("--backend", choices=("videomae", "x3d"), default="videomae")
@@ -83,7 +90,7 @@ def main() -> None:
         split_desc = "camnuvem-native-test"
 
     from collections import Counter
-    print(f"[eval] checkpoint={args.checkpoint} device={device} test={len(test_ds)} "
+    log.info(f"[eval] checkpoint={args.checkpoint} device={device} test={len(test_ds)} "
           f"split={split_desc} class_counts={dict(Counter(test_ds.labels()))}")
 
     # Load the saved checkpoint (from_pretrained reads the fine-tuned weights).
@@ -100,22 +107,22 @@ def main() -> None:
             labels.extend(ys)
 
     m = _metrics(preds, labels)
-    print("\n=== metrics ===")
+    log.info("\n=== metrics ===")
     for k in ("n", "accuracy", "balanced_acc", "recall_theft", "precision_theft", "f1_theft", "fpr_normal"):
-        print(f"  {k:>16}: {m[k]}")
+        log.info(f"  {k:>16}: {m[k]}")
     c = m["confusion"]
-    print("\n  confusion (rows=true, cols=pred):")
-    print(f"                 pred_normal  pred_theft")
-    print(f"    true_normal   {c['tn']:>10}  {c['fp']:>10}")
-    print(f"    true_theft    {c['fn']:>10}  {c['tp']:>10}")
+    log.info("\n  confusion (rows=true, cols=pred):")
+    log.info(f"                 pred_normal  pred_theft")
+    log.info(f"    true_normal   {c['tn']:>10}  {c['fp']:>10}")
+    log.info(f"    true_theft    {c['fn']:>10}  {c['tp']:>10}")
 
     report = {"checkpoint": args.checkpoint, "backend": args.backend, "split": split_desc,
               "device": device, **m}
     out = args.out or str(Path(args.checkpoint) / "eval.json")
     Path(out).write_text(json.dumps(report, indent=2))
-    print(f"\n[eval] wrote {out}")
+    log.info(f"\n[eval] wrote {out}")
     if m["n"] < 60:
-        print(f"[eval] NOTE: only {m['n']} test clips — encouraging but not a validated FPR; "
+        log.info(f"[eval] NOTE: only {m['n']} test clips — encouraging but not a validated FPR; "
               "needs more normal/hard-negative footage before trusting it.")
 
 

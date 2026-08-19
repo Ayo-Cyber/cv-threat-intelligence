@@ -26,6 +26,9 @@ from cvti.video_action_runtime import build_video_action_runtime
 import cv2
 import torch
 from ultralytics import YOLO
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 warnings.filterwarnings(
     "ignore",
@@ -1323,7 +1326,7 @@ class TheftDetector:
             if self.debug and state.state != prev_state:
                 obj = self._objects.get(state.target_obj_id) if state.target_obj_id is not None else None
                 obj_info = f" target={obj.label}#{state.target_obj_id}" if obj else ""
-                print(f"[THEFT] person={pid} {prev_state} → {state.state}{obj_info}")
+                log.debug(f"[THEFT] person={pid} {prev_state} → {state.state}{obj_info}")
 
         active_ids = {p.track_id for p in pose_people}
         for pid in list(self._person_states.keys()):
@@ -1732,6 +1735,9 @@ def open_capture(source: int | str) -> cv2.VideoCapture:
 
 
 def main() -> None:
+    # Entrypoint: configure logging before anything can fail.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-detect")
     args = parse_args()
     source = normalize_source(args.source)
     threat_classes = normalize_threat_classes(args.threat_classes)
@@ -1740,7 +1746,7 @@ def main() -> None:
     output_root = Path(args.save_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 
-    print("Loading model...")
+    log.info("Loading model...")
     default_model = load_detection_model(args.weights, args.yolov5_repo)
     person_model = load_detection_model(args.person_weights, args.yolov5_repo) if args.person_weights else None
     weapon_model = (
@@ -1752,21 +1758,21 @@ def main() -> None:
     classifier_model = load_ultralytics_model(args.classifier_weights) if args.classifier_weights else None
     label_map = default_model.names
 
-    print(f"Configured threat classes: {sorted(threat_classes)}")
-    print(f"Configured person classes: {sorted(person_classes)}")
-    print(f"Configured weapon classes: {sorted(weapon_classes)}")
-    print(f"Available model classes: {list(label_map.values())[:15]}{' ...' if len(label_map) > 15 else ''}")
-    print(f"Loaded default model from: {default_model.source_path} ({default_model.kind})")
+    log.info(f"Configured threat classes: {sorted(threat_classes)}")
+    log.info(f"Configured person classes: {sorted(person_classes)}")
+    log.info(f"Configured weapon classes: {sorted(weapon_classes)}")
+    log.info(f"Available model classes: {list(label_map.values())[:15]}{' ...' if len(label_map) > 15 else ''}")
+    log.info(f"Loaded default model from: {default_model.source_path} ({default_model.kind})")
     if person_model is not None:
-        print(f"Loaded dedicated person model: {person_model.source_path} ({person_model.kind})")
+        log.info(f"Loaded dedicated person model: {person_model.source_path} ({person_model.kind})")
     if weapon_model is not None:
-        print(f"Loaded dedicated weapon model: {weapon_model.source_path} ({weapon_model.kind})")
+        log.info(f"Loaded dedicated weapon model: {weapon_model.source_path} ({weapon_model.kind})")
     if pose_model is not None:
-        print(f"Loaded pose model: {pose_model.source_path} ({pose_model.kind})")
+        log.info(f"Loaded pose model: {pose_model.source_path} ({pose_model.kind})")
     if classifier_model is not None:
-        print(f"Loaded classifier: {classifier_model.source_path} (conf≥{args.classifier_conf})")
+        log.info(f"Loaded classifier: {classifier_model.source_path} (conf≥{args.classifier_conf})")
     tracking_enabled = not args.no_track and default_model.kind == "ultralytics"
-    print(f"ByteTrack person tracking: {'ON' if tracking_enabled else 'OFF (use --no-track to disable)'}")
+    log.info(f"ByteTrack person tracking: {'ON' if tracking_enabled else 'OFF (use --no-track to disable)'}")
 
     capture = open_capture(source)
     source_name = str(source)
@@ -1824,10 +1830,8 @@ def main() -> None:
             device=args.video_action_device,
             verbose=True,
         )
-        print(
-            f"[VideoAction] {args.video_action_backend} ON — "
-            f"{args.video_action_frames} frames over {args.video_action_window_seconds:.1f}s event windows"
-        )
+        log.info(f"[VideoAction] {args.video_action_backend} ON — "
+            f"{args.video_action_frames} frames over {args.video_action_window_seconds:.1f}s event windows")
 
     # Retail action layer (optional): shelf zones + concealment, both riding the pose pass.
     zone_monitor = None
@@ -1835,22 +1839,22 @@ def main() -> None:
     if args.zones:
         from cvti.retail.zones import RetailZoneMonitor, load_zone_config
         zone_monitor = RetailZoneMonitor(load_zone_config(args.zones))
-        print(f"[Zones] Loaded {len(zone_monitor.zones)} zone(s): {', '.join(z.name for z in zone_monitor.zones)}")
+        log.info(f"[Zones] Loaded {len(zone_monitor.zones)} zone(s): {', '.join(z.name for z in zone_monitor.zones)}")
     if args.concealment:
         from cvti.retail.concealment import ConcealmentDetector
         concealment_detector = ConcealmentDetector()
-        print("[Concealment] Pose-based concealment detector ON")
+        log.info("[Concealment] Pose-based concealment detector ON")
     if (zone_monitor is not None or concealment_detector is not None) and pose_model is None:
-        print("[Warning] --zones/--concealment need a pose model; pass --pose-weights yolov8n-pose.pt")
+        log.warning("[Warning] --zones/--concealment need a pose model; pass --pose-weights yolov8n-pose.pt")
 
     scene_context: dict | None = None
     if args.context_file:
         context_path = Path(args.context_file)
         if context_path.exists():
             scene_context = json.loads(context_path.read_text())
-            print(f"[SceneContext] Loaded: {scene_context.get('environment_type', 'unknown')} — {scene_context.get('scene_description', '')[:80]}")
+            log.info(f"[SceneContext] Loaded: {scene_context.get('environment_type', 'unknown')} — {scene_context.get('scene_description', '')[:80]}")
         else:
-            print(f"[SceneContext] Warning: context file not found: {context_path}")
+            log.warning(f"[SceneContext] Warning: context file not found: {context_path}")
 
     from cvti.verification.gate import MOCK_GATE_BANNER, assert_engine_gate_allowed
     mock_gate = assert_engine_gate_allowed(args.gate_provider)
@@ -1862,18 +1866,18 @@ def main() -> None:
         save_dir=output_root / "gate" if args.gate_provider != "mock" else None,
     )
     if args.gate_provider != "mock":
-        print(f"[VerificationGate] Provider: {args.gate_provider} ({verification_gate.model}) — alerts confirmed by VLM before recording.")
+        log.info(f"[VerificationGate] Provider: {args.gate_provider} ({verification_gate.model}) — alerts confirmed by VLM before recording.")
     else:
-        print(f"[VerificationGate] *** {MOCK_GATE_BANNER} *** provider=mock: all alerts auto-confirmed, "
+        log.info(f"[VerificationGate] *** {MOCK_GATE_BANNER} *** provider=mock: all alerts auto-confirmed, "
               "nothing is verified. Use --gate-provider ollama/openrouter/anthropic for real verification.")
         assert mock_gate  # only reachable via the explicit opt-in above
 
-    print("Starting inference loop. Press 'q' to quit.")
+    log.info("Starting inference loop. Press 'q' to quit.")
     try:
         while True:
             ok, frame = capture.read()
             if not ok:
-                print("Stream ended or frame could not be read.")
+                log.error("Stream ended or frame could not be read.")
                 break
             current_frame_index = frame_count
             gate_frame_buffer.append(frame)
@@ -2048,7 +2052,7 @@ def main() -> None:
                             timestamp=ts_now,
                         )
                     except Exception as exc:  # noqa: BLE001 - optional weak signal must not kill detector
-                        print(f"[VideoAction error] {str(exc)[:140]}")
+                        log.error(f"[VideoAction error] {str(exc)[:140]}")
                 candidate_alerts = customization_engine.evaluate(raw_events, scene_context=scene_context)
                 # Phase 1: enqueue EVERY matching candidate (deduped by rule/track/
                 # object within a cooldown), not just candidate_alerts[0]. Concurrent
@@ -2081,19 +2085,17 @@ def main() -> None:
                         gate_result = verification_gate.verify(
                             evidence_frames or frame, candidate, scene_context)
                     except Exception as exc:  # noqa: BLE001 - a transient gate/API error must not kill the run
-                        print(f"[gate error] {candidate.rule_name} — {str(exc)[:140]} (alert held, not raised)")
+                        log.error(f"[gate error] {candidate.rule_name} — {str(exc)[:140]} (alert held, not raised)")
                         continue
                     if gate_result is not None and gate_result.confirmed:
-                        print(
-                            f"[CONFIRMED] {candidate.rule_name} ({candidate.priority.upper()}) "
+                        log.info(f"[CONFIRMED] {candidate.rule_name} ({candidate.priority.upper()}) "
                             f"— {candidate.title}"
                             + (f" [obj: {candidate.object_label}]" if candidate.object_label else "")
                             + f" | confidence={gate_result.confidence:.2f} | {gate_result.reason}"
-                            + f" | frames={sel_meta['count']}({sel_meta['strategy']})"
-                        )
+                            + f" | frames={sel_meta['count']}({sel_meta['strategy']})")
                         confirmed_any = True
                     elif gate_result is not None:
-                        print(f"[REJECTED]  {candidate.rule_name} — {gate_result.reason}")
+                        log.info(f"[REJECTED]  {candidate.rule_name} — {gate_result.reason}")
                 # Only let the config gate govern threat_detected when we actually
                 # verified something this frame; otherwise keep the baseline signal.
                 if verified_this_frame:
@@ -2104,9 +2106,9 @@ def main() -> None:
                 current_weapon_debug_signature = build_weapon_debug_signature(weapon_detections_for_debug)
                 if current_weapon_debug_signature != last_weapon_debug_signature:
                     if current_weapon_debug_signature:
-                        print(f"Weapon detections: {current_weapon_debug_signature}")
+                        log.info(f"Weapon detections: {current_weapon_debug_signature}")
                     elif last_weapon_debug_signature:
-                        print("Weapon detections cleared")
+                        log.info("Weapon detections cleared")
                     last_weapon_debug_signature = current_weapon_debug_signature
 
             if args.debug_violence and pose_model is not None:
@@ -2117,9 +2119,9 @@ def main() -> None:
                 )
                 if current_violence_debug_signature != last_violence_debug_signature:
                     if current_violence_debug_signature:
-                        print(f"Violence debug: {current_violence_debug_signature}")
+                        log.info(f"Violence debug: {current_violence_debug_signature}")
                     elif last_violence_debug_signature:
-                        print("Violence debug cleared")
+                        log.info("Violence debug cleared")
                     last_violence_debug_signature = current_violence_debug_signature
 
             frame_count += 1
@@ -2157,7 +2159,7 @@ def main() -> None:
                     fps=fps_from_capture,
                 )
                 last_event_time = time.time()
-                print(f"Threat event saved to: {event_dir}")
+                log.info(f"Threat event saved to: {event_dir}")
             threat_visible_last_frame = threat_detected
 
             recorder.write(annotated)

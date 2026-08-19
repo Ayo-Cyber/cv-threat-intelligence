@@ -17,6 +17,9 @@ import re
 import threading
 import time
 from pathlib import Path
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class CustomRuleScanner:
@@ -39,7 +42,7 @@ class CustomRuleScanner:
         self._thread = threading.Thread(target=self._loop, name="custom-rules", daemon=True)
         self._thread.start()
         names = ", ".join(c["id"] for c in self.cameras)
-        print(f"[custom-rules] scanning {len(self.cameras)} camera(s) [{names}] every {self.interval:.0f}s")
+        log.info(f"[custom-rules] scanning {len(self.cameras)} camera(s) [{names}] every {self.interval:.0f}s")
         return self
 
     def _open(self, source):
@@ -73,7 +76,7 @@ class CustomRuleScanner:
                 try:
                     hit = self._check(c, frame)
                 except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
-                    print(f"[custom-rules {c['id']}] {str(exc)[:120]}")
+                    log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
                     continue
                 if hit and not self._cooling(c["id"], hit["name"]):
                     self._emit(c, frame, hit)

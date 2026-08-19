@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from cvti.eval.dataset import EvalClip
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class GateUnavailable(RuntimeError):
@@ -122,7 +125,7 @@ class EvalHarness:
                 from cvti.video_action_model import VideoMAEActionModel
                 self._video = VideoMAEActionModel(self.video_model)
             except Exception as exc:  # noqa: BLE001
-                print(f"[eval] video-action model unavailable ({str(exc)[:70]}) — skipping")
+                log.warning(f"[eval] video-action model unavailable ({str(exc)[:70]}) — skipping")
 
     def _state_for(self, clip: EvalClip):
         from cvti.rules.customization import CustomizationEngine
@@ -195,7 +198,7 @@ class EvalHarness:
             # A gate error is NOT a rejection. Counting it as one would report
             # "TrueSight suppressed everything" — fake numbers that look real.
             self.gate_errors += 1
-            print(f"[eval] gate error on {alert.rule_name}: {str(exc)[:90]}")
+            log.error(f"[eval] gate error on {alert.rule_name}: {str(exc)[:90]}")
             if self.gate_errors >= self.max_gate_errors:
                 raise GateUnavailable(
                     f"{self.gate_errors} consecutive gate failures — aborting so the run "
@@ -218,7 +221,7 @@ class EvalHarness:
                 except Exception:  # noqa: BLE001
                     continue
             if done and progress:
-                print(f"[eval] resuming — {len(done)} clip(s) already done")
+                log.info(f"[eval] resuming — {len(done)} clip(s) already done")
 
         out: list[ClipResult] = []
         with results_path.open("a") as fh:
@@ -231,13 +234,13 @@ class EvalHarness:
                                           d.get("seconds", 0.0), d.get("error", "")))
                     continue
                 if progress:
-                    print(f"[eval] {i}/{len(clips)}  {clip.name} "
-                          f"({'threat' if clip.is_threat else 'normal'}) …", flush=True)
+                    log.info(f"[eval] {i}/{len(clips)}  {clip.name} "
+                          f"({'threat' if clip.is_threat else 'normal'}) …")
                 r = self.run_clip(clip)
                 fh.write(json.dumps(r.to_dict()) + "\n")
                 fh.flush()
                 out.append(r)
                 if progress:
-                    print(f"        candidates={r.candidates} confirmed={r.confirmed} "
-                          f"{r.seconds:.0f}s {r.error}", flush=True)
+                    log.error(f"        candidates={r.candidates} confirmed={r.confirmed} "
+                          f"{r.seconds:.0f}s {r.error}")
         return out

@@ -19,6 +19,9 @@ from pathlib import Path
 from cvti.eval.dataset import describe, load_dataset
 from cvti.eval.harness import EvalHarness, GateUnavailable
 from cvti.eval.metrics import compare_stages, render_report
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def _build_gate(kind: str, model: str, save_dir: str | None, sensitivity: str = "balanced"):
@@ -31,6 +34,10 @@ def _build_gate(kind: str, model: str, save_dir: str | None, sensitivity: str = 
 
 
 def main() -> None:
+    # Entrypoint: without this, log records have no handler and
+    # anything below WARNING is silently discarded.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-eval-harness")
     p = argparse.ArgumentParser(description="Measure detection + TrueSight suppression.")
     p.add_argument("--dataset", choices=("camnuvem", "local", "all"), default="camnuvem",
                    help="camnuvem = the held-out test split (the honest one).")
@@ -53,11 +60,11 @@ def main() -> None:
 
     clips = load_dataset(args.dataset, limit=args.limit, kind=args.kind)
     if not clips:
-        print(f"[eval] no clips found for --dataset {args.dataset}. "
+        log.info(f"[eval] no clips found for --dataset {args.dataset}. "
               "Is the CamNuvem dataset present?")
         raise SystemExit(1)
     info = describe(clips)
-    print(f"[eval] {info['total']} clips ({info['threat']} threat / {info['normal']} normal) "
+    log.info(f"[eval] {info['total']} clips ({info['threat']} threat / {info['normal']} normal) "
           f"| gate={args.gate} | detectors={args.detectors}")
 
     out_dir = Path(args.out)
@@ -78,12 +85,12 @@ def main() -> None:
     try:
         results = harness.run(clips)
     except GateUnavailable as exc:
-        print(f"\n[eval] ABORTED — {exc}")
-        print("[eval] No numbers written: a run without a working gate would report "
+        log.info(f"\n[eval] ABORTED — {exc}")
+        log.info("[eval] No numbers written: a run without a working gate would report "
               "everything as 'suppressed', which is meaningless.")
         raise SystemExit(2) from None
     except KeyboardInterrupt:
-        print("\n[eval] interrupted — completed clips are checkpointed; "
+        log.info("\n[eval] interrupted — completed clips are checkpointed; "
               "re-run the same command to resume.")
         raise SystemExit(130) from None
 
@@ -102,11 +109,11 @@ def main() -> None:
         stem, _, ext = name.partition(".")
         (out_dir / f"{stem}-{tag}.{ext}").write_text(text)
 
-    print("\n" + report)
-    print(f"[eval] wrote {out_dir/'metrics.json'} and {out_dir/'report.md'} "
+    log.info("\n" + report)
+    log.info(f"[eval] wrote {out_dir/'metrics.json'} and {out_dir/'report.md'} "
           f"(also tagged -{tag})")
     if args.gate == "mock":
-        print("[eval] NOTE: --gate mock confirms everything. Re-run with --gate ollama "
+        log.info("[eval] NOTE: --gate mock confirms everything. Re-run with --gate ollama "
               "for real suppression numbers.")
 
 

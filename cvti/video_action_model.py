@@ -13,6 +13,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+from cvti.console import emit
 
 
 DEFAULT_VIDEOMAE_MODEL = "MCG-NJU/videomae-base-finetuned-kinetics"
@@ -273,7 +274,7 @@ class VideoMAEActionModel:
 
     def _log(self, message: str) -> None:
         if self.verbose:
-            print(f"[VideoMAE] {message}", file=sys.stderr, flush=True)
+            emit(f"[VideoMAE] {message}", file=sys.stderr, flush=True)
 
 
 class X3DActionModel:
@@ -356,7 +357,7 @@ class X3DActionModel:
 
     def _log(self, message: str) -> None:
         if self.verbose:
-            print(f"[X3D] {message}", file=sys.stderr, flush=True)
+            emit(f"[X3D] {message}", file=sys.stderr, flush=True)
 
 
 def _frames_to_x3d_tensor(frames: list[np.ndarray], torch: Any) -> Any:

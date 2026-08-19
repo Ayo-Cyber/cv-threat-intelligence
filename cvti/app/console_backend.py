@@ -20,7 +20,10 @@ import sys
 import time
 from pathlib import Path
 
+from cvti.logging_setup import get_logger
 from cvti.serving import onboarding, vlm
+
+log = get_logger(__name__)
 
 _REVIEW_VALUES = {"ack", "true", "false", "new"}
 
@@ -285,6 +288,23 @@ class ConsoleBackend:
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "via": notify, "error": str(exc)[:200]}
 
+    # --- diagnostics ---
+    def download_diagnostics(self) -> dict:
+        """Zip logs + a health snapshot for support. Never includes evidence.
+
+        Returns the path rather than the bytes: the operator sends us a file,
+        and keeping it on disk means they can inspect it before they do.
+        """
+        from cvti.diagnostics import build_bundle
+        out_dir = Path(self.db_path).parent
+        try:
+            path = build_bundle(out_dir)
+        except Exception as exc:  # noqa: BLE001 - support tooling must not crash the app
+            log.exception("diagnostics bundle failed")
+            return {"ok": False, "error": str(exc)[:200]}
+        return {"ok": True, "path": str(path),
+                "size_kb": round(path.stat().st_size / 1024, 1)}
+
     def gate_status(self, model: str = vlm.DEFAULT_MODEL) -> dict:
         """Ollama reachability + the running engine's own view of the gate.
 
@@ -392,7 +412,7 @@ class ConsoleBackend:
         out_dir = Path(self.db_path).parent
         out_dir.mkdir(parents=True, exist_ok=True)
         notify = self.get_site().get("notify") or "console"
-        log = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
+        log_file = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
         # Lean defaults keep the box cool: lower fps + image size cut compute a lot
         # with negligible quality loss at demo scale.
         cmd = [sys.executable, "-m", "cvti.serving.pipeline",
@@ -401,7 +421,7 @@ class ConsoleBackend:
                "--notify", notify, "--output-dir", str(out_dir),
                "--target-fps", "4", "--imgsz", "512",
                "--seconds", "100000", "--gate-drain", "60"]
-        return subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
+        return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT)
 
     def start_monitoring(self) -> dict:
         # A packaged app has no engine (torch/Ollama) inside it — it's a playback
@@ -432,11 +452,11 @@ class ConsoleBackend:
                 if self._monitor and self._monitor.poll() is not None:   # died
                     if self._restarts < max_restarts:
                         self._restarts += 1
-                        print(f"[watchdog] engine exited unexpectedly — restarting "
+                        log.info(f"[watchdog] engine exited unexpectedly — restarting "
                               f"({self._restarts}/{max_restarts})")
                         self._monitor = self._spawn_engine()
                     else:
-                        print("[watchdog] engine died too many times — giving up")
+                        log.info("[watchdog] engine died too many times — giving up")
                         self._monitor_should_run = False
 
         self._watchdog = threading.Thread(target=loop, name="engine-watchdog", daemon=True)
@@ -794,7 +814,7 @@ class ConsoleBackend:
         since = time.time() - max(1, int(days)) * 86400
         since_day = time.strftime("%Y-%m-%d", time.localtime(since))
 
-        incidents = reviewed_true = reviewed_false = 0
+        incidents = reviewed_true = reviewed_false = unverified = 0
         shown = rejected = deduped = errors = 0
         try:
             con = self._connect(db)
@@ -809,6 +829,15 @@ class ConsoleBackend:
                 reviewed_false = row[2] or 0
             except sqlite3.OperationalError:
                 pass
+            try:
+                # An unverified alert reached the operator because the gate could
+                # NOT decide. Counting it as a detection would credit the product
+                # for work it did not do.
+                unverified = con.execute(
+                    "SELECT COUNT(*) FROM events WHERE ts >= ? AND unverified = 1",
+                    (since,)).fetchone()[0] or 0
+            except sqlite3.OperationalError:
+                unverified = 0
             try:
                 row = con.execute(
                     "SELECT SUM(shown), SUM(rejected), SUM(deduped), SUM(errors) "
@@ -842,7 +871,8 @@ class ConsoleBackend:
 
         return {
             "days": int(days),
-            "incidents": incidents,                 # confirmed, in front of a human
+            "incidents": max(0, incidents - unverified),   # gate actually confirmed these
+            "unverified": unverified,               # surfaced because the gate could not decide
             "false_alarms_prevented": rejected,     # AI looked and said no
             "duplicates_collapsed": deduped,        # repeat of an event already queued
             "noise_removed": noise_removed,

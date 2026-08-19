@@ -17,6 +17,9 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +42,7 @@ def _multipart(fields: dict, files: dict) -> tuple[bytes, str]:
 
 class ConsoleNotifier:
     def notify(self, event: dict) -> None:
-        print(f"[NOTIFY] {event['priority'].upper()} {event['rule']} on {event['camera_id']} "
+        log.info(f"[NOTIFY] {event['priority'].upper()} {event['rule']} on {event['camera_id']} "
               f"(conf {event['confidence']:.2f}) — evidence: {event['evidence_dir']}")
 
 
@@ -61,7 +64,7 @@ class WebhookNotifier:
                 headers={"Content-Type": "application/json"}, method="POST")
             urllib.request.urlopen(req, timeout=self.timeout)
         except Exception as exc:  # noqa: BLE001 - a notify failure must not kill the gate
-            print(f"[notify webhook error] {str(exc)[:120]}")
+            log.error(f"[notify webhook error] {str(exc)[:120]}")
 
 
 class TelegramNotifier:
@@ -99,7 +102,7 @@ class TelegramNotifier:
                 return
             self._send_photos(frames, self._caption(event))
         except Exception as exc:  # noqa: BLE001 - a notify failure must not kill the gate
-            print(f"[notify telegram error] {str(exc)[:140]}")
+            log.error(f"[notify telegram error] {str(exc)[:140]}")
 
     def _send_photos(self, frames: list[Path], caption: str) -> None:
         """One photo -> sendPhoto; several -> sendMediaGroup (album)."""
@@ -160,7 +163,7 @@ class WhatsAppNotifier:
                                          headers={"Authorization": f"Basic {self.auth}"}, method="POST")
             urllib.request.urlopen(req, timeout=self.timeout)
         except Exception as exc:  # noqa: BLE001
-            print(f"[notify whatsapp error] {str(exc)[:140]}")
+            log.error(f"[notify whatsapp error] {str(exc)[:140]}")
 
 
 class MultiNotifier:
@@ -173,7 +176,7 @@ class MultiNotifier:
             try:
                 n.notify(event)
             except Exception as exc:  # noqa: BLE001
-                print(f"[alert-sink] {type(n).__name__} failed: {str(exc)[:100]}")
+                log.error(f"[alert-sink] {type(n).__name__} failed: {str(exc)[:100]}")
 
 
 def _build_one(spec: str) -> Any:
@@ -189,9 +192,9 @@ def _build_one(spec: str) -> Any:
         try:
             return WhatsAppNotifier.from_env()
         except Exception as exc:  # noqa: BLE001
-            print(f"[alert-sink] whatsapp unavailable ({exc}); using console")
+            log.warning(f"[alert-sink] whatsapp unavailable ({exc}); using console")
             return ConsoleNotifier()
-    print(f"[alert-sink] unknown notifier '{spec}', using console")
+    log.warning(f"[alert-sink] unknown notifier '{spec}', using console")
     return ConsoleNotifier()
 
 
@@ -218,7 +221,9 @@ CREATE TABLE IF NOT EXISTS events (
     review TEXT,          -- NULL=new, 'ack', 'true', 'false' (operator label)
     reviewed_at TEXT,
     latency_s REAL,       -- detection -> TrueSight-verified wall-clock seconds
-    bbox TEXT             -- "x1,y1,x2,y2" of the subject when it fired (may be NULL)
+    bbox TEXT,            -- "x1,y1,x2,y2" of the subject when it fired (may be NULL)
+    unverified INTEGER DEFAULT 0,  -- 1 = the gate never reached a verdict (fail-visible)
+    gate_error TEXT       -- why, when unverified
 );
 
 -- What the gate threw away, per day. Only confirmed alerts become rows in
@@ -261,6 +266,11 @@ class AlertSink:
             self._db.execute("ALTER TABLE events ADD COLUMN bbox TEXT")
         except sqlite3.OperationalError:
             pass
+        for _col, _type in (("unverified", "INTEGER DEFAULT 0"), ("gate_error", "TEXT")):
+            try:
+                self._db.execute(f"ALTER TABLE events ADD COLUMN {_col} {_type}")
+            except sqlite3.OperationalError:
+                pass   # already there
         self._db.commit()
         self.persisted = 0
         # Routing: send each alert to the channels its rule names (severity, camera,
@@ -273,7 +283,7 @@ class AlertSink:
         self.routed = 0
         self.escalated = 0
         if self.routing.rules:
-            print(f"[routing] {len(self.routing.rules)} rule(s) loaded "
+            log.info(f"[routing] {len(self.routing.rules)} rule(s) loaded "
                   f"(default: {self.routing.default})")
         # Feedback loop: a calibration file (written by the FeedbackManager from
         # operator labels) tells us which (camera, rule) pairs are chronically wrong.
@@ -317,20 +327,32 @@ class AlertSink:
             self._calib_mtime = mtime
             demoted = self.calibration.demoted_keys()
             if demoted:
-                print(f"[calibration] loaded — demoting (no page): {', '.join(demoted)}")
+                log.info(f"[calibration] loaded — demoting (no page): {', '.join(demoted)}")
 
     def handle(self, alert: Any, result: Any) -> None:
         if result is None:
             return
-        tag = "CONFIRMED" if result.confirmed else "REJECTED "
-        print(f"[{tag}] {alert.camera_id} :: {alert.rule_name} ({alert.priority.upper()}) "
-              f"— {alert.title} | conf={result.confidence:.2f} | {result.reason}")
+        # Three outcomes, not two. UNVERIFIED means the gate never reached a
+        # verdict — logging it as CONFIRMED would overstate what we know, and as
+        # REJECTED would claim a judgement nobody made.
+        if getattr(result, "errored", False):
+            tag, level = "UNVERIFIED", log.warning
+        elif result.confirmed:
+            tag, level = "CONFIRMED", log.info
+        else:
+            tag, level = "REJECTED ", log.info
+        level("[%s] %s :: %s (%s) — %s | conf=%.2f | %s", tag, alert.camera_id,
+              alert.rule_name, alert.priority.upper(), alert.title,
+              result.confidence, result.reason)
+        if getattr(result, "errored", False) and result.error:
+            log.warning("[gate unavailable] %s :: %s — %s",
+                        alert.camera_id, alert.rule_name, result.error)
         if not result.confirmed:
             return
         try:
             self._persist(alert, result)
         except Exception as exc:  # noqa: BLE001 - persistence must not kill the gate
-            print(f"[alert-sink error] {str(exc)[:140]}")
+            log.error(f"[alert-sink error] {str(exc)[:140]}")
 
     # --- routing ---------------------------------------------------------
     def _is_acknowledged(self, event_id: Any) -> bool:
@@ -358,7 +380,7 @@ class AlertSink:
             target.notify(event)
             self.routed += 1
         except Exception as exc:  # noqa: BLE001 - a channel failing must not kill the sink
-            print(f"[routing] '{rule_name}' -> {spec} failed: {str(exc)[:110]}")
+            log.error(f"[routing] '{rule_name}' -> {spec} failed: {str(exc)[:110]}")
         if event_id is not None:
             rule = self.routing.match(event)
             if rule:
@@ -375,10 +397,10 @@ class AlertSink:
                 self._notifier_for(item["to"]).notify(ev)
                 sent += 1
                 self.escalated += 1
-                print(f"[routing] escalated {ev.get('camera_id')}::{ev.get('rule')} "
+                log.info(f"[routing] escalated {ev.get('camera_id')}::{ev.get('rule')} "
                       f"-> {item['to']} (rule '{item['rule']}')")
             except Exception as exc:  # noqa: BLE001
-                print(f"[routing] escalation to {item['to']} failed: {str(exc)[:110]}")
+                log.error(f"[routing] escalation to {item['to']} failed: {str(exc)[:110]}")
         return sent
 
     @staticmethod
@@ -461,16 +483,20 @@ class AlertSink:
             "object_label": alert.object_label, "evidence_dir": str(ev_dir),
             "latency_s": latency_s,
             "bbox": ",".join(str(int(v)) for v in payload["bbox"]) if payload.get("bbox") else None,
+            "unverified": 1 if getattr(result, "errored", False) else 0,
+            "gate_error": getattr(result, "error", "") or None,
         }
         (ev_dir / "event.json").write_text(json.dumps(event, indent=2))
 
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO events (ts,iso,camera_id,rule,priority,confidence,reason,"
-                "track_id,zone,object_label,evidence_dir,latency_s,bbox) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "track_id,zone,object_label,evidence_dir,latency_s,bbox,unverified,gate_error) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ts, iso, alert.camera_id, alert.rule_name, alert.priority,
                  float(result.confidence), result.reason, alert.track_id, alert.zone,
-                 alert.object_label, str(ev_dir), latency_s, event["bbox"]))
+                 alert.object_label, str(ev_dir), latency_s, event["bbox"],
+                 event["unverified"], event["gate_error"]))
             event_id = cur.lastrowid
             self._db.commit()
         self.persisted += 1
@@ -478,7 +504,7 @@ class AlertSink:
         # Feedback loop: chronically-wrong (camera, rule) pairs are stored but not paged.
         self._reload_calibration()
         if self.calibration.demoted(alert.camera_id, alert.rule_name):
-            print(f"[calibrated] {alert.camera_id} :: {alert.rule_name} demoted by feedback "
+            log.warning(f"[calibrated] {alert.camera_id} :: {alert.rule_name} demoted by feedback "
                   f"— stored, NOT notified")
         else:
             # Routed to the channels this alert's rule names; registers escalation
