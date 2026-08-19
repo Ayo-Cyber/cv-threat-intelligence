@@ -37,6 +37,9 @@ from typing import Any, Iterable
 
 import numpy as np
 import supervision as sv
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 # COCO person class id, used by the CLI demo to keep only people.
 PERSON_CLASS_ID = 0
@@ -269,10 +272,13 @@ def _normalize_source(source: str) -> int | str:
 
 
 def main() -> None:
+    # Entrypoint: configure logging before anything can fail.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-zones")
     args = _parse_args()
     zones = load_zone_config(args.zones)
     monitor = RetailZoneMonitor(zones, dwell_grace_seconds=args.dwell_grace)
-    print(f"[retail_zones] Loaded {len(zones)} zone(s): {', '.join(z.name for z in zones)}")
+    log.info(f"[retail_zones] Loaded {len(zones)} zone(s): {', '.join(z.name for z in zones)}")
 
     # Optional: run the Customization Engine on zone presence so zone+time+dwell RULES fire.
     engine = None
@@ -286,7 +292,7 @@ def main() -> None:
             hh, mm = (int(x) for x in args.simulate_time.split(":"))
             base = datetime.now()
             sim_now = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
-            print(f"[retail_zones] Simulating clock at {args.simulate_time} for time-filtered rules.")
+            log.info(f"[retail_zones] Simulating clock at {args.simulate_time} for time-filtered rules.")
 
     try:
         import cv2
@@ -331,7 +337,7 @@ def main() -> None:
             line = s.label()
             if last_report.get(s.tracker_id) != line:
                 event = "LOITER" if s.loitering else "in-zone"
-                print(f"[{event}] {line}")
+                log.info(f"[{event}] {line}")
                 last_report[s.tracker_id] = line
 
         if engine is not None:
@@ -340,7 +346,7 @@ def main() -> None:
             for alert in engine.evaluate(events, now=sim_now):
                 sig = f"{alert.rule_name}:{alert.person_id}"
                 if last_report.get(sig) != alert.title:
-                    print(f"[RULE FIRED] {alert.rule_name} ({alert.priority.upper()}) "
+                    log.info(f"[RULE FIRED] {alert.rule_name} ({alert.priority.upper()}) "
                           f"person #{alert.person_id} — {alert.title}")
                     last_report[sig] = alert.title
 

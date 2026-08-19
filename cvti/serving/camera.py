@@ -29,6 +29,9 @@ from cvti.contracts import RawEvent
 from cvti.event_adapters import zone_states_to_events
 from cvti.rules.customization import CustomizationEngine
 from cvti.serving.alert_queue import QueuedAlert
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 # Tuned defaults mirrored from cvti/detector/core.py argparse so the multi-stream
 # path behaves like single-stream. Keep in sync if those defaults change.
@@ -384,7 +387,7 @@ class PerCameraState:
                 raw_events += self._video_runtime.analyze_event(
                     center_frame_index=self._va_index - 1, timestamp=timestamp)
         except Exception as exc:  # noqa: BLE001 - a detector hiccup must not kill the camera
-            print(f"[{self.camera_id}] detector error: {str(exc)[:140]}")
+            log.error(f"[{self.camera_id}] detector error: {str(exc)[:140]}")
 
         if not raw_events:
             return []

@@ -42,7 +42,18 @@ _configured: dict[str, Path] = {}    # component -> log file, so setup is idempo
 
 
 def get_logger(name: str) -> logging.Logger:
-    """The logger for a module. Pass `__name__` so records carry attribution."""
+    """The logger for a module. Pass `__name__` so records carry attribution.
+
+    A module run as `python -m cvti.serving.pipeline` has `__name__ == "__main__"`,
+    which would label every record from the engine's own module `__main__` and
+    throw away the attribution this exists for. Python keeps the real dotted name
+    on the module spec, so recover it.
+    """
+    if name == "__main__":
+        spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+        real = getattr(spec, "name", None)
+        if real:
+            name = real
     return logging.getLogger(name)
 
 
@@ -111,6 +122,8 @@ def setup_logging(
         # An unwritable log directory must not stop the engine from detecting
         # threats. Fall back to console only and say so, loudly, once.
         path = Path(os.devnull)
+        # EXEMPT from the no-print rule: this is the failure path of logging
+        # itself, so it cannot use a logger to report it.
         print(f"[logging] cannot write to {log_dir} ({exc}); console only", file=sys.stderr)
 
     if console:

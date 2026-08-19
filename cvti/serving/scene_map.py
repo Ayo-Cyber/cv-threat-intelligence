@@ -15,6 +15,10 @@ import threading
 
 import cv2
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 SCENE_PROMPT = (
     "You are configuring a security camera. Look at this frame and reply with ONLY "
     "compact JSON, no prose:\n"
@@ -69,7 +73,7 @@ def infer_scene(source, *, model: str,
 
 
 def map_cameras_async(cams_cfg: list[dict], states: dict, *, model: str,
-                      base_url: str = "http://localhost:11434/v1", log=print) -> threading.Thread:
+                      base_url: str = "http://localhost:11434/v1") -> threading.Thread:
     """Background: infer + attach scene_context for each camera. Non-blocking."""
     def worker():
         for c in cams_cfg:
@@ -78,10 +82,10 @@ def map_cameras_async(cams_cfg: list[dict], states: dict, *, model: str,
                 scene = infer_scene(c["source"], model=model, base_url=base_url)
                 if scene and cid in states:
                     states[cid].scene_context = scene
-                    log(f"[agent-map] {cid}: {scene['environment_type']} — "
-                        f"{scene['scene_description'][:90]}")
+                    log.info("[agent-map] %s: %s — %s", cid, scene["environment_type"],
+                             scene["scene_description"][:90])
             except Exception as exc:  # noqa: BLE001 - mapping must never break monitoring
-                log(f"[agent-map] {cid} failed: {str(exc)[:100]}")
+                log.warning("[agent-map] %s failed: %s", cid, str(exc)[:100])
     t = threading.Thread(target=worker, name="agent-map", daemon=True)
     t.start()
     return t

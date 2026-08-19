@@ -19,6 +19,9 @@ import time
 from typing import Any
 
 from cvti.serving.watches import CaseBook, Watch, annotate_candidates, build_prompt, parse_matches
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class WatchRunner:
@@ -104,7 +107,7 @@ class WatchRunner:
         try:
             self.sink.handle(alert, result)
         except Exception as exc:  # noqa: BLE001 - a sink error must not stop watching
-            print(f"[watch] sink failed: {str(exc)[:110]}")
+            log.error(f"[watch] sink failed: {str(exc)[:110]}")
 
     # --- background loop --------------------------------------------------
     def _loop(self) -> None:
@@ -117,9 +120,9 @@ class WatchRunner:
                         continue
                     self.scan_camera(cam, frame)
                 except Exception as exc:  # noqa: BLE001
-                    print(f"[watch] {cam.get('id')} failed: {str(exc)[:110]}")
+                    log.error(f"[watch] {cam.get('id')} failed: {str(exc)[:110]}")
             for case in self.book.expire():
-                print(f"[watch] case closed: {case.watch} #{case.track_id} on "
+                log.info(f"[watch] case closed: {case.watch} #{case.track_id} on "
                       f"{case.camera_id} after {case.duration:.0f}s / {case.sightings} sightings")
 
     def start(self) -> "WatchRunner":
@@ -127,7 +130,7 @@ class WatchRunner:
             self._thread = threading.Thread(target=self._loop, name="watches", daemon=True)
             self._thread.start()
             names = ", ".join(w.get("name", "?") for c in self.cameras for w in c["watches"])
-            print(f"[watch] following {len(self.cameras)} camera(s): {names}")
+            log.info(f"[watch] following {len(self.cameras)} camera(s): {names}")
         return self
 
     def stop(self) -> None:

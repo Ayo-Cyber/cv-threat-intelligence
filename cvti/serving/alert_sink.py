@@ -17,6 +17,9 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +42,7 @@ def _multipart(fields: dict, files: dict) -> tuple[bytes, str]:
 
 class ConsoleNotifier:
     def notify(self, event: dict) -> None:
-        print(f"[NOTIFY] {event['priority'].upper()} {event['rule']} on {event['camera_id']} "
+        log.info(f"[NOTIFY] {event['priority'].upper()} {event['rule']} on {event['camera_id']} "
               f"(conf {event['confidence']:.2f}) — evidence: {event['evidence_dir']}")
 
 
@@ -61,7 +64,7 @@ class WebhookNotifier:
                 headers={"Content-Type": "application/json"}, method="POST")
             urllib.request.urlopen(req, timeout=self.timeout)
         except Exception as exc:  # noqa: BLE001 - a notify failure must not kill the gate
-            print(f"[notify webhook error] {str(exc)[:120]}")
+            log.error(f"[notify webhook error] {str(exc)[:120]}")
 
 
 class TelegramNotifier:
@@ -99,7 +102,7 @@ class TelegramNotifier:
                 return
             self._send_photos(frames, self._caption(event))
         except Exception as exc:  # noqa: BLE001 - a notify failure must not kill the gate
-            print(f"[notify telegram error] {str(exc)[:140]}")
+            log.error(f"[notify telegram error] {str(exc)[:140]}")
 
     def _send_photos(self, frames: list[Path], caption: str) -> None:
         """One photo -> sendPhoto; several -> sendMediaGroup (album)."""
@@ -160,7 +163,7 @@ class WhatsAppNotifier:
                                          headers={"Authorization": f"Basic {self.auth}"}, method="POST")
             urllib.request.urlopen(req, timeout=self.timeout)
         except Exception as exc:  # noqa: BLE001
-            print(f"[notify whatsapp error] {str(exc)[:140]}")
+            log.error(f"[notify whatsapp error] {str(exc)[:140]}")
 
 
 class MultiNotifier:
@@ -173,7 +176,7 @@ class MultiNotifier:
             try:
                 n.notify(event)
             except Exception as exc:  # noqa: BLE001
-                print(f"[alert-sink] {type(n).__name__} failed: {str(exc)[:100]}")
+                log.error(f"[alert-sink] {type(n).__name__} failed: {str(exc)[:100]}")
 
 
 def _build_one(spec: str) -> Any:
@@ -189,9 +192,9 @@ def _build_one(spec: str) -> Any:
         try:
             return WhatsAppNotifier.from_env()
         except Exception as exc:  # noqa: BLE001
-            print(f"[alert-sink] whatsapp unavailable ({exc}); using console")
+            log.warning(f"[alert-sink] whatsapp unavailable ({exc}); using console")
             return ConsoleNotifier()
-    print(f"[alert-sink] unknown notifier '{spec}', using console")
+    log.warning(f"[alert-sink] unknown notifier '{spec}', using console")
     return ConsoleNotifier()
 
 
@@ -273,7 +276,7 @@ class AlertSink:
         self.routed = 0
         self.escalated = 0
         if self.routing.rules:
-            print(f"[routing] {len(self.routing.rules)} rule(s) loaded "
+            log.info(f"[routing] {len(self.routing.rules)} rule(s) loaded "
                   f"(default: {self.routing.default})")
         # Feedback loop: a calibration file (written by the FeedbackManager from
         # operator labels) tells us which (camera, rule) pairs are chronically wrong.
@@ -317,20 +320,20 @@ class AlertSink:
             self._calib_mtime = mtime
             demoted = self.calibration.demoted_keys()
             if demoted:
-                print(f"[calibration] loaded — demoting (no page): {', '.join(demoted)}")
+                log.info(f"[calibration] loaded — demoting (no page): {', '.join(demoted)}")
 
     def handle(self, alert: Any, result: Any) -> None:
         if result is None:
             return
         tag = "CONFIRMED" if result.confirmed else "REJECTED "
-        print(f"[{tag}] {alert.camera_id} :: {alert.rule_name} ({alert.priority.upper()}) "
+        log.info(f"[{tag}] {alert.camera_id} :: {alert.rule_name} ({alert.priority.upper()}) "
               f"— {alert.title} | conf={result.confidence:.2f} | {result.reason}")
         if not result.confirmed:
             return
         try:
             self._persist(alert, result)
         except Exception as exc:  # noqa: BLE001 - persistence must not kill the gate
-            print(f"[alert-sink error] {str(exc)[:140]}")
+            log.error(f"[alert-sink error] {str(exc)[:140]}")
 
     # --- routing ---------------------------------------------------------
     def _is_acknowledged(self, event_id: Any) -> bool:
@@ -358,7 +361,7 @@ class AlertSink:
             target.notify(event)
             self.routed += 1
         except Exception as exc:  # noqa: BLE001 - a channel failing must not kill the sink
-            print(f"[routing] '{rule_name}' -> {spec} failed: {str(exc)[:110]}")
+            log.error(f"[routing] '{rule_name}' -> {spec} failed: {str(exc)[:110]}")
         if event_id is not None:
             rule = self.routing.match(event)
             if rule:
@@ -375,10 +378,10 @@ class AlertSink:
                 self._notifier_for(item["to"]).notify(ev)
                 sent += 1
                 self.escalated += 1
-                print(f"[routing] escalated {ev.get('camera_id')}::{ev.get('rule')} "
+                log.info(f"[routing] escalated {ev.get('camera_id')}::{ev.get('rule')} "
                       f"-> {item['to']} (rule '{item['rule']}')")
             except Exception as exc:  # noqa: BLE001
-                print(f"[routing] escalation to {item['to']} failed: {str(exc)[:110]}")
+                log.error(f"[routing] escalation to {item['to']} failed: {str(exc)[:110]}")
         return sent
 
     @staticmethod
@@ -478,7 +481,7 @@ class AlertSink:
         # Feedback loop: chronically-wrong (camera, rule) pairs are stored but not paged.
         self._reload_calibration()
         if self.calibration.demoted(alert.camera_id, alert.rule_name):
-            print(f"[calibrated] {alert.camera_id} :: {alert.rule_name} demoted by feedback "
+            log.warning(f"[calibrated] {alert.camera_id} :: {alert.rule_name} demoted by feedback "
                   f"— stored, NOT notified")
         else:
             # Routed to the channels this alert's rule names; registers escalation

@@ -24,6 +24,9 @@ from typing import Any, Callable
 
 from cvti.serving.batcher import collect_batch
 from cvti.serving.streams import Frame, StreamDecoder
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 # Handler signature: (frame, ultralytics_result) -> None
 ResultHandler = Callable[[Frame, Any], None]
@@ -102,7 +105,7 @@ class MultiStreamPipeline:
         self._threat_classes = normalize_threat_classes("gun,knife")
         for cam_id, src in self.sources.items():
             self._decoders[cam_id] = StreamDecoder(cam_id, src, target_fps=self.target_fps).start()
-        print(f"[serving] {len(self._decoders)} camera(s) | device={self.device} "
+        log.info(f"[serving] {len(self._decoders)} camera(s) | device={self.device} "
               f"half={self.half} target_fps={self.target_fps} | model={self.weights}")
 
     def _default_handler(self, frame: Frame, result: Any) -> None:
@@ -157,7 +160,7 @@ class MultiStreamPipeline:
                 self._report()
                 last_report = time.perf_counter()
             if self._all_ended():
-                print("[serving] all streams ended")
+                log.info("[serving] all streams ended")
                 break
             slept = self.tick_seconds - (time.perf_counter() - tick)
             if slept > 0:
@@ -169,14 +172,14 @@ class MultiStreamPipeline:
         avg_ms = (self._detect_ms_total / self.batches) if self.batches else 0.0
         fps = (self.frames_processed / (self._detect_ms_total / 1000.0)) if self._detect_ms_total else 0.0
         tag = "FINAL" if final else "stats"
-        print(f"[{tag}] batches={self.batches} frames={self.frames_processed} "
+        log.info(f"[{tag}] batches={self.batches} frames={self.frames_processed} "
               f"avg_batch={avg_batch:.1f} detect={avg_ms:.1f}ms/batch "
               f"throughput={fps:.0f} frames/s | batch_sizes={dict(sorted(self.batch_hist.items()))}")
         if final:
             if self._camera_states is not None:
-                print(f"[FINAL] alerts_queued={self.alerts_queued}")
+                log.info(f"[FINAL] alerts_queued={self.alerts_queued}")
             else:
-                print(f"[FINAL] detections/camera={dict(self.per_cam)}")
+                log.info(f"[FINAL] detections/camera={dict(self.per_cam)}")
 
     def stop(self) -> None:
         for d in self._decoders.values():
@@ -210,7 +213,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # looking at it. Refuse unless the operator asked for that by name.
     mock_gate = assert_engine_gate_allowed(gate_provider)
     if mock_gate:
-        print(f"[site] *** {MOCK_GATE_BANNER} *** every alert will be confirmed WITHOUT verification.")
+        log.info(f"[site] *** {MOCK_GATE_BANNER} *** every alert will be confirmed WITHOUT verification.")
 
     site = load_site_config(site_config_path)
     cams_cfg = site["cameras"]
@@ -219,25 +222,25 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     if any(c.get(k) for c in cams_cfg for k in ("concealment", "violence", "theft")):
         from cvti.detector.core import load_ultralytics_model
         pose_model = load_ultralytics_model(pose_weights)
-        print(f"[site] shared pose model loaded ({pose_weights})")
+        log.info(f"[site] shared pose model loaded ({pose_weights})")
     # Load ONE shared weapon model iff any camera enables weapons (best-effort).
     weapon_model = None
     if any(c.get("weapons") for c in cams_cfg):
         try:
             from cvti.detector.core import load_detection_model
             weapon_model = load_detection_model(weapon_weights, yolov5_repo, preferred_kind="yolov5")
-            print(f"[site] shared weapon model loaded ({weapon_weights})")
+            log.info(f"[site] shared weapon model loaded ({weapon_weights})")
         except Exception as exc:  # noqa: BLE001
-            print(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled")
+            log.warning(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled")
     # Load ONE shared video-action model iff any camera enables it (best-effort).
     video_action_model = None
     if any(c.get("video_action") for c in cams_cfg):
         try:
             from cvti.video_action_model import VideoMAEActionModel
             video_action_model = VideoMAEActionModel(video_action_model_path)
-            print(f"[site] shared video-action model loaded ({video_action_model_path})")
+            log.info(f"[site] shared video-action model loaded ({video_action_model_path})")
         except Exception as exc:  # noqa: BLE001
-            print(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled")
+            log.warning(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled")
     cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
                                video_action_model=video_action_model, baseline_config=baseline_config)
     sources = {cid: c["source"] for cid, c in cams.items()}
@@ -326,7 +329,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                 warn_actions=warn_actions,
                                 critical_actions=crit_actions).start()
 
-    print(f"[site] {len(states)} camera(s) | gate={gate_provider} | notify={notify} | rules per camera")
+    log.info(f"[site] {len(states)} camera(s) | gate={gate_provider} | notify={notify} | rules per camera")
 
     # Escalation ticker: re-notify alerts nobody acknowledged in time. Cheap poll,
     # daemon so it never holds shutdown open.
@@ -338,7 +341,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             try:
                 sink.run_escalations()
             except Exception as exc:  # noqa: BLE001
-                print(f"[routing] escalation tick failed: {str(exc)[:90]}")
+                log.error(f"[routing] escalation tick failed: {str(exc)[:90]}")
 
     _esc_thread = _threading.Thread(target=_escalation_loop, name="escalations", daemon=True)
     _esc_thread.start()
@@ -368,7 +371,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             for k in _ledger_seen:
                 _ledger_seen[k] = st.get(k) or 0
         except Exception as exc:  # noqa: BLE001 - bookkeeping never stops the engine
-            print(f"[value] suppression ledger write failed: {str(exc)[:90]}")
+            log.error(f"[value] suppression ledger write failed: {str(exc)[:90]}")
 
     def _health_loop() -> None:
         while not _esc_stop.wait(3.0):
@@ -388,29 +391,29 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             watch_runner.stop()
             act = watch_runner.active_cases()
             if act or watch_runner.opened:
-                print(f"[watch] cases opened={watch_runner.opened} still_active={len(act)}")
+                log.info(f"[watch] cases opened={watch_runner.opened} still_active={len(act)}")
         # Let in-flight VLM verdicts finish (a real gate is ~12s/verify, so the
         # queue keeps draining after the streams end) before tearing down.
         pending = queue.pending_count
         if pending or gate_pool._active:
-            print(f"[site] draining gate: {pending} queued verdict(s) (up to {gate_drain:.0f}s)…")
+            log.info(f"[site] draining gate: {pending} queued verdict(s) (up to {gate_drain:.0f}s)…")
             drained = gate_pool.drain(timeout=gate_drain)
-            print(f"[site] gate drained cleanly={drained}")
+            log.info(f"[site] gate drained cleanly={drained}")
         gate_pool.stop()
         if mem_guard is not None:
             mem_guard.stop()
             if mem_guard.mitigations:
-                print(f"[memory] shed load {len(mem_guard.mitigations)} time(s): "
+                log.warning(f"[memory] shed load {len(mem_guard.mitigations)} time(s): "
                       f"{'; '.join(mem_guard.mitigations)}")
         if publisher is not None:
-            print(f"[frames] published {publisher.published} frame(s)")
+            log.info(f"[frames] published {publisher.published} frame(s)")
             publisher.stop()
         _write_health()          # final totals, while the sink's DB is still open
         sink.close()
-    print(f"[site] alerts_queued={pipe.alerts_queued} gate={gate_pool.stats()}")
-    print(f"[site] persisted {sink.persisted} confirmed event(s) -> {output_dir}/events.db")
+    log.info(f"[site] alerts_queued={pipe.alerts_queued} gate={gate_pool.stats()}")
+    log.info(f"[site] persisted {sink.persisted} confirmed event(s) -> {output_dir}/events.db")
     if getattr(sink, "routing", None) and sink.routing.rules:
-        print(f"[site] routed={sink.routed} escalated={sink.escalated} "
+        log.info(f"[site] routed={sink.routed} escalated={sink.escalated} "
               f"pending_escalation={sink.escalations.pending_count}")
 
 
@@ -462,7 +465,7 @@ def main() -> None:
     try:
         assert_engine_gate_allowed(args.gate_provider)
     except MockGateRefused as exc:
-        print(f"[site] {exc}")
+        log.info(f"[site] {exc}")
         raise SystemExit(2)
 
     if args.site_config:

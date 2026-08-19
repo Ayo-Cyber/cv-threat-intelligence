@@ -14,6 +14,9 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -98,7 +101,7 @@ class StreamDecoder:
                     self.reconnects += 1
                     attempt += 1
                     backoff = min(self.reconnect_backoff * attempt, 5.0)
-                    print(f"[decode {self.camera_id}] stream dropped; reopening in "
+                    log.warning(f"[decode {self.camera_id}] stream dropped; reopening in "
                           f"{backoff:.0f}s (attempt {attempt})")
                     cap.release()
                     self._stop.wait(backoff)   # interruptible so stop() is prompt

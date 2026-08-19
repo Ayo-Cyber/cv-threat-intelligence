@@ -14,6 +14,9 @@ import time
 from typing import Any, Callable
 
 from cvti.serving.alert_queue import AlertQueue, QueuedAlert
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 # Called on every verdict: (alert, VerificationResult) -> None
 VerdictHandler = Callable[[QueuedAlert, Any], None]
@@ -66,7 +69,7 @@ class GatePool:
         if result is None:
             return
         tag = "CONFIRMED" if result.confirmed else "REJECTED "
-        print(f"[{tag}] {alert.camera_id} :: {alert.rule_name} ({alert.priority.upper()}) "
+        log.info(f"[{tag}] {alert.camera_id} :: {alert.rule_name} ({alert.priority.upper()}) "
               f"— {alert.title} | conf={result.confidence:.2f} | {result.reason}")
 
     @staticmethod
@@ -110,7 +113,7 @@ class GatePool:
                     self.errors += 1
                     self.last_error = f"{alert.camera_id}::{alert.rule_name} — {str(exc)[:160]}"
                     self.last_error_at = time.time()
-                    print(f"[gate error] {self.last_error}")
+                    log.error(f"[gate error] {self.last_error}")
                     result = None
                 finally:
                     self._active -= 1

@@ -17,6 +17,9 @@ from urllib import request as urlrequest
 
 import cv2
 import numpy as np
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 DEFAULT_OUTPUT_ROOT = Path("runs/context")
@@ -802,6 +805,9 @@ class AgentMapper:
 
 
 def main() -> None:
+    # Entrypoint: configure logging before anything can fail.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-mapper")
     args = parse_args()
     source = normalize_source(args.source)
     source_type = detect_source_type(source)
@@ -855,14 +861,12 @@ def main() -> None:
         dump_raw_response=args.dump_raw_response,
     )
 
-    print(f"Selected frame timestamp: {selected.timestamp_seconds:.2f}s")
-    print(f"Scene context saved to: {paths.context_path}")
-    print(f"Representative frame saved to: {paths.frame_path}")
-    print(
-        "Summary: "
+    log.info(f"Selected frame timestamp: {selected.timestamp_seconds:.2f}s")
+    log.info(f"Scene context saved to: {paths.context_path}")
+    log.info(f"Representative frame saved to: {paths.frame_path}")
+    log.info("Summary: "
         f"environment_type={context['environment_type']}, "
-        f"confidence={context['confidence']:.2f}"
-    )
+        f"confidence={context['confidence']:.2f}")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,9 @@ from cvti.feedback.calibration import Calibration
 from cvti.feedback.dataset import export_dataset
 from cvti.feedback.registry import ModelRegistry
 from cvti.feedback.store import FeedbackStore
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class FeedbackManager:
@@ -101,6 +104,9 @@ def main() -> None:
     p.add_argument("--epochs", type=int, default=3)
     args = p.parse_args()
 
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-feedback")
+
     mgr = FeedbackManager(args.db, dataset_dir=args.dataset_dir)
     import json
     if args.cmd == "status":
@@ -113,7 +119,7 @@ def main() -> None:
         out = mgr.retrain(run=args.run, epochs=args.epochs)
     else:
         out = mgr.rollback()
-    print(json.dumps(out, indent=2, default=str))
+    log.info(json.dumps(out, indent=2, default=str))
 
 
 if __name__ == "__main__":

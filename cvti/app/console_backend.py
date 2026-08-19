@@ -452,11 +452,11 @@ class ConsoleBackend:
                 if self._monitor and self._monitor.poll() is not None:   # died
                     if self._restarts < max_restarts:
                         self._restarts += 1
-                        print(f"[watchdog] engine exited unexpectedly — restarting "
+                        log.info(f"[watchdog] engine exited unexpectedly — restarting "
                               f"({self._restarts}/{max_restarts})")
                         self._monitor = self._spawn_engine()
                     else:
-                        print("[watchdog] engine died too many times — giving up")
+                        log.info("[watchdog] engine died too many times — giving up")
                         self._monitor_should_run = False
 
         self._watchdog = threading.Thread(target=loop, name="engine-watchdog", daemon=True)

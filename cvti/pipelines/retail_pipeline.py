@@ -45,6 +45,9 @@ from cvti.retail.concealment import COCO_BAG_IDS, ConcealmentDetector, PoseFrame
 from cvti.retail.zones import RetailZoneMonitor, filter_person_detections, load_zone_config
 from cvti.rules.customization import CustomizationEngine
 from cvti.verification.gate import VerificationGate
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -79,6 +82,9 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    # Entrypoint: configure logging before anything can fail.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-retail")
     args = _parse_args()
     try:
         import cv2
@@ -116,7 +122,7 @@ def main() -> None:
     # frames of the candidate, not the first (often blurry) one.
     evidence: deque = deque(maxlen=max(1, int(fps * args.clip_seconds)))
 
-    print(f"[retail_pipeline] zones={'on' if zone_monitor else 'off'} "
+    log.info(f"[retail_pipeline] zones={'on' if zone_monitor else 'off'} "
           f"bags={'off' if args.no_bags else 'on'} gate={args.gate_provider} rules={args.config}"
           + (f" simulated_time={args.simulate_time}" if args.simulate_time else ""))
 
@@ -172,18 +178,18 @@ def main() -> None:
                 try:
                     verdict = gate.verify(evidence_frames, top, scene_context)
                 except Exception as exc:  # noqa: BLE001 - a transient gate/API error must not kill the run
-                    print(f"[gate error] {top.rule_name} person #{top.person_id} — "
+                    log.error(f"[gate error] {top.rule_name} person #{top.person_id} — "
                           f"{str(exc)[:140]} (alert held, not raised)")
                     verdict = None
                 if verdict is not None and verdict.confirmed and (ts - last_event_t) >= args.cooldown:
                     event_count += 1
                     last_event_t = ts
                     alert_until, alert_text = ts + 2.0, f"{top.rule_name.upper()} ({top.priority}) {verdict.confidence:.2f}"
-                    print(f"[ALERT #{event_count}] {top.rule_name} ({top.priority.upper()}) "
+                    log.info(f"[ALERT #{event_count}] {top.rule_name} ({top.priority.upper()}) "
                           f"person #{top.person_id} — {top.title} | confirmed {verdict.confidence:.2f} | {verdict.reason}")
                     _save_event(cv2, out_root, event_count, list(buffer), fps, top, verdict)
                 elif verdict is not None and not verdict.confirmed:
-                    print(f"[rejected] {top.rule_name} person #{top.person_id} — {verdict.reason}")
+                    log.info(f"[rejected] {top.rule_name} person #{top.person_id} — {verdict.reason}")
         else:
             last_rule_sig = None
 
@@ -206,7 +212,7 @@ def main() -> None:
         writer.release()
     if args.show:
         cv2.destroyAllWindows()
-    print(f"\n=== done: {n} frames, {event_count} confirmed alert(s) -> {out_root} ===")
+    log.info(f"\n=== done: {n} frames, {event_count} confirmed alert(s) -> {out_root} ===")
 
 
 def _best_frames(evidence: deque, person_id: Any, k: int) -> list | None:

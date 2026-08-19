@@ -39,6 +39,9 @@ from collections import deque
 from dataclasses import dataclass, field
 from math import hypot
 from typing import Any
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 # COCO-17 keypoint indices we use. Hips (11,12) are the addition over detector.py's
 # violence pose features and are essential for the hand-to-waist signal.
@@ -391,6 +394,9 @@ def _draw_overlay(cv2: Any, frame: Any, pose_frames: list[PoseFrame],
 
 
 def main() -> None:
+    # Entrypoint: configure logging before anything can fail.
+    from cvti.logging_setup import setup_logging
+    setup_logging(component="argus-concealment")
     args = _parse_args()
     try:
         import cv2
@@ -436,7 +442,7 @@ def main() -> None:
             line = f"#{a.track_id} score={a.score:.2f} cand={a.candidate} dest={a.destination} {a.components}"
             if args.debug and last.get(a.track_id) != line and (a.score > 0.3 or a.candidate):
                 tag = "CONCEAL-CANDIDATE" if a.candidate else "motion"
-                print(f"[{tag}] {line} {'; '.join(a.reasons)}")
+                log.info(f"[{tag}] {line} {'; '.join(a.reasons)}")
                 last[a.track_id] = line
 
         if args.show or args.save:
@@ -458,12 +464,12 @@ def main() -> None:
     if args.show:
         cv2.destroyAllWindows()
 
-    print("\n=== concealment summary ===")
-    print(f"frames processed: {n}")
+    log.info("\n=== concealment summary ===")
+    log.info(f"frames processed: {n}")
     for tid, pk in sorted(peak.items()):
-        print(f"  track #{tid}: peak_score={pk:.2f}")
+        log.info(f"  track #{tid}: peak_score={pk:.2f}")
     if args.save:
-        print(f"annotated video written to {args.save}")
+        log.info(f"annotated video written to {args.save}")
 
 
 if __name__ == "__main__":

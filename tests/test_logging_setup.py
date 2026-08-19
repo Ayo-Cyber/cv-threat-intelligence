@@ -42,6 +42,20 @@ class LoggingSetupTest(unittest.TestCase):
     def test_logger_carries_module_attribution(self):
         self.assertEqual(get_logger("cvti.serving.pipeline").name, "cvti.serving.pipeline")
 
+    def test_module_run_with_dash_m_keeps_its_real_name(self):
+        # `python -m cvti.serving.pipeline` sets __name__ to "__main__", which
+        # would label every engine record "__main__" and discard the attribution
+        # this whole module exists to provide.
+        import types
+
+        main_mod = sys.modules["__main__"]
+        saved = getattr(main_mod, "__spec__", None)
+        main_mod.__spec__ = types.SimpleNamespace(name="cvti.serving.pipeline")
+        try:
+            self.assertEqual(get_logger("__main__").name, "cvti.serving.pipeline")
+        finally:
+            main_mod.__spec__ = saved
+
     def test_writes_a_file_that_survives_a_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = setup_logging(tmp, component="t", console=False)

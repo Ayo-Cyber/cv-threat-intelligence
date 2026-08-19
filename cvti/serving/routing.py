@@ -36,6 +36,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 def _hhmm(s: str) -> int:
@@ -98,7 +101,7 @@ class RoutingPolicy:
         try:
             data = json.loads(p.read_text())
         except Exception:  # noqa: BLE001 - a broken policy must not stop alerting
-            print(f"[routing] could not parse {p}; using default channel only")
+            log.error(f"[routing] could not parse {p}; using default channel only")
             return cls(default=default)
         rules = [RoutingRule(r.get("name", f"rule{i}"), r.get("when", {}),
                              r.get("notify", default),
