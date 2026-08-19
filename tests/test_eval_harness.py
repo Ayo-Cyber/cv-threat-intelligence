@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 from cvti.eval.dataset import EvalClip, describe, load_dataset
 from cvti.eval.harness import ClipResult, EvalHarness
+from cvti.eval import metrics
 from cvti.eval.metrics import compare_stages, render_report, score
 
 
@@ -146,3 +147,39 @@ class SensitivityTests(unittest.TestCase):
         self.assertGreater(SENSITIVITY_MEASURED["strict"]["precision"],
                            SENSITIVITY_MEASURED["balanced"]["precision"])
         self.assertIn("held-out", SENSITIVITY_MEASURED["_dataset"])
+
+
+class WilsonIntervalTest(unittest.TestCase):
+    """Published numbers must never be point estimates alone — see docs/NUMBERS.md."""
+
+    def test_perfect_score_on_a_small_sample_is_not_certainty(self):
+        # The whole reason this exists: 9/9 is not "we never miss a fire".
+        lo, hi = metrics.wilson_interval(9, 9)
+        self.assertAlmostEqual(lo, 0.7009, places=3)
+        self.assertEqual(hi, 1.0)
+
+    def test_interval_brackets_the_estimate_and_stays_in_range(self):
+        for k, n in ((0, 30), (2, 30), (15, 30), (30, 30), (1, 1)):
+            lo, hi = metrics.wilson_interval(k, n)
+            self.assertLessEqual(lo, k / n)
+            self.assertGreaterEqual(hi, k / n)
+            self.assertGreaterEqual(lo, 0.0)
+            self.assertLessEqual(hi, 1.0)
+
+    def test_interval_narrows_as_the_sample_grows(self):
+        narrow = metrics.wilson_interval(90, 100)
+        wide = metrics.wilson_interval(9, 10)
+        self.assertLess(narrow[1] - narrow[0], wide[1] - wide[0])
+
+    def test_no_sample_means_no_interval(self):
+        self.assertIsNone(metrics.wilson_interval(0, 0))
+
+    def test_every_published_rate_carries_n_and_an_interval(self):
+        m = metrics.score(
+            [{"is_threat": True, "confirmed": 1}] * 9 + [{"is_threat": False, "confirmed": 0}] * 30,
+            "truesight_confirmed", "confirmed").to_dict()
+        for key in ("precision", "recall", "fpr"):
+            self.assertIn(f"{key}_n", m)
+            self.assertIn(f"{key}_ci", m)
+        self.assertEqual(m["recall_n"], 9)
+        self.assertEqual(m["fpr_n"], 30)
