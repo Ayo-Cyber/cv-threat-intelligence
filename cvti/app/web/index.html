@@ -1652,7 +1652,7 @@ function startClipMedia(){ stopClip(); var a=state.selected; if(!a) return;
 function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }
 /* ---------- first-run setup wizard ---------- */
 var wiz = {step:0, hosts:[], test:null, added:[], site:{name:"My Site",notify:"console",preset:""}, gate:null, pull:null, cidr:"", scanning:false, scanned:false};
-var STEPS = ["welcome","cameras","vlm","site","done"];
+var STEPS = ["welcome","cameras","zones","site","detectors","vlm","alert","done"];
 var VENDORS = [["Hikvision","/Streaming/Channels/102"],
                ["Dahua / Amcrest","/cam/realmonitor?channel=1&subtype=1"],
                ["Reolink","/h264Preview_01_sub"],
@@ -1662,13 +1662,14 @@ var NOTIFIERS = [["console","Console (test)"],["whatsapp","WhatsApp"],
 
 function openWizard(){
   call("presets",[],function(p){ state.presets=(p&&!p.error)?p:{}; wiz.site.preset=Object.values(state.presets)[0]||""; });
+  call("useCaseTemplates",[],function(t){ state.templates=(t&&!t.error)?t:{}; if(!wiz.template) wiz.template="retail"; });
   call("getSite",[],function(s){ if(s&&!s.error){ wiz.site.name=s.name||"My Site"; wiz.site.notify=s.notify||"console"; } });
   call("listCameras",[],function(c){ wiz.added=Array.isArray(c)?c:[]; });
   wiz.step=0; $("wizard").classList.add("on"); renderWizard();
 }
 function closeWizard(){ $("wizard").classList.remove("on"); }
 function wizStepper(){
-  var mids=[["cameras","Cameras"],["vlm","VLM gate"],["site","Site & rules"]];
+  var mids=[["cameras","Cameras"],["zones","Zones"],["site","Use case"],["detectors","Detectors"],["vlm","Verification"],["alert","Test alert"]];
   var cur=STEPS.indexOf(STEPS[wiz.step]);
   return '<div class="steps">'+mids.map(function(m,i){
     var idx=STEPS.indexOf(m[0]); var cls=idx<wiz.step?"done":(idx===wiz.step?"on":"");
@@ -1677,7 +1678,7 @@ function wizStepper(){
 }
 function renderWizard(){
   var step=STEPS[wiz.step];
-  var body = ({welcome:wizWelcome,cameras:wizCameras,vlm:wizVlm,site:wizSite,done:wizDone}[step])();
+  var body = ({welcome:wizWelcome,cameras:wizCameras,zones:wizZones,site:wizSite,detectors:wizDetectors,vlm:wizVlm,alert:wizAlert,done:wizDone}[step])();
   var showStepper = (step!=="welcome" && step!=="done");
   $("wizard").innerHTML =
     '<div class="wizhead"><div class="wizbrand">Argus</div>'+(showStepper?wizStepper():'')+'</div>'
@@ -1691,13 +1692,20 @@ function wizFooter(step){
 }
 function wizGo(i){ wiz.step=Math.max(0,Math.min(STEPS.length-1,i)); renderWizard();
   if(STEPS[wiz.step]==="vlm") wizCheckGate();
+  if(STEPS[wiz.step]==="detectors") wizLoadDetectors();
+  if(STEPS[wiz.step]==="done") wizSelfTest();
   if(STEPS[wiz.step]==="cameras" && !wiz.scanned && !wiz.scanning) wizAutoScan(); }
 function wizAutoScan(){ wiz.scanning=true;
   call("detectSubnet",[],function(r){ wiz.cidr=(r&&r.cidr)||"";
     if($("wzCidr")) $("wzCidr").value=wiz.cidr;
     if(!wiz.cidr){ wiz.scanning=false; if($("wzScanRes")) $("wzScanRes").textContent="Couldn't detect your network automatically — type it above and scan."; return; }
     wizScan(); }); }
-function wizNext(){ if(STEPS[wiz.step]==="site") wizSaveSite(); wizGo(wiz.step+1); }
+function wizNext(){
+  if(STEPS[wiz.step]==="site"){ wizSaveSite();
+    if(wiz.template) call("applyTemplate",[wiz.template],function(){ wizGo(wiz.step+1); });
+    else wizGo(wiz.step+1);
+    return; }
+  wizGo(wiz.step+1); }
 function wizSkip(){ closeWizard(); startApp(); }
 
 function wizWelcome(){
@@ -1785,14 +1793,87 @@ function wizPollPull(){ call("pullProgress",[],function(p){ wiz.pull=p||wiz.pull
 
 function wizSite(){
   var notiOpts=NOTIFIERS.map(function(n){return '<option value="'+n[0]+'"'+(wiz.site.notify===n[0]?' selected':'')+'>'+esc(n[1])+'</option>';}).join("");
-  var presetOpts=Object.keys(state.presets).map(function(k){return '<option value="'+esc(state.presets[k])+'"'+(wiz.site.preset===state.presets[k]?' selected':'')+'>'+esc(k)+'</option>';}).join("");
-  return '<h2>Name your site</h2><p class="lead">A label for this location and where alerts should go. You can fine-tune individual rules later.</p>'
-    +'<div class="panel" style="padding:18px">'
-    +  '<label class="fld">Site name<input id="wzSiteName" value="'+esc(wiz.site.name)+'" placeholder="e.g. Front Store"></label>'
-    +  '<div class="grid2" style="margin-top:14px"><label class="fld">Default threats<select id="wzPreset">'+presetOpts+'</select></label>'
+  var tpls = state.templates||{};
+  var cards = Object.keys(tpls).map(function(k){ var t=tpls[k]; var on = wiz.template===k;
+    var nOn = Object.keys(t.detectors||{}).filter(function(d){return t.detectors[d];}).length;
+    return '<div class="panel" onclick="wizPickTemplate(\''+k+'\')" style="padding:14px;cursor:pointer;flex:1;min-width:150px;border-color:'+(on?'var(--c-accent)':'var(--c-border2)')+'">'
+      +'<div style="font-weight:700">'+(on?'● ':'○ ')+esc(t.label)+'</div>'
+      +'<div class="mut" style="font-size:12px;margin-top:5px;line-height:1.45">'+esc(t.blurb)+'</div>'
+      +'<div class="mono sub" style="font-size:11px;margin-top:7px">'+nOn+' detectors preselected</div></div>'; }).join("");
+  return '<h2>What is this place?</h2><p class="lead">Pick the closest match — Argus preselects sensible detectors and rules for it. You confirm (and can change) everything on the next step.</p>'
+    +'<div class="row" style="gap:10px;align-items:stretch;flex-wrap:wrap">'+cards+'</div>'
+    +'<div class="panel" style="padding:18px;margin-top:14px">'
+    +  '<div class="grid2"><label class="fld">Site name<input id="wzSiteName" value="'+esc(wiz.site.name)+'" placeholder="e.g. Front Store"></label>'
     +  '<label class="fld">Notify me via<select id="wzNotify">'+notiOpts+'</select></label></div>'
     +  '<p class="sub" style="margin:12px 0 0;font-size:11.5px">WhatsApp/Telegram need credentials set on this machine (env vars) — the app will use them if present.</p>'
     +'</div>';
+}
+function wizPickTemplate(k){ wizSaveSite(); wiz.template=k; renderWizard(); }
+
+/* step: draw zones (optional but offered in order) */
+function wizZones(){
+  var cams = wiz.added||[];
+  if(!cams.length) return '<h2>Watch specific areas</h2><p class="lead">No cameras yet — add one on the Cameras step and come back to draw zones.</p>';
+  var rows = cams.map(function(c){
+    return '<div class="row" style="justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--c-border2)">'
+      +'<b class="mono">'+esc(c.id)+'</b>'
+      +'<button class="btn ghost sm" onclick="openZoneEditor(\''+esc(c.id)+'\')">✏️ Draw a zone</button></div>'; }).join("");
+  return '<h2>Watch specific areas</h2><p class="lead">Draw a box over a shelf, an entrance or a restricted area — Argus alerts when someone lingers there or takes an item out of it. Optional: skip if whole-frame watching is enough.</p>'
+    +'<div class="panel" style="padding:6px 18px 2px">'+rows+'</div>';
+}
+
+/* step: confirm detectors (the template's effect, editable per site) */
+function wizLoadDetectors(){
+  call("listCameras",[],function(c){ wiz.added=Array.isArray(c)?c:wiz.added;
+    wiz.flags={}; var first=(wiz.added||[])[0]||{};
+    DETECTORS.forEach(function(d){ wiz.flags[d[0]]=!!first[d[0]]; });
+    renderWizard(); });
+}
+function wizDetectors(){
+  if(!wiz.flags) return '<h2>Confirm what Argus watches for</h2><div class="statusbig"><span class="spin"></span><span>loading…</span></div>';
+  var groups = DET_GROUPS.map(function(g){
+    var rows = DETECTORS.filter(function(d){return d[4]===g[0];}).map(function(d){
+      var on = !!wiz.flags[d[0]];
+      return '<label class="row" style="gap:10px;padding:7px 0;cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' onchange="wizToggleDet(\''+d[0]+'\', this.checked)">'
+        +'<span>'+d[5]+'</span><span style="min-width:120px;font-weight:600">'+esc(d[1])+'</span>'
+        +'<span class="mut" style="font-size:12px">'+esc(d[2])+'</span></label>'; }).join("");
+    return '<div class="panel" style="padding:12px 18px;margin-top:10px"><div style="font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-accent)">'+esc(g[1])+'</div>'+rows+'</div>'; }).join("");
+  return '<h2>Confirm what Argus watches for</h2><p class="lead">Preselected from your use case — every camera gets this set. Fine-tune single cameras later under <b>Rules</b>.</p>'+groups;
+}
+function wizToggleDet(key,val){ wiz.flags[key]=val;
+  var rules={}; rules[key]=val;
+  (wiz.added||[]).forEach(function(c){ call("setCameraRules",[c.id, JSON.stringify(rules)],function(){}); });
+}
+
+/* step: prove the notification path BEFORE trusting it */
+function wizAlert(){
+  return '<h2>Send yourself a test alert</h2><p class="lead">Argus sends a synthetic alert through your configured channel (<b>'+esc(wiz.site.notify||"console")+'</b>) so you know the path works before you rely on it.</p>'
+    +'<div class="panel" style="padding:18px"><button class="btn" onclick="wizSendTest(this)">📲 Send me a test alert</button>'
+    +'<div id="wzTestMsg" class="mut" style="margin-top:12px;font-size:13px">No alert is stored — this only tests delivery.</div></div>';
+}
+function wizSendTest(btn){
+  var msg=$("wzTestMsg"); btn.disabled=true; btn.textContent="Sending…";
+  call("setSite",[wiz.site.name, wiz.site.notify],function(){
+    call("sendTestNotification",[],function(r){
+      btn.disabled=false; btn.textContent="📲 Send me a test alert";
+      if(!msg) return;
+      if(r&&r.ok){ msg.style.color="var(--c-live)"; msg.textContent="✓ Sent via "+(r.via||"console")+" — check your device. If it arrived, you're done here."; }
+      else { msg.style.color="var(--sev-crit)"; msg.textContent="✕ "+((r&&r.error)||"failed")+" (via "+((r&&r.via)||"?")+") — fix the channel in Site settings, then try again."; }
+    }); });
+}
+
+/* final self-test: name exactly what is missing, in plain English */
+function wizSelfTest(){
+  var el=$("wzSelfTest"); if(el) el.innerHTML='<div class="row" style="gap:10px"><span class="spin"></span><span class="mut">checking every component…</span></div>';
+  call("setupCheck",[],function(list){
+    var el=$("wzSelfTest"); if(!el) return;
+    if(!Array.isArray(list)){ el.innerHTML='<span class="mut">self-test unavailable</span>'; return; }
+    el.innerHTML = list.map(function(c){
+      var mark = c.ok===true?'<span style="color:var(--c-live)">✓</span>':(c.ok===false?'<span style="color:var(--sev-crit)">✕</span>':'<span style="color:var(--sev-high)">⚠</span>');
+      return '<div style="padding:7px 0;border-bottom:1px solid var(--c-border2)"><div class="row" style="gap:9px">'+mark
+        +'<b style="min-width:210px">'+esc(c.label)+'</b><span class="mut" style="font-size:12.5px">'+esc(c.detail||"")+'</span></div>'
+        +(c.fix?'<div class="mut" style="font-size:12px;margin:3px 0 0 24px">→ '+esc(c.fix)+'</div>':'')+'</div>'; }).join("");
+  });
 }
 function wizSaveSite(){ if($("wzSiteName")) wiz.site.name=($("wzSiteName").value||"").trim()||"My Site";
   if($("wzNotify")) wiz.site.notify=$("wzNotify").value; if($("wzPreset")) wiz.site.preset=$("wzPreset").value; }
@@ -1803,6 +1884,7 @@ function wizDone(){
     +'<div class="panel" style="padding:18px"><div class="row" style="justify-content:space-between"><span class="mut">Cameras</span><b class="mono">'+wiz.added.length+'</b></div>'
     +'<div class="row" style="justify-content:space-between;margin-top:8px"><span class="mut">AI verification</span><b>'+esc(gateTxt)+'</b></div>'
     +'<div class="row" style="justify-content:space-between;margin-top:8px"><span class="mut">Notifications</span><b>'+esc(wiz.site.notify)+'</b></div></div>'
+    +'<div class="panel" style="padding:12px 18px;margin-top:14px"><div style="font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-accent);margin-bottom:4px">Self-test</div><div id="wzSelfTest"></div></div>'
     +'<p class="lead" style="margin-top:16px">Start the detection engine to begin monitoring; confirmed alerts will appear under <b>Alerts</b>.</p>';
 }
 function wizFinish(){ wizSaveSite();

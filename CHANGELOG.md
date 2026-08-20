@@ -18,6 +18,14 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **First-run wizard with use-case templates and a self-test** (EP-05-T3).
+  Setup is now a guided seven-step flow ending in proof: pick what the site IS
+  (Retail / Warehouse-HSE / Office) and sensible detectors are preselected;
+  confirm them; then a self-test names every component's state in plain
+  English — which camera is unreachable and why, whether the verifier model is
+  downloaded, where alerts go — and "Send me a test alert" confirms delivery
+  end-to-end before the system is trusted with anything real.
+
 - **One installer that contains the product** (EP-05-T1). The bundle now ships
   BOTH executables — the operator console and `argus-engine`, the full
   detection pipeline (YOLO + VideoMAE + the TrueSight gate) — plus the Ollama

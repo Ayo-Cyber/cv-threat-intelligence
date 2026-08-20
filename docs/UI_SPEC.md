@@ -194,6 +194,14 @@ why — the spec must never drift behind the shipped UI.
 
 ### Recorded changes
 
+- **2026-08-20 (EP-05-T3).** First-run wizard extended from four steps to the
+  epic's seven-step guided flow: credentials (the auth gate, before the wizard)
+  → add camera → verify feed (Test button) → **draw zones** → **use-case
+  template** (Retail / Warehouse-HSE / Office cards; picking one preselects
+  detectors and rules) → **confirm detectors** (grouped toggles, applied to
+  every camera) → verification → **send a test alert**. The finish screen now
+  runs a **self-test** listing every component ✓/✕/⚠ with a plain-English fix
+  line per failure. Extends §2.2's first-run scope; state colours follow §2.6.
 - **2026-08-20 (EP-05-T1).** First-run "Local AI verification" step: when the
   Ollama runtime ships inside the bundle (the installed product), the offline
   state no longer sends the user to ollama.com — it shows **Start verifier**,

@@ -25,6 +25,7 @@ from cvti.security import permissions as perms
 from cvti.security.accounts import AccountStore, AuthError
 from cvti.security.audit import AuditLog
 from cvti.serving import onboarding, vlm
+from cvti.utils import resource_path
 
 log = get_logger(__name__)
 
@@ -274,6 +275,163 @@ class ConsoleBackend:
         "crowd_formation": {"crowd_min_people": 5, "crowd_min_frames": 3,
                             "crowd_max_cluster_ratio": 0.32},
     }
+
+    # --- first-run use-case templates (EP-05-T3) ---------------------------
+    # Where the CustomizationEngine's flags finally meet the interface: a
+    # non-technical installer picks what the site IS, not which of ten
+    # detectors to enable. Keys are RULE_FLAGS; anything absent is OFF.
+    USE_CASE_TEMPLATES = {
+        "retail": {
+            "label": "Retail / Store",
+            "blurb": "Shoplifting, concealment, weapons and fire — the shop-floor set.",
+            "detectors": {"concealment": True, "video_action": True, "theft": True,
+                          "weapons": True, "violence": True, "tamper": True,
+                          "fire_smoke": True},
+            "config": "configs/all_threats_video_v1.json",
+        },
+        "warehouse": {
+            "label": "Warehouse / HSE",
+            "blurb": "People down, fire, panic and crowding — safety first, theft off.",
+            "detectors": {"fall": True, "fire_smoke": True, "running": True,
+                          "crowd_formation": True, "tamper": True, "weapons": True},
+            "config": "configs/all_threats_v1.json",
+        },
+        "office": {
+            "label": "Office",
+            "blurb": "After-hours intrusion essentials: violence, weapons, fire, tamper.",
+            "detectors": {"violence": True, "weapons": True, "fire_smoke": True,
+                          "tamper": True},
+            "config": "configs/all_threats_v1.json",
+        },
+    }
+
+    def use_case_templates(self) -> dict:
+        """The three templates, detector labels resolved — read-only, any role."""
+        return {k: {"label": t["label"], "blurb": t["blurb"],
+                    "detectors": {f: bool(t["detectors"].get(f)) for f in self.RULE_FLAGS}}
+                for k, t in self.USE_CASE_TEMPLATES.items()}
+
+    def apply_template(self, key: str) -> dict:
+        """Apply a use-case template to EVERY configured camera.
+
+        Sets each RULE_FLAG explicitly (on or off) so switching templates is
+        deterministic, then lets set_camera_rules seed detector defaults for
+        anything newly enabled. Per-camera fine-tuning stays possible after —
+        the template is a starting point, not a lock.
+        """
+        self._require(perms.CONFIGURE_DETECTORS)
+        tpl = self.USE_CASE_TEMPLATES.get(key)
+        if tpl is None:
+            return {"error": f"unknown template '{key}'"}
+        rules = {f: bool(tpl["detectors"].get(f)) for f in self.RULE_FLAGS}
+        rules["config"] = tpl["config"]
+        cams = onboarding.list_cameras(self.site_path)
+        for cam in cams:
+            self.set_camera_rules(cam["id"], rules)
+        self.audit.record(self.current_user.username, "config_change",
+                          "site:template", detail={"template": key, "cameras": len(cams)})
+        return {"ok": True, "template": key, "cameras": len(cams),
+                "detectors_on": sorted(k for k, v in tpl["detectors"].items() if v)}
+
+    # --- setup self-test (EP-05-T3) -----------------------------------------
+    @staticmethod
+    def _probe_stream(source) -> tuple:
+        """(ok, detail) — fast reachability, never a blocking cv2 open.
+
+        A wrong-credentials RTSP URL still connects at the TCP layer; the full
+        stream test is the wizard's per-camera Test button. This check answers
+        the self-test's question — is anything answering at all — in <1s.
+        """
+        import socket
+        from urllib.parse import urlparse
+        src = str(source)
+        if src.isdigit():
+            return True, "built-in webcam"
+        if "://" not in src:
+            return (True, "video file on disk") if Path(src).exists()                 else (False, f"file not found: {src}")
+        u = urlparse(src)
+        port = u.port or {"rtsp": 554, "http": 80, "https": 443}.get(u.scheme, 554)
+        try:
+            with socket.create_connection((u.hostname, port), timeout=1.5):
+                return True, f"{u.hostname}:{port} answers"
+        except OSError as exc:
+            return False, f"{u.hostname}:{port} unreachable ({exc})"
+
+    def setup_check(self) -> list:
+        """Every component, verified, in plain English (EP-05-T3 acceptance:
+        'names exactly what is missing'). Each item: ok True/False/None(warn),
+        what was checked, what was found, and the one action that fixes it."""
+        checks = []
+
+        cams = [c for c in onboarding.list_cameras(self.site_path) if c.get("source")]
+        checks.append({"id": "cameras", "ok": bool(cams),
+                       "label": "Cameras configured",
+                       "detail": f"{len(cams)} camera(s) in the site config" if cams
+                       else "no cameras yet",
+                       "fix": None if cams else "Add a camera in the Cameras step."})
+
+        for c in cams[:8]:
+            ok, detail = self._probe_stream(c.get("source"))
+            checks.append({"id": f"stream:{c['id']}", "ok": ok,
+                           "label": f"Camera '{c['id']}' reachable",
+                           "detail": detail,
+                           "fix": None if ok else "Check the camera's power, network "
+                           "cable and IP address, then use Test on the Cameras step."})
+
+        g = self.gate_status()
+        if g.get("mode") == "live":
+            checks.append({"id": "verifier", "ok": True, "label": "AI verifier (TrueSight)",
+                           "detail": "running, model installed", "fix": None})
+        elif g.get("mode") == "no-model":
+            checks.append({"id": "verifier", "ok": False, "label": "AI verifier (TrueSight)",
+                           "detail": "runtime is up but the vision model is not downloaded",
+                           "fix": "Download the model in the Verification step (~3.3 GB, resumes)."})
+        else:
+            checks.append({"id": "verifier", "ok": False, "label": "AI verifier (TrueSight)",
+                           "detail": "not running",
+                           "fix": "Click Start verifier in the Verification step."
+                           if g.get("runtime_bundled")
+                           else "Install Ollama from ollama.com, then recheck."})
+
+        det = resource_path("models/yolov8n.pt")
+        checks.append({"id": "detector", "ok": det.exists(), "label": "Detection models",
+                       "detail": "YOLO weights present" if det.exists()
+                       else "models/yolov8n.pt is missing from this install",
+                       "fix": None if det.exists() else "Reinstall Argus — the bundle is incomplete."})
+        vm = resource_path("runs/video_finetune/videomae")
+        if not vm.exists():
+            checks.append({"id": "video_model", "ok": None, "label": "Video action model",
+                           "detail": "VideoMAE fine-tune not bundled — video theft "
+                           "detection will be off; everything else still runs",
+                           "fix": None})
+
+        meta = onboarding.get_site_meta(self.site_path)
+        notify = (meta.get("notify") or "console").strip()
+        if notify and notify != "console":
+            checks.append({"id": "notify", "ok": True, "label": "Notifications",
+                           "detail": f"alerts go to {notify}",
+                           "fix": "Confirm delivery with the test alert step."})
+        else:
+            checks.append({"id": "notify", "ok": None, "label": "Notifications",
+                           "detail": "alerts only appear inside the app (console)",
+                           "fix": "Pick WhatsApp/Telegram/webhook in Site settings "
+                           "to be reached when you're not at this screen."})
+
+        import shutil as _shutil
+        try:
+            du = _shutil.disk_usage(str(Path(self.db_path).parent))
+            pct = du.used * 100.0 / max(1, du.total)
+            free_gb = du.free / 1e9
+            low = free_gb < 5
+            checks.append({"id": "disk", "ok": (None if low else True) if free_gb >= 1 else False,
+                           "label": "Disk space for evidence",
+                           "detail": f"{free_gb:.0f} GB free ({pct:.0f}% used)",
+                           "fix": "Free some space — evidence recording needs room."
+                           if low else None})
+        except OSError:
+            checks.append({"id": "disk", "ok": None, "label": "Disk space for evidence",
+                           "detail": "could not be measured", "fix": None})
+        return checks
 
     def set_camera_rules(self, camera_id: str, rules: dict) -> dict:
         """Update which threat detectors run on a camera (+ optional rule preset).
