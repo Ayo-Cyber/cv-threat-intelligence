@@ -77,6 +77,11 @@ class TelegramNotifier:
         self.timeout = timeout
 
     def _caption(self, event: dict) -> str:
+        link = event.get("link")
+        base = self._caption_base(event)
+        return f"{base}\n\u27a1 Respond: {link}" if link else base
+
+    def _caption_base(self, event: dict) -> str:
         return (f"⚠️ {event['priority'].upper()} — {event['rule']} on "
                 f"{event['camera_id']} (conf {event['confidence']:.2f})\n{event['reason']}")
 
@@ -300,6 +305,9 @@ class AlertSink:
         # Demoted pairs are still stored (so the operator keeps correcting them) but
         # don't page anyone. Hot-reloaded when the file changes.
         from cvti.feedback.calibration import Calibration
+        # When the mobile response view is up, every notification carries a
+        # deep-link so the phone that receives the alert can also act on it.
+        self.mobile_base = ""
         self._calib_path = self.root / "calibration.json"
         self._calib_mtime = 0.0
         self.calibration = Calibration()
@@ -512,6 +520,8 @@ class AlertSink:
             self._db.commit()
         self.persisted += 1
         event["id"] = event_id
+        if self.mobile_base:
+            event["link"] = f"{self.mobile_base}/alert/{event_id}"
         # Feedback loop: chronically-wrong (camera, rule) pairs are stored but not paged.
         self._reload_calibration()
         if self.calibration.demoted(alert.camera_id, alert.rule_name):

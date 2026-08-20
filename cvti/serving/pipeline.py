@@ -225,7 +225,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              video_action_model_path: str = "runs/video_finetune/videomae",
              baseline_config: str | None = "configs/baseline_critical_v1.json",
              notify: str = "console", output_dir: str = "runs/serving",
-             gate_workers: int = 0, gate_drain: float = 180.0) -> None:
+             gate_workers: int = 0, gate_drain: float = 180.0,
+             mobile_port: int = 8710) -> None:
     """End-to-end multi-camera run: shared batched detector + shared pose/weapon
     models -> per-camera track/zones/concealment/violence/weapons/theft/rules ->
     shared alert queue -> async VLM gate."""
@@ -500,6 +501,18 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         # /health on the publisher's authenticated server (EP-04-T1).
         publisher.health_provider = _build_health
 
+    # Mobile response view (EP-06-T3): the guard's phone, on the site network.
+    # Authenticated on every route; Telegram alerts deep-link into it.
+    mobile = None
+    if mobile_port:
+        from cvti.serving.mobile import MobileServer
+        try:
+            mobile = MobileServer(output_dir, port=mobile_port).start()
+            sink.mobile_base = mobile.base_url()
+        except OSError as exc:
+            log.warning("mobile view could not start on port %s: %s — alerts will "
+                        "not carry a response link", mobile_port, exc)
+
     # Heartbeat (EP-04-T2): OFF unless the site configured a URL. Sends the
     # whitelisted health payload outbound only; docs/HEARTBEAT.md is the schema.
     _site_meta = get_site_meta(site_config_path)
@@ -566,6 +579,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         if heartbeat is not None:
             heartbeat.beat()      # a final send so "last seen" reflects shutdown time
             heartbeat.stop()
+        if mobile is not None:
+            mobile.stop()
         if publisher is not None:
             log.info(f"[frames] published {publisher.published} frame(s)")
             publisher.stop()
@@ -610,6 +625,8 @@ def main() -> None:
     p.add_argument("--notify", default="console",
                    help="Alert notifier: console | webhook:<url> | telegram:<token>:<chat_id> "
                         "| whatsapp (Twilio creds from env)")
+    p.add_argument("--mobile-port", type=int, default=8710,
+                   help="Port for the phone response view on the site network; 0 disables.")
     p.add_argument("--output-dir", default="runs/serving",
                    help="Where confirmed events + evidence + events.db are written.")
     args = p.parse_args()
@@ -638,6 +655,7 @@ def main() -> None:
                  memory_guard=not args.no_memory_guard,
                  memory_warn_gb=args.memory_warn_gb,
                  memory_critical_gb=args.memory_critical_gb,
+                 mobile_port=args.mobile_port,
                  gate_model=args.gate_model, gate_base_url=args.gate_base_url,
                  notify=args.notify, output_dir=args.output_dir,
                  gate_workers=args.gate_workers, gate_drain=args.gate_drain)

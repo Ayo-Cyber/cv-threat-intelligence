@@ -18,6 +18,17 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Mobile response view** (EP-06-T3). One page served by the engine over the
+  site's own network — no app, no cloud. Telegram alerts now deep-link straight
+  to the specific alert; from the phone a guard sees the frames and the model's
+  reasoning, claims with **"I'm on it"**, and resolves Real / False alarm with a
+  handover note — through the same state machine and audit trail as the desktop.
+  This is the first Argus surface that leaves localhost, so the security is the
+  point: every route requires a session (same accounts and lockout as the
+  console), HttpOnly+SameSite cookie, CSRF tokens on actions, roles enforced,
+  and *"no unauthenticated route exists"* is a named test. Unverified alerts
+  render with the dashed treatment and *"What the detector claimed — NOT
+  verified"*.
 - **Incident record as PDF, and a shift handover** (EP-06-T2). Every alert
   exports as a one-file incident record — metadata, the model's reasoning, the
   responder's conclusion and note, and the evidence frames embedded — written by
