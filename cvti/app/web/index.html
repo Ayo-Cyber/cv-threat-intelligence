@@ -897,6 +897,7 @@ function renderSystem(){
       }).join("");
       var mode=g.mode||"offline";
       call("retentionStatus",[],function(rt){ state.retention=(rt&&!rt.error)?rt:{}; paintRetention(); });
+      paintHeartbeat();
       var mc=mode==="live"?"var(--c-live)":mode==="no-model"?"var(--sev-high)":"var(--sev-crit)";
       var mt=mode==="live"?"live — verifying every alert":mode==="no-model"?"model not pulled yet":"offline — start Ollama";
       $("screen").innerHTML='<div class="pad" style="max-width:720px"><h2>System</h2>'
@@ -915,6 +916,8 @@ function renderSystem(){
         +    '<span style="flex:1"></span><button class="btn ghost sm" onclick="renderSystem()">Recheck</button></div>'
         +  '<div class="mut" style="font-size:12px;margin-top:8px">Ollama '+(g.ollama?"reachable":"not reachable")+' · model '+(g.model_present?"present":"not pulled")+'</div>'
         +  gateEngineRows(g.engine||{})+'</div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="hbPanel"><div class="syslabel">Remote monitoring</div>'
+        +  '<div id="hbBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="retPanel"><div class="syslabel">Data retention</div>'
         +  '<div id="retBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px"><div class="syslabel">Diagnostics</div>'
@@ -997,6 +1000,43 @@ function componentRows(h){
 /* Retention is a legal obligation and an operational one, so it is stated
    plainly rather than buried: what is deleted, when, and what is being kept
    past its expiry and why. */
+/* Remote monitoring: opt-IN, health only, and the exact payload is inspectable
+   here — "what leaves my machine?" answered by looking, not trusting. */
+function paintHeartbeat(){
+  call("heartbeatStatus",[],function(h){
+    var el=$("hbBody"); if(!el) return;
+    if(!h || h.error){ el.textContent = (h&&h.error)||"unavailable"; return; }
+    var live=h.live||{};
+    var head = h.enabled
+      ? '<div><span class="dot" style="background:var(--c-live)"></span> Sending health signals to <b class="mono">'+esc(h.url)+'</b>'
+        + (live.last_sent_at ? ' · last sent '+fmtAge((Date.now()/1000)-live.last_sent_at)+' ago' : ' · nothing sent yet')
+        + (live.last_error ? ' · <span style="color:var(--sev-high)">'+esc(live.last_error)+'</span>' : '')
+        + '</div>'
+      : '<div><span class="dot" style="background:var(--c-sub)"></span> Off. Nothing is sent anywhere — turn it on so support can see this site\'s health remotely.</div>';
+    el.innerHTML = head
+      + '<div class="row" style="gap:8px;margin-top:11px;flex-wrap:wrap">'
+      +   '<input id="hbUrl" placeholder="https://monitor.example.com" value="'+esc(h.url||"")+'" style="flex:2;min-width:200px">'
+      +   '<input id="hbKey" placeholder="site key" type="password" style="flex:1;min-width:110px">'
+      +   '<button class="btn sm" onclick="saveHeartbeat(this)">'+(h.enabled?"Update":"Turn on")+'</button>'
+      +   (h.enabled?'<button class="btn ghost sm" onclick="offHeartbeat(this)">Turn off</button>':'')
+      + '</div>'
+      + '<div class="mut" style="font-size:11.5px;margin-top:9px;line-height:1.5">Health signals only — camera states, error counts, disk headroom. '
+      + '<b>Never</b> footage or event content. The exact payload schema is public (docs/HEARTBEAT.md).</div>'
+      + (h.last_payload
+          ? '<details style="margin-top:9px"><summary style="cursor:pointer;font-size:12px;color:var(--c-accent)">View exactly what was last transmitted</summary>'
+            + '<pre class="mono" style="font-size:10.5px;max-height:260px;overflow:auto;background:var(--c-bg);border:1px solid var(--c-border);border-radius:8px;padding:10px;margin-top:8px">'
+            + esc(JSON.stringify(h.last_payload,null,1)) + '</pre></details>'
+          : '');
+  });
+}
+function saveHeartbeat(btn){
+  if(btn){btn.disabled=true;}
+  call("setHeartbeat",[$("hbUrl").value.trim(), $("hbKey").value.trim()],function(){ paintHeartbeat(); });
+}
+function offHeartbeat(btn){
+  if(btn){btn.disabled=true;}
+  call("setHeartbeat",["",""],function(){ paintHeartbeat(); });
+}
 function paintRetention(){
   var el = $("retBody"); if(!el) return;
   var r = state.retention||{};

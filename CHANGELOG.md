@@ -18,6 +18,18 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Opt-in heartbeat and a sites dashboard** (EP-04-T2). Off by default —
+  nothing is sent anywhere until a site owner enters a monitoring URL and key.
+  The payload is the health document copied through a **whitelist**, so a field
+  added to `/health` later cannot leak by omission; the schema is public
+  ([docs/HEARTBEAT.md](docs/HEARTBEAT.md)) and every payload sent is written to
+  `heartbeat_last.json` and viewable in System → Remote monitoring — "what
+  leaves my machine?" answered by looking, not trusting. Outbound-only POST, so
+  it works through ordinary NAT. The receiver
+  (`tools/heartbeat_receiver.py`, stdlib+SQLite, one file) shows every site
+  worst-first, flags a site **MISSED** after ~2.5 silent intervals regardless of
+  what it last claimed, and sends a Telegram message once per transition —
+  missed, degraded, critical, recovered — not once per check.
 - **`/health`** (EP-04-T1): one authenticated endpoint answering "is this site
   OK right now?" — status + named reasons, per-camera link state with
   last-frame age, gate reachability and median verify latency, disk, memory,
