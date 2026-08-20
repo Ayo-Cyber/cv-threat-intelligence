@@ -18,6 +18,14 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Code signing and notarisation, ready to engage** (EP-05-T2). CI now
+  imports a Developer ID certificate, signs with the hardened runtime,
+  notarises and staples the dmg, and Authenticode-signs the Windows
+  executables — the moment the certificates exist as repo secrets. Until
+  then builds are unchanged and CI says "shipping UNSIGNED" out loud.
+  [docs/SIGNING.md](docs/SIGNING.md) records what to buy, where every key
+  lives, and how to recover each one (the bus-factor requirement).
+
 - **Cameras find themselves** (EP-05-T4). One tap sends an ONVIF WS-Discovery
   probe and lists every camera that answers; manual RTSP entry stays as the
   fallback. The connection test now speaks RTSP itself before letting OpenCV
