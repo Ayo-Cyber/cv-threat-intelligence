@@ -1114,6 +1114,97 @@ class ConsoleBackend:
                            "note": bool(note)})
         return {"id": event_id, "persisted": True, **result}
 
+    def export_incident_pdf(self, event_id: int | str) -> dict:
+        """The incident record as a file that leaves the building intact —
+        what a manager reviews, what goes to an insurer or the police."""
+        self._require(perms.EXPORT_EVIDENCE)
+        db, frame_base = self._effective_db()
+        try:
+            con = self._connect(db)
+            row = con.execute("SELECT * FROM events WHERE id = ?",
+                              (int(event_id),)).fetchone()
+            con.close()
+        except sqlite3.OperationalError as exc:
+            return {"ok": False, "error": str(exc)[:200]}
+        if row is None:
+            return {"ok": False, "error": f"no incident #{event_id}"}
+        event = dict(row)
+
+        frames = []
+        ev_dir = event.get("evidence_dir")
+        if ev_dir:
+            path = Path(ev_dir)
+            if not path.is_absolute() and frame_base:
+                path = frame_base / path
+            if path.exists():
+                for f in sorted(path.glob("frame_*.jpg"))[:8]:
+                    try:
+                        frames.append((f.name, f.read_bytes()))
+                    except OSError:
+                        log.debug("unreadable evidence frame %s", f, exc_info=True)
+                subject = path / "subject.jpg"
+                if subject.exists():
+                    frames.insert(0, ("subject — boxed at the moment it fired",
+                                      subject.read_bytes()))
+
+        from cvti.incident_pdf import build_incident_pdf
+        dest = Path(self.db_path).parent / f"argus-incident-{event['id']}.pdf"
+        try:
+            build_incident_pdf(event, frames, dest)
+        except Exception as exc:  # noqa: BLE001 - export must not crash the app
+            log.error("incident PDF failed", exc_info=True)
+            return {"ok": False, "error": str(exc)[:200]}
+        self.audit.record(self._actor(), "evidence_export", f"event:{event_id}",
+                          {"format": "pdf", "frames": len(frames)})
+        return {"ok": True, "path": str(dest),
+                "size_kb": round(dest.stat().st_size / 1024, 1)}
+
+    def handover(self, hours: float = 8.0) -> dict:
+        """What the incoming shift needs: what fired, what was concluded and by
+        whom, and — flagged loudest — what is still open. Context must not
+        reset at shift change."""
+        self._require(perms.VIEW_ALERTS)
+        db, _ = self._effective_db()
+        since = time.time() - max(1.0, float(hours)) * 3600
+        try:
+            con = self._connect(db)
+        except sqlite3.OperationalError:
+            return {"hours": hours, "fired": [], "resolved": [], "open": [],
+                    "counts": {}}
+        state_expr = ("COALESCE(state, CASE WHEN review IN ('true','false') "
+                      "THEN 'resolved' WHEN review='ack' THEN 'acknowledged' "
+                      "ELSE 'new' END)")
+        try:
+            fired = [dict(r) for r in con.execute(
+                "SELECT id, ts, iso, camera_id, rule, priority FROM events "
+                "WHERE ts >= ? ORDER BY ts DESC", (since,))]
+            resolved = [dict(r) for r in con.execute(
+                f"SELECT id, iso, camera_id, rule, owner, outcome, note, resolved_at "
+                f"FROM events WHERE {state_expr} = 'resolved' AND resolved_at >= ? "
+                f"ORDER BY resolved_at DESC", (since,))]
+            # Open items are NOT windowed: an incident from three shifts ago
+            # that nobody concluded is precisely what must not be forgotten.
+            open_items = [dict(r) for r in con.execute(
+                f"SELECT id, ts, iso, camera_id, rule, priority, owner, "
+                f"{state_expr} AS state FROM events "
+                f"WHERE {state_expr} != 'resolved' ORDER BY ts ASC")]
+        except sqlite3.OperationalError as exc:
+            con.close()
+            return {"hours": hours, "error": str(exc)[:200]}
+        con.close()
+        now = time.time()
+        for item in open_items:
+            item["age_h"] = round((now - (item.get("ts") or now)) / 3600, 1)
+            item["carried_over"] = (item.get("ts") or now) < since
+        outcomes = {}
+        for r in resolved:
+            outcomes[r.get("outcome") or "?"] = outcomes.get(r.get("outcome") or "?", 0) + 1
+        return {"hours": float(hours), "since": since,
+                "fired": fired[:100], "resolved": resolved[:50],
+                "open": open_items[:50],
+                "counts": {"fired": len(fired), "resolved": len(resolved),
+                           "open": len(open_items), "outcomes": outcomes}}
+
     def needs_attention(self, min_priority: str = "medium") -> dict:
         """The Now view: one alert first, the queue behind it, who holds what."""
         self._require(perms.VIEW_ALERTS)

@@ -28,12 +28,13 @@ class _Site:
         con = sqlite3.connect(self.db)
         con.execute("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, "
                     "iso TEXT, camera_id TEXT, rule TEXT, evidence_dir TEXT, review TEXT, "
-                    "legal_hold INTEGER DEFAULT 0)")
+                    "legal_hold INTEGER DEFAULT 0, state TEXT, owner TEXT)")
         con.commit()
         con.close()
         self.mgr = RetentionManager(self.root, RetentionPolicy(days=retention_days))
 
-    def add(self, *, age_days: float, review=None, legal_hold=0, with_files=True) -> int:
+    def add(self, *, age_days: float, review=None, legal_hold=0, with_files=True,
+            state=None, owner=None) -> int:
         ts = time.time() - age_days * DAY
         name = f"{int(ts)}_{review}_{legal_hold}_{age_days}"
         ev = self.events_dir / name
@@ -43,9 +44,9 @@ class _Site:
             (ev / "clip.mp4").write_bytes(b"fake-mp4")
         con = sqlite3.connect(self.db)
         cur = con.execute(
-            "INSERT INTO events (ts, iso, camera_id, rule, evidence_dir, review, legal_hold) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (ts, "iso", "cam1", "theft", str(ev), review, legal_hold))
+            "INSERT INTO events (ts, iso, camera_id, rule, evidence_dir, review, "
+            "legal_hold, state, owner) VALUES (?,?,?,?,?,?,?,?,?)",
+            (ts, "iso", "cam1", "theft", str(ev), review, legal_hold, state, owner))
         con.commit()
         event_id = cur.lastrowid
         con.close()
@@ -158,6 +159,19 @@ class NeverDeletesWhatMattersTest(unittest.TestCase):
             result = site.mgr.purge()
             self.assertEqual(result["deleted"], 1)
             self.assertEqual(result["held"], {"legal_hold": 1, "unreviewed": 1})
+
+    def test_a_claimed_but_unresolved_incident_survives_its_own_expiry(self):
+        # Acknowledging is the start of the work, not the end of it. A guard
+        # claimed this and never concluded — deleting it on a timer destroys
+        # the record mid-investigation. (EP-06-T2: open incidents are held.)
+        with tempfile.TemporaryDirectory() as tmp:
+            site = _Site(tmp)
+            claimed = site.add(age_days=400, review="ack",
+                               state="acknowledged", owner="sam")
+            done = site.add(age_days=400, review="true", state="resolved")
+            site.mgr.purge()
+            self.assertIn(claimed, site.ids(), "an open investigation was purged")
+            self.assertNotIn(done, site.ids())
 
     def test_releasing_a_hold_makes_it_purgeable(self):
         with tempfile.TemporaryDirectory() as tmp:
