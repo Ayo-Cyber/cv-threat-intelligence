@@ -134,33 +134,60 @@ class GoldenSet:
             title=case.title, person_id=case.person_id,
             object_label=case.object_label or None, timestamp=0.0)
 
-    def replay(self, gate, progress=None) -> list[dict]:
+    def replay(self, gate, progress=None, *, resume_path: str | Path | None = None,
+               limit: int = 0) -> list[dict]:
         """Verify every case with `gate`. Returns per-case verdicts.
 
         A gate error is recorded as an error, never as a rejection — scoring a
         transport failure as "the model said no" is how a broken gate reports
         excellent precision.
+
+        **Resumable.** With `resume_path`,every verdict is appended to that .jsonl
+        the moment it lands, and a later call skips cases already answered — a
+        twenty-minute run that dies at case 90 costs six cases, not ninety.
+        Error rows are NOT treated as done (a transport failure is not a
+        measurement; it is retried), except "no frames on disk", which retrying
+        cannot fix. `limit` caps how many NEW verifications this call performs,
+        so the full set can be measured in short chunks.
         """
+        done: dict = {}
+        resume_path = Path(resume_path) if resume_path else None
+        if resume_path and resume_path.exists():
+            for line in resume_path.read_text().splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if not row.get("error") or row.get("error") == "no frames on disk":
+                    done[row["case_id"]] = row
         out = []
+        fresh = 0
         for i, case in enumerate(self.cases, 1):
+            if case.case_id in done:
+                out.append(done[case.case_id])
+                continue
+            if limit and fresh >= limit:
+                continue
             frames = self.load_frames(case)
             row = {"case_id": case.case_id, "is_threat": case.is_threat,
                    "rule_name": case.rule_name, "confirmed": False, "error": ""}
             if not frames:
                 row["error"] = "no frames on disk"
-                out.append(row)
-                continue
-            try:
-                verdict = gate.verify(frames, self.candidate(case), case.scene)
-                if getattr(verdict, "errored", False):
-                    row["error"] = verdict.error
-                else:
-                    row["confirmed"] = bool(verdict.confirmed)
-                    row["confidence"] = round(float(verdict.confidence), 3)
-                    row["reason"] = (verdict.reason or "")[:200]
-            except Exception as exc:  # noqa: BLE001 - an error is not a rejection
-                row["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+            else:
+                try:
+                    verdict = gate.verify(frames, self.candidate(case), case.scene)
+                    if getattr(verdict, "errored", False):
+                        row["error"] = verdict.error
+                    else:
+                        row["confirmed"] = bool(verdict.confirmed)
+                        row["confidence"] = round(float(verdict.confidence), 3)
+                        row["reason"] = (verdict.reason or "")[:200]
+                except Exception as exc:  # noqa: BLE001 - an error is not a rejection
+                    row["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+            fresh += 1
             out.append(row)
+            if resume_path:
+                with resume_path.open("a") as fh:
+                    fh.write(json.dumps(row) + "\n")
             if progress:
                 progress(i, len(self.cases), row)
         return out

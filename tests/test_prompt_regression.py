@@ -130,6 +130,72 @@ class GoldenSetTest(unittest.TestCase):
             self.assertLess(result["recall_ci"][0], 1.0, "a perfect 5/5 is not certainty")
 
 
+class ResumableReplayTest(unittest.TestCase):
+    """The twenty-minute measurement must be interruptible (backlog item 1):
+    every verdict lands in a .jsonl as it happens, a rerun skips what is
+    already answered, and transport errors are retried rather than kept."""
+
+    def _write(self, tmp, n=6):
+        writer = GoldenSetWriter(tmp)
+        for i in range(n):
+            writer.add(clip_name=f"clip{i}.mp4", is_threat=bool(i % 2),
+                       candidate=_candidate(),
+                       frames=[np.zeros((8, 8, 3), np.uint8)],
+                       scene={"environment_type": "retail"})
+        writer.write({"dataset": "test"})
+        return GoldenSet(tmp)
+
+    class _Counting:
+        def __init__(self, fail_ids=()):
+            self.calls = 0
+            self.fail_ids = set(fail_ids)
+
+        def verify(self, frames, candidate, scene):
+            self.calls += 1
+            class V:  # noqa: D401
+                errored = False
+                confirmed = True
+                confidence = 0.9
+                reason = "r"
+            if self.calls in self.fail_ids:
+                raise ConnectionError("gate went away")
+            return V()
+
+    def test_limit_then_resume_completes_without_rework(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            golden = self._write(tmp, 6)
+            resume = Path(tmp) / "replay.jsonl"
+            gate = self._Counting()
+            first = golden.replay(gate, resume_path=resume, limit=4)
+            self.assertEqual(len(first), 4)
+            self.assertEqual(gate.calls, 4)
+            second = golden.replay(gate, resume_path=resume)
+            self.assertEqual(len(second), 6)
+            self.assertEqual(gate.calls, 6, "resume re-verified already-answered cases")
+
+    def test_an_interrupted_run_keeps_what_it_measured(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            golden = self._write(tmp, 4)
+            resume = Path(tmp) / "replay.jsonl"
+            golden.replay(self._Counting(), resume_path=resume, limit=2)
+            lines = [json.loads(l) for l in resume.read_text().splitlines()]
+            self.assertEqual(len(lines), 2, "verdicts were not written as they landed")
+            self.assertTrue(all(l["confirmed"] for l in lines))
+
+    def test_transport_errors_are_retried_on_resume_not_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            golden = self._write(tmp, 3)
+            resume = Path(tmp) / "replay.jsonl"
+            flaky = self._Counting(fail_ids={2})       # second call errors
+            first = golden.replay(flaky, resume_path=resume)
+            self.assertEqual(sum(1 for r in first if r["error"]), 1)
+            steady = self._Counting()
+            second = golden.replay(steady, resume_path=resume)
+            self.assertEqual(steady.calls, 1, "only the errored case should re-run")
+            self.assertEqual(sum(1 for r in second if r["error"]), 0)
+            self.assertEqual(len(second), 3)
+
+
 class BaselineTest(unittest.TestCase):
     BASELINE = Path("docs/prompt_baseline.json")
 

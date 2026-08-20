@@ -102,10 +102,21 @@ def _candidates_for(harness, clip):
 
 
 def cmd_run(args) -> int:
-    """Replay the frozen set through the current prompts and score it."""
+    """Replay the frozen set through the current prompts and score it.
+
+    Progress is written per-verdict to <golden-dir>/replay.jsonl, and a rerun
+    resumes from it — so the ~20-minute measurement can run in short chunks
+    (--limit N) and an interruption costs one case, not the run. --fresh
+    discards the progress file and starts over.
+    """
     from cvti.verification.gate import VerificationGate
 
     golden = GoldenSet(args.golden_dir)
+    resume = Path(args.golden_dir) / "replay.jsonl"
+    if args.fresh and resume.exists():
+        resume.unlink()
+        log.info("--fresh: discarded previous replay progress")
+
     log.info("replaying %d frozen candidate(s) through %s/%s",
              len(golden), args.gate_provider, args.gate_model or "default")
 
@@ -117,7 +128,11 @@ def cmd_run(args) -> int:
                  "CONFIRMED" if row["confirmed"] else "rejected",
                  f"  ERROR {row['error']}" if row["error"] else "")
 
-    verdicts = golden.replay(gate, progress=progress if args.verbose else None)
+    verdicts = golden.replay(gate, progress=progress if args.verbose else None,
+                             resume_path=resume, limit=args.limit)
+    if len(verdicts) < len(golden):
+        log.info("partial run: %d/%d case(s) answered so far — rerun to continue "
+                 "(progress kept in %s)", len(verdicts), len(golden), resume)
     result = score(verdicts)
     result.update({"fingerprint": fingerprint(), "prompts": describe()["constants"],
                    "sensitivity": args.sensitivity, "gate_model": args.gate_model,
@@ -130,8 +145,18 @@ def cmd_run(args) -> int:
                     "error is not a rejection", result["errors"])
 
     if args.update_baseline:
+        # An incomplete measurement must never become the yardstick.
+        if len(verdicts) < len(golden):
+            log.error("refusing --update-baseline: only %d/%d cases measured — "
+                      "rerun (it resumes) until the set is complete",
+                      len(verdicts), len(golden))
+            return 2
         BASELINE.write_text(json.dumps({"tolerance": TOLERANCE, **result}, indent=2) + "\n")
         log.info("baseline updated: %s", BASELINE)
+        # Archive the progress file: the measurement is banked, and a future
+        # run must re-verify rather than silently re-score stale verdicts.
+        if resume.exists():
+            resume.rename(resume.with_name(f"replay-{time.strftime('%Y%m%d_%H%M%S')}.jsonl"))
         return 0
 
     return _compare(result)
@@ -216,6 +241,10 @@ def main() -> int:
     run.add_argument("--sensitivity", default="balanced")
     run.add_argument("--update-baseline", action="store_true",
                      help="accept these numbers as the new baseline")
+    run.add_argument("--limit", type=int, default=0,
+                     help="verify at most N new cases this run (resume completes the rest)")
+    run.add_argument("--fresh", action="store_true",
+                     help="discard replay progress and start over")
     run.add_argument("--verbose", action="store_true")
     run.set_defaults(func=cmd_run)
 
