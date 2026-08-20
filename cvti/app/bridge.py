@@ -246,6 +246,14 @@ class Backend(QObject):
         return self._safe(self._core.audit_export)
 
     @pyqtSlot(result=str)
+    def heartbeatStatus(self) -> str:
+        return self._safe(self._core.heartbeat_status)
+
+    @pyqtSlot(str, str, result=str)
+    def setHeartbeat(self, url: str, key: str) -> str:
+        return self._safe(lambda: self._core.set_heartbeat(url, key))
+
+    @pyqtSlot(result=str)
     def diskEncryption(self) -> str:
         return self._safe(self._core.disk_encryption)
 

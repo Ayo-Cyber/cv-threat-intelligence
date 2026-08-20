@@ -188,6 +188,30 @@ class ConsoleBackend:
                           {"path": str(path)})
         return {"ok": True, "path": str(path)}
 
+    def heartbeat_status(self) -> dict:
+        """Config + exactly what was last transmitted, so 'what leaves my
+        machine?' is answered by looking, not by trusting the docs."""
+        meta = self.get_site()
+        out = {"enabled": bool(meta.get("heartbeat_url")),
+               "url": meta.get("heartbeat_url", ""),
+               "has_key": bool(meta.get("heartbeat_key"))}
+        engine = self._gate_health() or {}
+        out["live"] = engine.get("heartbeat") or {}
+        try:
+            out["last_payload"] = json.loads(
+                (Path(self.db_path).parent / "heartbeat_last.json").read_text())
+        except (OSError, ValueError):
+            out["last_payload"] = None
+        return out
+
+    def set_heartbeat(self, url: str = "", key: str = "") -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        onboarding.set_site_meta(self.site_path, heartbeat_url=(url or "").strip(),
+                                 heartbeat_key=(key or "").strip())
+        self.audit.record(self.current_user.username, "config_change", "heartbeat",
+                          {"enabled": bool((url or "").strip())})
+        return self.heartbeat_status()
+
     def disk_encryption(self) -> dict:
         """Is the evidence on this machine readable if the machine is taken?"""
         from cvti.security.disk import encryption_status, requirement_message

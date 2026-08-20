@@ -421,6 +421,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
     _started_at = time.time()
     assurance = None            # constructed below, once the decoders exist
+    heartbeat = None            # constructed below, iff the site opted in
 
     def _gate_reachable(stats: dict):
         """True/False/None. False only on evidence: the most recent attempt
@@ -468,7 +469,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         doc.update({"provider": gate_provider, "model": gate_model,
                     "mock": mock_gate, "banner": MOCK_GATE_BANNER if mock_gate else "",
                     "updated_at": time.time(), "health": components,
-                    "retention": ret})
+                    "retention": ret,
+                    "heartbeat": heartbeat.status() if heartbeat else {"enabled": False}})
         return doc
 
     def _write_health() -> None:
@@ -497,6 +499,16 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     if publisher is not None:
         # /health on the publisher's authenticated server (EP-04-T1).
         publisher.health_provider = _build_health
+
+    # Heartbeat (EP-04-T2): OFF unless the site configured a URL. Sends the
+    # whitelisted health payload outbound only; docs/HEARTBEAT.md is the schema.
+    _site_meta = get_site_meta(site_config_path)
+    if _site_meta.get("heartbeat_url"):
+        from cvti.serving.heartbeat import Heartbeat
+        heartbeat = Heartbeat(
+            url=_site_meta["heartbeat_url"], site_key=_site_meta.get("heartbeat_key", ""),
+            site_id=(_site_meta.get("name") or "site").strip().lower().replace(" ", "-"),
+            health_provider=_build_health, output_dir=output_dir).start()
 
     # Daily proof of life (EP-04-T4): the self-test exercises a real frame ->
     # the real gate -> a real notification, and the all-normal message makes
@@ -551,6 +563,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         retention.stop()
         if assurance is not None:
             assurance.stop()
+        if heartbeat is not None:
+            heartbeat.beat()      # a final send so "last seen" reflects shutdown time
+            heartbeat.stop()
         if publisher is not None:
             log.info(f"[frames] published {publisher.published} frame(s)")
             publisher.stop()
