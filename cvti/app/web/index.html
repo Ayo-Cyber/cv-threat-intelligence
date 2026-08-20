@@ -1555,15 +1555,17 @@ function renderNow(){
     refreshNowData(false);
   }, 3000);
 }
+function onNowTab(){ return state.route==="triage" && (state.triageTab||"now")==="now"; }
 function refreshNowData(force){
   call("needsAttention",["medium"],function(t){
-    if(!t || t.error) return;
+    if(!t || t.error || !onNowTab()) return;   // a stale callback must not repaint another tab
     call("listEvents",[100],function(evs){
       state.events = Array.isArray(evs)?evs:state.events;
       var sig = JSON.stringify([t.now&&t.now.id, t.now&&t.now.state, t.waiting,
                                 (t.held||[]).map(function(h){return h.id+":"+h.owner;}),
                                 (state.events||[]).map(function(e){return e.id+":"+(e.state||e.review);}).join(",")]);
       state.triage = t;
+      if(!onNowTab()) return;
       if(force || sig!==state.nowSig){ state.nowSig=sig; state.nowFrame=0; paintNow(); }
       updateQueueLine();
     });
