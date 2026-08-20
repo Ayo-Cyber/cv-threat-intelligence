@@ -245,6 +245,18 @@ class Backend(QObject):
     def auditExport(self) -> str:
         return self._safe(self._core.audit_export)
 
+    @pyqtSlot(str, result=str)
+    def acknowledgeAlert(self, event_id: str) -> str:
+        return self._safe(lambda: self._core.acknowledge_alert(event_id))
+
+    @pyqtSlot(str, str, str, result=str)
+    def resolveAlert(self, event_id: str, outcome: str, note: str) -> str:
+        return self._safe(lambda: self._core.resolve_alert(event_id, outcome, note))
+
+    @pyqtSlot(str, result=str)
+    def needsAttention(self, min_priority: str) -> str:
+        return self._safe(lambda: self._core.needs_attention(min_priority or "medium"))
+
     @pyqtSlot(result=str)
     def heartbeatStatus(self) -> str:
         return self._safe(self._core.heartbeat_status)

@@ -486,7 +486,7 @@ function render(){
   var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",map:"Site map",ask:"Ask your cameras",value:"Value",learning:"Learning",rules:"Rules",system:"System"}[state.route];
   $("title").textContent = t;
   if(state.route==="cameras") return renderCameras();
-  if(state.route==="alerts") return renderAlerts();
+  if(state.route==="alerts"){ refreshTriage(); return renderAlerts(); }
   if(state.route==="live") return renderLive();
   if(state.route==="map") return renderMap();
   if(state.route==="ask") return renderAsk();
@@ -1304,6 +1304,22 @@ function threatClass(rule){ rule=String(rule||"");
   return {label:"Other", color:"#9aa4b2", icon:"⚠"};
 }
 function setAlertSort(m){ state.alertSort=m; paintAlerts(); }
+/* Ownership strip (EP-06-T1): the queue as a number, and who is on what —
+   so two guards never both respond, and neither assumes the other has it. */
+function triageStrip(){
+  var t = state.triage || {};
+  var held = (t.held||[]).map(function(h){
+    return '<span class="mut">'+esc(h.owner||"?")+' is on <b class="mono" style="color:var(--c-text)">'+esc(h.rule||"")+'</b> · '+esc(h.camera_id||"")+'</span>';
+  }).join('<span class="sub"> · </span>');
+  var waiting = t.waiting||0;
+  return '<div class="row" style="padding:8px 14px;border-bottom:1px solid var(--c-border);gap:14px;font-size:12px">'
+    + '<b>'+(waiting? waiting+" waiting" : "Nothing waiting")+'</b>'
+    + (held ? '<span class="sub">|</span>'+held : '<span class="mut">nothing claimed</span>')
+    + '</div>';
+}
+function refreshTriage(cb){
+  call("needsAttention",["medium"],function(t){ if(t && !t.error) state.triage=t; if(cb)cb(); });
+}
 function paintAlerts(){
   var filt = state.alertFilter || "active";
   var sortMode = state.alertSort || "time";
@@ -1324,10 +1340,13 @@ function paintAlerts(){
   }).join("")
     +'<span style="flex:1"></span><span class="asort">'
     +'<button class="asortb'+(sortMode==="time"?" on":"")+'" onclick="setAlertSort(\'time\')">Newest</button>'
-    +'<button class="asortb'+(sortMode==="class"?" on":"")+'" onclick="setAlertSort(\'class\')">By type</button></span></div>';
+    +'<button class="asortb'+(sortMode==="class"?" on":"")+'" onclick="setAlertSort(\'class\')">By type</button></span></div>'
+    +(filt==="active" ? triageStrip() : "");
   var prevClass=null;
   var list = shown.map(function(a,i){
     var sel = state.selected && state.selected.id===a.id ? " sel":"";
+    var ownChip = a.owner && a.review==="ack"
+      ? ' <span class="mono" style="font-size:10px;color:var(--c-accent)">'+esc(a.owner)+' \u25cf</span>' : "";
     var st = a.review==="true"?"TRUE":a.review==="false"?"FALSE":a.review==="ack"?"ACK":"NEW";
     var tc = threatClass(a.rule);
     var header = "";
@@ -1338,7 +1357,7 @@ function paintAlerts(){
       +'<span class="dot" style="margin-top:4px;background:'+(SEV[a.priority]||SEV.low)+'"></span>'
       +'<div style="flex:1;min-width:0"><div class="row" style="gap:8px">'
       +'<span class="cchip" style="color:'+tc.color+';border-color:'+tc.color+'">'+tc.icon+' '+esc(tc.label)+'</span>'
-      +'<span style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.rule)+'</span>'
+      +'<span style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.rule)+ownChip+'</span>'
       +'<span style="flex:1"></span><span class="mono mut" style="font-size:11px">'+esc((a.iso||"").split("T")[1]||"")+'</span></div>'
       +'<div class="row" style="gap:8px;margin-top:3px"><span style="font-size:10px;font-weight:700;letter-spacing:.05em;color:'+(SEV[a.priority]||SEV.low)+'">'+esc((a.priority||"").toUpperCase())+'</span>'
       +'<span class="mono mut" style="font-size:11px">'+esc(a.camera_id)+'</span>'
@@ -1391,10 +1410,11 @@ function renderDetail(){
     +'<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why TrueSight confirmed this</div>'
     +'<p style="margin:0;font-size:14px;line-height:1.5">'+esc(a.reason||"")+'</p>'
     +'<div class="row" style="margin-top:12px"><span class="mut" style="font-size:11px">confidence</span><div class="confbar"><div style="width:'+confPct+'%;background:'+sev+'"></div></div><span class="mono">'+(Number(a.confidence)||0).toFixed(2)+'</span></div></div>'
+    +ownerHTML(a)
     +'<div class="row" style="margin-top:18px">'
-    +'<button class="btn" onclick="doReview(\'ack\')">'+(a.review==="ack"?"Acknowledged ✓":"Acknowledge")+'</button>'
-    +'<button class="btn ghost" style="border-color:var(--sev-crit);color:var(--sev-crit)" onclick="doReview(\'true\')">True threat</button>'
-    +'<button class="btn ghost" onclick="doReview(\'false\')">False alarm</button>'
+    +'<button class="btn" onclick="doClaim()">'+(a.owner ? esc(a.owner)+" is on it" : "I\u2019m on it")+'</button>'
+    +'<button class="btn ghost" style="border-color:var(--sev-crit);color:var(--sev-crit)" onclick="doResolve(\'real\')">Real</button>'
+    +'<button class="btn ghost" onclick="doResolve(\'false_alarm\')">False alarm</button>'
     +'<span style="flex:1"></span>'
     +'<button class="btn ghost sm" onclick="exportThisEvidence(this)">⬇ Export evidence</button>'
     +'<button class="btn ghost sm" onclick="openReport()">⧉ Incident report</button></div>'
@@ -1459,10 +1479,39 @@ function timelineHTML(a){
     +'<div class="tl-step"><span class="tl-dot on"></span><div><div class="tl-t">You were notified</div><div class="tl-s">'+esc((a.iso||"").replace("T"," "))+'</div></div></div>'
     +'</div>';
 }
-function doReview(label){ var a=state.selected; if(!a)return;
-  a.review=label; state.alertsSig="";     // local + force poll to reconcile
+/* Ownership + note (EP-06-T1). Claiming shows your name to every operator;
+   resolving concludes with an outcome and carries the note to the handover. */
+function ownerHTML(a){
+  var own = a.owner
+    ? '<div style="margin-top:12px;font-size:12.5px"><span class="dot" style="background:var(--c-accent)"></span> '
+      +'<b>'+esc(a.owner)+'</b> is on this'
+      +(a.acknowledged_at? ' <span class="mut">since '+fmtAge((Date.now()/1000)-a.acknowledged_at)+' ago</span>':'')+'</div>'
+    : '';
+  var note = (a.review && a.review!=="new" && a.note)
+    ? '<div class="panel" style="padding:10px 13px;margin-top:10px;font-size:12.5px"><span class="sub" style="font-size:10.5px">NOTE</span><br>'+esc(a.note)+'</div>'
+    : '<input id="resolveNote" placeholder="note for the handover (optional)" style="width:100%;margin-top:12px">';
+  return own + note;
+}
+function doClaim(){ var a=state.selected; if(!a)return;
+  call("acknowledgeAlert",[String(a.id)],function(r){
+    if(r && r.ok){ a.owner=r.owner; a.review="ack"; state.alertsSig=""; paintAlerts(); refreshTriage(paintAlerts); }
+    else if(r && r.error){ alert(r.error); state.alertsSig=""; }   // "sam is already on alert 12"
+    refreshCounts();
+  });
+}
+function doResolve(outcome){ var a=state.selected; if(!a)return;
+  var note = $("resolveNote") ? $("resolveNote").value.trim() : "";
+  a.review = (outcome==="real"?"true":"false"); a.note = note; state.alertsSig="";
   paintAlerts();                          // instant: clears from Needs review, selects next
-  call("review",[String(a.id),label],function(r){ refreshCounts(); }); }
+  call("resolveAlert",[String(a.id), outcome, note],function(r){
+    if(r && r.error){ alert(r.error); }
+    refreshCounts(); refreshTriage(paintAlerts);
+  });
+}
+function doReview(label){ // kept for older call sites: routes into the state machine
+  if(label==="ack") return doClaim();
+  return doResolve(label==="true" ? "real" : "false_alarm");
+}
 /* #5 incident report: a clean, printable/exportable evidence card */
 function openReport(){ var a=state.selected; if(!a) return;
   var m=$("reportModal"); if(!m){ m=document.createElement("div"); m.id="reportModal"; (document.getElementById("modalRoot")||document.body).appendChild(m); }
