@@ -18,6 +18,19 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Measurement that cannot silently rot** (EP-07 T1/T2/T4). The prompt
+  baseline replay is now resumable (per-verdict .jsonl; an interruption
+  costs one case, not twenty minutes) and chunkable (`--limit`), and the CI
+  trip-wire is verified end-to-end: weaken a prompt without re-measuring and
+  the build fails, by demonstration. Every verdict now carries the 12-char
+  fingerprint of the prompt wording that produced it, persisted with the
+  event; the eval-of-record captures the exact Ollama model digest (a tag is
+  not a version). SENSITIVITY_MEASURED is generated from the archived eval
+  runs instead of hand-maintained, and every detector toggle in the UI shows
+  its evidence — measured numbers with sample sizes, or EXPERIMENTAL in so
+  many words, held equal to docs/NUMBERS.md by test. Weapons and violence
+  remain declared-unmeasured until EP-07-T3's datasets are acquired.
+
 - **The decided design, shipped** (EP-09 · Sprint UI). Nine navigation items
   collapse to three surfaces — Watch, Triage, Configure — with Value under an
   Owner section and Settings behind a gear; every screen renders from the
