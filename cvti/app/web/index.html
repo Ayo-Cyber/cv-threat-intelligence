@@ -222,6 +222,10 @@
   .confbar{flex:1;height:6px;background:var(--c-border);border-radius:99px;max-width:280px}
   .confbar>div{height:100%;border-radius:99px}
   .plabel{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--c-mut)}
+  /* EP-07-T4: measurement status where detectors are switched on */
+  .valbadge{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:99px;font-size:9px;font-weight:800;letter-spacing:.05em;vertical-align:1px}
+  .valbadge.ok{color:var(--c-live);border:1px solid var(--c-live)}
+  .valbadge.exp{color:var(--c-mut);border:1px dashed var(--c-mut)}
   /* §2.6: UNVERIFIED is never a severity colour — dashed grey, transparent fill */
   .unvpill{background:transparent !important;border:1.5px dashed var(--c-mut);color:var(--c-mut)}
   .arow.unvrow{opacity:.9}
@@ -1351,7 +1355,7 @@ function renderRules(){
           var on = !!c[d[0]];
           return '<button class="detchip'+(on?" on":"")+'" data-det="'+d[0]+'" '
             +'onclick="toggleRule(\''+esc(c.id)+'\',\''+d[0]+'\',this)" title="'+esc(d[2])+'">'
-            +'<span class="di">'+d[5]+'</span><span class="dl">'+esc(d[1])+'</span>'
+            +'<span class="di">'+d[5]+'</span><span class="dl">'+esc(d[1])+valBadge(d[0])+'</span>'
             +'<span class="dt">'+(on?"●":"○")+'</span></button>';
         }).join("");
         return '<div class="detgroup"><div class="detghead"><b>'+esc(g[1])+'</b>'
@@ -2236,7 +2240,7 @@ function wizDetectors(){
       var on = !!wiz.flags[d[0]];
       return '<label class="row" style="gap:10px;padding:7px 0;cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' onchange="wizToggleDet(\''+d[0]+'\', this.checked)">'
         +'<span>'+d[5]+'</span><span style="min-width:120px;font-weight:600">'+esc(d[1])+'</span>'
-        +'<span class="mut" style="font-size:12px">'+esc(d[2])+'</span></label>'; }).join("");
+        +'<span class="mut" style="font-size:12px;flex:1">'+esc(d[2])+'</span>'+valBadge(d[0])+'</label>'; }).join("");
     return '<div class="panel" style="padding:12px 18px;margin-top:10px"><div style="font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-accent)">'+esc(g[1])+'</div>'+rows+'</div>'; }).join("");
   return '<h2>Confirm what Argus watches for</h2><p class="lead">Preselected from your use case — every camera gets this set. Fine-tune single cameras later under <b>Rules</b>.</p>'+groups;
 }
@@ -2347,8 +2351,19 @@ function refreshLiveness(){
 }
 function startLivenessWatch(){ refreshLiveness(); if(!state.livenessTimer) state.livenessTimer=setInterval(refreshLiveness, 5000); }
 
+/* Detector validation (EP-07-T4): measured numbers at the point of
+   configuration; everything unmeasured says EXPERIMENTAL, in so many words. */
+function loadValidation(){ call("detectorValidation",[],function(v){ if(v && !v.error){ state.validation=v; } }); }
+function valBadge(key){
+  var v=(state.validation||{})[key];
+  if(!v) return "";
+  return v.measured
+    ? '<span class="valbadge ok" title="'+esc(v.summary)+'">✓ '+esc(v.summary.split("·")[0].trim())+'</span>'
+    : '<span class="valbadge exp" title="'+esc(v.summary)+'">EXPERIMENTAL</span>';
+}
+
 /* ---------- boot ---------- */
-function startApp(){ renderNav(); refreshCounts(); refreshFeedToggle(); refreshMonitor(); startGlobalWatch(); startGateWatch(); initNetWatch(); startLivenessWatch(); render(); }
+function startApp(){ renderNav(); refreshCounts(); refreshFeedToggle(); refreshMonitor(); startGlobalWatch(); startGateWatch(); initNetWatch(); startLivenessWatch(); loadValidation(); render(); }
 
 /* ---------- global alert watch: badge + sound + live-tile flags, any screen ---------- */
 function startGlobalWatch(){ if(state.globalTimer) return; state.globalTimer=setInterval(pollAlertsGlobal, 3000); pollAlertsGlobal(); }

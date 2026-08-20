@@ -85,6 +85,10 @@ class Backend(QObject):
         return self._safe(self._core.setup_check)
 
     @pyqtSlot(result=str)
+    def detectorValidation(self) -> str:
+        return self._safe(self._core.detector_validation)
+
+    @pyqtSlot(result=str)
     def discoverCameras(self) -> str:
         return self._safe(self._core.discover_cameras)
 

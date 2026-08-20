@@ -329,6 +329,34 @@ class ConsoleBackend:
         },
     }
 
+    # Validation status per detector flag (EP-07-T4). Mirrors the coverage
+    # table in docs/NUMBERS.md — a test asserts the two agree, so this cannot
+    # quietly drift from the published numbers. A detector without a measured
+    # row is EXPERIMENTAL at the point of configuration, and excluded from
+    # marketing claims (NUMBERS.md is the claims sheet).
+    DETECTOR_VALIDATION = {
+        "fire_smoke": {"measured": True,
+                       "summary": "100% caught (n=9) · 6.7% false alarms"},
+        "crowd_formation": {"measured": True,
+                            "summary": "75% caught (n=8) · 13.3% false alarms"},
+        "concealment": {"measured": True,
+                        "summary": "88.9% caught (n=9) · 25.9% false alarms"},
+        "video_action": {"measured": True,
+                         "summary": "88.9% caught (n=9) · 25.9% false alarms"},
+        "running": {"measured": False}, "fall": {"measured": False},
+        "weapons": {"measured": False}, "violence": {"measured": False},
+        "tamper": {"measured": False}, "theft": {"measured": False},
+    }
+
+    def detector_validation(self) -> dict:
+        """Per-detector measurement status for the configuration surfaces."""
+        out = {}
+        for flag in self.RULE_FLAGS:
+            v = self.DETECTOR_VALIDATION.get(flag, {"measured": False})
+            out[flag] = {"measured": bool(v.get("measured")),
+                         "summary": v.get("summary") or "EXPERIMENTAL — built and demonstrable, not yet validated"}
+        return out
+
     def use_case_templates(self) -> dict:
         """The three templates, detector labels resolved — read-only, any role."""
         return {k: {"label": t["label"], "blurb": t["blurb"],
