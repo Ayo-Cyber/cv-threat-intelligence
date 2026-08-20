@@ -1050,31 +1050,90 @@ class ConsoleBackend:
         return "data:image/jpeg;base64," + base64.b64encode(p.read_bytes()).decode()
 
     def set_review(self, event_id: int | str, label: str) -> dict:
+        """Legacy label entry point — routed through the state machine so every
+        transition carries an owner and lands in the audit trail."""
         self._require(perms.REVIEW_ALERTS)
         if label not in _REVIEW_VALUES:
             raise ValueError(f"review must be one of {_REVIEW_VALUES}")
-        # Write to the SAME db we read from, and make sure its folder exists.
-        # A read-only bundled demo can't be written — degrade gracefully, no modal.
+        mapping = {"true": ("resolve", "real"), "false": ("resolve", "false_alarm"),
+                   "ack": ("acknowledge", None)}
+        action, outcome = mapping[label]
+        if action == "acknowledge":
+            return self.acknowledge_alert(event_id)
+        return self.resolve_alert(event_id, outcome)
+
+    def _triage_connect(self):
+        """Write to the SAME db we read from. The bundled read-only demo can't
+        be written — callers degrade gracefully rather than showing a modal."""
         db, _ = self._effective_db()
-        iso = time.strftime("%Y-%m-%dT%H:%M:%S")
+        Path(db).parent.mkdir(parents=True, exist_ok=True)
+        con = self._connect(db)
+        from cvti import triage
+        triage.ensure_columns(con)
+        return con
+
+    def _actor(self) -> str:
+        user = self.current_user
+        return user.username if user else "<unknown>"
+
+    def acknowledge_alert(self, event_id: int | str) -> dict:
+        """Claim it. Everyone else sees your name against it."""
+        self._require(perms.REVIEW_ALERTS)
+        from cvti import triage
         try:
-            Path(db).parent.mkdir(parents=True, exist_ok=True)
-            con = self._connect(db)
+            con = self._triage_connect()
         except (sqlite3.OperationalError, OSError):
-            return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": False}
+            return {"ok": False, "persisted": False}
         try:
-            cols = {c[1] for c in con.execute("PRAGMA table_info(events)")}
-            if "review" not in cols:
-                con.execute("ALTER TABLE events ADD COLUMN review TEXT")
-            if "reviewed_at" not in cols:
-                con.execute("ALTER TABLE events ADD COLUMN reviewed_at TEXT")
-            con.execute("UPDATE events SET review=?, reviewed_at=? WHERE id=?", (label, iso, event_id))
-            con.commit()
-        except sqlite3.OperationalError:
+            result = triage.acknowledge(con, int(event_id), self._actor())
+        except triage.TriageError as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
             con.close()
-            return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": False}
-        con.close()
-        return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": True}
+        self.audit.record(self._actor(), "alert_resolution", f"event:{event_id}",
+                          {"transition": "acknowledged"})
+        return {"id": event_id, "persisted": True, **result}
+
+    def resolve_alert(self, event_id: int | str, outcome: str, note: str = "") -> dict:
+        """Conclude it. The outcome feeds the model's feedback loop; the note is
+        for the humans on the next shift."""
+        self._require(perms.REVIEW_ALERTS)
+        from cvti import triage
+        try:
+            con = self._triage_connect()
+        except (sqlite3.OperationalError, OSError):
+            return {"ok": False, "persisted": False}
+        try:
+            result = triage.resolve(con, int(event_id), self._actor(), outcome, note)
+        except triage.TriageError as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            con.close()
+        self.audit.record(self._actor(), "alert_resolution", f"event:{event_id}",
+                          {"transition": "resolved", "outcome": outcome,
+                           "note": bool(note)})
+        return {"id": event_id, "persisted": True, **result}
+
+    def needs_attention(self, min_priority: str = "medium") -> dict:
+        """The Now view: one alert first, the queue behind it, who holds what."""
+        self._require(perms.VIEW_ALERTS)
+        from cvti import triage
+        try:
+            con = self._triage_connect()
+        except (sqlite3.OperationalError, OSError):
+            return {"now": None, "then": [], "waiting": 0, "held": []}
+        try:
+            out = triage.needs_attention(con, min_priority=min_priority)
+        finally:
+            con.close()
+        db, frame_base = self._effective_db()
+        if out["now"]:
+            out["now"]["review"] = out["now"].get("review") or "new"
+            out["now"]["frames"] = self._frames_as_data_uris(
+                out["now"].get("evidence_dir"), frame_base)
+            out["now"]["subject"] = self._subject_uri(
+                out["now"].get("evidence_dir"), frame_base)
+        return out
 
     def learning_stats(self) -> dict:
         """Feedback / reinforcement-training status for the Learning screen."""

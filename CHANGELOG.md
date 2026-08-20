@@ -18,6 +18,18 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Alert ownership and a real state machine** (EP-06-T1). Alerts move
+  `NEW → ACKNOWLEDGED(by whom, when) → RESOLVED(outcome, note)`, enforced in one
+  place. **Claiming an alert shows your name to every operator** — with two
+  guards on shift, both responding or neither was the audit's largest product
+  gap. A second claim is refused *by name*; a resolved alert is finished;
+  resolving an unclaimed alert claims it in the same breath, both transitions
+  audit-logged. Outcomes are `real` / `false_alarm` / `inconclusive` — the
+  honest third option that feeds nothing, because forcing a binary answer on a
+  genuinely unclear clip poisons the training data. The legacy `review` column
+  is maintained as a projection, so the feedback loop and Value screen are
+  unchanged. The Alerts screen gains the queue-as-a-number strip, an "I'm on
+  it" claim button, owner chips on rows, and a handover note at resolution.
 - **Opt-in heartbeat and a sites dashboard** (EP-04-T2). Off by default —
   nothing is sent anywhere until a site owner enters a monitoring URL and key.
   The payload is the health document copied through a **whitelist**, so a field

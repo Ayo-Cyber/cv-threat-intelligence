@@ -224,7 +224,13 @@ CREATE TABLE IF NOT EXISTS events (
     bbox TEXT,            -- "x1,y1,x2,y2" of the subject when it fired (may be NULL)
     unverified INTEGER DEFAULT 0,  -- 1 = the gate never reached a verdict (fail-visible)
     gate_error TEXT,      -- why, when unverified
-    legal_hold INTEGER DEFAULT 0   -- 1 = exempt from retention purge, set by an operator
+    legal_hold INTEGER DEFAULT 0,  -- 1 = exempt from retention purge, set by an operator
+    state TEXT DEFAULT 'new',      -- new -> acknowledged -> resolved (cvti/triage.py)
+    owner TEXT,                    -- who claimed it; visible to every operator
+    acknowledged_at REAL,
+    resolved_at REAL,
+    outcome TEXT,                  -- real | false_alarm | inconclusive
+    note TEXT                      -- free text captured at resolution
 );
 
 -- What the gate threw away, per day. Only confirmed alerts become rows in
@@ -268,7 +274,9 @@ class AlertSink:
         except sqlite3.OperationalError:
             pass
         for _col, _type in (("unverified", "INTEGER DEFAULT 0"), ("gate_error", "TEXT"),
-                            ("legal_hold", "INTEGER DEFAULT 0")):
+                            ("legal_hold", "INTEGER DEFAULT 0"), ("state", "TEXT"),
+                            ("owner", "TEXT"), ("acknowledged_at", "REAL"),
+                            ("resolved_at", "REAL"), ("outcome", "TEXT"), ("note", "TEXT")):
             try:
                 self._db.execute(f"ALTER TABLE events ADD COLUMN {_col} {_type}")
             except sqlite3.OperationalError:
