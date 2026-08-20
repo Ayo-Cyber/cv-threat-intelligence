@@ -171,6 +171,8 @@ class MobileServer:
         sev = _SEV.get(event.get("priority") or "low", "#8d94a6")
         state = triage.state_of(event)
         unverified = bool(event.get("unverified"))
+        provisional = bool(event.get("provisional"))
+        retracted = bool(event.get("retracted"))
         pill = (f"<span class='pill unv'>Unverified</span>" if unverified else
                 f"<span class='pill' style='background:{sev};color:#04121f'>"
                 f"{html.escape((event.get('priority') or '').upper())}</span>")
@@ -179,7 +181,11 @@ class MobileServer:
             for i in range(len(self._frame_paths(event)))) or \
             "<div class='panel mut'>No evidence frames on disk.</div>"
 
-        if state == triage.RESOLVED:
+        if retracted:
+            actions = ("<div class='panel' style='border-style:dashed'><b>RETRACTED.</b> "
+                       "This provisional alert was verified as not a threat. "
+                       "Nothing needs you here.</div>")
+        elif state == triage.RESOLVED:
             actions = (f"<div class='panel'><div class='plabel'>Concluded</div>"
                        f"{html.escape(event.get('outcome') or '')} by "
                        f"{html.escape(event.get('owner') or '?')}"
@@ -208,9 +214,17 @@ class MobileServer:
 
         reason_label = ("What the detector claimed — NOT verified"
                         if unverified else "Why TrueSight confirmed this")
-        unv_note = ("<div class='panel' style='border-style:dashed'><b>This has not "
-                    "been checked by anything.</b> The verifier could not decide — "
-                    "review it yourself.</div>" if unverified else "")
+        if provisional:
+            unv_note = ("<div class='panel' style='border-color:#f59e0b'><b style="
+                        "'color:#f59e0b'>PROVISIONAL — verifying now.</b> Shown "
+                        "immediately because this is a critical threat; the verdict "
+                        "follows in about 20 seconds.</div>")
+        elif unverified and not retracted:
+            unv_note = ("<div class='panel' style='border-style:dashed'><b>This has not "
+                        "been checked by anything.</b> The verifier could not decide — "
+                        "review it yourself.</div>")
+        else:
+            unv_note = ""
         queue = (f"<div class='sub' style='text-align:center;margin-top:16px'>"
                  f"{context.get('waiting', 0)} more waiting"
                  + "".join(f" · {html.escape(h.get('owner') or '?')} has "
