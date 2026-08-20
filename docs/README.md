@@ -27,6 +27,7 @@ followed.
 | Doc | What it's for |
 |---|---|
 | [../SECURITY.md](../SECURITY.md) | Security model, threat model, and the procurement answer sheet. What is defended and what is not. |
+| [UPDATES.md](UPDATES.md) | The signed-update trust model: what a site will install, why it refuses everything else, and how to cut a release. |
 | [HEARTBEAT.md](HEARTBEAT.md) | Exactly what an opted-in site transmits, field by field, and how to run the receiver. Public on purpose. |
 | [DATA_RETENTION.md](DATA_RETENTION.md) | What is stored, for how long, what outlives its expiry and why. Customer-facing — written to be handed to a DPO. |
 | [OFFLINE_VLM.md](OFFLINE_VLM.md) | Running verification fully offline against a local model. |

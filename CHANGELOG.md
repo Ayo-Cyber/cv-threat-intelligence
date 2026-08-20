@@ -18,6 +18,15 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Signed updates with rollback** (EP-04-T3). A site installs nothing the
+  vendor's Ed25519 release key did not sign — no override, and a missing
+  signature is treated exactly like a forged one. Checking reads a manifest and
+  nothing else; installing happens only on a person's say-so; the previous
+  version stays on disk so rollback is an offline pointer change. Vendor side:
+  `tools/make_update.py` (keygen + sign), which verifies each release against
+  the public key embedded in the app before publishing. Trust model:
+  [docs/UPDATES.md](docs/UPDATES.md). Adds `cryptography` as a dependency;
+  without it the updater refuses rather than skips verification.
 - **Opt-in heartbeat and a sites dashboard** (EP-04-T2). Off by default —
   nothing is sent anywhere until a site owner enters a monitoring URL and key.
   The payload is the health document copied through a **whitelist**, so a field
