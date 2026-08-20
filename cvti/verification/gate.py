@@ -367,6 +367,7 @@ class VerificationGate:
                 from cvti.eval.prompt_fingerprint import fingerprint
                 self._prompt_version = fingerprint()[:12]
             except Exception:  # noqa: BLE001 - versioning must never break verification
+                log.debug("prompt fingerprint unavailable", exc_info=True)
                 self._prompt_version = ""
         return self._prompt_version
 

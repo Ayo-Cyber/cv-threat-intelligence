@@ -182,6 +182,7 @@ class GoldenSet:
                         row["confidence"] = round(float(verdict.confidence), 3)
                         row["reason"] = (verdict.reason or "")[:200]
                 except Exception as exc:  # noqa: BLE001 - an error is not a rejection
+                    log.debug("replay case errored: %s", case.case_id, exc_info=True)
                     row["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
             fresh += 1
             out.append(row)
