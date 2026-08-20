@@ -330,9 +330,25 @@
   .vinputs{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
   .vinputs label{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--c-mut)}
   .vinputs input{width:130px}
+  /* auth gate (UI_SPEC §2.2) */
+  #authGate{position:fixed;inset:0;background:var(--c-bg);z-index:80;display:none;align-items:center;justify-content:center}
+  #authGate.on{display:flex}
+  .authbox{width:440px;max-width:92vw}
+  .authbox .brand-n{font-size:24px;font-weight:700;letter-spacing:-.3px}
+  .authbox .field{width:100%;margin-top:5px;padding:10px 12px;border:1px solid var(--c-border2);border-radius:8px;
+    background:var(--c-bg);color:var(--c-text);font-family:var(--ff-mono);font-size:13px}
+  .authbox .field:focus{outline:none;border-color:var(--c-accent);box-shadow:var(--focus)}
+  .authbox .flabel{font-size:11px;color:var(--c-sub);margin-top:13px}
+  .authbox .ferr{color:var(--sev-crit);font-size:12px;margin-top:10px;min-height:15px}
+  .authdots{display:flex;gap:5px;margin-top:16px}
+  .authdots div{height:3px;flex:1;border-radius:2px;background:var(--c-border2)}
+  .authdots div.on{background:var(--c-accent)}
   /* gate banner — the app is running unverified, and must never hide it */
   .gatebanner{background:var(--sev-crit);color:#fff;font-weight:700;letter-spacing:.4px;
     padding:9px 22px;font-size:13px;display:flex;gap:10px;align-items:center}
+  /* author display:flex beats the UA's [hidden]{display:none} — restate it,
+     or the banner renders as an empty red strip whenever it is "hidden". */
+  .gatebanner[hidden]{display:none}
   .gatebanner .sub{font-weight:500;opacity:.9;letter-spacing:0}
   /* system page */
   .syslabel{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--c-sub)}
@@ -352,6 +368,8 @@
         <span id="monLabel" style="font-weight:600;color:#c7cdd8">Idle</span></div>
       <div class="mono" id="monGate" style="margin-top:6px">TrueSight · on-device</div>
       <div class="netbadge" id="netBadge" title="Argus runs entirely on this machine — it needs no internet, and nothing leaves your network">🔒 Local-only</div>
+      <div class="mono" id="whoami" style="margin-top:8px;color:var(--c-mut);font-size:11px;display:none">
+        <span id="whoamiName"></span> <a href="#" onclick="doSignOut();return false" style="color:var(--c-sub);margin-left:6px">sign out</a></div>
       <div style="margin-top:4px;color:#3d4a66">Argus Edge v0.9</div>
     </div>
   </nav>
@@ -372,6 +390,7 @@
 </div>
 <div id="modalRoot"></div>
 <div id="wizard"></div>
+<div id="authGate"></div>
 
 <script>
 "use strict";
@@ -389,7 +408,7 @@ function call(method, args, cb){ // args: array; cb(obj)
 }
 
 function renderNav(){
-  $("nav").innerHTML = NAV.map(function(n){
+  $("nav").innerHTML = NAV.filter(function(n){ return navAllowed(n[0]); }).map(function(n){
     var on = state.route===n[0] ? " on" : "";
     var badge = (n[0]==="alerts" && state.pending>0) ? '<span class="badge">'+state.pending+'</span>' : '';
     return '<button class="navbtn'+on+'" onclick="go(\''+n[0]+'\')">'+n[1]+badge+'</button>';
@@ -1748,10 +1767,98 @@ document.addEventListener("click", function _unlock(){
   try{ if(!state.audioCtx) state.audioCtx=new (window.AudioContext||window.webkitAudioContext)(); state.audioCtx.resume(); }catch(e){}
   document.removeEventListener("click", _unlock);
 });
+/* ---------- auth gate (UI_SPEC §2.2) ----------
+   The backend enforces every consequential call, so the app must not boot its
+   pollers until there is a session — they would just drum denied errors. */
 function boot(){
+  call("authState",[],function(a){
+    if(!a || a.error){ authScreen('<div class="pad mut">Could not read sign-in state: '+esc((a&&a.error)||"no response")+'</div>'); return; }
+    if(!a.configured){ renderFirstRun(); }
+    else if(!a.signed_in){ renderSignIn(""); }
+    else { enterApp(a); }
+  });
+}
+function authScreen(html){
+  var g=$("authGate"); g.className="on"; g.innerHTML='<div class="authbox">'+html+'</div>';
+}
+function authField(id,label,type,help){
+  return '<div class="flabel">'+esc(label)+'</div>'
+    +'<input class="field" id="'+id+'" type="'+type+'" autocomplete="off" spellcheck="false">'
+    +(help?'<div class="sub" style="font-size:11px;margin-top:7px">'+help+'</div>':'');
+}
+function renderSignIn(err){
+  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:4px">Sign in to this site</div>'
+    +'<div class="panel" style="padding:20px;margin-top:22px">'
+    +  authField("authUser","Name","text","")
+    +  authField("authPass","Password","password","")
+    +  '<div class="ferr" id="authErr">'+esc(err||"")+'</div>'
+    +  '<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doSignIn()">Sign in</button>'
+    +'</div>');
+  wireAuthEnter("doSignIn"); $("authUser").focus();
+}
+function renderFirstRun(){
+  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:4px">Set up this site</div>'
+    +'<div class="panel" style="padding:20px;margin-top:22px">'
+    +  '<div style="font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--c-sub)">Step 1 of 5 · Owner account</div>'
+    +  '<p class="mut" style="font-size:12.5px;margin:9px 0 3px;line-height:1.55">Nothing ships with a password, so there is nothing to change — you are creating the first account now. The owner can add operators and installers later.</p>'
+    +  authField("authUser","Name","text","")
+    +  authField("authPass","Password","password","At least 8 characters. Stored hashed — it cannot be recovered, only reset.")
+    +  '<div class="ferr" id="authErr"></div>'
+    +  '<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doFirstRun()">Create account and continue</button>'
+    +'</div>'
+    +'<div class="authdots"><div class="on"></div><div></div><div></div><div></div><div></div></div>'
+    +'<div class="sub" style="font-size:11px;margin-top:8px">Then: cameras → zones → what to watch for → a test alert to your phone</div>');
+  wireAuthEnter("doFirstRun"); $("authUser").focus();
+}
+function wireAuthEnter(fn){
+  ["authUser","authPass"].forEach(function(id){
+    var el=$(id); if(el) el.addEventListener("keydown",function(e){ if(e.key==="Enter") window[fn](); });
+  });
+}
+function authBusy(b){ var btn=$("authBtn"); if(btn){ btn.disabled=b; } }
+function doSignIn(){
+  authBusy(true);
+  call("signIn",[$("authUser").value.trim(), $("authPass").value],function(r){
+    authBusy(false);
+    if(r && r.ok){ enterApp(r); }
+    // The backend returns one message for a wrong password and an unknown
+    // user, on purpose. Display it verbatim; never elaborate.
+    else if($("authErr")) $("authErr").textContent = (r&&r.error)||"sign-in failed";
+  });
+}
+function doFirstRun(){
+  authBusy(true);
+  call("createFirstOwner",[$("authUser").value.trim(), $("authPass").value],function(r){
+    authBusy(false);
+    if(r && r.ok){ enterApp(r); }
+    else if($("authErr")) $("authErr").textContent = (r&&r.error)||"could not create the account";
+  });
+}
+function doSignOut(){
+  // Reload rather than unwind: every poller and cached screen assumed a
+  // session, and a fresh boot() is the one state we can trust.
+  call("signOut",[],function(){ location.reload(); });
+}
+/* Nav items the signed-in role cannot use are not rendered. The backend
+   re-checks every call regardless — this is courtesy, not enforcement. */
+var NAV_PERMS = {alerts:"view_alerts", live:"view_live", map:"view_live",
+                 learning:"review_alerts", rules:"configure_detectors",
+                 value:"configure_site", system:"configure_site"};
+function navAllowed(key){
+  if(!state.auth || !state.auth.permissions) return true;
+  var need = NAV_PERMS[key];
+  return !need || state.auth.permissions.indexOf(need) >= 0;
+}
+function enterApp(a){
+  state.auth = a;
+  var g=$("authGate"); g.className=""; g.innerHTML="";
+  var who=$("whoami");
+  if(who){ who.style.display="block"; $("whoamiName").textContent = a.username+" · "+a.role; }
+  if(a.landing && navAllowed(a.landing)) state.route = a.landing;
   call("setupState",[],function(s){
     if(s && !s.error && !s.configured){ openWizard(); }
-    else { if(s && s.demo){ state.route="live"; } startApp(); }
+    else { if(s && s.demo){ state.route="live"; } }
+    startApp();
   });
 }
 function connect(tries){
