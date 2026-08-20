@@ -194,6 +194,21 @@ why — the spec must never drift behind the shipped UI.
 
 ### Recorded changes
 
+- **2026-08-20 (EP-09, Sprint UI).** The shell itself now implements §1: nav is
+  Watch / Triage / Configure + an Owner section (Value) + Settings behind a
+  gear; legacy route names remap to surface tabs; landing is Triage for
+  owner/operator, Watch for installer. §2.2: link-state rows under tiles,
+  dashed dimmed NO SIGNAL offline tiles, the offline consequence banner, and
+  the engine truth line. §2.3 phase 2: the Now screen is Triage's default tab
+  (the list survives as "All alerts"); a claimed alert stays with its claimant
+  until resolved. §2.7 panels and the §2.6 sweep (UNVERIFIED dashed-grey in
+  list, detail and Now; no confidence bar where nothing scored). Two wording
+  deviations, both because the spec's copy would have overstated what we
+  measure: the footer liveness line reads "N of M cameras live" (per-frame
+  freshness is not published outside the engine), and the shift strip reads
+  "Last 24 h: N shown · M filtered out" (the backend aggregates by day, and
+  claiming "since your shift began" would lie about the window).
+
 - **2026-08-20 (EP-05-T4).** Cameras step gains **Find cameras (ONVIF)** above
   the subnet scan — one tap lists cameras that announce themselves; tapping a
   result fills the address field (manual entry and vendor paths remain the

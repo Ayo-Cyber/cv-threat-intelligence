@@ -18,6 +18,19 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **The decided design, shipped** (EP-09 · Sprint UI). Nine navigation items
+  collapse to three surfaces — Watch, Triage, Configure — with Value under an
+  Owner section and Settings behind a gear; every screen renders from the
+  signed-in role's permissions. Watch tells the truth per camera (link-state
+  rows, dashed NO SIGNAL offline tiles, a banner that says "Nothing is being
+  watched there") and per engine ("Engine not running", never silence).
+  Triage opens on the **Now screen**: one alert, evidence, why TrueSight
+  confirmed it, and one next action — "I'm on it" claims it in everyone's
+  sight; a quiet queue renders "All systems normal" so a watched night never
+  looks dead. Settings gains Users, the tamper-evident Audit trail, and disk
+  encryption status. UNVERIFIED alerts are dashed grey everywhere — never a
+  severity colour, never a confidence bar.
+
 - **Code signing and notarisation, ready to engage** (EP-05-T2). CI now
   imports a Developer ID certificate, signs with the hardened runtime,
   notarises and staples the dmg, and Authenticode-signs the Windows

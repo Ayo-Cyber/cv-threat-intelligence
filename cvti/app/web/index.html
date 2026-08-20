@@ -222,6 +222,9 @@
   .confbar{flex:1;height:6px;background:var(--c-border);border-radius:99px;max-width:280px}
   .confbar>div{height:100%;border-radius:99px}
   .plabel{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--c-mut)}
+  /* §2.6: UNVERIFIED is never a severity colour — dashed grey, transparent fill */
+  .unvpill{background:transparent !important;border:1.5px dashed var(--c-mut);color:var(--c-mut)}
+  .arow.unvrow{opacity:.9}
   .audittbl{width:100%;border-collapse:collapse;font-size:11.5px}
   .audittbl th{text-align:left;color:var(--c-mut);font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:4px 8px 4px 0}
   .audittbl td{padding:4px 8px 4px 0;border-top:1px solid var(--c-border);vertical-align:top}
@@ -1718,14 +1721,15 @@ function paintAlerts(){
     var header = "";
     if(sortMode==="class" && tc.label!==prevClass){ prevClass=tc.label;
       header = '<div class="agroup" style="color:'+tc.color+'"><span>'+tc.icon+' '+esc(tc.label)+'</span></div>'; }
+    var unvRow = !!Number(a.unverified);
     return header
-      +'<div class="arow'+sel+'" style="border-left:3px solid '+tc.color+'" onclick="selectAlert('+i+')">'
-      +'<span class="dot" style="margin-top:4px;background:'+(SEV[a.priority]||SEV.low)+'"></span>'
+      +'<div class="arow'+sel+(unvRow?" unvrow":"")+'" style="border-left:3px '+(unvRow?"dashed var(--c-mut)":"solid "+tc.color)+'" onclick="selectAlert('+i+')">'
+      +'<span class="dot" style="margin-top:4px;background:'+(unvRow?"var(--c-mut)":(SEV[a.priority]||SEV.low))+'"></span>'
       +'<div style="flex:1;min-width:0"><div class="row" style="gap:8px">'
       +'<span class="cchip" style="color:'+tc.color+';border-color:'+tc.color+'">'+tc.icon+' '+esc(tc.label)+'</span>'
       +'<span style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.rule)+ownChip+'</span>'
       +'<span style="flex:1"></span><span class="mono mut" style="font-size:11px">'+esc((a.iso||"").split("T")[1]||"")+'</span></div>'
-      +'<div class="row" style="gap:8px;margin-top:3px"><span style="font-size:10px;font-weight:700;letter-spacing:.05em;color:'+(SEV[a.priority]||SEV.low)+'">'+esc((a.priority||"").toUpperCase())+'</span>'
+      +'<div class="row" style="gap:8px;margin-top:3px"><span style="font-size:10px;font-weight:700;letter-spacing:.05em;color:'+(unvRow?"var(--c-mut)":(SEV[a.priority]||SEV.low))+'">'+(unvRow?"UNVERIFIED":esc((a.priority||"").toUpperCase()))+'</span>'
       +'<span class="mono mut" style="font-size:11px">'+esc(a.camera_id)+'</span>'
       +'<span class="mono sub" style="font-size:11px">'+(a.confidence!=null?Number(a.confidence).toFixed(2):"")+'</span><span style="flex:1"></span>'
       +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;color:var(--c-mut);background:var(--c-raised)">'+st+'</span></div></div></div>';
@@ -1765,7 +1769,11 @@ function renderDetail(){
     : '<div class="mut" style="margin-top:14px">no clip saved</div>';
   var confPct = Math.round((Number(a.confidence)||0)*100);
   var reviewed = a.review && a.review!=="new";
-  return '<div class="row"><span class="sevbadge" style="background:'+sev+'">'+esc((a.priority||"").toUpperCase())+'</span>'
+  var unv = !!Number(a.unverified);
+  var badge = unv
+    ? '<span class="sevbadge unvpill">UNVERIFIED</span>'
+    : '<span class="sevbadge" style="background:'+sev+'">'+esc((a.priority||"").toUpperCase())+'</span>';
+  return '<div class="row">'+badge
     +'<h2 style="margin:0">'+esc(a.rule)+'</h2><span style="flex:1"></span><span class="mono mut">'+esc(a.iso||"")+'</span></div>'
     +'<div class="row" style="gap:20px;margin-top:8px;font-size:12px" class="mut"><span class="mut">camera <b class="mono" style="color:var(--c-text)">'+esc(a.camera_id)+'</b></span>'
     +'<span class="mut">zone <b class="mono" style="color:var(--c-text)">'+esc(a.zone||"—")+'</b></span>'
@@ -1774,9 +1782,12 @@ function renderDetail(){
     +clip
     +subjectHTML(a)
     +timelineHTML(a)
-    +'<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why TrueSight confirmed this</div>'
-    +'<p style="margin:0;font-size:14px;line-height:1.5">'+esc(a.reason||"")+'</p>'
-    +'<div class="row" style="margin-top:12px"><span class="mut" style="font-size:11px">confidence</span><div class="confbar"><div style="width:'+confPct+'%;background:'+sev+'"></div></div><span class="mono">'+(Number(a.confidence)||0).toFixed(2)+'</span></div></div>'
+    +(unv
+      ? '<div class="panel" style="padding:14px 16px;margin-top:16px;border-style:dashed"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-mut);text-transform:uppercase;margin-bottom:6px">Unverified</div>'
+        +'<p style="margin:0;font-size:14px;line-height:1.5">TrueSight could not reach a verdict — '+esc(a.reason||"the verifier was unavailable")+'. This has not been checked by anything. Review it yourself.</p></div>'
+      : '<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why TrueSight confirmed this</div>'
+        +'<p style="margin:0;font-size:14px;line-height:1.5">'+esc(a.reason||"")+'</p>'
+        +'<div class="row" style="margin-top:12px"><span class="mut" style="font-size:11px">confidence</span><div class="confbar"><div style="width:'+confPct+'%;background:'+sev+'"></div></div><span class="mono">'+(Number(a.confidence)||0).toFixed(2)+'</span></div></div>')
     +ownerHTML(a)
     +'<div class="row" style="margin-top:18px">'
     +'<button class="btn" onclick="doClaim()">'+(a.owner ? esc(a.owner)+" is on it" : "I\u2019m on it")+'</button>'
