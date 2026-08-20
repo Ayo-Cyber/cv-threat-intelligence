@@ -100,6 +100,10 @@ class StreamDecoder:
                 "time_in_state": round(self.time_in_state, 1),
                 "reconnects": self.reconnects,
                 "last_frame_at": self.last_frame_at,
+                # The liveness number the UI shows. A connected camera whose
+                # frames stopped is exactly the ambiguity this exists to remove.
+                "last_frame_age_s": (round(time.time() - self.last_frame_at, 1)
+                                     if self.last_frame_at else None),
                 "attempts": list(self.attempt_history)}
 
     def _is_live(self) -> bool:

@@ -59,8 +59,19 @@ class GatePool:
         # operator whether Ollama is down or the model is returning garbage.
         self.last_error = ""
         self.last_error_at = 0.0
+        self.last_success_at = 0.0
+        # Verdicts the gate could NOT reach (fail-visible surfaces them as
+        # UNVERIFIED alerts rather than raising). They are deliveries, not
+        # verifications — counting them as verified would let /health report a
+        # dead gate as healthy, which is the exact lie EP-04 exists to end.
+        self.unverified = 0
+        self.last_unverified_at = 0.0
         from cvti.health import component
         self._health = component("gate")
+        # Verify latency, last 50 verdicts. /health reports the median: one slow
+        # verdict is the model thinking, a slow median is a saturated gate.
+        from collections import deque
+        self._latencies: deque = deque(maxlen=50)
 
     def start(self) -> "GatePool":
         for i in range(self.workers):
@@ -107,14 +118,27 @@ class GatePool:
                             except Exception as exc:  # noqa: BLE001 - feedback lookup must never break the gate
                                 log.debug("feedback example lookup failed", exc_info=True)
                                 examples = None
+                        _t0 = time.monotonic()
                         result = gate.verify(p.get("frames"), candidate, p.get("scene"),
                                              examples=examples)
-                    self.verified += 1
-                    self._health.ok()
-                    if result is not None and result.confirmed:
-                        self.confirmed += 1
+                        self._latencies.append(time.monotonic() - _t0)
+                    if result is not None and getattr(result, "errored", False):
+                        # No verdict was reached. The alert was surfaced
+                        # UNVERIFIED — that is delivery working, not the gate.
+                        self.unverified += 1
+                        self.last_unverified_at = time.time()
+                        self.last_error = str(result.error)[:180]
+                        self.last_error_at = self.last_unverified_at
+                        self._health.failed(RuntimeError(result.error), log,
+                                            "reaching a verdict")
                     else:
-                        self.rejected += 1
+                        self.verified += 1
+                        self.last_success_at = time.time()
+                        self._health.ok()
+                        if result is not None and result.confirmed:
+                            self.confirmed += 1
+                        else:
+                            self.rejected += 1
                 except Exception as exc:  # noqa: BLE001 - a gate error must not kill the worker
                     self.errors += 1
                     self._health.failed(exc, log, f"verifying {alert.rule_name}")
@@ -147,8 +171,18 @@ class GatePool:
         for t in self._threads:
             t.join(timeout=3.0)
 
+    def median_latency_s(self):
+        if not self._latencies:
+            return None
+        ordered = sorted(self._latencies)
+        return round(ordered[len(ordered) // 2], 2)
+
     def stats(self) -> dict:
         return {"verified": self.verified, "confirmed": self.confirmed,
                 "rejected": self.rejected, "errors": self.errors,
+                "unverified": self.unverified,
+                "last_unverified_at": self.last_unverified_at,
+                "last_success_at": self.last_success_at,
+                "median_latency_s": self.median_latency_s(),
                 "last_error": self.last_error, "last_error_at": self.last_error_at,
                 "deduped": self.queue.dropped_duplicates, "pending": self.queue.pending_count}

@@ -5,6 +5,8 @@ import time
 import unittest
 from pathlib import Path
 
+from _backend_helper import signed_in
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +41,7 @@ class LiveWallTests(unittest.TestCase):
         import tempfile
         from cvti.app.console_backend import ConsoleBackend
         with tempfile.TemporaryDirectory() as d:
-            be = ConsoleBackend(site_path=str(Path(d) / "s.json"), db_path=str(Path(d) / "e.db"), enable_demo=False)
+            be = signed_in(site_path=str(Path(d) / "s.json"), db_path=str(Path(d) / "e.db"), enable_demo=False)
             res = be.live_start(count=2)               # empty site -> demo clips fallback
             self.assertGreaterEqual(len(res["cameras"]), 1)
             self.assertGreater(res["port"], 0)         # frame server started

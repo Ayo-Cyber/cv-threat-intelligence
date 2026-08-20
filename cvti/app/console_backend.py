@@ -21,6 +21,9 @@ import time
 from pathlib import Path
 
 from cvti.logging_setup import get_logger
+from cvti.security import permissions as perms
+from cvti.security.accounts import AccountStore, AuthError
+from cvti.security.audit import AuditLog
 from cvti.serving import onboarding, vlm
 
 log = get_logger(__name__)
@@ -40,6 +43,185 @@ class ConsoleBackend:
         self._restarts = 0
         # bundled playback demo (for machines w/o the engine); off in tests
         self._demo = self._locate_demo() if enable_demo else None
+
+        # --- identity, roles, audit (EP-03) ---
+        # Credentials and the audit trail sit beside the events database, never
+        # inside it: one deletion must not take both the footage and the record
+        # of who touched it.
+        _sec_dir = Path(self.db_path).parent
+        self.accounts = AccountStore(_sec_dir / "auth.db")
+        self.audit = AuditLog(_sec_dir / "audit.db")
+        self._session: str = ""          # token of the signed-in operator
+
+    # --- session ----------------------------------------------------------
+    @property
+    def current_user(self):
+        return self.accounts.session_user(self._session) if self._session else None
+
+    def _role(self):
+        user = self.current_user
+        return user.role if user else None
+
+    def _require(self, permission: str) -> None:
+        """Server-side authorisation. Hiding a button changes what is easy;
+        this changes what is possible, which is the question that matters."""
+        perms.require(self._role(), permission)
+
+    def auth_state(self) -> dict:
+        """What the UI needs to pick a screen. Never a permission source — the
+        backend re-checks on every call."""
+        user = self.current_user
+        return {
+            "configured": self.accounts.any_users(),
+            "signed_in": user is not None,
+            "username": user.username if user else "",
+            "role": user.role if user else "",
+            "must_change_password": bool(user.must_change) if user else False,
+            "landing": perms.landing_for(user.role) if user else "",
+            "permissions": sorted(perms.permissions_for(user.role)) if user else [],
+        }
+
+    def create_first_owner(self, username: str, password: str) -> dict:
+        """First run. Nothing ships with a known credential because nothing
+        ships with an account at all — the first one is created here."""
+        if self.accounts.any_users():
+            return {"ok": False, "error": "this site already has accounts"}
+        try:
+            self.accounts.create_user(username, password, role=perms.OWNER)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.audit.record(username, "role_change", f"user:{username}",
+                          {"created": True, "role": perms.OWNER, "first_run": True})
+        return self.sign_in(username, password)
+
+    def sign_in(self, username: str, password: str) -> dict:
+        try:
+            user = self.accounts.authenticate(username, password)
+        except AuthError as exc:
+            self.audit.record(username or "<unknown>", "login",
+                              detail={"outcome": "refused", "reason": str(exc)})
+            return {"ok": False, "error": str(exc)}
+        self._session = self.accounts.open_session(user.username)
+        self.audit.record(user.username, "login",
+                          detail={"outcome": "success", "role": user.role})
+        return {"ok": True, **self.auth_state()}
+
+    def sign_out(self) -> dict:
+        user = self.current_user
+        if user:
+            self.audit.record(user.username, "login", detail={"outcome": "signed out"})
+        self.accounts.close_session(self._session)
+        self._session = ""
+        return {"ok": True}
+
+    def change_own_password(self, current: str, new: str) -> dict:
+        user = self.current_user
+        if user is None:
+            return {"ok": False, "error": "not signed in"}
+        try:
+            self.accounts.authenticate(user.username, current)
+        except AuthError:
+            return {"ok": False, "error": "current password is incorrect"}
+        try:
+            self.accounts.set_password(user.username, new)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.audit.record(user.username, "role_change", f"user:{user.username}",
+                          {"password_changed": True})
+        self._session = self.accounts.open_session(user.username)   # set_password revoked it
+        return {"ok": True}
+
+    # --- user administration (owner only) ---------------------------------
+    def list_users(self) -> list:
+        self._require(perms.MANAGE_USERS)
+        return [{"username": u.username, "role": u.role, "must_change": u.must_change,
+                 "last_login": u.last_login} for u in self.accounts.list_users()]
+
+    def add_user(self, username: str, password: str, role: str = "operator") -> dict:
+        self._require(perms.MANAGE_USERS)
+        try:
+            self.accounts.create_user(username, password, role=role)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.audit.record(self.current_user.username, "role_change", f"user:{username}",
+                          {"created": True, "role": role})
+        return {"ok": True}
+
+    def set_user_role(self, username: str, role: str) -> dict:
+        self._require(perms.MANAGE_USERS)
+        before = self.accounts.user(username)
+        try:
+            self.accounts.set_role(username, role)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.audit.record(self.current_user.username, "role_change", f"user:{username}",
+                          {"from": before.role if before else None, "to": role})
+        return {"ok": True}
+
+    def remove_user(self, username: str) -> dict:
+        self._require(perms.MANAGE_USERS)
+        me = self.current_user
+        if me and me.username == username:
+            return {"ok": False, "error": "you cannot remove your own account"}
+        owners = [u for u in self.accounts.list_users() if u.role == perms.OWNER]
+        if len(owners) <= 1 and any(u.username == username for u in owners):
+            # A site with no owner has nobody who can grant access to anyone again.
+            return {"ok": False, "error": "the last owner cannot be removed"}
+        self.accounts.delete_user(username)
+        self.audit.record(me.username if me else "?", "role_change", f"user:{username}",
+                          {"removed": True})
+        return {"ok": True}
+
+    # --- audit trail (owner only) -----------------------------------------
+    def audit_entries(self, limit: int = 200) -> list:
+        self._require(perms.VIEW_AUDIT)
+        return [e.to_dict() for e in self.audit.entries(limit=limit)]
+
+    def audit_verify(self) -> dict:
+        self._require(perms.VIEW_AUDIT)
+        return self.audit.verify()
+
+    def audit_export(self) -> dict:
+        self._require(perms.VIEW_AUDIT)
+        path = self.audit.export(Path(self.db_path).parent / f"argus-audit-{int(time.time())}.json")
+        self.audit.record(self.current_user.username, "evidence_export", "audit_log",
+                          {"path": str(path)})
+        return {"ok": True, "path": str(path)}
+
+    def heartbeat_status(self) -> dict:
+        """Config + exactly what was last transmitted, so 'what leaves my
+        machine?' is answered by looking, not by trusting the docs."""
+        meta = self.get_site()
+        out = {"enabled": bool(meta.get("heartbeat_url")),
+               "url": meta.get("heartbeat_url", ""),
+               "has_key": bool(meta.get("heartbeat_key"))}
+        engine = self._gate_health() or {}
+        out["live"] = engine.get("heartbeat") or {}
+        try:
+            out["last_payload"] = json.loads(
+                (Path(self.db_path).parent / "heartbeat_last.json").read_text())
+        except (OSError, ValueError):
+            out["last_payload"] = None
+        return out
+
+    def set_heartbeat(self, url: str = "", key: str = "") -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        onboarding.set_site_meta(self.site_path, heartbeat_url=(url or "").strip(),
+                                 heartbeat_key=(key or "").strip())
+        self.audit.record(self.current_user.username, "config_change", "heartbeat",
+                          {"enabled": bool((url or "").strip())})
+        return self.heartbeat_status()
+
+    def disk_encryption(self) -> dict:
+        """Is the evidence on this machine readable if the machine is taken?"""
+        from cvti.security.disk import encryption_status, requirement_message
+        status = encryption_status()
+        status["message"] = requirement_message(status)
+        return status
+
+    def role_table(self) -> dict:
+        """The whole permission table — for the UI, and for procurement."""
+        return perms.describe()
 
     @staticmethod
     def _locate_demo():
@@ -69,9 +251,11 @@ class ConsoleBackend:
         return onboarding.test_url(url)
 
     def add_camera(self, camera: dict) -> list[dict]:
+        self._require(perms.CONFIGURE_CAMERAS)
         return onboarding.add_camera(self.site_path, camera)
 
     def remove_camera(self, camera_id: str) -> list[dict]:
+        self._require(perms.CONFIGURE_CAMERAS)
         return onboarding.remove_camera(self.site_path, camera_id)
 
     def presets(self) -> dict:
@@ -94,6 +278,7 @@ class ConsoleBackend:
     def set_camera_rules(self, camera_id: str, rules: dict) -> dict:
         """Update which threat detectors run on a camera (+ optional rule preset).
         Takes effect on the next Start monitoring."""
+        self._require(perms.CONFIGURE_DETECTORS)
         cams = onboarding.list_cameras(self.site_path)
         cam = next((c for c in cams if c.get("id") == camera_id), None)
         if cam is None:
@@ -171,6 +356,7 @@ class ConsoleBackend:
     def add_zone(self, camera_id: str, name: str, points: list, dwell_seconds: float = 5.0) -> dict:
         """Save a drawn zone (>=3 [x,y] points in ORIGINAL pixels) + wire a
         loitering rule for it. Takes effect on the next Start monitoring."""
+        self._require(perms.CONFIGURE_CAMERAS)
         pts = [[int(p[0]), int(p[1])] for p in (points or []) if len(p) == 2]
         if len(pts) < 3:
             return {"error": "a zone needs at least 3 points"}
@@ -192,6 +378,7 @@ class ConsoleBackend:
         return {"ok": True, "zones": data["zones"]}
 
     def remove_zone(self, camera_id: str, name: str) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
         f = self._zones_file(camera_id)
         data = json.loads(f.read_text()) if f.exists() else {"zones": []}
         data["zones"] = [z for z in data.get("zones", []) if z.get("name") != name]
@@ -264,6 +451,7 @@ class ConsoleBackend:
         return meta
 
     def set_site(self, name: str | None = None, notify: str | None = None) -> dict:
+        self._require(perms.CONFIGURE_SITE)
         return onboarding.set_site_meta(self.site_path, name=name, notify=notify)
 
     def mark_configured(self) -> dict:
@@ -293,6 +481,7 @@ class ConsoleBackend:
     # --- retention / legal hold -------------------------------------------
     def set_legal_hold(self, event_id: int, hold: bool = True) -> dict:
         """Exempt an event's evidence from retention purge, or release it."""
+        self._require(perms.MANAGE_LEGAL_HOLD)
         db, _ = self._effective_db()
         try:
             con = self._connect(db)
@@ -322,6 +511,7 @@ class ConsoleBackend:
         return status
 
     def set_retention(self, days: float = None) -> dict:
+        self._require(perms.CONFIGURE_SITE)
         return onboarding.set_site_meta(self.site_path, retention_days=days)
 
     def export_evidence(self, event_ids: str = "", dest: str = "") -> dict:
@@ -331,6 +521,7 @@ class ConsoleBackend:
         evidence because it is going to us; this one IS the evidence, and is
         going to the person who owns it.
         """
+        self._require(perms.EXPORT_EVIDENCE)
         import zipfile
         db, base = self._effective_db()
         ids = [int(x) for x in str(event_ids).split(",") if str(x).strip().isdigit()]
@@ -391,6 +582,7 @@ class ConsoleBackend:
         Returns the path rather than the bytes: the operator sends us a file,
         and keeping it on disk means they can inspect it before they do.
         """
+        self._require(perms.VIEW_DIAGNOSTICS)
         from cvti.diagnostics import build_bundle
         out_dir = Path(self.db_path).parent
         try:
@@ -469,6 +661,7 @@ class ConsoleBackend:
             return 0
 
     def live_start(self, count: int = 6) -> dict:
+        self._require(perms.VIEW_LIVE)
         from cvti.app.live_wall import FrameServer, LiveWall
         self.live_stop()
         # Prefer the engine's already-decoded frames (no second decode, live boxes).
@@ -525,6 +718,7 @@ class ConsoleBackend:
     def start_monitoring(self) -> dict:
         # A packaged app has no engine (torch/Ollama) inside it — it's a playback
         # demo. Don't try to spawn; the recorded alerts are already shown.
+        self._require(perms.CONTROL_ENGINE)
         if getattr(sys, "frozen", False):
             return {"running": False, "demo": True,
                     "note": "Playback demo — alerts are pre-recorded. Run from source for live monitoring."}
@@ -562,6 +756,7 @@ class ConsoleBackend:
         self._watchdog.start()
 
     def stop_monitoring(self) -> dict:
+        self._require(perms.CONTROL_ENGINE)
         self._monitor_should_run = False   # tell the watchdog this is intentional
         if self._monitor and self._monitor.poll() is None:
             self._monitor.terminate()
@@ -606,6 +801,7 @@ class ConsoleBackend:
         live stream URLs takes seconds per feed and restarting the engine takes
         more, and doing that inline would freeze the Qt UI thread. Poll
         feed_switch_status() for progress."""
+        self._require(perms.CONFIGURE_SITE)
         import threading
         st = getattr(self, "_switch_state", None)
         if st and st.get("busy"):
@@ -724,6 +920,7 @@ class ConsoleBackend:
         return self.db_path, None
 
     def list_events(self, limit: int = 100, embed_frames: bool = True) -> list[dict]:
+        self._require(perms.VIEW_ALERTS)
         db, frame_base = self._effective_db()
         try:
             con = self._connect(db)
@@ -750,6 +947,7 @@ class ConsoleBackend:
 
         Works for both a live run (absolute evidence_dir) and the bundled playback
         demo (evidence_dir relative to the demo bundle)."""
+        self._require(perms.VIEW_ALERTS)
         _, frame_base = self._effective_db()
         d = Path(evidence_dir or "")
         if not d.exists() and frame_base and evidence_dir:
@@ -852,6 +1050,7 @@ class ConsoleBackend:
         return "data:image/jpeg;base64," + base64.b64encode(p.read_bytes()).decode()
 
     def set_review(self, event_id: int | str, label: str) -> dict:
+        self._require(perms.REVIEW_ALERTS)
         if label not in _REVIEW_VALUES:
             raise ValueError(f"review must be one of {_REVIEW_VALUES}")
         # Write to the SAME db we read from, and make sure its folder exists.
@@ -895,6 +1094,7 @@ class ConsoleBackend:
                          guard_hourly_cost: "float | None" = None,
                          review_minutes: "float | None" = None) -> dict:
         """The site's own money figures. Blank stays blank — see value_summary."""
+        self._require(perms.CONFIGURE_SITE)
         return onboarding.set_site_meta(
             self.site_path, incident_value=incident_value,
             guard_hourly_cost=guard_hourly_cost, review_minutes=review_minutes)

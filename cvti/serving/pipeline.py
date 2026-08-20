@@ -419,20 +419,62 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # Last totals written to the ledger, so each tick contributes only its delta.
     _ledger_seen = {"confirmed": 0, "rejected": 0, "deduped": 0, "errors": 0}
 
-    def _write_health() -> None:
+    _started_at = time.time()
+    assurance = None            # constructed below, once the decoders exist
+    heartbeat = None            # constructed below, iff the site opted in
+
+    def _gate_reachable(stats: dict):
+        """True/False/None. False only on evidence: the most recent attempt
+        produced no verdict. None means no traffic yet — unknown, not fine."""
+        if not stats.get("verified") and not stats.get("unverified") \
+                and not stats.get("errors"):
+            return None
+        if (stats.get("last_unverified_at") or 0) > (stats.get("last_success_at") or 0):
+            return False
+        return True
+
+    def _build_health() -> dict:
+        """The /health document (EP-04-T1): six signal classes, one status.
+        Written to gate_health.json for the app, served over HTTP by the
+        publisher, and the future heartbeat sends exactly this."""
         from cvti.health import snapshot as health_snapshot
-        st = gate_pool.stats()
-        st.update({"provider": gate_provider, "model": gate_model,
-                   "mock": mock_gate, "banner": MOCK_GATE_BANNER if mock_gate else "",
-                   "updated_at": time.time()})
+        from cvti.serving.health_doc import build_health_doc
+        from cvti.serving.memory_guard import sample_memory
+        stats = gate_pool.stats()
+        # Link state per camera, so the UI shows coverage rather than inferring
+        # it from the absence of alerts.
+        cameras = [d.link_status() for d in pipe._decoders.values()]
         # Per-component counters. Without these, "this detector found nothing"
         # and "this detector has thrown on every frame for a week" are the same
         # silence.
-        st["health"] = health_snapshot()
-        # Link state per camera, so the UI shows coverage rather than inferring
-        # it from the absence of alerts.
-        st["cameras"] = [d.link_status() for d in pipe._decoders.values()]
-        st["retention"] = retention.status()
+        components = health_snapshot()
+        ret = retention.status()
+        mem = sample_memory()
+        gate_doc = {"provider": gate_provider, "model": gate_model,
+                    "reachable": _gate_reachable(stats), **stats}
+        doc = build_health_doc(
+            started_at=_started_at, cameras=cameras, gate=gate_doc,
+            disk=ret.get("disk") or {},
+            memory={"available_gb": round(mem.available_gb, 2),
+                    "rss_gb": round(mem.rss_gb, 2),
+                    "level": mem.level(memory_warn_gb, memory_critical_gb)},
+            components=components,
+            engine={"frames_processed": pipe.frames_processed,
+                    "alerts_queued": pipe.alerts_queued,
+                    "target_fps": target_fps, "cameras": len(pipe._decoders)},
+            self_test=(assurance.last_result if assurance else {}))
+        # Legacy keys the System panel already reads — kept at the top level so
+        # the app needs no migration.
+        doc.update(stats)
+        doc.update({"provider": gate_provider, "model": gate_model,
+                    "mock": mock_gate, "banner": MOCK_GATE_BANNER if mock_gate else "",
+                    "updated_at": time.time(), "health": components,
+                    "retention": ret,
+                    "heartbeat": heartbeat.status() if heartbeat else {"enabled": False}})
+        return doc
+
+    def _write_health() -> None:
+        st = _build_health()
         try:
             _health_path.write_text(json.dumps(st))
         except OSError:
@@ -454,6 +496,44 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
     _write_health()
     _threading.Thread(target=_health_loop, name="gate-health", daemon=True).start()
+    if publisher is not None:
+        # /health on the publisher's authenticated server (EP-04-T1).
+        publisher.health_provider = _build_health
+
+    # Heartbeat (EP-04-T2): OFF unless the site configured a URL. Sends the
+    # whitelisted health payload outbound only; docs/HEARTBEAT.md is the schema.
+    _site_meta = get_site_meta(site_config_path)
+    if _site_meta.get("heartbeat_url"):
+        from cvti.serving.heartbeat import Heartbeat
+        heartbeat = Heartbeat(
+            url=_site_meta["heartbeat_url"], site_key=_site_meta.get("heartbeat_key", ""),
+            site_id=(_site_meta.get("name") or "site").strip().lower().replace(" ", "-"),
+            health_provider=_build_health, output_dir=output_dir).start()
+
+    # Daily proof of life (EP-04-T4): the self-test exercises a real frame ->
+    # the real gate -> a real notification, and the all-normal message makes
+    # silence stop being the success signal. Skipped entirely for a mock gate —
+    # a self-test against a gate that confirms everything proves nothing.
+    if not mock_gate:
+        from cvti.serving.assurance import Assurance
+
+        def _any_latest_frame():
+            for d in pipe._decoders.values():
+                f = d.read_latest()
+                if f is not None:
+                    return f.image
+            return None
+
+        assurance = Assurance(
+            latest_frame=_any_latest_frame,
+            gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
+                                                  base_url=gate_base_url,
+                                                  sensitivity=gate_sensitivity),
+            notifier=sink.notifier,
+            status_provider=_build_health,
+            daily_normal=bool(get_site_meta(site_config_path).get("daily_normal", True)),
+        ).start()
+
 
     try:
         pipe.run(max_seconds=seconds)
@@ -481,6 +561,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                 log.warning(f"[memory] shed load {len(mem_guard.mitigations)} time(s): "
                       f"{'; '.join(mem_guard.mitigations)}")
         retention.stop()
+        if assurance is not None:
+            assurance.stop()
+        if heartbeat is not None:
+            heartbeat.beat()      # a final send so "last seen" reflects shutdown time
+            heartbeat.stop()
         if publisher is not None:
             log.info(f"[frames] published {publisher.published} frame(s)")
             publisher.stop()

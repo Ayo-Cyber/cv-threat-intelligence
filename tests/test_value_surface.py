@@ -12,6 +12,8 @@ from pathlib import Path
 from cvti.app.console_backend import ConsoleBackend
 from cvti.serving.alert_sink import AlertSink
 
+from _backend_helper import signed_in
+
 
 class SuppressionLedgerTest(unittest.TestCase):
     def _sink(self, tmp):
@@ -55,7 +57,7 @@ class ValueSummaryTest(unittest.TestCase):
         site = Path(tmp) / "site.json"
         site.write_text('{"cameras": []}')
         self.assertTrue(db.exists())
-        return ConsoleBackend(site_path=str(site), db_path=str(db), enable_demo=False)
+        return signed_in(site_path=str(site), db_path=str(db), enable_demo=False)
 
     def test_raw_is_shown_plus_everything_prevented(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -93,7 +95,7 @@ class ValueSummaryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             site = Path(tmp) / "site.json"
             site.write_text('{"cameras": []}')
-            be = ConsoleBackend(site_path=str(site), db_path=str(Path(tmp) / "events.db"),
+            be = signed_in(site_path=str(site), db_path=str(Path(tmp) / "events.db"),
                                 enable_demo=False)
             v = be.value_summary(30)
             self.assertFalse(v["has_data"])
@@ -116,7 +118,7 @@ class ValueSummaryTest(unittest.TestCase):
                         (_t.time(), "now", "cam1", "theft"))
             con.commit()
             con.close()
-            v = ConsoleBackend(site_path=str(site), db_path=str(db),
+            v = signed_in(site_path=str(site), db_path=str(db),
                                enable_demo=False).value_summary(30)
             self.assertTrue(v["has_data"])                    # there are incidents
             self.assertFalse(v["has_verification_history"])   # but nothing to compare them to

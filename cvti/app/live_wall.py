@@ -108,8 +108,12 @@ class FrameServer:
     """Serves the LiveWall's latest JPEG per camera over localhost, so the UI's
     <img> tags fetch frames natively (fast) instead of base64-over-QWebChannel."""
 
-    def __init__(self, wall: "LiveWall") -> None:
+    def __init__(self, wall: "LiveWall", token: str = "") -> None:
+        import secrets
         self.wall = wall
+        # Same rule as the engine's publisher: no route to a camera frame is
+        # unauthenticated, including this local fallback.
+        self.token = token or secrets.token_urlsafe(24)
         self.port = 0
         self._httpd = None
         self._thread = None
@@ -118,14 +122,23 @@ class FrameServer:
         import threading
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         wall = self.wall
+        token = self.token
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *a):  # silence request logging
                 pass
 
             def do_GET(self):
+                import hmac
                 import urllib.parse
-                cam = urllib.parse.unquote(self.path.split("?", 1)[0].rsplit("/", 1)[-1])
+                parsed = urllib.parse.urlparse(self.path)
+                supplied = self.headers.get("X-Argus-Token", "") or (
+                    urllib.parse.parse_qs(parsed.query).get("token") or [""])[0]
+                if not hmac.compare_digest(supplied, token):
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                cam = urllib.parse.unquote(parsed.path.rsplit("/", 1)[-1])
                 jpg = wall.jpeg(cam)
                 if not jpg:
                     self.send_response(404)
@@ -134,7 +147,6 @@ class FrameServer:
                 self.send_response(200)
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Cache-Control", "no-store")
-                self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Content-Length", str(len(jpg)))
                 self.end_headers()
                 try:

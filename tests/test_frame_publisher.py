@@ -22,6 +22,8 @@ sys.path.insert(0, str(ROOT))
 
 from cvti.serving.frame_publisher import FramePublisher
 
+from _backend_helper import signed_in
+
 JPEG_MAGIC = b"\xff\xd8"
 
 
@@ -34,9 +36,23 @@ class PublisherTests(unittest.TestCase):
     def tearDown(self):
         self.pub.stop()
 
-    def _get(self, path):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.pub.port}{path}", timeout=3) as r:
+    def _get(self, path, token=None):
+        """Every route authenticates — this serves live camera frames."""
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.pub.port}{path}",
+            headers={"X-Argus-Token": self.pub.token if token is None else token})
+        with urllib.request.urlopen(req, timeout=3) as r:
             return r.read()
+
+    def _status(self, path, token=None):
+        url = f"http://127.0.0.1:{self.pub.port}{path}"
+        headers = {} if token is None else {"X-Argus-Token": token}
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers),
+                                        timeout=3) as r:
+                return r.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
 
     def test_serves_the_latest_frame_as_jpeg(self):
         self.pub.publish("cam1", self.frame, [(7, 100, 50, 200, 300)])
@@ -80,11 +96,56 @@ class PublisherTests(unittest.TestCase):
         self.assertNotEqual(normal, self.pub.frame("c"))
 
 
+    # --- EP-03-T1: no unauthenticated route to a camera ---------------------
+    def test_every_route_rejects_an_unauthenticated_request(self):
+        self.pub.publish("cam1", self.frame, [])
+        for path in ("/frame/cam1", "/cameras", "/", "/frame/nonexistent", "/anything"):
+            self.assertEqual(self._status(path), 401,
+                             f"{path} served without a token")
+
+    def test_a_wrong_token_is_rejected(self):
+        self.pub.publish("cam1", self.frame, [])
+        self.assertEqual(self._status("/frame/cam1", "not-the-token"), 401)
+
+    def test_the_token_also_works_as_a_query_parameter(self):
+        # An <img> tag cannot set a header.
+        self.pub.publish("cam1", self.frame, [])
+        self.assertEqual(self._status(f"/frame/cam1?token={self.pub.token}"), 200)
+
+    def test_the_token_is_random_per_publisher(self):
+        from cvti.serving.frame_publisher import FramePublisher
+        self.assertNotEqual(FramePublisher().token, FramePublisher().token)
+
+    def test_frames_json_carries_the_token_and_is_not_world_readable(self):
+        import json
+        import os
+        import tempfile
+        from pathlib import Path
+
+        from cvti.serving.frame_publisher import FramePublisher
+        with tempfile.TemporaryDirectory() as tmp:
+            pub = FramePublisher().start(tmp)
+            try:
+                info = json.loads((Path(tmp) / "frames.json").read_text())
+                self.assertEqual(info["token"], pub.token)
+                mode = os.stat(Path(tmp) / "frames.json").st_mode & 0o777
+                self.assertEqual(mode, 0o600, "the frame token was world-readable")
+            finally:
+                pub.stop()
+
+    def test_no_wildcard_cors_on_camera_frames(self):
+        # Letting any origin read these is the browser-side open port.
+        self.pub.publish("cam1", self.frame, [])
+        req = urllib.request.Request(f"http://127.0.0.1:{self.pub.port}/frame/cam1",
+                                     headers={"X-Argus-Token": self.pub.token})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            self.assertIsNone(r.headers.get("Access-Control-Allow-Origin"))
+
 class AppFallbackTests(unittest.TestCase):
     def test_app_decodes_for_itself_when_no_engine_is_publishing(self):
         from cvti.app.console_backend import ConsoleBackend
         d = Path(tempfile.mkdtemp())
-        be = ConsoleBackend(site_path=str(d / "s.json"), db_path=str(d / "e.db"),
+        be = signed_in(site_path=str(d / "s.json"), db_path=str(d / "e.db"),
                             enable_demo=False)
         self.assertEqual(be._engine_frame_port(), 0)      # nothing published
         res = be.live_start(2)
@@ -98,7 +159,7 @@ class AppFallbackTests(unittest.TestCase):
         from cvti.app.console_backend import ConsoleBackend
         d = Path(tempfile.mkdtemp())
         (d / "frames.json").write_text(json.dumps({"port": 9}))   # nothing listening
-        be = ConsoleBackend(site_path=str(d / "s.json"), db_path=str(d / "e.db"),
+        be = signed_in(site_path=str(d / "s.json"), db_path=str(d / "e.db"),
                             enable_demo=False)
         self.assertEqual(be._engine_frame_port(), 0)
 

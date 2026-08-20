@@ -127,7 +127,9 @@ def remove_camera(site_path: str | Path, camera_id: str) -> list[dict]:
 # worth nothing to the person signing the renewal.
 _META_KEYS = ("name", "notify", "gate", "configured",
               "incident_value", "guard_hourly_cost", "review_minutes",
-              "retention_days", "disk_warn_pct", "disk_critical_pct")
+              "retention_days", "disk_warn_pct", "disk_critical_pct",
+              "daily_normal",   # the daily "all systems normal" message; opt-OUT
+              "heartbeat_url", "heartbeat_key")  # remote monitoring; opt-IN (empty = off)
 
 # Deliberately conservative: a low review time and a modest guard rate make the
 # saving harder to argue with than a flattering one.
@@ -150,6 +152,12 @@ def get_site_meta(site_path: str | Path) -> dict:
     meta["notify"] = meta.get("notify") or "console"
     meta["configured"] = bool(meta.get("configured"))
     meta["camera_count"] = len(data.get("cameras", []))
+    # On by default: a system that only speaks when something is wrong cannot
+    # be trusted when it is silent. Only an explicit False opts out.
+    meta["daily_normal"] = meta.get("daily_normal") is not False
+    # Heartbeat is opt-IN: nothing is sent anywhere until a URL is configured.
+    meta["heartbeat_url"] = (meta.get("heartbeat_url") or "").strip()
+    meta["heartbeat_key"] = (meta.get("heartbeat_key") or "").strip()
     for k, default in VALUE_DEFAULTS.items():
         try:
             meta[k] = float(meta.get(k)) if meta.get(k) is not None else default
