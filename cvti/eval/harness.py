@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cvti.eval.dataset import EvalClip
+from cvti.eval.dataset import ROOT, EvalClip
 from cvti.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -51,6 +51,7 @@ class EvalHarness:
                  baseline: str | None = "configs/baseline_critical_v1.json",
                  weights: str = "models/yolov8n.pt",
                  pose_weights: str = "models/yolov8n-pose.pt",
+                 weapon_weights: str = "models/weapon_best.pt",
                  video_model: str = "runs/video_finetune/videomae",
                  detectors: tuple = ("concealment", "video_action"),
                  gate: Any = None, target_fps: float = 4.0,
@@ -61,6 +62,7 @@ class EvalHarness:
         self.baseline = baseline
         self.weights = weights
         self.pose_weights = pose_weights
+        self.weapon_weights = weapon_weights
         self.video_model = video_model
         self.detectors = detectors
         self.gate = gate                      # None = Stage 1 only
@@ -83,6 +85,7 @@ class EvalHarness:
         self._names = None
         self._threat_classes = None
         self._pose = None
+        self._weapon = None
         self._video = None
 
     def preflight(self) -> None:
@@ -120,6 +123,15 @@ class EvalHarness:
         if any(d in self.detectors for d in ("concealment", "violence", "theft")):
             from cvti.detector.core import load_ultralytics_model
             self._pose = load_ultralytics_model(self.pose_weights)
+        if "weapons" in self.detectors:
+            # Without this the weapons flag was set but no model was passed —
+            # the detector never fired and an eval would have scored 0% recall
+            # against a detector that was never actually running. Same failure
+            # class as "detectors nothing listens to are silently discarded".
+            from cvti.detector.core import load_detection_model
+            self._weapon = load_detection_model(
+                self.weapon_weights, str(ROOT / "external" / "yolov5"),
+                preferred_kind="yolov5")
         if "video_action" in self.detectors and Path(self.video_model).exists():
             try:
                 from cvti.video_action_model import VideoMAEActionModel
@@ -133,6 +145,7 @@ class EvalHarness:
         engine = CustomizationEngine(self.config, baseline_path=self.baseline)
         kwargs = {d: True for d in self.detectors}
         return PerCameraState(clip.name, engine, pose_model=self._pose,
+                              weapon_model=self._weapon,
                               video_action_model=self._video,
                               scene_context={"environment_type": "retail",
                                              "scene_description": "A shop interior monitored for theft."},
