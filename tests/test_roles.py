@@ -52,8 +52,8 @@ class PermissionTableTest(unittest.TestCase):
             require(None, "view_alerts")
 
     def test_each_role_lands_where_it_came_for(self):
-        self.assertEqual(landing_for(INSTALLER), "cameras")
-        self.assertEqual(landing_for(OPERATOR), "alerts")
+        self.assertEqual(landing_for(INSTALLER), "watch")
+        self.assertEqual(landing_for(OPERATOR), "triage")
 
 
 class BackendEnforcementTest(unittest.TestCase):

@@ -36,6 +36,13 @@
   .navbtn.on{background:var(--c-accent-soft);color:#fff}
   .navbtn .badge{margin-left:auto;background:var(--sev-crit);color:#fff;font-size:10.5px;font-weight:700;
     min-width:18px;text-align:center;padding:2px 5px;border-radius:99px;font-family:var(--ff-mono)}
+  .navsec{margin:16px 12px 4px;font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--c-mut)}
+  .navbtn.gear{margin-top:6px;font-size:12px;color:var(--c-sub)}
+  .tabbar{display:flex;gap:4px}
+  .tab{all:unset;box-sizing:border-box;cursor:pointer;padding:5px 13px;border-radius:7px;font-size:11.5px;font-weight:600;
+    color:var(--c-sub);border:1px solid transparent}
+  .tab:hover{background:rgba(127,127,127,.09)}
+  .tab.on{color:var(--c-text);background:var(--c-raised);border-color:var(--c-border2)}
   .navfoot{margin-top:auto;padding:14px 18px;border-top:1px solid #1f2c48;color:#5f6b84;font-size:11px}
   main{flex:1;min-width:0;display:flex;flex-direction:column}
   header.bar{flex:none;display:flex;align-items:center;gap:18px;padding:14px 24px;border-bottom:1px solid var(--c-border);
@@ -366,6 +373,7 @@
     <div class="navfoot">
       <div class="row" style="gap:8px"><span class="dot" id="monDot" style="background:var(--c-sub)"></span>
         <span id="monLabel" style="font-weight:600;color:#c7cdd8">Idle</span></div>
+      <div class="mono" id="liveLine" style="margin-top:6px;font-size:11px;color:var(--c-mut)">○ not monitoring</div>
       <div class="mono" id="monGate" style="margin-top:6px">TrueSight · on-device</div>
       <div class="netbadge" id="netBadge" title="Argus runs entirely on this machine — it needs no internet, and nothing leaves your network">🔒 Local-only</div>
       <div class="mono" id="whoami" style="margin-top:8px;color:var(--c-mut);font-size:11px;display:none">
@@ -376,7 +384,8 @@
   <main>
     <div id="gateBanner" class="gatebanner" hidden></div>
     <header class="bar">
-      <h1 id="title">Cameras</h1>
+      <h1 id="title">Watch</h1>
+      <div id="tabs" class="tabbar"></div>
       <div class="stats">
         <span><b id="stCams">0</b> cameras</span>
         <span><b id="stPending">0</b> to review</span>
@@ -394,8 +403,19 @@
 
 <script>
 "use strict";
-var backend = null, state = {route:"cameras", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[]};
-var NAV = [["cameras","Cameras"],["alerts","Alerts"],["live","Live"],["map","Map"],["ask","Ask"],["value","Value"],["learning","Learning"],["rules","Rules"],["system","System"]];
+var backend = null, state = {route:"watch", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[]};
+/* Three surfaces (UI_SPEC §1): Watch / Triage / Configure. Value sits in an
+   owner section; Settings hides behind a gear. Every old screen survives as a
+   tab inside one of these — LEGACY_ROUTES maps old names so nothing 404s. */
+var NAV = [["watch","Watch"],["triage","Triage"],["configure","Configure"]];
+var LEGACY_ROUTES = {cameras:["configure","cameras"], rules:["configure","rules"],
+                     alerts:["triage","alerts"], live:["watch","grid"],
+                     map:["watch","floor"], ask:["watch","ask"],
+                     learning:["settings","learning"], system:["settings","system"]};
+var SURFACE_TABS = {watch:[["grid","Grid"],["floor","Floor plan"],["ask","Ask"]],
+                    configure:[["cameras","Cameras"],["rules","Rules"]],
+                    settings:[["system","System"],["learning","Learning"]],
+                    triage:[], value:[]};
 var SEV = {critical:"var(--sev-crit)",high:"var(--sev-high)",medium:"var(--sev-med)",low:"var(--sev-low)"};
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
@@ -408,16 +428,41 @@ function call(method, args, cb){ // args: array; cb(obj)
 }
 
 function renderNav(){
-  $("nav").innerHTML = NAV.filter(function(n){ return navAllowed(n[0]); }).map(function(n){
+  var html = NAV.filter(function(n){ return navAllowed(n[0]); }).map(function(n){
     var on = state.route===n[0] ? " on" : "";
-    var badge = (n[0]==="alerts" && state.pending>0) ? '<span class="badge">'+state.pending+'</span>' : '';
+    var badge = (n[0]==="triage" && state.pending>0) ? '<span class="badge">'+state.pending+'</span>' : '';
     return '<button class="navbtn'+on+'" onclick="go(\''+n[0]+'\')">'+n[1]+badge+'</button>';
   }).join("");
+  if(navAllowed("value"))
+    html += '<div class="navsec">Owner</div>'
+      +'<button class="navbtn'+(state.route==="value"?" on":"")+'" onclick="go(\'value\')">Value</button>';
+  if(navAllowed("settings"))
+    html += '<button class="navbtn gear'+(state.route==="settings"?" on":"")+'" onclick="go(\'settings\')">⚙ Settings</button>';
+  $("nav").innerHTML = html;
 }
 function go(r){
-  if(state.route==="live" && r!=="live") stopLive();
-  if(state.route==="alerts" && r!=="alerts") stopAlertsPoll();
-  state.route=r; state.selected=null; renderNav(); render();
+  var tab = null;
+  if(LEGACY_ROUTES[r]){ tab = LEGACY_ROUTES[r][1]; r = LEGACY_ROUTES[r][0]; }
+  var onGrid = (state.route==="watch" && (state.watchTab||"grid")==="grid");
+  if(onGrid && !(r==="watch" && (tab||state.watchTab||"grid")==="grid")) stopLive();
+  if(state.route==="triage" && r!=="triage") stopAlertsPoll();
+  state.route=r;
+  if(tab) state[r+"Tab"]=tab;
+  state.selected=null; renderNav(); render();
+}
+function tabGo(k){
+  var r=state.route;
+  if(r==="watch" && (state.watchTab||"grid")==="grid" && k!=="grid") stopLive();
+  if(r==="triage" && (state.triageTab||"alerts")==="alerts" && k!=="alerts") stopAlertsPoll();
+  state[r+"Tab"]=k; state.selected=null; render();
+}
+function renderTabs(){
+  var el=$("tabs"); if(!el) return;
+  var tabs=SURFACE_TABS[state.route]||[];
+  if(tabs.length<2){ el.innerHTML=""; return; }
+  var cur=state[state.route+"Tab"]||tabs[0][0];
+  el.innerHTML = tabs.map(function(t){
+    return '<button class="tab'+(t[0]===cur?" on":"")+'" onclick="tabGo(\''+t[0]+'\')">'+t[1]+'</button>'; }).join("");
 }
 
 /* ---------- monitoring engine control ---------- */
@@ -477,23 +522,29 @@ function finishSwitch(s){
   setFeedStatus(s && s.error ? ("switch failed: "+s.error)
     : ("feed: "+(s.active||"")+(s.engine_restarted?" · engine restarting":"")));
   refreshCounts(); refreshMonitor();
-  if(state.route==="live"){ stopLive(); render(); }
-  else if(state.route==="alerts"){ state.alertsSig=""; render(); }
+  if(state.route==="watch" && (state.watchTab||"grid")==="grid"){ stopLive(); render(); }
+  else if(state.route==="triage"){ state.alertsSig=""; render(); }
   else render();
 }
 
 function render(){
-  var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",map:"Site map",ask:"Ask your cameras",value:"Value",learning:"Learning",rules:"Rules",system:"System"}[state.route];
+  var t = {watch:"Watch",triage:"Triage",configure:"Configure",settings:"Settings",value:"Value"}[state.route]||"Argus";
   $("title").textContent = t;
-  if(state.route==="cameras") return renderCameras();
-  if(state.route==="alerts"){ refreshTriage(); return renderAlerts(); }
-  if(state.route==="live") return renderLive();
-  if(state.route==="map") return renderMap();
-  if(state.route==="ask") return renderAsk();
-  if(state.route==="learning") return renderLearning();
-  if(state.route==="rules") return renderRules();
+  renderTabs();
+  if(state.route==="watch"){
+    var v=state.watchTab||"grid";
+    if(v==="floor") return renderMap();
+    if(v==="ask")   return renderAsk();
+    return renderLive();
+  }
+  if(state.route==="triage"){ refreshTriage(); return renderAlerts(); }
+  if(state.route==="configure"){
+    return (state.configureTab||"cameras")==="rules" ? renderRules() : renderCameras();
+  }
+  if(state.route==="settings"){
+    return (state.settingsTab||"system")==="learning" ? renderLearning() : renderSystem();
+  }
   if(state.route==="value") return renderValue();
-  if(state.route==="system") return renderSystem();
   $("screen").innerHTML='<div class="pad"><h2>'+t+'</h2><p class="mut">Coming soon.</p></div>';
 }
 
@@ -762,7 +813,7 @@ function updateLiveAlertTiles(){
   state._alertingCams = now;
 }
 function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function(){
-  if(state.route!=="live" && !state.liveModal){ stopLive(); return; }
+  if(!(state.route==="watch" && (state.watchTab||"grid")==="grid") && !state.liveModal){ stopLive(); return; }
   state.frameTick = (state.frameTick||0) + 1;    // cache-bust -> fetch the newest JPEG natively
   (state.liveCams||[]).forEach(function(c){ var img=$("live-"+c.id); if(img) img.src=frameUrl(c.id); });
   if(state.liveModal){ var lm=$("lmimg"); if(lm) lm.src=frameUrl(state.liveModal); updateLiveModalLabel(); }
@@ -1377,7 +1428,7 @@ function paintAlerts(){
 }
 function setAlertFilter(f){ state.alertFilter=f; state.selected=null; paintAlerts(); }
 function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(function(){
-  if(state.route!=="alerts"){ stopAlertsPoll(); return; }
+  if(state.route!=="triage"){ stopAlertsPoll(); return; }
   call("listEvents",[100],function(evs){ if(!Array.isArray(evs)) return;
     var sig=evs.map(function(e){return e.id+":"+e.review;}).join(",");
     if(sig!==state.alertsSig){ state.events=evs; state.alertsSig=sig; paintAlerts(); refreshCounts(); } }); }, 3000); }
@@ -1935,8 +1986,26 @@ function initNetWatch(){
   window.addEventListener("online", updateNetBadge);
   window.addEventListener("offline", updateNetBadge);
 }
+/* ---------- nav-footer liveness (UI_SPEC §1.1): the blinking light ---------- */
+function refreshLiveness(){
+  call("cameraLinks",[],function(links){
+    var el=$("liveLine"); if(!el) return;
+    if(!Array.isArray(links) || !links.length){ el.textContent="○ no cameras configured"; return; }
+    var states=links.map(function(l){return l.state;});
+    if(states.every(function(st){return st==="unknown";})){
+      el.textContent="○ not monitoring — engine not running";   // never shown as healthy
+      el.style.color="var(--c-mut)"; return;
+    }
+    var up=states.filter(function(st){return st==="connected";}).length;
+    var down=links.length-up;
+    el.textContent="● "+up+" of "+links.length+" cameras live"+(down?" · "+down+" down":"");
+    el.style.color = down ? "var(--sev-high)" : "var(--c-live)";
+  });
+}
+function startLivenessWatch(){ refreshLiveness(); if(!state.livenessTimer) state.livenessTimer=setInterval(refreshLiveness, 5000); }
+
 /* ---------- boot ---------- */
-function startApp(){ renderNav(); refreshCounts(); refreshFeedToggle(); refreshMonitor(); startGlobalWatch(); startGateWatch(); initNetWatch(); render(); }
+function startApp(){ renderNav(); refreshCounts(); refreshFeedToggle(); refreshMonitor(); startGlobalWatch(); startGateWatch(); initNetWatch(); startLivenessWatch(); render(); }
 
 /* ---------- global alert watch: badge + sound + live-tile flags, any screen ---------- */
 function startGlobalWatch(){ if(state.globalTimer) return; state.globalTimer=setInterval(pollAlertsGlobal, 3000); pollAlertsGlobal(); }
@@ -1971,8 +2040,8 @@ function pollAlertsGlobal(){
     if($("stPending")) $("stPending").textContent = pending;
     renderNav();
     maybeChime(evs);
-    if(state.route==="live") updateLiveAlertTiles();
-    if(state.route==="map") updateMapPins();
+    if(state.route==="watch" && (state.watchTab||"grid")==="grid") updateLiveAlertTiles();
+    if(state.route==="watch" && state.watchTab==="floor") updateMapPins();
   });
 }
 function maybeChime(evs){
@@ -2076,9 +2145,9 @@ function doSignOut(){
 }
 /* Nav items the signed-in role cannot use are not rendered. The backend
    re-checks every call regardless — this is courtesy, not enforcement. */
-var NAV_PERMS = {alerts:"view_alerts", live:"view_live", map:"view_live",
-                 learning:"review_alerts", rules:"configure_detectors",
-                 value:"configure_site", system:"configure_site"};
+var NAV_PERMS = {watch:"view_live", triage:"view_alerts",
+                 configure:"configure_cameras",
+                 value:"configure_site", settings:"configure_site"};
 function navAllowed(key){
   if(!state.auth || !state.auth.permissions) return true;
   var need = NAV_PERMS[key];
@@ -2092,7 +2161,7 @@ function enterApp(a){
   if(a.landing && navAllowed(a.landing)) state.route = a.landing;
   call("setupState",[],function(s){
     if(s && !s.error && !s.configured){ openWizard(); }
-    else { if(s && s.demo){ state.route="live"; } }
+    else { if(s && s.demo){ state.route="watch"; state.watchTab="grid"; } }
     startApp();
   });
 }
