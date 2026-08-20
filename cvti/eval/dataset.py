@@ -22,6 +22,26 @@ ROOT = Path(__file__).resolve().parents[2]
 CAMNUVEM_TEST = ROOT / "CamNuvem Robbery Dataset" / "videos" / "samples" / "test"
 LOCAL_CLIPS = ROOT / "data" / "test_clips"
 
+# EP-07-T3: the two critical always-on detectors, measured at last.
+# data/critical/<kind>/{threat,normal}/*.mp4 is the curated home for clips
+# whatever their origin — self-captured footage, the Seville mock-attack set,
+# hand-picked UCF-Crime clips. Curation is deliberate: a dataset's own idea of
+# "Robbery" is not the same claim as "a weapon is visible in frame".
+CRITICAL_CLIPS = ROOT / "data" / "critical"
+
+# data/ucf_crime/: the official UCF-Crimes layout (category folders). Only the
+# categories whose LABEL matches what our detector actually claims are mapped —
+# Fighting/Assault are visible violence; Shooting is a visible firearm. Robbery
+# is deliberately NOT mapped to weapons: many robbery clips show no weapon at
+# all, and counting them as misses would punish the detector for the dataset's
+# labelling, not its own performance.
+UCF_CRIME = ROOT / "data" / "ucf_crime"
+_UCF_THREATS = {"Fighting": "violence", "Assault": "violence", "Shooting": "weapons"}
+
+_KIND_EXPECTS = {"violence": ("violence",), "weapons": ("weapons",),
+                 "fire": ("fire_smoke",), "crowd": ("crowd_formation",),
+                 "fall": ("fall",), "theft": ("concealment", "video_action", "theft")}
+
 # filename prefix -> (is_threat, threat kind)
 _LOCAL_LABELS = [
     ("theft_", True, "theft"),
@@ -79,6 +99,42 @@ def _local_clips() -> list[EvalClip]:
     return out
 
 
+def _critical_clips(base: Path | None = None) -> list[EvalClip]:
+    """data/critical/<kind>/{threat,normal}/*.mp4 — the curated measurement set."""
+    base = Path(base) if base else CRITICAL_CLIPS
+    out: list[EvalClip] = []
+    if not base.is_dir():
+        return out
+    for kind_dir in sorted(p for p in base.iterdir() if p.is_dir()):
+        kind = kind_dir.name
+        for label, is_threat in (("threat", True), ("normal", False)):
+            for clip in sorted((kind_dir / label).glob("*.mp4")):
+                out.append(EvalClip(str(clip), is_threat, kind if is_threat else "",
+                                    f"critical/{kind}",
+                                    _KIND_EXPECTS.get(kind, ()) if is_threat else ()))
+    return out
+
+
+def _ucf_crime_clips(base: Path | None = None) -> list[EvalClip]:
+    """The official UCF-Crimes folder layout, mapped conservatively."""
+    base = Path(base) if base else UCF_CRIME
+    out: list[EvalClip] = []
+    if not base.is_dir():
+        return out
+    for cat_dir in sorted(p for p in base.iterdir() if p.is_dir()):
+        name = cat_dir.name
+        if name in _UCF_THREATS:
+            kind = _UCF_THREATS[name]
+            for clip in sorted(cat_dir.rglob("*.mp4")):
+                out.append(EvalClip(str(clip), True, kind, f"ucf-crime/{name}",
+                                    _KIND_EXPECTS.get(kind, ())))
+        elif name.lower().startswith(("normal", "testing_normal")):
+            for clip in sorted(cat_dir.rglob("*.mp4")):
+                out.append(EvalClip(str(clip), False, "", "ucf-crime/normal"))
+        # every other category (Arson, Road Accident…) is out of scope, skipped
+    return out
+
+
 def load_dataset(which: str = "camnuvem", limit: int = 0,
                  limit_per_class: int = 0, kind: str = "") -> list[EvalClip]:
     """Build the labeled clip list.
@@ -92,6 +148,12 @@ def load_dataset(which: str = "camnuvem", limit: int = 0,
         clips = _camnuvem_clips(limit_per_class)
     elif which == "local":
         clips = _local_clips()
+    elif which == "critical":
+        clips = _critical_clips()
+    elif which == "ucf_crime":
+        # UCF clips ride together with the curated set: curation can override
+        # or supplement, and the normals pool is shared.
+        clips = _ucf_crime_clips() + _critical_clips()
     else:
         clips = _camnuvem_clips(limit_per_class) + _local_clips()
 

@@ -37,17 +37,37 @@ scheduled job, not something to run mid-session.
 
 ---
 
-## EP-07-T3 — Measure `weapons` and `violence` · *blocked on data*
+## EP-07-T3 — Measure `weapons` and `violence` · *harness ready, blocked on data only*
 
-`baseline_weapon` and `baseline_violence` are `critical` priority in
-`configs/baseline_critical_v1.json` — always on, in every customer config — and
-`docs/NUMBERS.md` lists both as *"built and demonstrable, not yet validated"*.
-The two detectors that would summon an armed response have never been measured.
+The two critical always-on detectors are still unmeasured, but the machinery
+now exists end-to-end (built 20 Aug, smoke-verified through the real models):
+the moment clips land, measuring is one command per detector.
 
-**Blocked because:** the acceptance asks for ≥50 clips per detector. There are 6
-matching clips in `data/test_clips/`. The plan names RWF-2000 (violence) and a
-weapons benchmark, both of which need acquiring and a licence review — that is
-the blocker, not compute.
+**Getting the clips** (licence question for legal: research-licensed sets used
+for internal benchmarking of a commercial product — clips never ship, never
+train, results published as aggregate rates only):
+
+- **Violence — downloadable today:** UCF-Crime (crcv.ucf.edu) — Fighting +
+  Assault categories clear the 50-clip floor; Normal supplies negatives.
+  Drop the official layout under `data/ucf_crime/`.
+- **Weapons:** UCF-Crime `Shooting` + the Seville mock-attack CCTV set
+  (deepknowledge-us.github.io) + **a staged self-capture session** (one
+  afternoon, prop weapon, CCTV-height camera — full rights, pilot-matched
+  angles). Curated clips go under `data/critical/weapons/{threat,normal}/`.
+- RWF-2000 needs SMIIP Lab approval for commercial use — one email, don't wait.
+
+**Then:**
+
+    python tools/measure_critical.py status        # inventory vs the >=50 floor
+    python tools/measure_critical.py run violence  # needs ollama up (~clips × ~12s)
+    python tools/measure_critical.py run weapons
+
+The tool refuses to publish below 50 threat / 20 normal clips (--smoke for
+wiring checks), archives to runs/eval/<kind>-v1/ in the standard format, and
+prints the exact DETECTOR_VALIDATION + NUMBERS.md lines — which tests then
+hold consistent. Note: the eval harness previously never loaded the weapon
+model at all (the flag was set, no model passed) — an eval would have scored
+0% recall against a detector that wasn't running. Fixed and pinned by test.
 
 ---
 
