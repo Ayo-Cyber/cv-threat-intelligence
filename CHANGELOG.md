@@ -18,6 +18,18 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **`/health`** (EP-04-T1): one authenticated endpoint answering "is this site
+  OK right now?" — status + named reasons, per-camera link state with
+  last-frame age, gate reachability and median verify latency, disk, memory,
+  per-component error counters, uptime. Served by the engine's authenticated
+  frame server, written to `gate_health.json` for the System panel, and
+  structurally free of frames or event content — it becomes the heartbeat
+  payload. Verified by killing a real camera and a real gate mid-run and
+  watching the status change.
+- **Daily proof of life** (EP-04-T4): a scheduled self-test that exercises a
+  real frame → the real gate → a real notification and raises an alert when any
+  hop fails, plus a daily "all systems normal" message (on by default, per-site
+  opt-out) so silence stops being the success signal.
 - **Sign-in and first-run screens** (UI_SPEC §2.2). First run creates the owner
   account — nothing ships with a password, so there is nothing to change — then
   hands off to the existing setup wizard as steps 2–5. Sign-in shows the
@@ -152,6 +164,11 @@ to fail silently, and the claims survivable under scrutiny.
   "this detector correctly found nothing" and "this detector has thrown on every
   frame for a week" are the same silence. Exemptions must carry a `SILENT-OK`
   comment saying why, and a test enforces it.
+- **A dead gate reported as healthy.** Fail-visible turned transport failures
+  into UNVERIFIED *results*, which the gate pool counted as successful
+  verifications — so `/health` said `reachable=true, verified=8` while every
+  verdict was "could not decide". Unverified verdicts now count separately and
+  drive reachability; caught by the kill-the-gate acceptance run.
 - **A gate that cannot decide no longer reports "safe".** `_parse_response`
   returned `confirmed=False` on any exception — the same value it returns when
   TrueSight examines a frame and rejects it. A fire during an Ollama restart was
