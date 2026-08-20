@@ -254,6 +254,14 @@ class Backend(QObject):
         return self._safe(lambda: self._core.resolve_alert(event_id, outcome, note))
 
     @pyqtSlot(str, result=str)
+    def exportIncidentPdf(self, event_id: str) -> str:
+        return self._safe(lambda: self._core.export_incident_pdf(event_id))
+
+    @pyqtSlot(float, result=str)
+    def handover(self, hours: float) -> str:
+        return self._safe(lambda: self._core.handover(hours or 8.0))
+
+    @pyqtSlot(str, result=str)
     def needsAttention(self, min_priority: str) -> str:
         return self._safe(lambda: self._core.needs_attention(min_priority or "medium"))
 

@@ -1340,7 +1340,8 @@ function paintAlerts(){
   }).join("")
     +'<span style="flex:1"></span><span class="asort">'
     +'<button class="asortb'+(sortMode==="time"?" on":"")+'" onclick="setAlertSort(\'time\')">Newest</button>'
-    +'<button class="asortb'+(sortMode==="class"?" on":"")+'" onclick="setAlertSort(\'class\')">By type</button></span></div>'
+    +'<button class="asortb'+(sortMode==="class"?" on":"")+'" onclick="setAlertSort(\'class\')">By type</button>'
+    +'<button class="asortb" onclick="openHandover(8)">\u21c4 Handover</button></span></div>'
     +(filt==="active" ? triageStrip() : "");
   var prevClass=null;
   var list = shown.map(function(a,i){
@@ -1417,7 +1418,8 @@ function renderDetail(){
     +'<button class="btn ghost" onclick="doResolve(\'false_alarm\')">False alarm</button>'
     +'<span style="flex:1"></span>'
     +'<button class="btn ghost sm" onclick="exportThisEvidence(this)">⬇ Export evidence</button>'
-    +'<button class="btn ghost sm" onclick="openReport()">⧉ Incident report</button></div>'
+    +'<button class="btn ghost sm" onclick="openReport()">⧉ Incident report</button>'
+    +'<button class="btn ghost sm" onclick="exportIncidentPdf(this)">⬇ PDF</button></div>'
     +holdHTML(a)
     +'<div class="sub" style="margin-top:8px;font-size:11.5px">'+(reviewed?("Labeled: "+a.review):"Your label retrains the site model.")+'</div>';
 }
@@ -1492,6 +1494,51 @@ function ownerHTML(a){
     : '<input id="resolveNote" placeholder="note for the handover (optional)" style="width:100%;margin-top:12px">';
   return own + note;
 }
+function exportIncidentPdf(btn){ var a=state.selected; if(!a) return;
+  if(btn){btn.disabled=true;btn.textContent="…";}
+  call("exportIncidentPdf",[String(a.id)],function(r){
+    if(btn){btn.disabled=false;btn.textContent="⬇ PDF";}
+    var m=$("holdMsg"); if(!m) return;
+    if(r&&r.ok){ m.style.color="var(--c-live)"; m.textContent="✓ "+r.path+" ("+r.size_kb+" KB)"; }
+    else { m.style.color="var(--sev-crit)"; m.textContent="✕ "+((r&&r.error)||"failed"); }
+  });
+}
+/* Shift handover (EP-06-T2): what fired, what was concluded and by whom, and
+   — loudest — what is still open. Open items are not windowed: an incident
+   from three shifts ago that nobody concluded is exactly what must not be
+   forgotten, and anything older than this window is flagged "carried over". */
+function openHandover(hours){
+  call("handover",[hours],function(h){
+    if(!h || h.error){ alert((h&&h.error)||"handover unavailable"); return; }
+    var m=$("handoverModal");
+    if(!m){ m=document.createElement("div"); m.id="handoverModal";
+      (document.getElementById("modalRoot")||document.body).appendChild(m); }
+    var openRows = (h.open||[]).map(function(o){
+      var flag = o.carried_over ? ' <b style="color:var(--sev-high)">carried over · '+o.age_h+'h old</b>' : '';
+      var who = o.owner ? ' — '+esc(o.owner)+' is on it' : ' — <b style="color:var(--sev-crit)">unclaimed</b>';
+      return '<div style="padding:7px 0;border-bottom:1px solid var(--c-border);font-size:12.5px">'
+        +'<b class="mono">'+esc(o.rule)+'</b> · '+esc(o.camera_id)+who+flag+'</div>';
+    }).join("") || '<div class="mut" style="padding:8px 0">Nothing open. Clean board.</div>';
+    var resRows = (h.resolved||[]).map(function(r){
+      var oc = r.outcome==="real"?'<b style="color:var(--sev-crit)">REAL</b>'
+        : r.outcome==="false_alarm"?'<span class="mut">false alarm</span>':'inconclusive';
+      return '<div style="padding:7px 0;border-bottom:1px solid var(--c-border);font-size:12.5px">'
+        +'<b class="mono">'+esc(r.rule)+'</b> · '+esc(r.camera_id)+' — '+oc
+        +' by '+esc(r.owner||"?")+(r.note? '<div class="mut" style="font-size:11.5px;margin-top:2px">\u201c'+esc(r.note)+'\u201d</div>':'')+'</div>';
+    }).join("") || '<div class="mut" style="padding:8px 0">Nothing resolved in this window.</div>';
+    var c = h.counts||{};
+    m.innerHTML = '<div style="position:fixed;inset:0;background:rgba(4,9,20,.72);z-index:60;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)closeHandover()">'
+      +'<div class="panel" style="width:640px;max-width:94vw;max-height:86vh;overflow:auto;padding:20px 22px">'
+      +  '<div class="row"><h2 style="margin:0;font-size:16px">Shift handover</h2><span style="flex:1"></span>'
+      +    [8,12,24].map(function(hh){return '<button class="btn ghost sm'+(h.hours===hh?" ":"")+'" onclick="openHandover('+hh+')">'+hh+'h</button>';}).join("")
+      +    '<button class="btn sm" onclick="closeHandover()">Close</button></div>'
+      +  '<div class="mut" style="font-size:12px;margin-top:6px">Last '+h.hours+'h: <b>'+(c.fired||0)+'</b> fired · <b>'+(c.resolved||0)+'</b> resolved · <b style="color:'+((c.open||0)?'var(--sev-high)':'var(--c-live)')+'">'+(c.open||0)+' still open</b></div>'
+      +  '<div class="plabel" style="margin-top:16px">Still open — the next shift owns these</div>'+openRows
+      +  '<div class="plabel" style="margin-top:16px">Resolved this window</div>'+resRows
+      +'</div></div>';
+  });
+}
+function closeHandover(){ var m=$("handoverModal"); if(m) m.innerHTML=""; }
 function doClaim(){ var a=state.selected; if(!a)return;
   call("acknowledgeAlert",[String(a.id)],function(r){
     if(r && r.ok){ a.owner=r.owner; a.review="ack"; state.alertsSig=""; paintAlerts(); refreshTriage(paintAlerts); }

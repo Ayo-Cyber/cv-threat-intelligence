@@ -18,6 +18,17 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Incident record as PDF, and a shift handover** (EP-06-T2). Every alert
+  exports as a one-file incident record — metadata, the model's reasoning, the
+  responder's conclusion and note, and the evidence frames embedded — written by
+  a dependency-free PDF writer, because the record is what a manager reviews and
+  what goes to an insurer or the police. An **open** incident's record says
+  *OPEN — not yet concluded* rather than faking a conclusion. The Alerts screen
+  gains a **Handover** view: what fired, what was resolved by whom (with notes),
+  and — loudest — what is still open; open items are *not* windowed, and
+  anything older than the window is flagged **carried over** with its age.
+  Retention now holds every unresolved incident: an alert a guard claimed but
+  never concluded previously became purgeable the moment it was acknowledged.
 - **Alert ownership and a real state machine** (EP-06-T1). Alerts move
   `NEW → ACKNOWLEDGED(by whom, when) → RESOLVED(outcome, note)`, enforced in one
   place. **Claiming an alert shows your name to every operator** — with two
