@@ -101,6 +101,7 @@ is kept. See [docs/DATA_RETENTION.md](docs/DATA_RETENTION.md).
 | Someone on the machine disables detection | Role enforcement; every change audit-logged with an actor |
 | Someone quietly edits the record of what they did | Hash-chained audit log; partial edits detected |
 | Live camera feeds read by another process or page | Per-run token on every frame route; localhost bind; no CORS |
+| Someone on the site LAN opening the mobile view | Session required on every route; lockout; CSRF on actions; roles enforced |
 | Password guessing | Lockout after 5 failures, logged; slow KDF |
 | User enumeration via the login | Identical response and work for unknown user and wrong password |
 | Stolen or decommissioned machine | Full-disk encryption, verified at setup |
@@ -114,9 +115,14 @@ is kept. See [docs/DATA_RETENTION.md](docs/DATA_RETENTION.md).
   not a competent full rewrite.
 - **A malicious owner.** The Owner role can do everything by design. Their
   actions are logged, but they are not restrained.
-- **Network exposure of the app.** The console and frame servers bind to
-  localhost. Anything that exposes them (a reverse proxy, a mobile view) is
-  outside what has been reviewed here.
+- **Network exposure beyond the mobile view.** The console and frame servers
+  bind to localhost. The **mobile response view is the one deliberately
+  LAN-exposed surface**: every route requires a session against the same
+  account store and lockout as the console, the cookie is HttpOnly+SameSite,
+  actions carry a CSRF token, roles are enforced (an installer cannot read
+  incidents from a phone either), and "no unauthenticated route exists" is a
+  named test. Exposing anything else (a reverse proxy to the console, the
+  frame publisher) is outside what has been reviewed.
 - **The camera feeds themselves.** RTSP credentials are as secure as the
   cameras and network; Argus does not improve them.
 - **Model behaviour.** Detection is assistive and measured, not guaranteed.
