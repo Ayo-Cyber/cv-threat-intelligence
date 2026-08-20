@@ -136,6 +136,7 @@ def cmd_run(args) -> int:
     result = score(verdicts)
     result.update({"fingerprint": fingerprint(), "prompts": describe()["constants"],
                    "sensitivity": args.sensitivity, "gate_model": args.gate_model,
+                   "gate_model_digest": _model_digest(args.gate_model),
                    "measured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                    "golden_cases": len(golden)})
 
@@ -160,6 +161,24 @@ def cmd_run(args) -> int:
         return 0
 
     return _compare(result)
+
+
+def _model_digest(model: str) -> str | None:
+    """The exact blob the server is running (EP-07-T2): `gemma3:4b` is a tag,
+    not a version — Ollama can re-pull a different quantisation under the same
+    name. Best-effort: None when the server is not answering."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3) as r:
+            data = json.loads(r.read().decode())
+        base = model.split(":", 1)[0]
+        for m in data.get("models", []):
+            name = m.get("name", "")
+            if name == model or name.split(":", 1)[0] == base:
+                return m.get("digest")
+    except Exception:  # noqa: BLE001 - metadata, never a reason to fail the run
+        return None
+    return None
 
 
 def _compare(result: dict) -> int:
