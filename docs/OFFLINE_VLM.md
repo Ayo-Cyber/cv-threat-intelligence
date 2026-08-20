@@ -73,8 +73,8 @@ Build flow:
 
 1. `scripts/fetch_ollama.sh` (or `.bat` on Windows) downloads the Ollama binary into
    `vendor/ollama/<platform>/`. The platform build scripts call this automatically.
-2. `pyinstaller cvti.spec` bundles that binary (and the YOLO weights, configs, prompts,
-   schemas as before). If `vendor/ollama/` is absent, the bundle is built without it and
+2. `python packaging/build.py` (spec: `packaging/argus.spec`) bundles that binary
+   (and the YOLO weights, configs, prompts, schemas as before). If `vendor/ollama/` is absent, the bundle is built without it and
    the app falls back to an Ollama already on the machine.
 3. On first launch with `Gate → local`, the app starts the bundled Ollama server and
    offers to pull the model, streaming progress in the status bar.

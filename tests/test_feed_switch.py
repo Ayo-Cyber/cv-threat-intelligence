@@ -19,6 +19,8 @@ sys.path.insert(0, str(ROOT))
 
 from cvti.app.console_backend import ConsoleBackend
 
+from _backend_helper import signed_in
+
 
 class FeedSwitchTests(unittest.TestCase):
     def setUp(self):
@@ -26,7 +28,7 @@ class FeedSwitchTests(unittest.TestCase):
         self.site = self.d / "site.json"
         self.site.write_text(json.dumps(
             {"name": "T", "notify": "console", "configured": True, "cameras": []}))
-        self.be = ConsoleBackend(site_path=str(self.site), db_path=str(self.d / "e.db"),
+        self.be = signed_in(site_path=str(self.site), db_path=str(self.d / "e.db"),
                                  enable_demo=False)
 
     def _wait(self, timeout=90):
@@ -67,7 +69,7 @@ class FeedSwitchTests(unittest.TestCase):
         self.assertTrue(r.get("busy"))
 
     def test_status_is_safe_before_any_switch(self):
-        fresh = ConsoleBackend(site_path=str(self.site), db_path=str(self.d / "e2.db"),
+        fresh = signed_in(site_path=str(self.site), db_path=str(self.d / "e2.db"),
                                enable_demo=False)
         st = fresh.feed_switch_status()
         self.assertFalse(st.get("busy"))

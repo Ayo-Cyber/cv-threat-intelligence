@@ -1,4 +1,4 @@
-name: Build CVTI Console (desktop app)
+name: Build Argus (desktop app)
 
 # Builds the operator desktop app for macOS, Windows, and Linux. PyInstaller
 # can't cross-compile, so each OS builds its own artifact on its own runner.
@@ -79,11 +79,11 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact: cvti-console-macos
+            artifact: argus-macos
           - os: windows-latest
-            artifact: cvti-console-windows
+            artifact: argus-windows
           - os: ubuntu-latest
-            artifact: cvti-console-linux
+            artifact: argus-linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -102,22 +102,114 @@ jobs:
             libasound2t64 libxtst6 libxi6 libdrm2 libgbm1
 
       - name: Install build deps
+        # The bundle now contains the ENGINE (EP-05-T1), so the build needs the
+        # full detection stack — CPU torch keeps the wheels (and the installer)
+        # a fraction of the CUDA size. GPU acceleration inside the bundle is a
+        # deliberate non-goal at this stage: same behavior on every machine.
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller PyQt6 PyQt6-WebEngine opencv-python-headless numpy
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchvision==0.23.0
+          pip install -r requirements.txt
+          pip uninstall -y opencv-python
+          pip install pyinstaller PyQt6 PyQt6-WebEngine "opencv-python-headless==4.13.0.92"
 
-      - name: Build (macOS -> .app + .dmg)
+      # Ship the AI runtime inside the bundle. Best-effort on Linux (zstd
+      # availability varies); the mac/windows installers must carry it.
+      - name: Fetch Ollama runtime (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: bash scripts/fetch_ollama.sh || [ "$RUNNER_OS" = "Linux" ]
+      - name: Fetch Ollama runtime (Windows)
+        if: runner.os == 'Windows'
+        run: scripts\fetch_ollama.bat
+
+      - name: Build (macOS)
         if: runner.os == 'macOS'
-        run: python packaging/build.py --clean --dmg
+        run: python packaging/build.py --clean
 
       - name: Build (Windows/Linux)
         if: runner.os != 'macOS'
         run: python packaging/build.py --clean
 
+      # ----- code signing (EP-05-T2) -----
+      # Engages only when the secrets exist (docs/SIGNING.md). Without them the
+      # build stays exactly what it was — unsigned — and says so, loudly.
+      - name: Sign the app (macOS)
+        if: runner.os == 'macOS'
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          if [ -z "$CERT_P12" ]; then
+            echo "::warning::MACOS_CERT_P12 not set — shipping UNSIGNED (docs/SIGNING.md)"
+            exit 0
+          fi
+          echo "$CERT_P12" | base64 -d > cert.p12
+          security create-keychain -p ci-tmp build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci-tmp build.keychain
+          security import cert.p12 -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci-tmp build.keychain
+          rm cert.p12
+          codesign --deep --force --options runtime             --entitlements packaging/entitlements.plist             --sign "$SIGN_IDENTITY" "dist/Argus.app"
+          codesign --verify --deep --strict "dist/Argus.app"
+
+      - name: Package the dmg (macOS)
+        if: runner.os == 'macOS'
+        run: bash packaging/make_dmg.sh
+
+      - name: Notarise and staple (macOS)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$SIGN_IDENTITY" ]; then
+            echo "::warning::notarisation secrets not set — dmg will trigger Gatekeeper (docs/SIGNING.md)"
+            exit 0
+          fi
+          codesign --force --sign "$SIGN_IDENTITY" "dist/Argus.dmg"
+          xcrun notarytool submit "dist/Argus.dmg" --wait             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID"             --password "$APPLE_APP_PASSWORD"
+          xcrun stapler staple "dist/Argus.dmg"
+
+      - name: Sign the executables (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:CERT_PFX) {
+            Write-Host "::warning::WINDOWS_CERT_PFX not set — shipping UNSIGNED (docs/SIGNING.md)"
+            exit 0
+          }
+          [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:CERT_PFX))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match "x64" } | Select-Object -Last 1 -ExpandProperty FullName
+          & $signtool sign /f cert.pfx /p $env:CERT_PASSWORD /fd SHA256 `
+            /tr http://timestamp.digicert.com /td SHA256 `
+            "dist/Argus/Argus.exe" "dist/Argus/argus-engine.exe"
+          Remove-Item cert.pfx
+
+      # The one test that counts, approximated in CI: the runner never had the
+      # repo's venv on PATH for the bundle — argus-engine must come up on its
+      # own (imports torch/ultralytics from INSIDE the bundle, prints usage).
+      - name: Smoke-run the bundled engine (macOS)
+        if: runner.os == 'macOS'
+        run: "dist/Argus.app/Contents/MacOS/argus-engine --help"
+      - name: Smoke-run the bundled engine (Linux)
+        if: runner.os == 'Linux'
+        run: "dist/Argus/argus-engine --help"
+      - name: Smoke-run the bundled engine (Windows)
+        if: runner.os == 'Windows'
+        run: dist/Argus/argus-engine.exe --help
+
       # macOS ships the .dmg directly; the other two ship a zipped onedir.
       - name: Package artifact (macOS)
         if: runner.os == 'macOS'
-        run: cp "dist/CVTI-Console.dmg" "${{ matrix.artifact }}.dmg"
+        run: cp "dist/Argus.dmg" "${{ matrix.artifact }}.dmg"
       - name: Package artifact (Linux)
         if: runner.os == 'Linux'
         run: cd dist && zip -r "../${{ matrix.artifact }}.zip" .

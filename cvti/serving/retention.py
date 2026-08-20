@@ -108,11 +108,16 @@ class RetentionManager:
     def _hold_clause() -> str:
         """SQL for 'this must survive its own expiry'.
 
-        An unreviewed event is an open incident — nobody has decided what it was
-        yet, and deleting it destroys the record while the question is still
-        live. `legal_hold` is the explicit version an operator sets for a case.
+        An OPEN incident — one nobody has resolved — must not be deleted on a
+        timer while the question is still live. That includes an alert a guard
+        has claimed but not concluded: acknowledging is the start of the work,
+        not the end of it. `legal_hold` is the explicit exemption an operator
+        sets for a case. Purge deletes what is old AND settled; settled means
+        resolved.
         """
-        return "(COALESCE(legal_hold, 0) = 1 OR review IS NULL)"
+        return ("(COALESCE(legal_hold, 0) = 1 OR "
+                " COALESCE(state, CASE WHEN review IN ('true','false') "
+                "   THEN 'resolved' ELSE 'open' END) != 'resolved')")
 
     def expired(self, now: float | None = None, limit: int = 0) -> list[sqlite3.Row]:
         now = now if now is not None else time.time()
@@ -138,7 +143,7 @@ class RetentionManager:
         try:
             row = con.execute(
                 "SELECT SUM(CASE WHEN COALESCE(legal_hold,0)=1 THEN 1 ELSE 0 END), "
-                "SUM(CASE WHEN COALESCE(legal_hold,0)=0 AND review IS NULL THEN 1 ELSE 0 END) "
+                "SUM(CASE WHEN COALESCE(legal_hold,0)=0 THEN 1 ELSE 0 END) "
                 f"FROM events WHERE ts < ? AND {self._hold_clause()}", (cutoff,)).fetchone()
             return {"legal_hold": row[0] or 0, "unreviewed": row[1] or 0}
         except sqlite3.OperationalError:

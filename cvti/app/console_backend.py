@@ -21,7 +21,11 @@ import time
 from pathlib import Path
 
 from cvti.logging_setup import get_logger
+from cvti.security import permissions as perms
+from cvti.security.accounts import AccountStore, AuthError
+from cvti.security.audit import AuditLog
 from cvti.serving import onboarding, vlm
+from cvti.utils import resource_path
 
 log = get_logger(__name__)
 
@@ -40,6 +44,185 @@ class ConsoleBackend:
         self._restarts = 0
         # bundled playback demo (for machines w/o the engine); off in tests
         self._demo = self._locate_demo() if enable_demo else None
+
+        # --- identity, roles, audit (EP-03) ---
+        # Credentials and the audit trail sit beside the events database, never
+        # inside it: one deletion must not take both the footage and the record
+        # of who touched it.
+        _sec_dir = Path(self.db_path).parent
+        self.accounts = AccountStore(_sec_dir / "auth.db")
+        self.audit = AuditLog(_sec_dir / "audit.db")
+        self._session: str = ""          # token of the signed-in operator
+
+    # --- session ----------------------------------------------------------
+    @property
+    def current_user(self):
+        return self.accounts.session_user(self._session) if self._session else None
+
+    def _role(self):
+        user = self.current_user
+        return user.role if user else None
+
+    def _require(self, permission: str) -> None:
+        """Server-side authorisation. Hiding a button changes what is easy;
+        this changes what is possible, which is the question that matters."""
+        perms.require(self._role(), permission)
+
+    def auth_state(self) -> dict:
+        """What the UI needs to pick a screen. Never a permission source — the
+        backend re-checks on every call."""
+        user = self.current_user
+        return {
+            "configured": self.accounts.any_users(),
+            "signed_in": user is not None,
+            "username": user.username if user else "",
+            "role": user.role if user else "",
+            "must_change_password": bool(user.must_change) if user else False,
+            "landing": perms.landing_for(user.role) if user else "",
+            "permissions": sorted(perms.permissions_for(user.role)) if user else [],
+        }
+
+    def create_first_owner(self, username: str, password: str) -> dict:
+        """First run. Nothing ships with a known credential because nothing
+        ships with an account at all — the first one is created here."""
+        if self.accounts.any_users():
+            return {"ok": False, "error": "this site already has accounts"}
+        try:
+            self.accounts.create_user(username, password, role=perms.OWNER)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.audit.record(username, "role_change", f"user:{username}",
+                          {"created": True, "role": perms.OWNER, "first_run": True})
+        return self.sign_in(username, password)
+
+    def sign_in(self, username: str, password: str) -> dict:
+        try:
+            user = self.accounts.authenticate(username, password)
+        except AuthError as exc:
+            self.audit.record(username or "<unknown>", "login",
+                              detail={"outcome": "refused", "reason": str(exc)})
+            return {"ok": False, "error": str(exc)}
+        self._session = self.accounts.open_session(user.username)
+        self.audit.record(user.username, "login",
+                          detail={"outcome": "success", "role": user.role})
+        return {"ok": True, **self.auth_state()}
+
+    def sign_out(self) -> dict:
+        user = self.current_user
+        if user:
+            self.audit.record(user.username, "login", detail={"outcome": "signed out"})
+        self.accounts.close_session(self._session)
+        self._session = ""
+        return {"ok": True}
+
+    def change_own_password(self, current: str, new: str) -> dict:
+        user = self.current_user
+        if user is None:
+            return {"ok": False, "error": "not signed in"}
+        try:
+            self.accounts.authenticate(user.username, current)
+        except AuthError:
+            return {"ok": False, "error": "current password is incorrect"}
+        try:
+            self.accounts.set_password(user.username, new)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.audit.record(user.username, "role_change", f"user:{user.username}",
+                          {"password_changed": True})
+        self._session = self.accounts.open_session(user.username)   # set_password revoked it
+        return {"ok": True}
+
+    # --- user administration (owner only) ---------------------------------
+    def list_users(self) -> list:
+        self._require(perms.MANAGE_USERS)
+        return [{"username": u.username, "role": u.role, "must_change": u.must_change,
+                 "last_login": u.last_login} for u in self.accounts.list_users()]
+
+    def add_user(self, username: str, password: str, role: str = "operator") -> dict:
+        self._require(perms.MANAGE_USERS)
+        try:
+            self.accounts.create_user(username, password, role=role)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.audit.record(self.current_user.username, "role_change", f"user:{username}",
+                          {"created": True, "role": role})
+        return {"ok": True}
+
+    def set_user_role(self, username: str, role: str) -> dict:
+        self._require(perms.MANAGE_USERS)
+        before = self.accounts.user(username)
+        try:
+            self.accounts.set_role(username, role)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.audit.record(self.current_user.username, "role_change", f"user:{username}",
+                          {"from": before.role if before else None, "to": role})
+        return {"ok": True}
+
+    def remove_user(self, username: str) -> dict:
+        self._require(perms.MANAGE_USERS)
+        me = self.current_user
+        if me and me.username == username:
+            return {"ok": False, "error": "you cannot remove your own account"}
+        owners = [u for u in self.accounts.list_users() if u.role == perms.OWNER]
+        if len(owners) <= 1 and any(u.username == username for u in owners):
+            # A site with no owner has nobody who can grant access to anyone again.
+            return {"ok": False, "error": "the last owner cannot be removed"}
+        self.accounts.delete_user(username)
+        self.audit.record(me.username if me else "?", "role_change", f"user:{username}",
+                          {"removed": True})
+        return {"ok": True}
+
+    # --- audit trail (owner only) -----------------------------------------
+    def audit_entries(self, limit: int = 200) -> list:
+        self._require(perms.VIEW_AUDIT)
+        return [e.to_dict() for e in self.audit.entries(limit=limit)]
+
+    def audit_verify(self) -> dict:
+        self._require(perms.VIEW_AUDIT)
+        return self.audit.verify()
+
+    def audit_export(self) -> dict:
+        self._require(perms.VIEW_AUDIT)
+        path = self.audit.export(Path(self.db_path).parent / f"argus-audit-{int(time.time())}.json")
+        self.audit.record(self.current_user.username, "evidence_export", "audit_log",
+                          {"path": str(path)})
+        return {"ok": True, "path": str(path)}
+
+    def heartbeat_status(self) -> dict:
+        """Config + exactly what was last transmitted, so 'what leaves my
+        machine?' is answered by looking, not by trusting the docs."""
+        meta = self.get_site()
+        out = {"enabled": bool(meta.get("heartbeat_url")),
+               "url": meta.get("heartbeat_url", ""),
+               "has_key": bool(meta.get("heartbeat_key"))}
+        engine = self._gate_health() or {}
+        out["live"] = engine.get("heartbeat") or {}
+        try:
+            out["last_payload"] = json.loads(
+                (Path(self.db_path).parent / "heartbeat_last.json").read_text())
+        except (OSError, ValueError):
+            out["last_payload"] = None
+        return out
+
+    def set_heartbeat(self, url: str = "", key: str = "") -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        onboarding.set_site_meta(self.site_path, heartbeat_url=(url or "").strip(),
+                                 heartbeat_key=(key or "").strip())
+        self.audit.record(self.current_user.username, "config_change", "heartbeat",
+                          {"enabled": bool((url or "").strip())})
+        return self.heartbeat_status()
+
+    def disk_encryption(self) -> dict:
+        """Is the evidence on this machine readable if the machine is taken?"""
+        from cvti.security.disk import encryption_status, requirement_message
+        status = encryption_status()
+        status["message"] = requirement_message(status)
+        return status
+
+    def role_table(self) -> dict:
+        """The whole permission table — for the UI, and for procurement."""
+        return perms.describe()
 
     @staticmethod
     def _locate_demo():
@@ -66,12 +249,38 @@ class ConsoleBackend:
         return {"cidr": onboarding.detect_subnet()}
 
     def test(self, url: str) -> dict:
+        """Stream test with a NAME for every failure (EP-05-T4).
+
+        For RTSP, a raw protocol probe first: it distinguishes unreachable /
+        wrong credentials / wrong path / unsupported codec — cv2 collapses all
+        four into "could not open". Only a passing probe pays for the cv2 open
+        that produces the preview snapshot."""
+        if str(url).startswith("rtsp"):
+            from cvti.serving import discovery
+            probe = discovery.probe_rtsp(url)
+            if not probe["ok"]:
+                return {"error": probe["message"], "kind": probe["kind"]}
+            out = onboarding.test_url(url)
+            if out.get("error"):
+                out.setdefault("kind", "open-failed")
+            else:
+                out["codec"] = probe.get("codec")
+            return out
         return onboarding.test_url(url)
 
+    def discover_cameras(self) -> dict:
+        """ONVIF WS-Discovery sweep of the local segment (EP-05-T4)."""
+        self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.serving import discovery
+        cams = discovery.discover()
+        return {"cameras": cams, "count": len(cams)}
+
     def add_camera(self, camera: dict) -> list[dict]:
+        self._require(perms.CONFIGURE_CAMERAS)
         return onboarding.add_camera(self.site_path, camera)
 
     def remove_camera(self, camera_id: str) -> list[dict]:
+        self._require(perms.CONFIGURE_CAMERAS)
         return onboarding.remove_camera(self.site_path, camera_id)
 
     def presets(self) -> dict:
@@ -91,9 +300,167 @@ class ConsoleBackend:
                             "crowd_max_cluster_ratio": 0.32},
     }
 
+    # --- first-run use-case templates (EP-05-T3) ---------------------------
+    # Where the CustomizationEngine's flags finally meet the interface: a
+    # non-technical installer picks what the site IS, not which of ten
+    # detectors to enable. Keys are RULE_FLAGS; anything absent is OFF.
+    USE_CASE_TEMPLATES = {
+        "retail": {
+            "label": "Retail / Store",
+            "blurb": "Shoplifting, concealment, weapons and fire — the shop-floor set.",
+            "detectors": {"concealment": True, "video_action": True, "theft": True,
+                          "weapons": True, "violence": True, "tamper": True,
+                          "fire_smoke": True},
+            "config": "configs/all_threats_video_v1.json",
+        },
+        "warehouse": {
+            "label": "Warehouse / HSE",
+            "blurb": "People down, fire, panic and crowding — safety first, theft off.",
+            "detectors": {"fall": True, "fire_smoke": True, "running": True,
+                          "crowd_formation": True, "tamper": True, "weapons": True},
+            "config": "configs/all_threats_v1.json",
+        },
+        "office": {
+            "label": "Office",
+            "blurb": "After-hours intrusion essentials: violence, weapons, fire, tamper.",
+            "detectors": {"violence": True, "weapons": True, "fire_smoke": True,
+                          "tamper": True},
+            "config": "configs/all_threats_v1.json",
+        },
+    }
+
+    def use_case_templates(self) -> dict:
+        """The three templates, detector labels resolved — read-only, any role."""
+        return {k: {"label": t["label"], "blurb": t["blurb"],
+                    "detectors": {f: bool(t["detectors"].get(f)) for f in self.RULE_FLAGS}}
+                for k, t in self.USE_CASE_TEMPLATES.items()}
+
+    def apply_template(self, key: str) -> dict:
+        """Apply a use-case template to EVERY configured camera.
+
+        Sets each RULE_FLAG explicitly (on or off) so switching templates is
+        deterministic, then lets set_camera_rules seed detector defaults for
+        anything newly enabled. Per-camera fine-tuning stays possible after —
+        the template is a starting point, not a lock.
+        """
+        self._require(perms.CONFIGURE_DETECTORS)
+        tpl = self.USE_CASE_TEMPLATES.get(key)
+        if tpl is None:
+            return {"error": f"unknown template '{key}'"}
+        rules = {f: bool(tpl["detectors"].get(f)) for f in self.RULE_FLAGS}
+        rules["config"] = tpl["config"]
+        cams = onboarding.list_cameras(self.site_path)
+        for cam in cams:
+            self.set_camera_rules(cam["id"], rules)
+        self.audit.record(self.current_user.username, "config_change",
+                          "site:template", detail={"template": key, "cameras": len(cams)})
+        return {"ok": True, "template": key, "cameras": len(cams),
+                "detectors_on": sorted(k for k, v in tpl["detectors"].items() if v)}
+
+    # --- setup self-test (EP-05-T3) -----------------------------------------
+    @staticmethod
+    def _probe_stream(source) -> tuple:
+        """(ok, detail) — fast reachability, never a blocking cv2 open.
+
+        A wrong-credentials RTSP URL still connects at the TCP layer; the full
+        stream test is the wizard's per-camera Test button. This check answers
+        the self-test's question — is anything answering at all — in <1s.
+        """
+        import socket
+        from urllib.parse import urlparse
+        src = str(source)
+        if src.isdigit():
+            return True, "built-in webcam"
+        if "://" not in src:
+            return (True, "video file on disk") if Path(src).exists()                 else (False, f"file not found: {src}")
+        u = urlparse(src)
+        port = u.port or {"rtsp": 554, "http": 80, "https": 443}.get(u.scheme, 554)
+        try:
+            with socket.create_connection((u.hostname, port), timeout=1.5):
+                return True, f"{u.hostname}:{port} answers"
+        except OSError as exc:
+            return False, f"{u.hostname}:{port} unreachable ({exc})"
+
+    def setup_check(self) -> list:
+        """Every component, verified, in plain English (EP-05-T3 acceptance:
+        'names exactly what is missing'). Each item: ok True/False/None(warn),
+        what was checked, what was found, and the one action that fixes it."""
+        checks = []
+
+        cams = [c for c in onboarding.list_cameras(self.site_path) if c.get("source")]
+        checks.append({"id": "cameras", "ok": bool(cams),
+                       "label": "Cameras configured",
+                       "detail": f"{len(cams)} camera(s) in the site config" if cams
+                       else "no cameras yet",
+                       "fix": None if cams else "Add a camera in the Cameras step."})
+
+        for c in cams[:8]:
+            ok, detail = self._probe_stream(c.get("source"))
+            checks.append({"id": f"stream:{c['id']}", "ok": ok,
+                           "label": f"Camera '{c['id']}' reachable",
+                           "detail": detail,
+                           "fix": None if ok else "Check the camera's power, network "
+                           "cable and IP address, then use Test on the Cameras step."})
+
+        g = self.gate_status()
+        if g.get("mode") == "live":
+            checks.append({"id": "verifier", "ok": True, "label": "AI verifier (TrueSight)",
+                           "detail": "running, model installed", "fix": None})
+        elif g.get("mode") == "no-model":
+            checks.append({"id": "verifier", "ok": False, "label": "AI verifier (TrueSight)",
+                           "detail": "runtime is up but the vision model is not downloaded",
+                           "fix": "Download the model in the Verification step (~3.3 GB, resumes)."})
+        else:
+            checks.append({"id": "verifier", "ok": False, "label": "AI verifier (TrueSight)",
+                           "detail": "not running",
+                           "fix": "Click Start verifier in the Verification step."
+                           if g.get("runtime_bundled")
+                           else "Install Ollama from ollama.com, then recheck."})
+
+        det = resource_path("models/yolov8n.pt")
+        checks.append({"id": "detector", "ok": det.exists(), "label": "Detection models",
+                       "detail": "YOLO weights present" if det.exists()
+                       else "models/yolov8n.pt is missing from this install",
+                       "fix": None if det.exists() else "Reinstall Argus — the bundle is incomplete."})
+        vm = resource_path("runs/video_finetune/videomae")
+        if not vm.exists():
+            checks.append({"id": "video_model", "ok": None, "label": "Video action model",
+                           "detail": "VideoMAE fine-tune not bundled — video theft "
+                           "detection will be off; everything else still runs",
+                           "fix": None})
+
+        meta = onboarding.get_site_meta(self.site_path)
+        notify = (meta.get("notify") or "console").strip()
+        if notify and notify != "console":
+            checks.append({"id": "notify", "ok": True, "label": "Notifications",
+                           "detail": f"alerts go to {notify}",
+                           "fix": "Confirm delivery with the test alert step."})
+        else:
+            checks.append({"id": "notify", "ok": None, "label": "Notifications",
+                           "detail": "alerts only appear inside the app (console)",
+                           "fix": "Pick WhatsApp/Telegram/webhook in Site settings "
+                           "to be reached when you're not at this screen."})
+
+        import shutil as _shutil
+        try:
+            du = _shutil.disk_usage(str(Path(self.db_path).parent))
+            pct = du.used * 100.0 / max(1, du.total)
+            free_gb = du.free / 1e9
+            low = free_gb < 5
+            checks.append({"id": "disk", "ok": (None if low else True) if free_gb >= 1 else False,
+                           "label": "Disk space for evidence",
+                           "detail": f"{free_gb:.0f} GB free ({pct:.0f}% used)",
+                           "fix": "Free some space — evidence recording needs room."
+                           if low else None})
+        except OSError:
+            checks.append({"id": "disk", "ok": None, "label": "Disk space for evidence",
+                           "detail": "could not be measured", "fix": None})
+        return checks
+
     def set_camera_rules(self, camera_id: str, rules: dict) -> dict:
         """Update which threat detectors run on a camera (+ optional rule preset).
         Takes effect on the next Start monitoring."""
+        self._require(perms.CONFIGURE_DETECTORS)
         cams = onboarding.list_cameras(self.site_path)
         cam = next((c for c in cams if c.get("id") == camera_id), None)
         if cam is None:
@@ -171,6 +538,7 @@ class ConsoleBackend:
     def add_zone(self, camera_id: str, name: str, points: list, dwell_seconds: float = 5.0) -> dict:
         """Save a drawn zone (>=3 [x,y] points in ORIGINAL pixels) + wire a
         loitering rule for it. Takes effect on the next Start monitoring."""
+        self._require(perms.CONFIGURE_CAMERAS)
         pts = [[int(p[0]), int(p[1])] for p in (points or []) if len(p) == 2]
         if len(pts) < 3:
             return {"error": "a zone needs at least 3 points"}
@@ -192,6 +560,7 @@ class ConsoleBackend:
         return {"ok": True, "zones": data["zones"]}
 
     def remove_zone(self, camera_id: str, name: str) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
         f = self._zones_file(camera_id)
         data = json.loads(f.read_text()) if f.exists() else {"zones": []}
         data["zones"] = [z for z in data.get("zones", []) if z.get("name") != name]
@@ -264,6 +633,7 @@ class ConsoleBackend:
         return meta
 
     def set_site(self, name: str | None = None, notify: str | None = None) -> dict:
+        self._require(perms.CONFIGURE_SITE)
         return onboarding.set_site_meta(self.site_path, name=name, notify=notify)
 
     def mark_configured(self) -> dict:
@@ -293,6 +663,7 @@ class ConsoleBackend:
     # --- retention / legal hold -------------------------------------------
     def set_legal_hold(self, event_id: int, hold: bool = True) -> dict:
         """Exempt an event's evidence from retention purge, or release it."""
+        self._require(perms.MANAGE_LEGAL_HOLD)
         db, _ = self._effective_db()
         try:
             con = self._connect(db)
@@ -322,6 +693,7 @@ class ConsoleBackend:
         return status
 
     def set_retention(self, days: float = None) -> dict:
+        self._require(perms.CONFIGURE_SITE)
         return onboarding.set_site_meta(self.site_path, retention_days=days)
 
     def export_evidence(self, event_ids: str = "", dest: str = "") -> dict:
@@ -331,6 +703,7 @@ class ConsoleBackend:
         evidence because it is going to us; this one IS the evidence, and is
         going to the person who owns it.
         """
+        self._require(perms.EXPORT_EVIDENCE)
         import zipfile
         db, base = self._effective_db()
         ids = [int(x) for x in str(event_ids).split(",") if str(x).strip().isdigit()]
@@ -391,6 +764,7 @@ class ConsoleBackend:
         Returns the path rather than the bytes: the operator sends us a file,
         and keeping it on disk means they can inspect it before they do.
         """
+        self._require(perms.VIEW_DIAGNOSTICS)
         from cvti.diagnostics import build_bundle
         out_dir = Path(self.db_path).parent
         try:
@@ -411,6 +785,14 @@ class ConsoleBackend:
         """
         status = vlm.gate_status(model)
         status["engine"] = self._gate_health()
+        # Whether an Ollama binary ships inside this app: the UI's "offline"
+        # advice differs — "click Download" beats "go install ollama.com".
+        try:
+            from cvti.verification import ollama as _ollama
+            status["runtime_bundled"] = _ollama.ollama_binary() is not None
+        except Exception:  # noqa: BLE001
+            log.debug("could not resolve a local ollama binary", exc_info=True)
+            status["runtime_bundled"] = False
         return status
 
     def _gate_health(self) -> dict:
@@ -427,6 +809,15 @@ class ConsoleBackend:
         return health
 
     def pull_model(self, model: str = vlm.DEFAULT_MODEL) -> dict:
+        # The user clicked Download: if no server is answering, start the
+        # bundled/installed one now so the pull has somewhere to go. Ollama's
+        # pull resumes partial downloads natively, so a killed 3 GB download
+        # continues instead of restarting.
+        try:
+            from cvti.verification import ollama as _ollama
+            _ollama.ensure_server()
+        except Exception:  # noqa: BLE001
+            log.warning("could not start the local VLM server", exc_info=True)
         return vlm.start_pull(model)
 
     def pull_progress(self, model: str = vlm.DEFAULT_MODEL) -> dict:
@@ -469,6 +860,7 @@ class ConsoleBackend:
             return 0
 
     def live_start(self, count: int = 6) -> dict:
+        self._require(perms.VIEW_LIVE)
         from cvti.app.live_wall import FrameServer, LiveWall
         self.live_stop()
         # Prefer the engine's already-decoded frames (no second decode, live boxes).
@@ -506,7 +898,25 @@ class ConsoleBackend:
     # --- monitoring engine (Start/Stop) ---
     # Launches the full detection pipeline (YOLO + VideoMAE + Gemma gate) as a
     # subprocess pointed at this site, writing confirmed alerts into events.db.
-    # Runs from-source / dev env (needs torch etc.); not from the lean app bundle.
+    # In dev that is `python -m cvti.serving.pipeline`; in the installed app it
+    # is the argus-engine executable shipped INSIDE the bundle (EP-05-T1) — the
+    # installer that "cannot detect anything on its own" is exactly what the
+    # audit said we must stop shipping.
+    @staticmethod
+    def _bundled_engine() -> "Path | None":
+        """The engine executable next to this app's own, if we're a bundle."""
+        if not getattr(sys, "frozen", False):
+            return None
+        exe = "argus-engine.exe" if sys.platform == "win32" else "argus-engine"
+        candidate = Path(sys.executable).parent / exe
+        return candidate if candidate.exists() else None
+
+    def _engine_command(self) -> list:
+        engine = self._bundled_engine()
+        if engine is not None:
+            return [str(engine)]
+        return [sys.executable, "-m", "cvti.serving.pipeline"]
+
     def _spawn_engine(self) -> "subprocess.Popen":
         out_dir = Path(self.db_path).parent
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -514,20 +924,37 @@ class ConsoleBackend:
         log_file = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
         # Lean defaults keep the box cool: lower fps + image size cut compute a lot
         # with negligible quality loss at demo scale.
-        cmd = [sys.executable, "-m", "cvti.serving.pipeline",
+        # The gate needs the local Ollama server; in the bundled app nobody has
+        # run `ollama serve` in a terminal — that is the point — so bring up the
+        # bundled runtime if nothing is answering. Best-effort: if it still is
+        # not up, the gate stays fail-visible and alerts arrive UNVERIFIED.
+        try:
+            from cvti.verification import ollama as _ollama
+            _ollama.ensure_server()
+        except Exception:  # noqa: BLE001 - engine start must not die on this
+            log.warning("could not ensure the local VLM server", exc_info=True)
+        cmd = self._engine_command() + [
                "--site-config", self.site_path,
                "--gate-provider", "ollama", "--gate-model", "gemma3:4b",
                "--notify", notify, "--output-dir", str(out_dir),
                "--target-fps", "4", "--imgsz", "512",
                "--seconds", "100000", "--gate-drain", "60"]
-        return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT)
+        kwargs = {}
+        if sys.platform == "win32":
+            # The engine is a console-mode exe; from the windowed app that would
+            # flash a terminal at the user. Same flag is a no-op run from a shell.
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, **kwargs)
 
     def start_monitoring(self) -> dict:
         # A packaged app has no engine (torch/Ollama) inside it — it's a playback
         # demo. Don't try to spawn; the recorded alerts are already shown.
-        if getattr(sys, "frozen", False):
+        self._require(perms.CONTROL_ENGINE)
+        if getattr(sys, "frozen", False) and self._bundled_engine() is None:
+            # A lean viewer-only build (no engine inside). The full installer
+            # ships argus-engine and never takes this branch.
             return {"running": False, "demo": True,
-                    "note": "Playback demo — alerts are pre-recorded. Run from source for live monitoring."}
+                    "note": "Playback demo — alerts are pre-recorded. This build has no detection engine inside."}
         if self._monitor and self._monitor.poll() is None:
             return {"running": True, "pid": self._monitor.pid, "already": True}
         self._monitor_should_run = True
@@ -562,6 +989,7 @@ class ConsoleBackend:
         self._watchdog.start()
 
     def stop_monitoring(self) -> dict:
+        self._require(perms.CONTROL_ENGINE)
         self._monitor_should_run = False   # tell the watchdog this is intentional
         if self._monitor and self._monitor.poll() is None:
             self._monitor.terminate()
@@ -606,6 +1034,7 @@ class ConsoleBackend:
         live stream URLs takes seconds per feed and restarting the engine takes
         more, and doing that inline would freeze the Qt UI thread. Poll
         feed_switch_status() for progress."""
+        self._require(perms.CONFIGURE_SITE)
         import threading
         st = getattr(self, "_switch_state", None)
         if st and st.get("busy"):
@@ -724,6 +1153,7 @@ class ConsoleBackend:
         return self.db_path, None
 
     def list_events(self, limit: int = 100, embed_frames: bool = True) -> list[dict]:
+        self._require(perms.VIEW_ALERTS)
         db, frame_base = self._effective_db()
         try:
             con = self._connect(db)
@@ -750,6 +1180,7 @@ class ConsoleBackend:
 
         Works for both a live run (absolute evidence_dir) and the bundled playback
         demo (evidence_dir relative to the demo bundle)."""
+        self._require(perms.VIEW_ALERTS)
         _, frame_base = self._effective_db()
         d = Path(evidence_dir or "")
         if not d.exists() and frame_base and evidence_dir:
@@ -852,30 +1283,181 @@ class ConsoleBackend:
         return "data:image/jpeg;base64," + base64.b64encode(p.read_bytes()).decode()
 
     def set_review(self, event_id: int | str, label: str) -> dict:
+        """Legacy label entry point — routed through the state machine so every
+        transition carries an owner and lands in the audit trail."""
+        self._require(perms.REVIEW_ALERTS)
         if label not in _REVIEW_VALUES:
             raise ValueError(f"review must be one of {_REVIEW_VALUES}")
-        # Write to the SAME db we read from, and make sure its folder exists.
-        # A read-only bundled demo can't be written — degrade gracefully, no modal.
+        mapping = {"true": ("resolve", "real"), "false": ("resolve", "false_alarm"),
+                   "ack": ("acknowledge", None)}
+        action, outcome = mapping[label]
+        if action == "acknowledge":
+            return self.acknowledge_alert(event_id)
+        return self.resolve_alert(event_id, outcome)
+
+    def _triage_connect(self):
+        """Write to the SAME db we read from. The bundled read-only demo can't
+        be written — callers degrade gracefully rather than showing a modal."""
         db, _ = self._effective_db()
-        iso = time.strftime("%Y-%m-%dT%H:%M:%S")
+        Path(db).parent.mkdir(parents=True, exist_ok=True)
+        con = self._connect(db)
+        from cvti import triage
+        triage.ensure_columns(con)
+        return con
+
+    def _actor(self) -> str:
+        user = self.current_user
+        return user.username if user else "<unknown>"
+
+    def acknowledge_alert(self, event_id: int | str) -> dict:
+        """Claim it. Everyone else sees your name against it."""
+        self._require(perms.REVIEW_ALERTS)
+        from cvti import triage
         try:
-            Path(db).parent.mkdir(parents=True, exist_ok=True)
-            con = self._connect(db)
+            con = self._triage_connect()
         except (sqlite3.OperationalError, OSError):
-            return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": False}
+            return {"ok": False, "persisted": False}
         try:
-            cols = {c[1] for c in con.execute("PRAGMA table_info(events)")}
-            if "review" not in cols:
-                con.execute("ALTER TABLE events ADD COLUMN review TEXT")
-            if "reviewed_at" not in cols:
-                con.execute("ALTER TABLE events ADD COLUMN reviewed_at TEXT")
-            con.execute("UPDATE events SET review=?, reviewed_at=? WHERE id=?", (label, iso, event_id))
-            con.commit()
-        except sqlite3.OperationalError:
+            result = triage.acknowledge(con, int(event_id), self._actor())
+        except triage.TriageError as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
             con.close()
-            return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": False}
+        self.audit.record(self._actor(), "alert_resolution", f"event:{event_id}",
+                          {"transition": "acknowledged"})
+        return {"id": event_id, "persisted": True, **result}
+
+    def resolve_alert(self, event_id: int | str, outcome: str, note: str = "") -> dict:
+        """Conclude it. The outcome feeds the model's feedback loop; the note is
+        for the humans on the next shift."""
+        self._require(perms.REVIEW_ALERTS)
+        from cvti import triage
+        try:
+            con = self._triage_connect()
+        except (sqlite3.OperationalError, OSError):
+            return {"ok": False, "persisted": False}
+        try:
+            result = triage.resolve(con, int(event_id), self._actor(), outcome, note)
+        except triage.TriageError as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            con.close()
+        self.audit.record(self._actor(), "alert_resolution", f"event:{event_id}",
+                          {"transition": "resolved", "outcome": outcome,
+                           "note": bool(note)})
+        return {"id": event_id, "persisted": True, **result}
+
+    def export_incident_pdf(self, event_id: int | str) -> dict:
+        """The incident record as a file that leaves the building intact —
+        what a manager reviews, what goes to an insurer or the police."""
+        self._require(perms.EXPORT_EVIDENCE)
+        db, frame_base = self._effective_db()
+        try:
+            con = self._connect(db)
+            row = con.execute("SELECT * FROM events WHERE id = ?",
+                              (int(event_id),)).fetchone()
+            con.close()
+        except sqlite3.OperationalError as exc:
+            return {"ok": False, "error": str(exc)[:200]}
+        if row is None:
+            return {"ok": False, "error": f"no incident #{event_id}"}
+        event = dict(row)
+
+        frames = []
+        ev_dir = event.get("evidence_dir")
+        if ev_dir:
+            path = Path(ev_dir)
+            if not path.is_absolute() and frame_base:
+                path = frame_base / path
+            if path.exists():
+                for f in sorted(path.glob("frame_*.jpg"))[:8]:
+                    try:
+                        frames.append((f.name, f.read_bytes()))
+                    except OSError:
+                        log.debug("unreadable evidence frame %s", f, exc_info=True)
+                subject = path / "subject.jpg"
+                if subject.exists():
+                    frames.insert(0, ("subject — boxed at the moment it fired",
+                                      subject.read_bytes()))
+
+        from cvti.incident_pdf import build_incident_pdf
+        dest = Path(self.db_path).parent / f"argus-incident-{event['id']}.pdf"
+        try:
+            build_incident_pdf(event, frames, dest)
+        except Exception as exc:  # noqa: BLE001 - export must not crash the app
+            log.error("incident PDF failed", exc_info=True)
+            return {"ok": False, "error": str(exc)[:200]}
+        self.audit.record(self._actor(), "evidence_export", f"event:{event_id}",
+                          {"format": "pdf", "frames": len(frames)})
+        return {"ok": True, "path": str(dest),
+                "size_kb": round(dest.stat().st_size / 1024, 1)}
+
+    def handover(self, hours: float = 8.0) -> dict:
+        """What the incoming shift needs: what fired, what was concluded and by
+        whom, and — flagged loudest — what is still open. Context must not
+        reset at shift change."""
+        self._require(perms.VIEW_ALERTS)
+        db, _ = self._effective_db()
+        since = time.time() - max(1.0, float(hours)) * 3600
+        try:
+            con = self._connect(db)
+        except sqlite3.OperationalError:
+            return {"hours": hours, "fired": [], "resolved": [], "open": [],
+                    "counts": {}}
+        state_expr = ("COALESCE(state, CASE WHEN review IN ('true','false') "
+                      "THEN 'resolved' WHEN review='ack' THEN 'acknowledged' "
+                      "ELSE 'new' END)")
+        try:
+            fired = [dict(r) for r in con.execute(
+                "SELECT id, ts, iso, camera_id, rule, priority FROM events "
+                "WHERE ts >= ? ORDER BY ts DESC", (since,))]
+            resolved = [dict(r) for r in con.execute(
+                f"SELECT id, iso, camera_id, rule, owner, outcome, note, resolved_at "
+                f"FROM events WHERE {state_expr} = 'resolved' AND resolved_at >= ? "
+                f"ORDER BY resolved_at DESC", (since,))]
+            # Open items are NOT windowed: an incident from three shifts ago
+            # that nobody concluded is precisely what must not be forgotten.
+            open_items = [dict(r) for r in con.execute(
+                f"SELECT id, ts, iso, camera_id, rule, priority, owner, "
+                f"{state_expr} AS state FROM events "
+                f"WHERE {state_expr} != 'resolved' ORDER BY ts ASC")]
+        except sqlite3.OperationalError as exc:
+            con.close()
+            return {"hours": hours, "error": str(exc)[:200]}
         con.close()
-        return {"id": event_id, "review": label, "reviewed_at": iso, "persisted": True}
+        now = time.time()
+        for item in open_items:
+            item["age_h"] = round((now - (item.get("ts") or now)) / 3600, 1)
+            item["carried_over"] = (item.get("ts") or now) < since
+        outcomes = {}
+        for r in resolved:
+            outcomes[r.get("outcome") or "?"] = outcomes.get(r.get("outcome") or "?", 0) + 1
+        return {"hours": float(hours), "since": since,
+                "fired": fired[:100], "resolved": resolved[:50],
+                "open": open_items[:50],
+                "counts": {"fired": len(fired), "resolved": len(resolved),
+                           "open": len(open_items), "outcomes": outcomes}}
+
+    def needs_attention(self, min_priority: str = "medium") -> dict:
+        """The Now view: one alert first, the queue behind it, who holds what."""
+        self._require(perms.VIEW_ALERTS)
+        from cvti import triage
+        try:
+            con = self._triage_connect()
+        except (sqlite3.OperationalError, OSError):
+            return {"now": None, "then": [], "waiting": 0, "held": []}
+        try:
+            out = triage.needs_attention(con, min_priority=min_priority)
+        finally:
+            con.close()
+        db, frame_base = self._effective_db()
+        if out["now"]:
+            out["now"]["review"] = out["now"].get("review") or "new"
+            out["now"]["frames"] = self._frames_as_data_uris(
+                out["now"].get("evidence_dir"), frame_base)
+            out["now"]["subject"] = self._subject_uri(
+                out["now"].get("evidence_dir"), frame_base)
+        return out
 
     def learning_stats(self) -> dict:
         """Feedback / reinforcement-training status for the Learning screen."""
@@ -895,6 +1477,7 @@ class ConsoleBackend:
                          guard_hourly_cost: "float | None" = None,
                          review_minutes: "float | None" = None) -> dict:
         """The site's own money figures. Blank stays blank — see value_summary."""
+        self._require(perms.CONFIGURE_SITE)
         return onboarding.set_site_meta(
             self.site_path, incident_value=incident_value,
             guard_hourly_cost=guard_hourly_cost, review_minutes=review_minutes)
@@ -926,7 +1509,8 @@ class ConsoleBackend:
                     "SELECT COUNT(*), "
                     "SUM(CASE WHEN review='true' THEN 1 ELSE 0 END), "
                     "SUM(CASE WHEN review='false' THEN 1 ELSE 0 END) "
-                    "FROM events WHERE ts >= ?", (since,)).fetchone()
+                    "FROM events WHERE ts >= ? AND COALESCE(retracted,0)=0 "
+                    "AND COALESCE(provisional,0)=0", (since,)).fetchone()
                 incidents = row[0] or 0
                 reviewed_true = row[1] or 0
                 reviewed_false = row[2] or 0
@@ -1008,7 +1592,8 @@ class ConsoleBackend:
             try:
                 # "to review" = not yet handled. Ack/True/False all clear it.
                 pending = con.execute(
-                    "SELECT COUNT(*) FROM events WHERE review IS NULL").fetchone()[0]
+                    "SELECT COUNT(*) FROM events WHERE review IS NULL "
+                    "AND COALESCE(retracted, 0) = 0").fetchone()[0]
             except sqlite3.OperationalError:
                 pending = 0
             con.close()

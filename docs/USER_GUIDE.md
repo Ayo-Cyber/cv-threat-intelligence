@@ -100,6 +100,8 @@ python -m cvti.pipelines.retail_pipeline \
   --gate-provider local --gate-model gemma3:4b-it-qat
 ```
 
-Build the DMG: `bash scripts/build_mac.sh` (fetches the Ollama runtime, runs PyInstaller,
-produces `dist/CVTI-0.1.0-mac.dmg`). See [OFFLINE_VLM.md](OFFLINE_VLM.md) for packaging
+Build the installer: `bash scripts/fetch_ollama.sh` once, then
+`python packaging/build.py --clean --dmg` (runs PyInstaller with
+`packaging/argus.spec`, produces `dist/Argus.dmg` — console + detection engine +
+AI runtime in one bundle). See [OFFLINE_VLM.md](OFFLINE_VLM.md) for packaging
 details.

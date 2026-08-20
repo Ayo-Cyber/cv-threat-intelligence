@@ -36,6 +36,13 @@
   .navbtn.on{background:var(--c-accent-soft);color:#fff}
   .navbtn .badge{margin-left:auto;background:var(--sev-crit);color:#fff;font-size:10.5px;font-weight:700;
     min-width:18px;text-align:center;padding:2px 5px;border-radius:99px;font-family:var(--ff-mono)}
+  .navsec{margin:16px 12px 4px;font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--c-mut)}
+  .navbtn.gear{margin-top:6px;font-size:12px;color:var(--c-sub)}
+  .tabbar{display:flex;gap:4px}
+  .tab{all:unset;box-sizing:border-box;cursor:pointer;padding:5px 13px;border-radius:7px;font-size:11.5px;font-weight:600;
+    color:var(--c-sub);border:1px solid transparent}
+  .tab:hover{background:rgba(127,127,127,.09)}
+  .tab.on{color:var(--c-text);background:var(--c-raised);border-color:var(--c-border2)}
   .navfoot{margin-top:auto;padding:14px 18px;border-top:1px solid #1f2c48;color:#5f6b84;font-size:11px}
   main{flex:1;min-width:0;display:flex;flex-direction:column}
   header.bar{flex:none;display:flex;align-items:center;gap:18px;padding:14px 24px;border-bottom:1px solid var(--c-border);
@@ -214,6 +221,13 @@
   .kbd{font-family:var(--ff-mono);font-size:11px;color:var(--c-sub)}
   .confbar{flex:1;height:6px;background:var(--c-border);border-radius:99px;max-width:280px}
   .confbar>div{height:100%;border-radius:99px}
+  .plabel{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--c-mut)}
+  /* §2.6: UNVERIFIED is never a severity colour — dashed grey, transparent fill */
+  .unvpill{background:transparent !important;border:1.5px dashed var(--c-mut);color:var(--c-mut)}
+  .arow.unvrow{opacity:.9}
+  .audittbl{width:100%;border-collapse:collapse;font-size:11.5px}
+  .audittbl th{text-align:left;color:var(--c-mut);font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:4px 8px 4px 0}
+  .audittbl td{padding:4px 8px 4px 0;border-top:1px solid var(--c-border);vertical-align:top}
   /* first-run wizard */
   #wizard{position:fixed;inset:0;z-index:50;background:var(--c-bg);display:none;flex-direction:column}
   #wizard.on{display:flex}
@@ -242,6 +256,31 @@
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   /* live wall */
   .wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+  /* Watch (UI_SPEC §2.2): the link-state row lives UNDER the tile, and an
+     offline camera can never be a black tile — black is indistinguishable
+     from a working camera watching a dark room. */
+  .linkrow{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:11.5px;font-family:var(--ff-mono)}
+  .linkrow .lid{color:var(--c-text);font-weight:600}
+  .linkrow .lst{margin-left:auto;color:var(--c-mut)}
+  .linkrow .lst.crit{color:var(--sev-crit);font-weight:700}
+  .linkrow .lst.warn{color:var(--sev-high);font-weight:600}
+  .tile.offline{border:1.5px dashed var(--sev-crit);opacity:.55}
+  .tile.offline img{visibility:hidden}
+  .tile .nosignal{position:absolute;inset:0;display:grid;place-items:center;color:var(--c-mut);
+    font-family:var(--ff-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  .offbanner{margin-top:14px;padding:13px 16px;border:1px solid var(--sev-crit);border-radius:10px;
+    background:color-mix(in srgb, var(--sev-crit) 9%, transparent);display:flex;align-items:center;gap:12px}
+  .offbanner b{color:var(--sev-crit)}
+  /* Triage "Now" (UI_SPEC §2.3): one alert, one next action. */
+  .nowwrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;padding:18px 24px;align-items:start}
+  .sevpill{display:inline-block;padding:3px 10px;border-radius:99px;color:#fff;font-size:10.5px;font-weight:800;letter-spacing:.07em}
+  .fstrip{display:flex;gap:6px;margin-top:10px;overflow-x:auto}
+  .fstrip img{width:92px;height:52px;object-fit:cover;border-radius:6px;cursor:pointer;border:2px solid transparent;flex:none}
+  .fstrip img.on{border-color:var(--c-accent)}
+  .nowmain img.hero{width:100%;border-radius:10px;display:block;background:var(--c-feed)}
+  .allnormal{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+    padding:60px 30px;border:1px solid var(--c-border);border-radius:12px;background:var(--c-panel)}
+  .thenrow{display:flex;gap:9px;align-items:center;padding:8px 0;border-bottom:1px solid var(--c-border);font-size:12px}
   .tile{position:relative;aspect-ratio:16/9;background:var(--c-feed);border:1px solid var(--c-border);
     border-radius:10px;overflow:hidden}
   .tile img{width:100%;height:100%;object-fit:cover;display:block}
@@ -330,9 +369,25 @@
   .vinputs{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
   .vinputs label{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--c-mut)}
   .vinputs input{width:130px}
+  /* auth gate (UI_SPEC §2.2) */
+  #authGate{position:fixed;inset:0;background:var(--c-bg);z-index:80;display:none;align-items:center;justify-content:center}
+  #authGate.on{display:flex}
+  .authbox{width:440px;max-width:92vw}
+  .authbox .brand-n{font-size:24px;font-weight:700;letter-spacing:-.3px}
+  .authbox .field{width:100%;margin-top:5px;padding:10px 12px;border:1px solid var(--c-border2);border-radius:8px;
+    background:var(--c-bg);color:var(--c-text);font-family:var(--ff-mono);font-size:13px}
+  .authbox .field:focus{outline:none;border-color:var(--c-accent);box-shadow:var(--focus)}
+  .authbox .flabel{font-size:11px;color:var(--c-sub);margin-top:13px}
+  .authbox .ferr{color:var(--sev-crit);font-size:12px;margin-top:10px;min-height:15px}
+  .authdots{display:flex;gap:5px;margin-top:16px}
+  .authdots div{height:3px;flex:1;border-radius:2px;background:var(--c-border2)}
+  .authdots div.on{background:var(--c-accent)}
   /* gate banner — the app is running unverified, and must never hide it */
   .gatebanner{background:var(--sev-crit);color:#fff;font-weight:700;letter-spacing:.4px;
     padding:9px 22px;font-size:13px;display:flex;gap:10px;align-items:center}
+  /* author display:flex beats the UA's [hidden]{display:none} — restate it,
+     or the banner renders as an empty red strip whenever it is "hidden". */
+  .gatebanner[hidden]{display:none}
   .gatebanner .sub{font-weight:500;opacity:.9;letter-spacing:0}
   /* system page */
   .syslabel{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--c-sub)}
@@ -350,16 +405,22 @@
     <div class="navfoot">
       <div class="row" style="gap:8px"><span class="dot" id="monDot" style="background:var(--c-sub)"></span>
         <span id="monLabel" style="font-weight:600;color:#c7cdd8">Idle</span></div>
+      <div class="mono" id="liveLine" style="margin-top:6px;font-size:11px;color:var(--c-mut)">○ not monitoring</div>
       <div class="mono" id="monGate" style="margin-top:6px">TrueSight · on-device</div>
       <div class="netbadge" id="netBadge" title="Argus runs entirely on this machine — it needs no internet, and nothing leaves your network">🔒 Local-only</div>
+      <div class="mono" id="whoami" style="margin-top:8px;color:var(--c-mut);font-size:11px;display:none">
+        <span id="whoamiName"></span> <a href="#" onclick="doSignOut();return false" style="color:var(--c-sub);margin-left:6px">sign out</a></div>
       <div style="margin-top:4px;color:#3d4a66">Argus Edge v0.9</div>
     </div>
   </nav>
   <main>
     <div id="gateBanner" class="gatebanner" hidden></div>
     <header class="bar">
-      <h1 id="title">Cameras</h1>
+      <h1 id="title">Watch</h1>
+      <div id="tabs" class="tabbar"></div>
       <div class="stats">
+        <span class="mono" id="queueLine" style="font-size:11px;color:var(--c-mut)"></span>
+        <span class="mono" id="engineLine" style="font-size:11px;color:var(--c-mut)"></span>
         <span><b id="stCams">0</b> cameras</span>
         <span><b id="stPending">0</b> to review</span>
         <span class="feedtog" id="feedTog"></span>
@@ -372,11 +433,23 @@
 </div>
 <div id="modalRoot"></div>
 <div id="wizard"></div>
+<div id="authGate"></div>
 
 <script>
 "use strict";
-var backend = null, state = {route:"cameras", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[]};
-var NAV = [["cameras","Cameras"],["alerts","Alerts"],["live","Live"],["map","Map"],["ask","Ask"],["value","Value"],["learning","Learning"],["rules","Rules"],["system","System"]];
+var backend = null, state = {route:"watch", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[]};
+/* Three surfaces (UI_SPEC §1): Watch / Triage / Configure. Value sits in an
+   owner section; Settings hides behind a gear. Every old screen survives as a
+   tab inside one of these — LEGACY_ROUTES maps old names so nothing 404s. */
+var NAV = [["watch","Watch"],["triage","Triage"],["configure","Configure"]];
+var LEGACY_ROUTES = {cameras:["configure","cameras"], rules:["configure","rules"],
+                     alerts:["triage","alerts"], live:["watch","grid"],
+                     map:["watch","floor"], ask:["watch","ask"],
+                     learning:["settings","learning"], system:["settings","system"]};
+var SURFACE_TABS = {watch:[["grid","Grid"],["floor","Floor plan"],["ask","Ask"]],
+                    configure:[["cameras","Cameras"],["rules","Rules"]],
+                    settings:[["system","System"],["learning","Learning"]],
+                    triage:[["now","Now"],["alerts","All alerts"]], value:[]};
 var SEV = {critical:"var(--sev-crit)",high:"var(--sev-high)",medium:"var(--sev-med)",low:"var(--sev-low)"};
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
@@ -389,16 +462,41 @@ function call(method, args, cb){ // args: array; cb(obj)
 }
 
 function renderNav(){
-  $("nav").innerHTML = NAV.map(function(n){
+  var html = NAV.filter(function(n){ return navAllowed(n[0]); }).map(function(n){
     var on = state.route===n[0] ? " on" : "";
-    var badge = (n[0]==="alerts" && state.pending>0) ? '<span class="badge">'+state.pending+'</span>' : '';
+    var badge = (n[0]==="triage" && state.pending>0) ? '<span class="badge">'+state.pending+'</span>' : '';
     return '<button class="navbtn'+on+'" onclick="go(\''+n[0]+'\')">'+n[1]+badge+'</button>';
   }).join("");
+  if(navAllowed("value"))
+    html += '<div class="navsec">Owner</div>'
+      +'<button class="navbtn'+(state.route==="value"?" on":"")+'" onclick="go(\'value\')">Value</button>';
+  if(navAllowed("settings"))
+    html += '<button class="navbtn gear'+(state.route==="settings"?" on":"")+'" onclick="go(\'settings\')">⚙ Settings</button>';
+  $("nav").innerHTML = html;
 }
 function go(r){
-  if(state.route==="live" && r!=="live") stopLive();
-  if(state.route==="alerts" && r!=="alerts") stopAlertsPoll();
-  state.route=r; state.selected=null; renderNav(); render();
+  var tab = null;
+  if(LEGACY_ROUTES[r]){ tab = LEGACY_ROUTES[r][1]; r = LEGACY_ROUTES[r][0]; }
+  var onGrid = (state.route==="watch" && (state.watchTab||"grid")==="grid");
+  if(onGrid && !(r==="watch" && (tab||state.watchTab||"grid")==="grid")) stopLive();
+  if(state.route==="triage" && r!=="triage") stopAlertsPoll();
+  state.route=r;
+  if(tab) state[r+"Tab"]=tab;
+  state.selected=null; renderNav(); render();
+}
+function tabGo(k){
+  var r=state.route;
+  if(r==="watch" && (state.watchTab||"grid")==="grid" && k!=="grid") stopLive();
+  if(r==="triage" && (state.triageTab||"alerts")==="alerts" && k!=="alerts") stopAlertsPoll();
+  state[r+"Tab"]=k; state.selected=null; render();
+}
+function renderTabs(){
+  var el=$("tabs"); if(!el) return;
+  var tabs=SURFACE_TABS[state.route]||[];
+  if(tabs.length<2){ el.innerHTML=""; return; }
+  var cur=state[state.route+"Tab"]||tabs[0][0];
+  el.innerHTML = tabs.map(function(t){
+    return '<button class="tab'+(t[0]===cur?" on":"")+'" onclick="tabGo(\''+t[0]+'\')">'+t[1]+'</button>'; }).join("");
 }
 
 /* ---------- monitoring engine control ---------- */
@@ -458,23 +556,32 @@ function finishSwitch(s){
   setFeedStatus(s && s.error ? ("switch failed: "+s.error)
     : ("feed: "+(s.active||"")+(s.engine_restarted?" · engine restarting":"")));
   refreshCounts(); refreshMonitor();
-  if(state.route==="live"){ stopLive(); render(); }
-  else if(state.route==="alerts"){ state.alertsSig=""; render(); }
+  if(state.route==="watch" && (state.watchTab||"grid")==="grid"){ stopLive(); render(); }
+  else if(state.route==="triage"){ state.alertsSig=""; render(); }
   else render();
 }
 
 function render(){
-  var t = {cameras:"Cameras",alerts:"Alerts",live:"Live wall",map:"Site map",ask:"Ask your cameras",value:"Value",learning:"Learning",rules:"Rules",system:"System"}[state.route];
+  var t = {watch:"Watch",triage:"Triage",configure:"Configure",settings:"Settings",value:"Value"}[state.route]||"Argus";
   $("title").textContent = t;
-  if(state.route==="cameras") return renderCameras();
-  if(state.route==="alerts") return renderAlerts();
-  if(state.route==="live") return renderLive();
-  if(state.route==="map") return renderMap();
-  if(state.route==="ask") return renderAsk();
-  if(state.route==="learning") return renderLearning();
-  if(state.route==="rules") return renderRules();
+  renderTabs();
+  if(state.route==="watch"){
+    var v=state.watchTab||"grid";
+    if(v==="floor") return renderMap();
+    if(v==="ask")   return renderAsk();
+    return renderLive();
+  }
+  if(state.route==="triage"){
+    if((state.triageTab||"now")==="now") return renderNow();
+    refreshTriage(); return renderAlerts();
+  }
+  if(state.route==="configure"){
+    return (state.configureTab||"cameras")==="rules" ? renderRules() : renderCameras();
+  }
+  if(state.route==="settings"){
+    return (state.settingsTab||"system")==="learning" ? renderLearning() : renderSystem();
+  }
   if(state.route==="value") return renderValue();
-  if(state.route==="system") return renderSystem();
   $("screen").innerHTML='<div class="pad"><h2>'+t+'</h2><p class="mut">Coming soon.</p></div>';
 }
 
@@ -599,7 +706,11 @@ var LINK_UI = {
 function linkCell(link){
   var st = (link && link.state) || "unknown";
   var ui = LINK_UI[st] || LINK_UI.unknown;
-  var age = link && link.time_in_state ? " · "+fmtAge(link.time_in_state) : "";
+  /* Liveness is the age of the last FRAME, not of the connection state — a
+     connected camera whose frames stopped is exactly the ambiguity to remove. */
+  var age = "";
+  if(link && st==="connected" && link.last_frame_age_s!=null) age = " · frame "+fmtAge(link.last_frame_age_s)+" ago";
+  else if(link && link.time_in_state) age = " · "+fmtAge(link.time_in_state);
   var rc = link && link.reconnects ? ' <span class="mut" title="reconnections">↻'+link.reconnects+'</span>' : "";
   return '<span><span class="dot" style="background:'+ui[0]+'"></span>'
     + '<span style="color:'+ui[0]+'">'+esc(ui[1])+'</span>'
@@ -673,7 +784,14 @@ function doAdd(){ var u=$("url").value.trim(); if(!u){state.test={error:"Enter a
   call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} state.test=null; refreshCounts(); renderCameras(); }); }
 
 /* ---------- Live wall ---------- */
-function frameUrl(camId){ return "http://127.0.0.1:"+state.livePort+"/frame/"+encodeURIComponent(camId)+"?t="+(state.frameTick||0); }
+function frameUrl(camId){
+  /* The frame endpoint authenticates every route. An <img> tag cannot set a
+     header, so the capability travels as a query parameter — it binds to
+     127.0.0.1 and never leaves this machine. */
+  var tok = state.frameToken ? "&token="+encodeURIComponent(state.frameToken) : "";
+  return "http://127.0.0.1:"+state.livePort+"/frame/"+encodeURIComponent(camId)
+    +"?t="+(state.frameTick||0)+tok;
+}
 function renderLive(){
   $("screen").innerHTML='<div class="pad mut">Starting live view…</div>';
   call("liveStart",[6],function(res){
@@ -683,17 +801,22 @@ function renderLive(){
       return;
     }
     state.liveCams = cams; state.livePort = port; state.frameTick = 0;
+    state.frameToken = (res && res.token) || "";
     var tiles = cams.map(function(c){
-      return '<div class="tile" id="tile-'+esc(c.id)+'" style="cursor:pointer" onclick="openLiveModal(\''+esc(c.id)+'\')" title="click to expand">'
+      return '<div class="cell"><div class="tile" id="tile-'+esc(c.id)+'" style="cursor:pointer" onclick="openLiveModal(\''+esc(c.id)+'\')" title="click to expand">'
         +'<img id="live-'+esc(c.id)+'" alt="" src="'+frameUrl(c.id)+'">'
+        +'<div class="nosignal" id="nosig-'+esc(c.id)+'" hidden>no signal</div>'
         +'<div class="talert" id="talert-'+esc(c.id)+'"></div>'
         +'<div class="tzoom">⤢</div>'
-        +'<div class="tlabel"><span class="livedot"></span>'+esc(c.id)+'</div></div>';
+        +'<div class="tlabel"><span class="livedot"></span>'+esc(c.id)+'</div></div>'
+        +'<div class="linkrow" id="link-'+esc(c.id)+'"><span class="dot" style="background:var(--c-sub)"></span>'
+        +'<span class="lid">'+esc(c.id)+'</span><span class="lst">checking…</span></div></div>';
     }).join("");
     $("screen").innerHTML='<div class="pad"><div class="row" style="margin-bottom:12px"><h2 style="margin:0">Live wall</h2>'
-      +'<span class="mut" style="font-size:12px">'+cams.length+' feeds · looping demo footage</span></div>'
-      +'<div class="wall">'+tiles+'</div></div>';
+      +'<span class="mut" style="font-size:12px">'+cams.length+' feeds</span></div>'
+      +'<div class="wall">'+tiles+'</div><div id="offBanner"></div></div>';
     startLivePoll();
+    startWatchPoll();
     updateLiveAlertTiles();   // reflect any current alerts immediately
   });
 }
@@ -731,7 +854,7 @@ function updateLiveAlertTiles(){
   state._alertingCams = now;
 }
 function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function(){
-  if(state.route!=="live" && !state.liveModal){ stopLive(); return; }
+  if(!(state.route==="watch" && (state.watchTab||"grid")==="grid") && !state.liveModal){ stopLive(); return; }
   state.frameTick = (state.frameTick||0) + 1;    // cache-bust -> fetch the newest JPEG natively
   (state.liveCams||[]).forEach(function(c){ var img=$("live-"+c.id); if(img) img.src=frameUrl(c.id); });
   if(state.liveModal){ var lm=$("lmimg"); if(lm) lm.src=frameUrl(state.liveModal); updateLiveModalLabel(); }
@@ -756,7 +879,53 @@ function updateLiveModalLabel(){
 function closeLiveModal(){ state.liveModal=null; var m=$("liveModal"); if(m) m.remove(); }
 document.addEventListener("keydown", function(e){ if(e.key==="Escape" && state.liveModal) closeLiveModal(); });
 function stopLivePoll(){ if(state.liveTimer){ clearInterval(state.liveTimer); state.liveTimer=null; } }
-function stopLive(){ stopLivePoll(); call("liveStop",[],function(){}); }
+
+/* Watch link-state (UI_SPEC §2.2): dot · id · state under every tile, dashed
+   dimmed tile + banner when a camera is offline past grace, and the engine
+   truth line in the top bar — "Engine not running" when health is stale,
+   never a silent nothing. */
+function fmtDur(sec){ sec=Math.max(0,Math.round(sec||0));
+  if(sec<60) return sec+"s"; if(sec<3600) return Math.round(sec/60)+"m"; return (sec/3600).toFixed(1)+"h"; }
+function refreshWatchState(){
+  call("cameraLinks",[],function(links){
+    if(!Array.isArray(links)) links=[];
+    var offline=[];
+    links.forEach(function(l){
+      var row=$("link-"+l.camera_id); var tile=$("tile-"+l.camera_id); var ns=$("nosig-"+l.camera_id);
+      var st=l.state||"unknown";
+      if(row){
+        var dot=row.querySelector(".dot"), lab=row.querySelector(".lst");
+        if(st==="connected"){ dot.style.background="var(--c-live)"; lab.className="lst"; lab.textContent="live · "+fmtDur(l.time_in_state); }
+        else if(st==="reconnecting"){ dot.style.background="var(--sev-high)"; lab.className="lst warn"; lab.textContent="reconnecting · "+(l.reconnects||0)+" attempts"; }
+        else if(st==="offline"){ dot.style.background="var(--sev-crit)"; lab.className="lst crit"; lab.textContent="OFFLINE "+fmtDur(l.time_in_state); }
+        else { dot.style.background="var(--c-sub)"; lab.className="lst"; lab.textContent="not monitoring"; }
+      }
+      if(tile){ tile.classList.toggle("offline", st==="offline"); if(ns) ns.hidden = st!=="offline"; }
+      if(st==="offline") offline.push(l);
+    });
+    var b=$("offBanner");
+    if(b){
+      b.innerHTML = offline.map(function(l){
+        return '<div class="offbanner"><span><b>'+esc(l.camera_id)+'</b> has been unreachable for '
+          +fmtDur(l.time_in_state)+'. Reconnecting — '+(l.reconnects||0)+' attempts. '
+          +'<b>Nothing is being watched there.</b></span>'
+          +'<span style="margin-left:auto"></span>'
+          +'<button class="btn ghost sm" onclick="downloadDiag(this)">Diagnose</button></div>'; }).join("");
+    }
+  });
+  call("gateStatus",[],function(g){
+    var el=$("engineLine"); if(!el) return;
+    var eng=(g&&g.engine)||{};
+    if(!g || g.error){ el.textContent=""; return; }
+    if(!Object.keys(eng).length){ el.textContent="Engine not running"; el.style.color="var(--c-mut)"; return; }
+    var errs=eng.errors||0;
+    if(errs){ el.textContent="Detectors running · "+errs+" gate error"+(errs===1?"":"s"); el.style.color="var(--sev-high)"; }
+    else { el.textContent="All detectors running · last check "+fmtDur((Date.now()/1000)-(eng.updated_at||Date.now()/1000))+" ago"; el.style.color="var(--c-live)"; }
+  });
+}
+function startWatchPoll(){ refreshWatchState(); if(!state.watchTimer) state.watchTimer=setInterval(refreshWatchState, 4000); }
+function stopWatchPoll(){ if(state.watchTimer){ clearInterval(state.watchTimer); state.watchTimer=null; } }
+function stopLive(){ stopLivePoll(); stopWatchPoll(); call("liveStop",[],function(){}); }
 
 /* ---------- Value (what the system was worth) ---------- */
 /* Deliberately not framed as "suppression %". The buyer is deciding about
@@ -866,6 +1035,7 @@ function renderSystem(){
       }).join("");
       var mode=g.mode||"offline";
       call("retentionStatus",[],function(rt){ state.retention=(rt&&!rt.error)?rt:{}; paintRetention(); });
+      paintHeartbeat();
       var mc=mode==="live"?"var(--c-live)":mode==="no-model"?"var(--sev-high)":"var(--sev-crit)";
       var mt=mode==="live"?"live — verifying every alert":mode==="no-model"?"model not pulled yet":"offline — start Ollama";
       $("screen").innerHTML='<div class="pad" style="max-width:720px"><h2>System</h2>'
@@ -884,6 +1054,8 @@ function renderSystem(){
         +    '<span style="flex:1"></span><button class="btn ghost sm" onclick="renderSystem()">Recheck</button></div>'
         +  '<div class="mut" style="font-size:12px;margin-top:8px">Ollama '+(g.ollama?"reachable":"not reachable")+' · model '+(g.model_present?"present":"not pulled")+'</div>'
         +  gateEngineRows(g.engine||{})+'</div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="hbPanel"><div class="syslabel">Remote monitoring</div>'
+        +  '<div id="hbBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="retPanel"><div class="syslabel">Data retention</div>'
         +  '<div id="retBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px"><div class="syslabel">Diagnostics</div>'
@@ -892,20 +1064,121 @@ function renderSystem(){
         +    '<span id="diagMsg" class="sub" style="font-size:12px"></span></div>'
         +  '<div class="mut" style="font-size:11.5px;margin-top:8px;line-height:1.5">Logs and a health snapshot, for support. '
         +  'Contains <b>no</b> camera images, video, or event records \u2014 only counts. The zip lists exactly what is in it.</div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="usersPanel"><div class="syslabel">Users</div>'
+        +  '<div id="usersBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="auditPanel"><div class="syslabel">Audit trail</div>'
+        +  '<div id="auditBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="secPanel"><div class="syslabel">Security</div>'
+        +  '<div id="secBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px"><div class="syslabel">Edge</div>'
         +  '<div class="row" style="gap:22px;margin-top:9px;font-size:13px"><span class="mut">runs fully offline <b style="color:var(--c-live)">✓</b></span>'
         +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">Argus Edge <b class="mono">v0.9</b></span></div></div>'
         +'<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Re-run setup wizard</button></div></div>';
+      paintUsersPanel(); paintAuditPanel(); paintSecurityPanel();
     });
+  });
+}
+
+/* ---------- Settings panels over the EP-03 backend (UI_SPEC §2.7) ---------- */
+function paintUsersPanel(){
+  call("listUsers",[],function(users){
+    var el=$("usersBody"); if(!el) return;
+    if(users && users.denied){ $("usersPanel").hidden=true; return; }   // not the owner
+    if(!Array.isArray(users)){ el.textContent=(users&&users.error)||"unavailable"; return; }
+    var rows=users.map(function(u){
+      var roleSel='<select onchange="changeRole(\''+esc(u.username)+'\', this.value, this)">'
+        +["owner","operator","installer"].map(function(r){return '<option'+(u.role===r?" selected":"")+'>'+r+'</option>';}).join("")+'</select>';
+      return '<div class="row" style="gap:12px;padding:7px 0;border-bottom:1px solid var(--c-border)">'
+        +'<b class="mono" style="min-width:120px">'+esc(u.username)+'</b>'+roleSel
+        +'<span class="sub" style="font-size:11px">'+(u.last_login?("last sign-in "+esc(u.last_login)):"never signed in")+'</span>'
+        +'<span style="flex:1"></span>'
+        +'<button class="btn ghost sm" onclick="dropUser(\''+esc(u.username)+'\', this)">remove</button></div>';
+    }).join("");
+    el.innerHTML = rows
+      +'<div class="row" style="gap:8px;margin-top:11px"><input id="nuName" placeholder="username" style="width:130px">'
+      +'<input id="nuPass" type="password" placeholder="temporary password" style="width:170px">'
+      +'<select id="nuRole"><option>operator</option><option>installer</option><option>owner</option></select>'
+      +'<button class="btn sm" onclick="addUserRow(this)">Add user</button><span id="nuMsg" class="sub" style="font-size:12px"></span></div>'
+      +'<div class="sub" style="font-size:11px;margin-top:7px">New users must change the password on first sign-in. Every change here lands in the audit trail.</div>';
+  });
+}
+function addUserRow(btn){
+  var u=$("nuName").value.trim(), p=$("nuPass").value, r=$("nuRole").value, msg=$("nuMsg");
+  if(!u||!p){ if(msg) msg.textContent="name and password required"; return; }
+  btn.disabled=true;
+  call("addUser",[u,p,r],function(res){ btn.disabled=false;
+    if(res&&res.error){ if(msg) msg.textContent=res.error; return; }
+    paintUsersPanel(); });
+}
+function changeRole(username, role, sel){
+  sel.disabled=true;
+  call("setUserRole",[username, role],function(res){ sel.disabled=false;
+    if(res&&res.error){ alert(res.error); paintUsersPanel(); } });
+}
+function dropUser(username, btn){
+  if(!confirm("Remove "+username+"? Their sessions end immediately.")) return;
+  btn.disabled=true;
+  call("removeUser",[username],function(res){
+    if(res&&res.error){ alert(res.error); btn.disabled=false; return; }
+    paintUsersPanel(); });
+}
+function paintAuditPanel(){
+  call("auditVerify",[],function(v){
+    var el=$("auditBody"); if(!el) return;
+    if(v && v.denied){ $("auditPanel").hidden=true; return; }
+    var chain = v && v.ok
+      ? '<span style="color:var(--c-live)">✓ hash chain intact — '+(v.entries!=null?v.entries+" entries, ":"")+'nothing altered or deleted</span>'
+      : '<span style="color:var(--sev-crit)">✕ chain verification FAILED'+(v&&v.error?": "+esc(v.error):"")+' — treat this log as tampered</span>';
+    call("auditEntries",[40],function(rows){
+      var table = Array.isArray(rows)&&rows.length ? '<table class="audittbl"><tr><th>time</th><th>who</th><th>action</th><th>target</th></tr>'
+        + rows.map(function(e){
+            return '<tr><td class="mono">'+esc((e.iso||"").replace("T"," "))+'</td><td class="mono">'+esc(e.actor||"")+'</td>'
+              +'<td>'+esc(e.action||"")+'</td><td class="mono">'+esc(e.target||"")+'</td></tr>'; }).join("")+'</table>'
+        : '<div class="mut" style="margin-top:6px">No entries yet.</div>';
+      el.innerHTML = '<div style="font-size:12px">'+chain+'</div>'
+        +'<div style="max-height:260px;overflow:auto;margin-top:9px">'+table+'</div>'
+        +'<div class="row" style="margin-top:10px;gap:10px"><button class="btn ghost sm" onclick="exportAudit(this)">Export full log</button>'
+        +'<span id="auditMsg" class="sub" style="font-size:12px">append-only — every consequential action, including reads of this panel</span></div>';
+    });
+  });
+}
+function exportAudit(btn){
+  btn.disabled=true;
+  call("auditExport",[],function(r){ btn.disabled=false; var m=$("auditMsg");
+    if(m) m.textContent = r&&r.ok? ("written to "+r.path) : ((r&&r.error)||"export failed"); });
+}
+function paintSecurityPanel(){
+  call("diskEncryption",[],function(d){
+    var el=$("secBody"); if(!el) return;
+    if(d && d.denied){ $("secPanel").hidden=true; return; }
+    var ok = d && d.encrypted;
+    el.innerHTML = '<div class="row" style="gap:9px"><span class="dot" style="background:'+(ok?"var(--c-live)":"var(--sev-crit)")+'"></span>'
+      +'<b>'+(ok?"Disk encryption is on":"Disk is NOT encrypted")+'</b></div>'
+      +'<p class="mut" style="font-size:12px;margin:7px 0 0;line-height:1.5">'+esc((d&&d.message)||"Encryption state could not be determined.")+'</p>';
   });
 }
 /* Live counters from the running engine. Absent when it isn't running — an
    operator seeing "0 errors" for a dead engine would be worse than seeing nothing. */
 function gateEngineRows(e){
   if(!e || !e.updated_at) return '<div class="mut" style="font-size:12px;margin-top:6px">Engine not running — no verification stats yet.</div>';
+  var out0 = "";
+  if(e.status){
+    var sc = e.status==="critical"?"var(--sev-crit)":e.status==="degraded"?"var(--sev-high)":"var(--c-live)";
+    out0 = '<div class="row" style="gap:10px;margin-top:10px;align-items:center">'
+      + '<span class="dot" style="background:'+sc+'"></span>'
+      + '<b style="color:'+sc+';text-transform:uppercase;font-size:12px">'+esc(e.status)+'</b>'
+      + '<span class="mut" style="font-size:12px">up '+fmtAge(e.uptime_s||0)
+      + (e.memory && e.memory.available_gb!=null ? ' · '+e.memory.available_gb+' GB free' : '')
+      + (e.median_latency_s!=null ? ' · verify median '+e.median_latency_s+'s' : '')
+      + '</span></div>'
+      + ((e.reasons||[]).length
+          ? '<div style="font-size:12px;margin-top:6px;color:'+sc+'">'
+            + e.reasons.map(esc).join("<br>") + '</div>'
+          : "");
+  }
   var err = e.errors||0;
   var ec = err ? "var(--sev-high)" : "var(--c-live)";
-  var out = '<div class="row" style="gap:22px;margin-top:10px;font-size:13px">'
+  var out = out0 + '<div class="row" style="gap:22px;margin-top:10px;font-size:13px">'
     + '<span class="mut">verified <b>'+(e.verified||0)+'</b></span>'
     + '<span class="mut">confirmed <b>'+(e.confirmed||0)+'</b></span>'
     + '<span class="mut">rejected <b>'+(e.rejected||0)+'</b></span>'
@@ -951,6 +1224,43 @@ function componentRows(h){
 /* Retention is a legal obligation and an operational one, so it is stated
    plainly rather than buried: what is deleted, when, and what is being kept
    past its expiry and why. */
+/* Remote monitoring: opt-IN, health only, and the exact payload is inspectable
+   here — "what leaves my machine?" answered by looking, not trusting. */
+function paintHeartbeat(){
+  call("heartbeatStatus",[],function(h){
+    var el=$("hbBody"); if(!el) return;
+    if(!h || h.error){ el.textContent = (h&&h.error)||"unavailable"; return; }
+    var live=h.live||{};
+    var head = h.enabled
+      ? '<div><span class="dot" style="background:var(--c-live)"></span> Sending health signals to <b class="mono">'+esc(h.url)+'</b>'
+        + (live.last_sent_at ? ' · last sent '+fmtAge((Date.now()/1000)-live.last_sent_at)+' ago' : ' · nothing sent yet')
+        + (live.last_error ? ' · <span style="color:var(--sev-high)">'+esc(live.last_error)+'</span>' : '')
+        + '</div>'
+      : '<div><span class="dot" style="background:var(--c-sub)"></span> Off. Nothing is sent anywhere — turn it on so support can see this site\'s health remotely.</div>';
+    el.innerHTML = head
+      + '<div class="row" style="gap:8px;margin-top:11px;flex-wrap:wrap">'
+      +   '<input id="hbUrl" placeholder="https://monitor.example.com" value="'+esc(h.url||"")+'" style="flex:2;min-width:200px">'
+      +   '<input id="hbKey" placeholder="site key" type="password" style="flex:1;min-width:110px">'
+      +   '<button class="btn sm" onclick="saveHeartbeat(this)">'+(h.enabled?"Update":"Turn on")+'</button>'
+      +   (h.enabled?'<button class="btn ghost sm" onclick="offHeartbeat(this)">Turn off</button>':'')
+      + '</div>'
+      + '<div class="mut" style="font-size:11.5px;margin-top:9px;line-height:1.5">Health signals only — camera states, error counts, disk headroom. '
+      + '<b>Never</b> footage or event content. The exact payload schema is public (docs/HEARTBEAT.md).</div>'
+      + (h.last_payload
+          ? '<details style="margin-top:9px"><summary style="cursor:pointer;font-size:12px;color:var(--c-accent)">View exactly what was last transmitted</summary>'
+            + '<pre class="mono" style="font-size:10.5px;max-height:260px;overflow:auto;background:var(--c-bg);border:1px solid var(--c-border);border-radius:8px;padding:10px;margin-top:8px">'
+            + esc(JSON.stringify(h.last_payload,null,1)) + '</pre></details>'
+          : '');
+  });
+}
+function saveHeartbeat(btn){
+  if(btn){btn.disabled=true;}
+  call("setHeartbeat",[$("hbUrl").value.trim(), $("hbKey").value.trim()],function(){ paintHeartbeat(); });
+}
+function offHeartbeat(btn){
+  if(btn){btn.disabled=true;}
+  call("setHeartbeat",["",""],function(){ paintHeartbeat(); });
+}
 function paintRetention(){
   var el = $("retBody"); if(!el) return;
   var r = state.retention||{};
@@ -1218,6 +1528,168 @@ function threatClass(rule){ rule=String(rule||"");
   return {label:"Other", color:"#9aa4b2", icon:"⚠"};
 }
 function setAlertSort(m){ state.alertSort=m; paintAlerts(); }
+/* Ownership strip (EP-06-T1): the queue as a number, and who is on what —
+   so two guards never both respond, and neither assumes the other has it. */
+function triageStrip(){
+  var t = state.triage || {};
+  var held = (t.held||[]).filter(function(h){ return !(state.auth && h.owner===state.auth.username); }).map(function(h){
+    return '<span class="mut">'+esc(h.owner||"?")+' is on <b class="mono" style="color:var(--c-text)">'+esc(h.rule||"")+'</b> · '+esc(h.camera_id||"")+'</span>';
+  }).join('<span class="sub"> · </span>');
+  var waiting = t.waiting||0;
+  return '<div class="row" style="padding:8px 14px;border-bottom:1px solid var(--c-border);gap:14px;font-size:12px">'
+    + '<b>'+(waiting? waiting+" waiting" : "Nothing waiting")+'</b>'
+    + (held ? '<span class="sub">|</span>'+held : '<span class="mut">nothing claimed</span>')
+    + '</div>';
+}
+function refreshTriage(cb){
+  call("needsAttention",["medium"],function(t){ if(t && !t.error) state.triage=t; if(cb)cb(); });
+}
+/* ---------- the Now screen (UI_SPEC §2.3 phase 2) ----------
+   One alert at a time, with ownership. At 2am a guard needs a single next
+   action, not a list — the list survives one tab over. */
+function renderNow(){
+  $("screen").innerHTML='<div class="pad mut">Checking what needs you…</div>';
+  refreshNowData(true);
+  if(!state.nowTimer) state.nowTimer=setInterval(function(){
+    if(state.route!=="triage" || (state.triageTab||"now")!=="now"){ return; }
+    refreshNowData(false);
+  }, 3000);
+}
+function onNowTab(){ return state.route==="triage" && (state.triageTab||"now")==="now"; }
+function refreshNowData(force){
+  call("needsAttention",["medium"],function(t){
+    if(!t || t.error || !onNowTab()) return;   // a stale callback must not repaint another tab
+    call("listEvents",[100],function(evs){
+      state.events = Array.isArray(evs)?evs:state.events;
+      var sig = JSON.stringify([t.now&&t.now.id, t.now&&t.now.state, t.waiting,
+                                (t.held||[]).map(function(h){return h.id+":"+h.owner;}),
+                                (state.events||[]).map(function(e){return e.id+":"+(e.state||e.review);}).join(",")]);
+      state.triage = t;
+      if(!onNowTab()) return;
+      if(force || sig!==state.nowSig){ state.nowSig=sig; state.nowFrame=0; paintNow(); }
+      updateQueueLine();
+    });
+  });
+  call("valueSummary",[1],function(v){ if(v && !v.error){ state.shift=v; var el=$("shiftStrip");
+    if(el) el.textContent = shiftStripText(); } });
+}
+function shiftStripText(){
+  var v=state.shift||{};
+  if(v.shown==null) return "";
+  return "Last 24 h: "+(v.shown||0)+" shown"+(v.noise_removed?" · "+v.noise_removed+" filtered out":"");
+}
+function updateQueueLine(){
+  var el=$("queueLine"); if(!el) return;
+  if(state.route!=="triage"){ el.textContent=""; return; }
+  var t=state.triage||{};
+  var extra=Math.max(0,(t.waiting||0)-1);
+  var held=(t.held||[]);
+  el.textContent = (t.waiting? extra+" more waiting" : "queue clear")
+    + (held.length? " · "+held.length+" held by "+esc(held.map(function(h){return h.owner;}).filter(Boolean).join(", ")) : "");
+}
+function nowEvent(){
+  var t=state.triage||{};
+  // Your own claimed alert stays in front of you until you conclude it —
+  // claiming must never make the alert vanish from the person who took it.
+  var me = state.auth && state.auth.username;
+  var mine = (t.held||[]).filter(function(h){ return me && h.owner===me; })[0];
+  var target = mine || t.now;
+  if(!target) return null;
+  var full = (state.events||[]).filter(function(e){ return e.id===target.id; })[0];
+  return full || target;
+}
+function paintNow(){
+  var t = state.triage||{};
+  var a = nowEvent();
+  if(!a){ paintAllNormal(); return; }
+  var sev = SEV[a.priority]||SEV.low;
+  var fr = a.frames||[];
+  var fi = Math.min(state.nowFrame||0, Math.max(0,fr.length-1));
+  var hero = fr.length ? '<img class="hero" id="nowHero" src="'+fr[fi]+'" alt="">'
+    : '<div class="allnormal" style="padding:40px"><span class="mut">No evidence frames for this alert'+(a.unverified?'':' yet')+'.</span></div>';
+  var strip = fr.length>1 ? '<div class="fstrip">'+fr.map(function(u,i){
+      return '<img src="'+u+'" class="'+(i===fi?"on":"")+'" onclick="nowFrame('+i+')">'; }).join("")+'</div>' : "";
+  var conf = a.confidence!=null ? Number(a.confidence) : null;
+  var why = a.unverified
+    ? '<div class="panel" style="padding:14px 16px;margin-top:14px;border-style:dashed"><div class="plabel" style="color:var(--c-mut)">UNVERIFIED</div>'
+      +'<p class="mut" style="margin:6px 0 0;font-size:13px">TrueSight could not reach a verdict — '+esc(a.unverified_reason||"the verifier was unavailable")+'. This has not been checked by anything. Review it yourself.</p></div>'
+    : '<div class="panel" style="padding:14px 16px;margin-top:14px"><div class="plabel" style="color:var(--c-accent)">WHY TRUESIGHT CONFIRMED THIS</div>'
+      +'<p style="margin:6px 0 8px;font-size:13px;line-height:1.55">'+esc(a.reason||"(no reasoning recorded)")+'</p>'
+      +(conf!=null?'<div class="row" style="gap:9px"><div class="confbar" style="flex:1"><div style="width:'+Math.round(conf*100)+'%;background:'+sev+'"></div></div><span class="mono mut" style="font-size:11px">'+conf.toFixed(2)+'</span></div>':'')
+      +'</div>';
+  var mine = state.auth && a.owner===state.auth.username;
+  var claimed = a.state==="acknowledged" || a.review==="ack";
+  var call2 = claimed && !mine
+    ? '<p class="mut" style="font-size:12.5px;margin:0"><b style="color:var(--c-text)">'+esc(a.owner||"someone")+'</b> is on this. It resolves under their name.</p>'
+    : (claimed
+      ? '<p class="mut" style="font-size:12.5px;margin:0 0 10px">Yours. Conclude it when you know what it was.</p>'
+      : '<button class="btn" style="width:100%;padding:11px" onclick="nowClaim()">I\'m on it</button>'
+        +'<p class="sub" style="font-size:11px;margin:7px 0 10px">Claims this alert. Everyone else sees your name against it.</p>');
+  var resolve = '<div class="row" style="gap:8px;margin-top:4px">'
+    +'<button class="btn ghost sm" style="flex:1" onclick="nowResolve(\'real\')">Real</button>'
+    +'<button class="btn ghost sm" style="flex:1" onclick="nowResolve(\'false_alarm\')">False alarm</button></div>'
+    +'<input id="nowNote" placeholder="note for the handover (optional)" style="width:100%;margin-top:9px">';
+  var then = (t.then||[]).slice(0,2).map(function(e){
+    return '<div class="thenrow"><span class="dot" style="background:'+(SEV[e.priority]||SEV.low)+'"></span>'
+      +'<b class="mono" style="font-size:11.5px">'+esc(e.rule)+'</b><span class="mut">'+esc(e.camera_id)+'</span>'
+      +'<span style="flex:1"></span><span class="mono sub" style="font-size:11px">'+esc((e.iso||"").split("T")[1]||"")+'</span></div>'; }).join("");
+  var held = (t.held||[]).filter(function(h){ return !(state.auth && h.owner===state.auth.username); }).map(function(h){
+    return '<p class="mut" style="font-size:12px;margin:7px 0 0">'+esc(h.owner||"?")+' took <b class="mono" style="color:var(--c-text)">'+esc(h.rule||"")+' · '+esc(h.camera_id||"")+'</b></p>'; }).join("");
+  $("screen").innerHTML =
+    '<div id="shiftStrip" class="mono mut" style="padding:9px 24px;border-bottom:1px solid var(--c-border);font-size:11.5px">'+shiftStripText()+'</div>'
+    +'<div class="nowwrap"><div class="nowmain">'
+    +  '<div class="row" style="gap:10px;margin-bottom:9px"><span class="sevpill" style="background:'+(a.unverified?"var(--c-mut)":sev)+'">'+esc(String(a.unverified?"unverified":(a.priority||"")).toUpperCase())+'</span>'
+    +  '<h2 style="margin:0;font-size:22px">'+esc(a.rule)+'</h2><span style="flex:1"></span>'
+    +  '<span class="mono mut" style="font-size:12px">'+esc(a.camera_id)+' · '+esc((a.iso||"").replace("T"," "))+'</span></div>'
+    +  hero + strip + why
+    +'</div><div class="nowrail">'
+    +  '<div class="panel" style="padding:15px 16px"><div class="plabel">YOUR CALL</div><div style="margin-top:9px">'+call2+resolve+'</div></div>'
+    +  '<div class="panel" style="padding:15px 16px;margin-top:12px"><div class="plabel">THEN</div>'
+    +    (then || '<p class="mut" style="font-size:12px;margin:7px 0 0">Nothing else is waiting.</p>')+held
+    +  '</div>'
+    +'</div></div>';
+}
+function nowFrame(i){ state.nowFrame=i; var h=$("nowHero"); var fr=(nowEvent()||{}).frames||[];
+  if(h && fr[i]) h.src=fr[i];
+  document.querySelectorAll(".fstrip img").forEach(function(el,idx){ el.classList.toggle("on", idx===i); }); }
+function nowClaim(){ var a=nowEvent(); if(!a) return;
+  call("acknowledgeAlert",[String(a.id)],function(r){
+    if(r && r.error){ alert(r.error); }
+    state.nowSig=""; refreshNowData(true); refreshCounts();
+  });
+}
+function nowResolve(outcome){ var a=nowEvent(); if(!a) return;
+  var note=$("nowNote")?$("nowNote").value.trim():"";
+  call("resolveAlert",[String(a.id), outcome, note],function(r){
+    if(r && r.error){ alert(r.error); }
+    state.nowSig=""; refreshNowData(true); refreshCounts();
+  });
+}
+/* Empty state is a feature (§2.3/§2.6): a quiet night must look WATCHED. */
+function paintAllNormal(){
+  call("cameraLinks",[],function(links){ call("diskEncryption",[],function(d){ call("getSite",[],function(m){
+    links=Array.isArray(links)?links:[];
+    var up=links.filter(function(l){return l.state==="connected";}).length;
+    var monitoring = links.length && !links.every(function(l){return l.state==="unknown";});
+    var bits=[];
+    bits.push(monitoring ? up+" of "+links.length+" cameras live" : (links.length? links.length+" cameras · not monitoring" : "no cameras configured"));
+    if(d && d.encrypted) bits.push("disk encrypted");
+    if(m && m.retention_days) bits.push(Math.round(m.retention_days)+" days retained");
+    var dot = monitoring ? "var(--c-live)" : "var(--c-mut)";
+    var head = monitoring ? "All systems normal" : "Quiet — but not watching";
+    var sub = monitoring ? "Nothing needs you. New threats appear here the moment TrueSight confirms one."
+                         : "No alerts waiting, and the engine is not running — start monitoring to actually watch.";
+    $("screen").innerHTML =
+      '<div id="shiftStrip" class="mono mut" style="padding:9px 24px;border-bottom:1px solid var(--c-border);font-size:11.5px">'+shiftStripText()+'</div>'
+      +'<div style="padding:40px 24px"><div class="allnormal">'
+      +'<div class="row" style="gap:10px"><span class="dot" style="width:10px;height:10px;background:'+dot+'"></span>'
+      +'<b style="font-size:17px">'+head+'</b></div>'
+      +'<p class="mono mut" style="font-size:12px;margin:10px 0 6px">'+esc(bits.join(" · "))+'</p>'
+      +'<p class="mut" style="font-size:12.5px;max-width:420px">'+sub+'</p>'
+      +'</div></div>';
+  });});});
+}
+
 function paintAlerts(){
   var filt = state.alertFilter || "active";
   var sortMode = state.alertSort || "time";
@@ -1238,23 +1710,30 @@ function paintAlerts(){
   }).join("")
     +'<span style="flex:1"></span><span class="asort">'
     +'<button class="asortb'+(sortMode==="time"?" on":"")+'" onclick="setAlertSort(\'time\')">Newest</button>'
-    +'<button class="asortb'+(sortMode==="class"?" on":"")+'" onclick="setAlertSort(\'class\')">By type</button></span></div>';
+    +'<button class="asortb'+(sortMode==="class"?" on":"")+'" onclick="setAlertSort(\'class\')">By type</button>'
+    +'<button class="asortb" onclick="openHandover(8)">\u21c4 Handover</button></span></div>'
+    +(filt==="active" ? triageStrip() : "");
   var prevClass=null;
   var list = shown.map(function(a,i){
     var sel = state.selected && state.selected.id===a.id ? " sel":"";
+    var ownChip = a.owner && a.review==="ack"
+      ? ' <span class="mono" style="font-size:10px;color:var(--c-accent)">'+esc(a.owner)+' \u25cf</span>' : "";
+    if(Number(a.provisional)) ownChip += ' <span style="font-size:9.5px;font-weight:700;color:var(--sev-high)">VERIFYING\u2026</span>';
+    if(Number(a.retracted)) ownChip += ' <span style="font-size:9.5px;font-weight:700;color:var(--c-sub);text-decoration:line-through">RETRACTED</span>';
     var st = a.review==="true"?"TRUE":a.review==="false"?"FALSE":a.review==="ack"?"ACK":"NEW";
     var tc = threatClass(a.rule);
     var header = "";
     if(sortMode==="class" && tc.label!==prevClass){ prevClass=tc.label;
       header = '<div class="agroup" style="color:'+tc.color+'"><span>'+tc.icon+' '+esc(tc.label)+'</span></div>'; }
+    var unvRow = !!Number(a.unverified);
     return header
-      +'<div class="arow'+sel+'" style="border-left:3px solid '+tc.color+'" onclick="selectAlert('+i+')">'
-      +'<span class="dot" style="margin-top:4px;background:'+(SEV[a.priority]||SEV.low)+'"></span>'
+      +'<div class="arow'+sel+(unvRow?" unvrow":"")+'" style="border-left:3px '+(unvRow?"dashed var(--c-mut)":"solid "+tc.color)+'" onclick="selectAlert('+i+')">'
+      +'<span class="dot" style="margin-top:4px;background:'+(unvRow?"var(--c-mut)":(SEV[a.priority]||SEV.low))+'"></span>'
       +'<div style="flex:1;min-width:0"><div class="row" style="gap:8px">'
       +'<span class="cchip" style="color:'+tc.color+';border-color:'+tc.color+'">'+tc.icon+' '+esc(tc.label)+'</span>'
-      +'<span style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.rule)+'</span>'
+      +'<span style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.rule)+ownChip+'</span>'
       +'<span style="flex:1"></span><span class="mono mut" style="font-size:11px">'+esc((a.iso||"").split("T")[1]||"")+'</span></div>'
-      +'<div class="row" style="gap:8px;margin-top:3px"><span style="font-size:10px;font-weight:700;letter-spacing:.05em;color:'+(SEV[a.priority]||SEV.low)+'">'+esc((a.priority||"").toUpperCase())+'</span>'
+      +'<div class="row" style="gap:8px;margin-top:3px"><span style="font-size:10px;font-weight:700;letter-spacing:.05em;color:'+(unvRow?"var(--c-mut)":(SEV[a.priority]||SEV.low))+'">'+(unvRow?"UNVERIFIED":esc((a.priority||"").toUpperCase()))+'</span>'
       +'<span class="mono mut" style="font-size:11px">'+esc(a.camera_id)+'</span>'
       +'<span class="mono sub" style="font-size:11px">'+(a.confidence!=null?Number(a.confidence).toFixed(2):"")+'</span><span style="flex:1"></span>'
       +'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;color:var(--c-mut);background:var(--c-raised)">'+st+'</span></div></div></div>';
@@ -1271,11 +1750,12 @@ function paintAlerts(){
 }
 function setAlertFilter(f){ state.alertFilter=f; state.selected=null; paintAlerts(); }
 function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(function(){
-  if(state.route!=="alerts"){ stopAlertsPoll(); return; }
+  if(state.route!=="triage"){ stopAlertsPoll(); return; }
   call("listEvents",[100],function(evs){ if(!Array.isArray(evs)) return;
     var sig=evs.map(function(e){return e.id+":"+e.review;}).join(",");
     if(sig!==state.alertsSig){ state.events=evs; state.alertsSig=sig; paintAlerts(); refreshCounts(); } }); }, 3000); }
-function stopAlertsPoll(){ if(state.alertsTimer){ clearInterval(state.alertsTimer); state.alertsTimer=null; } stopClip(); }
+function stopAlertsPoll(){ if(state.alertsTimer){ clearInterval(state.alertsTimer); state.alertsTimer=null; }
+  if(state.nowTimer){ clearInterval(state.nowTimer); state.nowTimer=null; } stopClip(); }
 function selectAlert(i){ state.selected = state.shown[i]; $("detail").innerHTML = renderDetail(); startClipMedia();
   document.querySelectorAll(".arow").forEach(function(el,idx){el.classList.toggle("sel",idx===i);}); }
 function renderDetail(){
@@ -1293,7 +1773,11 @@ function renderDetail(){
     : '<div class="mut" style="margin-top:14px">no clip saved</div>';
   var confPct = Math.round((Number(a.confidence)||0)*100);
   var reviewed = a.review && a.review!=="new";
-  return '<div class="row"><span class="sevbadge" style="background:'+sev+'">'+esc((a.priority||"").toUpperCase())+'</span>'
+  var unv = !!Number(a.unverified);
+  var badge = unv
+    ? '<span class="sevbadge unvpill">UNVERIFIED</span>'
+    : '<span class="sevbadge" style="background:'+sev+'">'+esc((a.priority||"").toUpperCase())+'</span>';
+  return '<div class="row">'+badge
     +'<h2 style="margin:0">'+esc(a.rule)+'</h2><span style="flex:1"></span><span class="mono mut">'+esc(a.iso||"")+'</span></div>'
     +'<div class="row" style="gap:20px;margin-top:8px;font-size:12px" class="mut"><span class="mut">camera <b class="mono" style="color:var(--c-text)">'+esc(a.camera_id)+'</b></span>'
     +'<span class="mut">zone <b class="mono" style="color:var(--c-text)">'+esc(a.zone||"—")+'</b></span>'
@@ -1302,16 +1786,25 @@ function renderDetail(){
     +clip
     +subjectHTML(a)
     +timelineHTML(a)
-    +'<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why TrueSight confirmed this</div>'
-    +'<p style="margin:0;font-size:14px;line-height:1.5">'+esc(a.reason||"")+'</p>'
-    +'<div class="row" style="margin-top:12px"><span class="mut" style="font-size:11px">confidence</span><div class="confbar"><div style="width:'+confPct+'%;background:'+sev+'"></div></div><span class="mono">'+(Number(a.confidence)||0).toFixed(2)+'</span></div></div>'
+    +(unv
+      ? '<div class="panel" style="padding:14px 16px;margin-top:16px;border-style:dashed"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-mut);text-transform:uppercase;margin-bottom:6px">Unverified</div>'
+        +'<p style="margin:0;font-size:14px;line-height:1.5">TrueSight could not reach a verdict — '+esc(a.reason||"the verifier was unavailable")+'. This has not been checked by anything. Review it yourself.</p></div>'
+      : '<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why TrueSight confirmed this</div>'
+        +'<p style="margin:0;font-size:14px;line-height:1.5">'+esc(a.reason||"")+'</p>'
+        +'<div class="row" style="margin-top:12px"><span class="mut" style="font-size:11px">confidence</span><div class="confbar"><div style="width:'+confPct+'%;background:'+sev+'"></div></div><span class="mono">'+(Number(a.confidence)||0).toFixed(2)+'</span></div></div>')
+    +(Number(a.provisional)
+        ? '<div class="panel" style="padding:11px 14px;margin-top:12px;border-color:var(--sev-high)"><b style="color:var(--sev-high)">PROVISIONAL — verification in progress.</b> <span class="mut" style="font-size:12.5px">Shown immediately because this is a critical threat; the verdict will replace this in ~20s. Confirmed or retracted, never silent.</span></div>' : "")
+    +(Number(a.retracted)
+        ? '<div class="panel" style="padding:11px 14px;margin-top:12px;border-style:dashed"><b class="mut">RETRACTED.</b> <span class="mut" style="font-size:12.5px">This provisional alert was verified as not a threat. Kept so \u201cwhy did my phone buzz?\u201d has an answer.</span></div>' : "")
+    +ownerHTML(a)
     +'<div class="row" style="margin-top:18px">'
-    +'<button class="btn" onclick="doReview(\'ack\')">'+(a.review==="ack"?"Acknowledged ✓":"Acknowledge")+'</button>'
-    +'<button class="btn ghost" style="border-color:var(--sev-crit);color:var(--sev-crit)" onclick="doReview(\'true\')">True threat</button>'
-    +'<button class="btn ghost" onclick="doReview(\'false\')">False alarm</button>'
+    +'<button class="btn" onclick="doClaim()">'+(a.owner ? esc(a.owner)+" is on it" : "I\u2019m on it")+'</button>'
+    +'<button class="btn ghost" style="border-color:var(--sev-crit);color:var(--sev-crit)" onclick="doResolve(\'real\')">Real</button>'
+    +'<button class="btn ghost" onclick="doResolve(\'false_alarm\')">False alarm</button>'
     +'<span style="flex:1"></span>'
     +'<button class="btn ghost sm" onclick="exportThisEvidence(this)">⬇ Export evidence</button>'
-    +'<button class="btn ghost sm" onclick="openReport()">⧉ Incident report</button></div>'
+    +'<button class="btn ghost sm" onclick="openReport()">⧉ Incident report</button>'
+    +'<button class="btn ghost sm" onclick="exportIncidentPdf(this)">⬇ PDF</button></div>'
     +holdHTML(a)
     +'<div class="sub" style="margin-top:8px;font-size:11.5px">'+(reviewed?("Labeled: "+a.review):"Your label retrains the site model.")+'</div>';
 }
@@ -1373,10 +1866,84 @@ function timelineHTML(a){
     +'<div class="tl-step"><span class="tl-dot on"></span><div><div class="tl-t">You were notified</div><div class="tl-s">'+esc((a.iso||"").replace("T"," "))+'</div></div></div>'
     +'</div>';
 }
-function doReview(label){ var a=state.selected; if(!a)return;
-  a.review=label; state.alertsSig="";     // local + force poll to reconcile
+/* Ownership + note (EP-06-T1). Claiming shows your name to every operator;
+   resolving concludes with an outcome and carries the note to the handover. */
+function ownerHTML(a){
+  var own = a.owner
+    ? '<div style="margin-top:12px;font-size:12.5px"><span class="dot" style="background:var(--c-accent)"></span> '
+      +'<b>'+esc(a.owner)+'</b> is on this'
+      +(a.acknowledged_at? ' <span class="mut">since '+fmtAge((Date.now()/1000)-a.acknowledged_at)+' ago</span>':'')+'</div>'
+    : '';
+  var note = (a.review && a.review!=="new" && a.note)
+    ? '<div class="panel" style="padding:10px 13px;margin-top:10px;font-size:12.5px"><span class="sub" style="font-size:10.5px">NOTE</span><br>'+esc(a.note)+'</div>'
+    : '<input id="resolveNote" placeholder="note for the handover (optional)" style="width:100%;margin-top:12px">';
+  return own + note;
+}
+function exportIncidentPdf(btn){ var a=state.selected; if(!a) return;
+  if(btn){btn.disabled=true;btn.textContent="…";}
+  call("exportIncidentPdf",[String(a.id)],function(r){
+    if(btn){btn.disabled=false;btn.textContent="⬇ PDF";}
+    var m=$("holdMsg"); if(!m) return;
+    if(r&&r.ok){ m.style.color="var(--c-live)"; m.textContent="✓ "+r.path+" ("+r.size_kb+" KB)"; }
+    else { m.style.color="var(--sev-crit)"; m.textContent="✕ "+((r&&r.error)||"failed"); }
+  });
+}
+/* Shift handover (EP-06-T2): what fired, what was concluded and by whom, and
+   — loudest — what is still open. Open items are not windowed: an incident
+   from three shifts ago that nobody concluded is exactly what must not be
+   forgotten, and anything older than this window is flagged "carried over". */
+function openHandover(hours){
+  call("handover",[hours],function(h){
+    if(!h || h.error){ alert((h&&h.error)||"handover unavailable"); return; }
+    var m=$("handoverModal");
+    if(!m){ m=document.createElement("div"); m.id="handoverModal";
+      (document.getElementById("modalRoot")||document.body).appendChild(m); }
+    var openRows = (h.open||[]).map(function(o){
+      var flag = o.carried_over ? ' <b style="color:var(--sev-high)">carried over · '+o.age_h+'h old</b>' : '';
+      var who = o.owner ? ' — '+esc(o.owner)+' is on it' : ' — <b style="color:var(--sev-crit)">unclaimed</b>';
+      return '<div style="padding:7px 0;border-bottom:1px solid var(--c-border);font-size:12.5px">'
+        +'<b class="mono">'+esc(o.rule)+'</b> · '+esc(o.camera_id)+who+flag+'</div>';
+    }).join("") || '<div class="mut" style="padding:8px 0">Nothing open. Clean board.</div>';
+    var resRows = (h.resolved||[]).map(function(r){
+      var oc = r.outcome==="real"?'<b style="color:var(--sev-crit)">REAL</b>'
+        : r.outcome==="false_alarm"?'<span class="mut">false alarm</span>':'inconclusive';
+      return '<div style="padding:7px 0;border-bottom:1px solid var(--c-border);font-size:12.5px">'
+        +'<b class="mono">'+esc(r.rule)+'</b> · '+esc(r.camera_id)+' — '+oc
+        +' by '+esc(r.owner||"?")+(r.note? '<div class="mut" style="font-size:11.5px;margin-top:2px">\u201c'+esc(r.note)+'\u201d</div>':'')+'</div>';
+    }).join("") || '<div class="mut" style="padding:8px 0">Nothing resolved in this window.</div>';
+    var c = h.counts||{};
+    m.innerHTML = '<div style="position:fixed;inset:0;background:rgba(4,9,20,.72);z-index:60;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)closeHandover()">'
+      +'<div class="panel" style="width:640px;max-width:94vw;max-height:86vh;overflow:auto;padding:20px 22px">'
+      +  '<div class="row"><h2 style="margin:0;font-size:16px">Shift handover</h2><span style="flex:1"></span>'
+      +    [8,12,24].map(function(hh){return '<button class="btn ghost sm'+(h.hours===hh?" ":"")+'" onclick="openHandover('+hh+')">'+hh+'h</button>';}).join("")
+      +    '<button class="btn sm" onclick="closeHandover()">Close</button></div>'
+      +  '<div class="mut" style="font-size:12px;margin-top:6px">Last '+h.hours+'h: <b>'+(c.fired||0)+'</b> fired · <b>'+(c.resolved||0)+'</b> resolved · <b style="color:'+((c.open||0)?'var(--sev-high)':'var(--c-live)')+'">'+(c.open||0)+' still open</b></div>'
+      +  '<div class="plabel" style="margin-top:16px">Still open — the next shift owns these</div>'+openRows
+      +  '<div class="plabel" style="margin-top:16px">Resolved this window</div>'+resRows
+      +'</div></div>';
+  });
+}
+function closeHandover(){ var m=$("handoverModal"); if(m) m.innerHTML=""; }
+function doClaim(){ var a=state.selected; if(!a)return;
+  call("acknowledgeAlert",[String(a.id)],function(r){
+    if(r && r.ok){ a.owner=r.owner; a.review="ack"; state.alertsSig=""; paintAlerts(); refreshTriage(paintAlerts); }
+    else if(r && r.error){ alert(r.error); state.alertsSig=""; }   // "sam is already on alert 12"
+    refreshCounts();
+  });
+}
+function doResolve(outcome){ var a=state.selected; if(!a)return;
+  var note = $("resolveNote") ? $("resolveNote").value.trim() : "";
+  a.review = (outcome==="real"?"true":"false"); a.note = note; state.alertsSig="";
   paintAlerts();                          // instant: clears from Needs review, selects next
-  call("review",[String(a.id),label],function(r){ refreshCounts(); }); }
+  call("resolveAlert",[String(a.id), outcome, note],function(r){
+    if(r && r.error){ alert(r.error); }
+    refreshCounts(); refreshTriage(paintAlerts);
+  });
+}
+function doReview(label){ // kept for older call sites: routes into the state machine
+  if(label==="ack") return doClaim();
+  return doResolve(label==="true" ? "real" : "false_alarm");
+}
 /* #5 incident report: a clean, printable/exportable evidence card */
 function openReport(){ var a=state.selected; if(!a) return;
   var m=$("reportModal"); if(!m){ m=document.createElement("div"); m.id="reportModal"; (document.getElementById("modalRoot")||document.body).appendChild(m); }
@@ -1470,7 +2037,7 @@ function startClipMedia(){ stopClip(); var a=state.selected; if(!a) return;
 function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }
 /* ---------- first-run setup wizard ---------- */
 var wiz = {step:0, hosts:[], test:null, added:[], site:{name:"My Site",notify:"console",preset:""}, gate:null, pull:null, cidr:"", scanning:false, scanned:false};
-var STEPS = ["welcome","cameras","vlm","site","done"];
+var STEPS = ["welcome","cameras","zones","site","detectors","vlm","alert","done"];
 var VENDORS = [["Hikvision","/Streaming/Channels/102"],
                ["Dahua / Amcrest","/cam/realmonitor?channel=1&subtype=1"],
                ["Reolink","/h264Preview_01_sub"],
@@ -1480,13 +2047,14 @@ var NOTIFIERS = [["console","Console (test)"],["whatsapp","WhatsApp"],
 
 function openWizard(){
   call("presets",[],function(p){ state.presets=(p&&!p.error)?p:{}; wiz.site.preset=Object.values(state.presets)[0]||""; });
+  call("useCaseTemplates",[],function(t){ state.templates=(t&&!t.error)?t:{}; if(!wiz.template) wiz.template="retail"; });
   call("getSite",[],function(s){ if(s&&!s.error){ wiz.site.name=s.name||"My Site"; wiz.site.notify=s.notify||"console"; } });
   call("listCameras",[],function(c){ wiz.added=Array.isArray(c)?c:[]; });
   wiz.step=0; $("wizard").classList.add("on"); renderWizard();
 }
 function closeWizard(){ $("wizard").classList.remove("on"); }
 function wizStepper(){
-  var mids=[["cameras","Cameras"],["vlm","VLM gate"],["site","Site & rules"]];
+  var mids=[["cameras","Cameras"],["zones","Zones"],["site","Use case"],["detectors","Detectors"],["vlm","Verification"],["alert","Test alert"]];
   var cur=STEPS.indexOf(STEPS[wiz.step]);
   return '<div class="steps">'+mids.map(function(m,i){
     var idx=STEPS.indexOf(m[0]); var cls=idx<wiz.step?"done":(idx===wiz.step?"on":"");
@@ -1495,7 +2063,7 @@ function wizStepper(){
 }
 function renderWizard(){
   var step=STEPS[wiz.step];
-  var body = ({welcome:wizWelcome,cameras:wizCameras,vlm:wizVlm,site:wizSite,done:wizDone}[step])();
+  var body = ({welcome:wizWelcome,cameras:wizCameras,zones:wizZones,site:wizSite,detectors:wizDetectors,vlm:wizVlm,alert:wizAlert,done:wizDone}[step])();
   var showStepper = (step!=="welcome" && step!=="done");
   $("wizard").innerHTML =
     '<div class="wizhead"><div class="wizbrand">Argus</div>'+(showStepper?wizStepper():'')+'</div>'
@@ -1509,13 +2077,20 @@ function wizFooter(step){
 }
 function wizGo(i){ wiz.step=Math.max(0,Math.min(STEPS.length-1,i)); renderWizard();
   if(STEPS[wiz.step]==="vlm") wizCheckGate();
+  if(STEPS[wiz.step]==="detectors") wizLoadDetectors();
+  if(STEPS[wiz.step]==="done") wizSelfTest();
   if(STEPS[wiz.step]==="cameras" && !wiz.scanned && !wiz.scanning) wizAutoScan(); }
 function wizAutoScan(){ wiz.scanning=true;
   call("detectSubnet",[],function(r){ wiz.cidr=(r&&r.cidr)||"";
     if($("wzCidr")) $("wzCidr").value=wiz.cidr;
     if(!wiz.cidr){ wiz.scanning=false; if($("wzScanRes")) $("wzScanRes").textContent="Couldn't detect your network automatically — type it above and scan."; return; }
     wizScan(); }); }
-function wizNext(){ if(STEPS[wiz.step]==="site") wizSaveSite(); wizGo(wiz.step+1); }
+function wizNext(){
+  if(STEPS[wiz.step]==="site"){ wizSaveSite();
+    if(wiz.template) call("applyTemplate",[wiz.template],function(){ wizGo(wiz.step+1); });
+    else wizGo(wiz.step+1);
+    return; }
+  wizGo(wiz.step+1); }
 function wizSkip(){ closeWizard(); startApp(); }
 
 function wizWelcome(){
@@ -1530,6 +2105,9 @@ function wizCameras(){
     }).join("")+'</div>') : '<p class="mut" style="margin-top:12px">No cameras added yet.</p>';
   return '<h2>Connect your cameras</h2><p class="lead">Argus scans your network automatically to find cameras. Tap one and add it with its login — the password stays on this machine.</p>'
     +'<div class="panel" style="padding:16px">'
+    +  '<div class="row"><button class="btn sm" onclick="wizOnvif(this)">🔍 Find cameras (ONVIF)</button><span id="wzOnvifRes" class="mut" style="font-size:12px;flex:1">Most network cameras announce themselves — try this first.</span></div>'
+    +  '<div id="wzOnvifList"></div>'
+    +  '<div style="height:1px;background:var(--c-border);margin:14px 0"></div>'
     +  '<div class="row"><input id="wzCidr" value="'+esc(wiz.cidr)+'" placeholder="detecting your network…" style="flex:1"><button class="btn ghost sm" onclick="wizScan()">'+(wiz.scanned?"Rescan":"Scan")+'</button></div>'
     +  '<div id="wzScanRes" class="mut" style="margin-top:8px;font-size:12px">'+wizScanMsg()+'</div>'
     +  '<div style="height:1px;background:var(--c-border);margin:14px 0"></div>'
@@ -1538,6 +2116,18 @@ function wizCameras(){
     +  '<div class="row" style="margin-top:10px"><input id="wzName" placeholder="name (optional) e.g. entrance" style="flex:1"><button class="btn ghost sm" onclick="wizTest()">Test</button><button class="btn sm" onclick="wizAdd()">Add camera</button></div>'
     +  '<div id="wzTest" style="margin-top:12px;max-width:420px">'+wizTestBox()+'</div>'
     +'</div>'+added;
+}
+function wizOnvif(btn){
+  btn.disabled=true; var msg=$("wzOnvifRes"); if(msg) msg.textContent="searching the network (about 3 seconds)…";
+  call("discoverCameras",[],function(r){
+    btn.disabled=false;
+    var list=$("wzOnvifList"), msg=$("wzOnvifRes");
+    if(!r || r.error){ if(msg) msg.textContent=(r&&r.error)||"search failed"; return; }
+    var cams=r.cameras||[];
+    if(msg) msg.textContent = cams.length ? (cams.length+" camera(s) answered — tap one to fill in its address, then add its login.") : "No ONVIF answers — your cameras may have ONVIF off, or be on another network. Use the scan below or type the IP.";
+    if(list) list.innerHTML = cams.map(function(c){
+      return '<button class="chip" style="margin:8px 8px 0 0" onclick="wizPick(\''+esc(c.ip)+'\')">📷 '+esc(c.name||c.ip)+' · '+esc(c.ip)+'</button>'; }).join("");
+  });
 }
 function wizTestBox(){
   var t=wiz.test; if(!t) return '';
@@ -1584,6 +2174,8 @@ function wizVlm(){
     action = wiz.pull&&wiz.pull.state==="pulling"
       ? '<div style="margin-top:14px"><div class="confbar" style="max-width:none"><div id="wzPullBar" style="width:'+(wiz.pull.percent||0)+'%;background:var(--c-accent)"></div></div><div id="wzPullDetail" class="mono sub" style="margin-top:6px;font-size:11px">'+esc(wiz.pull.detail||"")+' '+(wiz.pull.percent||0)+'%</div></div>'
       : '<button class="btn" style="margin-top:14px" onclick="wizPull()">Download model (3.3 GB)</button> <button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
+  else if(g.runtime_bundled){ dot="var(--sev-high)"; title="On-device AI isn't running yet"; detail="Argus ships its own AI runtime — nothing to install. Click Start and Argus will bring it up (and fetch the vision model on first run, ~3.3 GB with progress; an interrupted download resumes).";
+    action='<button class="btn" style="margin-top:14px" onclick="wizPull()">Start verifier</button> <button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
   else { dot="var(--sev-crit)"; title="Ollama isn't running"; detail="Argus uses Ollama to run the local AI. Start it (or install it from ollama.com), then recheck. You can continue without it — alerts just won't be AI-verified yet.";
     action='<button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
   return '<h2>Local AI verification</h2><p class="lead">A vision model runs on this machine and confirms each alert is real — this is what keeps false alarms out.</p>'
@@ -1601,14 +2193,87 @@ function wizPollPull(){ call("pullProgress",[],function(p){ wiz.pull=p||wiz.pull
 
 function wizSite(){
   var notiOpts=NOTIFIERS.map(function(n){return '<option value="'+n[0]+'"'+(wiz.site.notify===n[0]?' selected':'')+'>'+esc(n[1])+'</option>';}).join("");
-  var presetOpts=Object.keys(state.presets).map(function(k){return '<option value="'+esc(state.presets[k])+'"'+(wiz.site.preset===state.presets[k]?' selected':'')+'>'+esc(k)+'</option>';}).join("");
-  return '<h2>Name your site</h2><p class="lead">A label for this location and where alerts should go. You can fine-tune individual rules later.</p>'
-    +'<div class="panel" style="padding:18px">'
-    +  '<label class="fld">Site name<input id="wzSiteName" value="'+esc(wiz.site.name)+'" placeholder="e.g. Front Store"></label>'
-    +  '<div class="grid2" style="margin-top:14px"><label class="fld">Default threats<select id="wzPreset">'+presetOpts+'</select></label>'
+  var tpls = state.templates||{};
+  var cards = Object.keys(tpls).map(function(k){ var t=tpls[k]; var on = wiz.template===k;
+    var nOn = Object.keys(t.detectors||{}).filter(function(d){return t.detectors[d];}).length;
+    return '<div class="panel" onclick="wizPickTemplate(\''+k+'\')" style="padding:14px;cursor:pointer;flex:1;min-width:150px;border-color:'+(on?'var(--c-accent)':'var(--c-border2)')+'">'
+      +'<div style="font-weight:700">'+(on?'● ':'○ ')+esc(t.label)+'</div>'
+      +'<div class="mut" style="font-size:12px;margin-top:5px;line-height:1.45">'+esc(t.blurb)+'</div>'
+      +'<div class="mono sub" style="font-size:11px;margin-top:7px">'+nOn+' detectors preselected</div></div>'; }).join("");
+  return '<h2>What is this place?</h2><p class="lead">Pick the closest match — Argus preselects sensible detectors and rules for it. You confirm (and can change) everything on the next step.</p>'
+    +'<div class="row" style="gap:10px;align-items:stretch;flex-wrap:wrap">'+cards+'</div>'
+    +'<div class="panel" style="padding:18px;margin-top:14px">'
+    +  '<div class="grid2"><label class="fld">Site name<input id="wzSiteName" value="'+esc(wiz.site.name)+'" placeholder="e.g. Front Store"></label>'
     +  '<label class="fld">Notify me via<select id="wzNotify">'+notiOpts+'</select></label></div>'
     +  '<p class="sub" style="margin:12px 0 0;font-size:11.5px">WhatsApp/Telegram need credentials set on this machine (env vars) — the app will use them if present.</p>'
     +'</div>';
+}
+function wizPickTemplate(k){ wizSaveSite(); wiz.template=k; renderWizard(); }
+
+/* step: draw zones (optional but offered in order) */
+function wizZones(){
+  var cams = wiz.added||[];
+  if(!cams.length) return '<h2>Watch specific areas</h2><p class="lead">No cameras yet — add one on the Cameras step and come back to draw zones.</p>';
+  var rows = cams.map(function(c){
+    return '<div class="row" style="justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--c-border2)">'
+      +'<b class="mono">'+esc(c.id)+'</b>'
+      +'<button class="btn ghost sm" onclick="openZoneEditor(\''+esc(c.id)+'\')">✏️ Draw a zone</button></div>'; }).join("");
+  return '<h2>Watch specific areas</h2><p class="lead">Draw a box over a shelf, an entrance or a restricted area — Argus alerts when someone lingers there or takes an item out of it. Optional: skip if whole-frame watching is enough.</p>'
+    +'<div class="panel" style="padding:6px 18px 2px">'+rows+'</div>';
+}
+
+/* step: confirm detectors (the template's effect, editable per site) */
+function wizLoadDetectors(){
+  call("listCameras",[],function(c){ wiz.added=Array.isArray(c)?c:wiz.added;
+    wiz.flags={}; var first=(wiz.added||[])[0]||{};
+    DETECTORS.forEach(function(d){ wiz.flags[d[0]]=!!first[d[0]]; });
+    renderWizard(); });
+}
+function wizDetectors(){
+  if(!wiz.flags) return '<h2>Confirm what Argus watches for</h2><div class="statusbig"><span class="spin"></span><span>loading…</span></div>';
+  var groups = DET_GROUPS.map(function(g){
+    var rows = DETECTORS.filter(function(d){return d[4]===g[0];}).map(function(d){
+      var on = !!wiz.flags[d[0]];
+      return '<label class="row" style="gap:10px;padding:7px 0;cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' onchange="wizToggleDet(\''+d[0]+'\', this.checked)">'
+        +'<span>'+d[5]+'</span><span style="min-width:120px;font-weight:600">'+esc(d[1])+'</span>'
+        +'<span class="mut" style="font-size:12px">'+esc(d[2])+'</span></label>'; }).join("");
+    return '<div class="panel" style="padding:12px 18px;margin-top:10px"><div style="font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-accent)">'+esc(g[1])+'</div>'+rows+'</div>'; }).join("");
+  return '<h2>Confirm what Argus watches for</h2><p class="lead">Preselected from your use case — every camera gets this set. Fine-tune single cameras later under <b>Rules</b>.</p>'+groups;
+}
+function wizToggleDet(key,val){ wiz.flags[key]=val;
+  var rules={}; rules[key]=val;
+  (wiz.added||[]).forEach(function(c){ call("setCameraRules",[c.id, JSON.stringify(rules)],function(){}); });
+}
+
+/* step: prove the notification path BEFORE trusting it */
+function wizAlert(){
+  return '<h2>Send yourself a test alert</h2><p class="lead">Argus sends a synthetic alert through your configured channel (<b>'+esc(wiz.site.notify||"console")+'</b>) so you know the path works before you rely on it.</p>'
+    +'<div class="panel" style="padding:18px"><button class="btn" onclick="wizSendTest(this)">📲 Send me a test alert</button>'
+    +'<div id="wzTestMsg" class="mut" style="margin-top:12px;font-size:13px">No alert is stored — this only tests delivery.</div></div>';
+}
+function wizSendTest(btn){
+  var msg=$("wzTestMsg"); btn.disabled=true; btn.textContent="Sending…";
+  call("setSite",[wiz.site.name, wiz.site.notify],function(){
+    call("sendTestNotification",[],function(r){
+      btn.disabled=false; btn.textContent="📲 Send me a test alert";
+      if(!msg) return;
+      if(r&&r.ok){ msg.style.color="var(--c-live)"; msg.textContent="✓ Sent via "+(r.via||"console")+" — check your device. If it arrived, you're done here."; }
+      else { msg.style.color="var(--sev-crit)"; msg.textContent="✕ "+((r&&r.error)||"failed")+" (via "+((r&&r.via)||"?")+") — fix the channel in Site settings, then try again."; }
+    }); });
+}
+
+/* final self-test: name exactly what is missing, in plain English */
+function wizSelfTest(){
+  var el=$("wzSelfTest"); if(el) el.innerHTML='<div class="row" style="gap:10px"><span class="spin"></span><span class="mut">checking every component…</span></div>';
+  call("setupCheck",[],function(list){
+    var el=$("wzSelfTest"); if(!el) return;
+    if(!Array.isArray(list)){ el.innerHTML='<span class="mut">self-test unavailable</span>'; return; }
+    el.innerHTML = list.map(function(c){
+      var mark = c.ok===true?'<span style="color:var(--c-live)">✓</span>':(c.ok===false?'<span style="color:var(--sev-crit)">✕</span>':'<span style="color:var(--sev-high)">⚠</span>');
+      return '<div style="padding:7px 0;border-bottom:1px solid var(--c-border2)"><div class="row" style="gap:9px">'+mark
+        +'<b style="min-width:210px">'+esc(c.label)+'</b><span class="mut" style="font-size:12.5px">'+esc(c.detail||"")+'</span></div>'
+        +(c.fix?'<div class="mut" style="font-size:12px;margin:3px 0 0 24px">→ '+esc(c.fix)+'</div>':'')+'</div>'; }).join("");
+  });
 }
 function wizSaveSite(){ if($("wzSiteName")) wiz.site.name=($("wzSiteName").value||"").trim()||"My Site";
   if($("wzNotify")) wiz.site.notify=$("wzNotify").value; if($("wzPreset")) wiz.site.preset=$("wzPreset").value; }
@@ -1619,6 +2284,7 @@ function wizDone(){
     +'<div class="panel" style="padding:18px"><div class="row" style="justify-content:space-between"><span class="mut">Cameras</span><b class="mono">'+wiz.added.length+'</b></div>'
     +'<div class="row" style="justify-content:space-between;margin-top:8px"><span class="mut">AI verification</span><b>'+esc(gateTxt)+'</b></div>'
     +'<div class="row" style="justify-content:space-between;margin-top:8px"><span class="mut">Notifications</span><b>'+esc(wiz.site.notify)+'</b></div></div>'
+    +'<div class="panel" style="padding:12px 18px;margin-top:14px"><div style="font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-accent);margin-bottom:4px">Self-test</div><div id="wzSelfTest"></div></div>'
     +'<p class="lead" style="margin-top:16px">Start the detection engine to begin monitoring; confirmed alerts will appear under <b>Alerts</b>.</p>';
 }
 function wizFinish(){ wizSaveSite();
@@ -1637,7 +2303,7 @@ function sendTestAlert(btn){
 }
 function wizCheckGateStandalone(){ var el=$("sysGate"); if(el) el.textContent="Checking VLM gate…";
   call("gateStatus",[],function(g){ if(!el) return; if(g.error){el.textContent=g.error;return;}
-    var msg = g.mode==="live"?"● Live — TrueSight (on-device verification)":g.mode==="no-model"?"● Ollama up, model not installed — run setup to download":"● Ollama offline — gate falls back to mock";
+    var msg = g.mode==="live"?"● Live — TrueSight (on-device verification)":g.mode==="no-model"?"● Ollama up, model not installed — run setup to download":(g.runtime_bundled?"● On-device AI not running — it starts automatically with monitoring":"● Ollama offline — gate falls back to mock");
     el.textContent = msg; }); }
 
 /* ---------- offline / local-only proof (#9) ---------- */
@@ -1654,8 +2320,35 @@ function initNetWatch(){
   window.addEventListener("online", updateNetBadge);
   window.addEventListener("offline", updateNetBadge);
 }
+function downloadDiag(btn){
+  btn.disabled=true; btn.textContent="collecting…";
+  call("downloadDiagnostics",[],function(r){
+    btn.disabled=false; btn.textContent="Diagnose";
+    alert(r&&r.ok ? ("Diagnostics bundle written to:\n"+r.path+"\n("+r.size_kb+" KB — logs and health only, no footage.)")
+                  : ("Could not build diagnostics: "+((r&&r.error)||"unknown")));
+  });
+}
+
+/* ---------- nav-footer liveness (UI_SPEC §1.1): the blinking light ---------- */
+function refreshLiveness(){
+  call("cameraLinks",[],function(links){
+    var el=$("liveLine"); if(!el) return;
+    if(!Array.isArray(links) || !links.length){ el.textContent="○ no cameras configured"; return; }
+    var states=links.map(function(l){return l.state;});
+    if(states.every(function(st){return st==="unknown";})){
+      el.textContent="○ not monitoring — engine not running";   // never shown as healthy
+      el.style.color="var(--c-mut)"; return;
+    }
+    var up=states.filter(function(st){return st==="connected";}).length;
+    var down=links.length-up;
+    el.textContent="● "+up+" of "+links.length+" cameras live"+(down?" · "+down+" down":"");
+    el.style.color = down ? "var(--sev-high)" : "var(--c-live)";
+  });
+}
+function startLivenessWatch(){ refreshLiveness(); if(!state.livenessTimer) state.livenessTimer=setInterval(refreshLiveness, 5000); }
+
 /* ---------- boot ---------- */
-function startApp(){ renderNav(); refreshCounts(); refreshFeedToggle(); refreshMonitor(); startGlobalWatch(); startGateWatch(); initNetWatch(); render(); }
+function startApp(){ renderNav(); refreshCounts(); refreshFeedToggle(); refreshMonitor(); startGlobalWatch(); startGateWatch(); initNetWatch(); startLivenessWatch(); render(); }
 
 /* ---------- global alert watch: badge + sound + live-tile flags, any screen ---------- */
 function startGlobalWatch(){ if(state.globalTimer) return; state.globalTimer=setInterval(pollAlertsGlobal, 3000); pollAlertsGlobal(); }
@@ -1690,8 +2383,8 @@ function pollAlertsGlobal(){
     if($("stPending")) $("stPending").textContent = pending;
     renderNav();
     maybeChime(evs);
-    if(state.route==="live") updateLiveAlertTiles();
-    if(state.route==="map") updateMapPins();
+    if(state.route==="watch" && (state.watchTab||"grid")==="grid") updateLiveAlertTiles();
+    if(state.route==="watch" && state.watchTab==="floor") updateMapPins();
   });
 }
 function maybeChime(evs){
@@ -1721,10 +2414,98 @@ document.addEventListener("click", function _unlock(){
   try{ if(!state.audioCtx) state.audioCtx=new (window.AudioContext||window.webkitAudioContext)(); state.audioCtx.resume(); }catch(e){}
   document.removeEventListener("click", _unlock);
 });
+/* ---------- auth gate (UI_SPEC §2.2) ----------
+   The backend enforces every consequential call, so the app must not boot its
+   pollers until there is a session — they would just drum denied errors. */
 function boot(){
+  call("authState",[],function(a){
+    if(!a || a.error){ authScreen('<div class="pad mut">Could not read sign-in state: '+esc((a&&a.error)||"no response")+'</div>'); return; }
+    if(!a.configured){ renderFirstRun(); }
+    else if(!a.signed_in){ renderSignIn(""); }
+    else { enterApp(a); }
+  });
+}
+function authScreen(html){
+  var g=$("authGate"); g.className="on"; g.innerHTML='<div class="authbox">'+html+'</div>';
+}
+function authField(id,label,type,help){
+  return '<div class="flabel">'+esc(label)+'</div>'
+    +'<input class="field" id="'+id+'" type="'+type+'" autocomplete="off" spellcheck="false">'
+    +(help?'<div class="sub" style="font-size:11px;margin-top:7px">'+help+'</div>':'');
+}
+function renderSignIn(err){
+  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:4px">Sign in to this site</div>'
+    +'<div class="panel" style="padding:20px;margin-top:22px">'
+    +  authField("authUser","Name","text","")
+    +  authField("authPass","Password","password","")
+    +  '<div class="ferr" id="authErr">'+esc(err||"")+'</div>'
+    +  '<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doSignIn()">Sign in</button>'
+    +'</div>');
+  wireAuthEnter("doSignIn"); $("authUser").focus();
+}
+function renderFirstRun(){
+  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:4px">Set up this site</div>'
+    +'<div class="panel" style="padding:20px;margin-top:22px">'
+    +  '<div style="font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--c-sub)">Step 1 of 5 · Owner account</div>'
+    +  '<p class="mut" style="font-size:12.5px;margin:9px 0 3px;line-height:1.55">Nothing ships with a password, so there is nothing to change — you are creating the first account now. The owner can add operators and installers later.</p>'
+    +  authField("authUser","Name","text","")
+    +  authField("authPass","Password","password","At least 8 characters. Stored hashed — it cannot be recovered, only reset.")
+    +  '<div class="ferr" id="authErr"></div>'
+    +  '<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doFirstRun()">Create account and continue</button>'
+    +'</div>'
+    +'<div class="authdots"><div class="on"></div><div></div><div></div><div></div><div></div></div>'
+    +'<div class="sub" style="font-size:11px;margin-top:8px">Then: cameras → zones → what to watch for → a test alert to your phone</div>');
+  wireAuthEnter("doFirstRun"); $("authUser").focus();
+}
+function wireAuthEnter(fn){
+  ["authUser","authPass"].forEach(function(id){
+    var el=$(id); if(el) el.addEventListener("keydown",function(e){ if(e.key==="Enter") window[fn](); });
+  });
+}
+function authBusy(b){ var btn=$("authBtn"); if(btn){ btn.disabled=b; } }
+function doSignIn(){
+  authBusy(true);
+  call("signIn",[$("authUser").value.trim(), $("authPass").value],function(r){
+    authBusy(false);
+    if(r && r.ok){ enterApp(r); }
+    // The backend returns one message for a wrong password and an unknown
+    // user, on purpose. Display it verbatim; never elaborate.
+    else if($("authErr")) $("authErr").textContent = (r&&r.error)||"sign-in failed";
+  });
+}
+function doFirstRun(){
+  authBusy(true);
+  call("createFirstOwner",[$("authUser").value.trim(), $("authPass").value],function(r){
+    authBusy(false);
+    if(r && r.ok){ enterApp(r); }
+    else if($("authErr")) $("authErr").textContent = (r&&r.error)||"could not create the account";
+  });
+}
+function doSignOut(){
+  // Reload rather than unwind: every poller and cached screen assumed a
+  // session, and a fresh boot() is the one state we can trust.
+  call("signOut",[],function(){ location.reload(); });
+}
+/* Nav items the signed-in role cannot use are not rendered. The backend
+   re-checks every call regardless — this is courtesy, not enforcement. */
+var NAV_PERMS = {watch:"view_live", triage:"view_alerts",
+                 configure:"configure_cameras",
+                 value:"configure_site", settings:"configure_site"};
+function navAllowed(key){
+  if(!state.auth || !state.auth.permissions) return true;
+  var need = NAV_PERMS[key];
+  return !need || state.auth.permissions.indexOf(need) >= 0;
+}
+function enterApp(a){
+  state.auth = a;
+  var g=$("authGate"); g.className=""; g.innerHTML="";
+  var who=$("whoami");
+  if(who){ who.style.display="block"; $("whoamiName").textContent = a.username+" · "+a.role; }
+  if(a.landing && navAllowed(a.landing)) state.route = a.landing;
   call("setupState",[],function(s){
     if(s && !s.error && !s.configured){ openWizard(); }
-    else { if(s && s.demo){ state.route="live"; } startApp(); }
+    else { if(s && s.demo){ state.route="watch"; state.watchTab="grid"; } }
+    startApp();
   });
 }
 function connect(tries){

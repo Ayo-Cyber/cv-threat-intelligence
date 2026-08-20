@@ -18,6 +18,8 @@ sys.path.insert(0, str(ROOT))
 
 from cvti.app.console_backend import ConsoleBackend
 
+from _backend_helper import signed_in
+
 
 def _engine_flags() -> set[str]:
     """The per-camera boolean detector flags PerCameraState actually supports."""
@@ -51,7 +53,7 @@ class TogglePersistenceTests(unittest.TestCase):
         self.site.write_text(json.dumps({
             "name": "T", "notify": "console", "configured": True,
             "cameras": [{"id": "cam1", "source": "x.mp4", "config": "configs/all_threats_v1.json"}]}))
-        self.be = ConsoleBackend(site_path=str(self.site), db_path=str(self.d / "e.db"),
+        self.be = signed_in(site_path=str(self.site), db_path=str(self.d / "e.db"),
                                  enable_demo=False)
 
     def _cam(self):

@@ -14,6 +14,7 @@ from PyQt6.QtCore import QObject, pyqtSlot
 from cvti.app.console_backend import ConsoleBackend
 
 from cvti.logging_setup import get_logger
+from cvti.security.permissions import PermissionDenied
 
 log = get_logger(__name__)
 
@@ -30,6 +31,10 @@ class Backend(QObject):
     def _safe(self, fn):
         try:
             return _j(fn())
+        except PermissionDenied as exc:
+            # Expected, not exceptional: a role reaching for something that is
+            # not theirs. Logged at warning by the permission check itself.
+            return _j({"error": str(exc), "denied": True})
         except Exception as exc:  # noqa: BLE001 - surface errors to the UI, don't crash
             log.error("backend call failed; surfaced to the UI as an error", exc_info=True)
             return _j({"error": str(exc)[:200]})
@@ -66,6 +71,22 @@ class Backend(QObject):
     @pyqtSlot(result=str)
     def presets(self) -> str:
         return self._safe(self._core.presets)
+
+    @pyqtSlot(result=str)
+    def useCaseTemplates(self) -> str:
+        return self._safe(self._core.use_case_templates)
+
+    @pyqtSlot(str, result=str)
+    def applyTemplate(self, key: str) -> str:
+        return self._safe(lambda: self._core.apply_template(key))
+
+    @pyqtSlot(result=str)
+    def setupCheck(self) -> str:
+        return self._safe(self._core.setup_check)
+
+    @pyqtSlot(result=str)
+    def discoverCameras(self) -> str:
+        return self._safe(self._core.discover_cameras)
 
     @pyqtSlot(str, str, result=str)
     def setCameraRules(self, camera_id: str, rules_json: str) -> str:
@@ -190,6 +211,91 @@ class Backend(QObject):
     @pyqtSlot(str, result=str)
     def exportEvidence(self, event_ids: str) -> str:
         return self._safe(lambda: self._core.export_evidence(event_ids))
+
+    # --- identity, roles, audit (EP-03) ---
+    @pyqtSlot(result=str)
+    def authState(self) -> str:
+        return self._safe(self._core.auth_state)
+
+    @pyqtSlot(str, str, result=str)
+    def createFirstOwner(self, username: str, password: str) -> str:
+        return self._safe(lambda: self._core.create_first_owner(username, password))
+
+    @pyqtSlot(str, str, result=str)
+    def signIn(self, username: str, password: str) -> str:
+        return self._safe(lambda: self._core.sign_in(username, password))
+
+    @pyqtSlot(result=str)
+    def signOut(self) -> str:
+        return self._safe(self._core.sign_out)
+
+    @pyqtSlot(str, str, result=str)
+    def changeOwnPassword(self, current: str, new: str) -> str:
+        return self._safe(lambda: self._core.change_own_password(current, new))
+
+    @pyqtSlot(result=str)
+    def listUsers(self) -> str:
+        return self._safe(self._core.list_users)
+
+    @pyqtSlot(str, str, str, result=str)
+    def addUser(self, username: str, password: str, role: str) -> str:
+        return self._safe(lambda: self._core.add_user(username, password, role))
+
+    @pyqtSlot(str, str, result=str)
+    def setUserRole(self, username: str, role: str) -> str:
+        return self._safe(lambda: self._core.set_user_role(username, role))
+
+    @pyqtSlot(str, result=str)
+    def removeUser(self, username: str) -> str:
+        return self._safe(lambda: self._core.remove_user(username))
+
+    @pyqtSlot(int, result=str)
+    def auditEntries(self, limit: int) -> str:
+        return self._safe(lambda: self._core.audit_entries(limit or 200))
+
+    @pyqtSlot(result=str)
+    def auditVerify(self) -> str:
+        return self._safe(self._core.audit_verify)
+
+    @pyqtSlot(result=str)
+    def auditExport(self) -> str:
+        return self._safe(self._core.audit_export)
+
+    @pyqtSlot(str, result=str)
+    def acknowledgeAlert(self, event_id: str) -> str:
+        return self._safe(lambda: self._core.acknowledge_alert(event_id))
+
+    @pyqtSlot(str, str, str, result=str)
+    def resolveAlert(self, event_id: str, outcome: str, note: str) -> str:
+        return self._safe(lambda: self._core.resolve_alert(event_id, outcome, note))
+
+    @pyqtSlot(str, result=str)
+    def exportIncidentPdf(self, event_id: str) -> str:
+        return self._safe(lambda: self._core.export_incident_pdf(event_id))
+
+    @pyqtSlot(float, result=str)
+    def handover(self, hours: float) -> str:
+        return self._safe(lambda: self._core.handover(hours or 8.0))
+
+    @pyqtSlot(str, result=str)
+    def needsAttention(self, min_priority: str) -> str:
+        return self._safe(lambda: self._core.needs_attention(min_priority or "medium"))
+
+    @pyqtSlot(result=str)
+    def heartbeatStatus(self) -> str:
+        return self._safe(self._core.heartbeat_status)
+
+    @pyqtSlot(str, str, result=str)
+    def setHeartbeat(self, url: str, key: str) -> str:
+        return self._safe(lambda: self._core.set_heartbeat(url, key))
+
+    @pyqtSlot(result=str)
+    def diskEncryption(self) -> str:
+        return self._safe(self._core.disk_encryption)
+
+    @pyqtSlot(result=str)
+    def roleTable(self) -> str:
+        return self._safe(self._core.role_table)
 
     @pyqtSlot(result=str)
     def cameraLinks(self) -> str:
