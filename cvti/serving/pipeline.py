@@ -80,6 +80,9 @@ class MultiStreamPipeline:
         # Publishes frames (with boxes) so the UI never decodes the stream twice.
         self.publisher = publisher
         self.on_link_change = on_link_change
+        # Called the moment an alert is accepted onto the queue — the two-tier
+        # fast path hangs off this, ahead of any verification.
+        self.on_queued = None
         # When per-camera states + a queue are supplied, route detections through
         # them (track -> zones -> rules -> alert queue). Otherwise just count.
         if on_result is not None:
@@ -139,6 +142,11 @@ class MultiStreamPipeline:
         for alert in alerts:
             if self._alert_queue.add(alert):
                 self.alerts_queued += 1
+                if self.on_queued is not None:
+                    try:
+                        self.on_queued(alert)
+                    except Exception:  # noqa: BLE001 - fast path must not stop routing
+                        log.error("on_queued callback failed", exc_info=True)
         # Publish this frame for the UI instead of letting it decode the stream a
         # second time. We already have the frame AND the tracks, so the boxes are free.
         if self.publisher is not None:
@@ -343,6 +351,20 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                conf=conf, device=device, half=half, camera_states=states,
                                alert_queue=queue, publisher=publisher,
                                on_link_change=_on_link_change)
+
+    def _fast_path(alert) -> None:
+        """Two-tier alerting (EP-06-T4): criticals are shown provisionally the
+        moment the detector fires; the verdict updates the same row in place."""
+        if alert.priority != "critical":
+            return
+        candidate = (alert.payload or {}).get("candidate")
+        if candidate is not None and getattr(candidate, "detector", "") == "camera_offline":
+            return                      # deterministic alerts confirm instantly anyway
+        event_id = sink.provisional(alert)
+        if event_id is not None and alert.payload is not None:
+            alert.payload["provisional_event_id"] = event_id
+
+    pipe.on_queued = _fast_path
     pipe.start()
     # Live agent mapping: infer each camera's scene (reusing the local VLM) so the
     # gate reasons with real context. Background, non-blocking; only for a local
@@ -471,6 +493,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                     "mock": mock_gate, "banner": MOCK_GATE_BANNER if mock_gate else "",
                     "updated_at": time.time(), "health": components,
                     "retention": ret,
+                    # Detection -> operator-visible latency per priority tier.
+                    # "Criticals alert in under a second" carries its measurement.
+                    "alert_latency": sink.latency_stats(),
                     "heartbeat": heartbeat.status() if heartbeat else {"enabled": False}})
         return doc
 
