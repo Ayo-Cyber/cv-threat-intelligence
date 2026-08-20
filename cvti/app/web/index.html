@@ -222,6 +222,9 @@
   .confbar{flex:1;height:6px;background:var(--c-border);border-radius:99px;max-width:280px}
   .confbar>div{height:100%;border-radius:99px}
   .plabel{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--c-mut)}
+  .audittbl{width:100%;border-collapse:collapse;font-size:11.5px}
+  .audittbl th{text-align:left;color:var(--c-mut);font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:4px 8px 4px 0}
+  .audittbl td{padding:4px 8px 4px 0;border-top:1px solid var(--c-border);vertical-align:top}
   /* first-run wizard */
   #wizard{position:fixed;inset:0;z-index:50;background:var(--c-bg);display:none;flex-direction:column}
   #wizard.on{display:flex}
@@ -1058,11 +1061,97 @@ function renderSystem(){
         +    '<span id="diagMsg" class="sub" style="font-size:12px"></span></div>'
         +  '<div class="mut" style="font-size:11.5px;margin-top:8px;line-height:1.5">Logs and a health snapshot, for support. '
         +  'Contains <b>no</b> camera images, video, or event records \u2014 only counts. The zip lists exactly what is in it.</div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="usersPanel"><div class="syslabel">Users</div>'
+        +  '<div id="usersBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="auditPanel"><div class="syslabel">Audit trail</div>'
+        +  '<div id="auditBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="secPanel"><div class="syslabel">Security</div>'
+        +  '<div id="secBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px"><div class="syslabel">Edge</div>'
         +  '<div class="row" style="gap:22px;margin-top:9px;font-size:13px"><span class="mut">runs fully offline <b style="color:var(--c-live)">✓</b></span>'
         +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">Argus Edge <b class="mono">v0.9</b></span></div></div>'
         +'<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Re-run setup wizard</button></div></div>';
+      paintUsersPanel(); paintAuditPanel(); paintSecurityPanel();
     });
+  });
+}
+
+/* ---------- Settings panels over the EP-03 backend (UI_SPEC §2.7) ---------- */
+function paintUsersPanel(){
+  call("listUsers",[],function(users){
+    var el=$("usersBody"); if(!el) return;
+    if(users && users.denied){ $("usersPanel").hidden=true; return; }   // not the owner
+    if(!Array.isArray(users)){ el.textContent=(users&&users.error)||"unavailable"; return; }
+    var rows=users.map(function(u){
+      var roleSel='<select onchange="changeRole(\''+esc(u.username)+'\', this.value, this)">'
+        +["owner","operator","installer"].map(function(r){return '<option'+(u.role===r?" selected":"")+'>'+r+'</option>';}).join("")+'</select>';
+      return '<div class="row" style="gap:12px;padding:7px 0;border-bottom:1px solid var(--c-border)">'
+        +'<b class="mono" style="min-width:120px">'+esc(u.username)+'</b>'+roleSel
+        +'<span class="sub" style="font-size:11px">'+(u.last_login?("last sign-in "+esc(u.last_login)):"never signed in")+'</span>'
+        +'<span style="flex:1"></span>'
+        +'<button class="btn ghost sm" onclick="dropUser(\''+esc(u.username)+'\', this)">remove</button></div>';
+    }).join("");
+    el.innerHTML = rows
+      +'<div class="row" style="gap:8px;margin-top:11px"><input id="nuName" placeholder="username" style="width:130px">'
+      +'<input id="nuPass" type="password" placeholder="temporary password" style="width:170px">'
+      +'<select id="nuRole"><option>operator</option><option>installer</option><option>owner</option></select>'
+      +'<button class="btn sm" onclick="addUserRow(this)">Add user</button><span id="nuMsg" class="sub" style="font-size:12px"></span></div>'
+      +'<div class="sub" style="font-size:11px;margin-top:7px">New users must change the password on first sign-in. Every change here lands in the audit trail.</div>';
+  });
+}
+function addUserRow(btn){
+  var u=$("nuName").value.trim(), p=$("nuPass").value, r=$("nuRole").value, msg=$("nuMsg");
+  if(!u||!p){ if(msg) msg.textContent="name and password required"; return; }
+  btn.disabled=true;
+  call("addUser",[u,p,r],function(res){ btn.disabled=false;
+    if(res&&res.error){ if(msg) msg.textContent=res.error; return; }
+    paintUsersPanel(); });
+}
+function changeRole(username, role, sel){
+  sel.disabled=true;
+  call("setUserRole",[username, role],function(res){ sel.disabled=false;
+    if(res&&res.error){ alert(res.error); paintUsersPanel(); } });
+}
+function dropUser(username, btn){
+  if(!confirm("Remove "+username+"? Their sessions end immediately.")) return;
+  btn.disabled=true;
+  call("removeUser",[username],function(res){
+    if(res&&res.error){ alert(res.error); btn.disabled=false; return; }
+    paintUsersPanel(); });
+}
+function paintAuditPanel(){
+  call("auditVerify",[],function(v){
+    var el=$("auditBody"); if(!el) return;
+    if(v && v.denied){ $("auditPanel").hidden=true; return; }
+    var chain = v && v.ok
+      ? '<span style="color:var(--c-live)">✓ hash chain intact — '+(v.entries!=null?v.entries+" entries, ":"")+'nothing altered or deleted</span>'
+      : '<span style="color:var(--sev-crit)">✕ chain verification FAILED'+(v&&v.error?": "+esc(v.error):"")+' — treat this log as tampered</span>';
+    call("auditEntries",[40],function(rows){
+      var table = Array.isArray(rows)&&rows.length ? '<table class="audittbl"><tr><th>time</th><th>who</th><th>action</th><th>target</th></tr>'
+        + rows.map(function(e){
+            return '<tr><td class="mono">'+esc((e.iso||"").replace("T"," "))+'</td><td class="mono">'+esc(e.actor||"")+'</td>'
+              +'<td>'+esc(e.action||"")+'</td><td class="mono">'+esc(e.target||"")+'</td></tr>'; }).join("")+'</table>'
+        : '<div class="mut" style="margin-top:6px">No entries yet.</div>';
+      el.innerHTML = '<div style="font-size:12px">'+chain+'</div>'
+        +'<div style="max-height:260px;overflow:auto;margin-top:9px">'+table+'</div>'
+        +'<div class="row" style="margin-top:10px;gap:10px"><button class="btn ghost sm" onclick="exportAudit(this)">Export full log</button>'
+        +'<span id="auditMsg" class="sub" style="font-size:12px">append-only — every consequential action, including reads of this panel</span></div>';
+    });
+  });
+}
+function exportAudit(btn){
+  btn.disabled=true;
+  call("auditExport",[],function(r){ btn.disabled=false; var m=$("auditMsg");
+    if(m) m.textContent = r&&r.ok? ("written to "+r.path) : ((r&&r.error)||"export failed"); });
+}
+function paintSecurityPanel(){
+  call("diskEncryption",[],function(d){
+    var el=$("secBody"); if(!el) return;
+    if(d && d.denied){ $("secPanel").hidden=true; return; }
+    var ok = d && d.encrypted;
+    el.innerHTML = '<div class="row" style="gap:9px"><span class="dot" style="background:'+(ok?"var(--c-live)":"var(--sev-crit)")+'"></span>'
+      +'<b>'+(ok?"Disk encryption is on":"Disk is NOT encrypted")+'</b></div>'
+      +'<p class="mut" style="font-size:12px;margin:7px 0 0;line-height:1.5">'+esc((d&&d.message)||"Encryption state could not be determined.")+'</p>';
   });
 }
 /* Live counters from the running engine. Absent when it isn't running — an
