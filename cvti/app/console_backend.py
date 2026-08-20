@@ -603,6 +603,14 @@ class ConsoleBackend:
         """
         status = vlm.gate_status(model)
         status["engine"] = self._gate_health()
+        # Whether an Ollama binary ships inside this app: the UI's "offline"
+        # advice differs — "click Download" beats "go install ollama.com".
+        try:
+            from cvti.verification import ollama as _ollama
+            status["runtime_bundled"] = _ollama.ollama_binary() is not None
+        except Exception:  # noqa: BLE001
+            log.debug("could not resolve a local ollama binary", exc_info=True)
+            status["runtime_bundled"] = False
         return status
 
     def _gate_health(self) -> dict:
@@ -619,6 +627,15 @@ class ConsoleBackend:
         return health
 
     def pull_model(self, model: str = vlm.DEFAULT_MODEL) -> dict:
+        # The user clicked Download: if no server is answering, start the
+        # bundled/installed one now so the pull has somewhere to go. Ollama's
+        # pull resumes partial downloads natively, so a killed 3 GB download
+        # continues instead of restarting.
+        try:
+            from cvti.verification import ollama as _ollama
+            _ollama.ensure_server()
+        except Exception:  # noqa: BLE001
+            log.warning("could not start the local VLM server", exc_info=True)
         return vlm.start_pull(model)
 
     def pull_progress(self, model: str = vlm.DEFAULT_MODEL) -> dict:
@@ -699,7 +716,25 @@ class ConsoleBackend:
     # --- monitoring engine (Start/Stop) ---
     # Launches the full detection pipeline (YOLO + VideoMAE + Gemma gate) as a
     # subprocess pointed at this site, writing confirmed alerts into events.db.
-    # Runs from-source / dev env (needs torch etc.); not from the lean app bundle.
+    # In dev that is `python -m cvti.serving.pipeline`; in the installed app it
+    # is the argus-engine executable shipped INSIDE the bundle (EP-05-T1) — the
+    # installer that "cannot detect anything on its own" is exactly what the
+    # audit said we must stop shipping.
+    @staticmethod
+    def _bundled_engine() -> "Path | None":
+        """The engine executable next to this app's own, if we're a bundle."""
+        if not getattr(sys, "frozen", False):
+            return None
+        exe = "argus-engine.exe" if sys.platform == "win32" else "argus-engine"
+        candidate = Path(sys.executable).parent / exe
+        return candidate if candidate.exists() else None
+
+    def _engine_command(self) -> list:
+        engine = self._bundled_engine()
+        if engine is not None:
+            return [str(engine)]
+        return [sys.executable, "-m", "cvti.serving.pipeline"]
+
     def _spawn_engine(self) -> "subprocess.Popen":
         out_dir = Path(self.db_path).parent
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -707,21 +742,37 @@ class ConsoleBackend:
         log_file = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
         # Lean defaults keep the box cool: lower fps + image size cut compute a lot
         # with negligible quality loss at demo scale.
-        cmd = [sys.executable, "-m", "cvti.serving.pipeline",
+        # The gate needs the local Ollama server; in the bundled app nobody has
+        # run `ollama serve` in a terminal — that is the point — so bring up the
+        # bundled runtime if nothing is answering. Best-effort: if it still is
+        # not up, the gate stays fail-visible and alerts arrive UNVERIFIED.
+        try:
+            from cvti.verification import ollama as _ollama
+            _ollama.ensure_server()
+        except Exception:  # noqa: BLE001 - engine start must not die on this
+            log.warning("could not ensure the local VLM server", exc_info=True)
+        cmd = self._engine_command() + [
                "--site-config", self.site_path,
                "--gate-provider", "ollama", "--gate-model", "gemma3:4b",
                "--notify", notify, "--output-dir", str(out_dir),
                "--target-fps", "4", "--imgsz", "512",
                "--seconds", "100000", "--gate-drain", "60"]
-        return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT)
+        kwargs = {}
+        if sys.platform == "win32":
+            # The engine is a console-mode exe; from the windowed app that would
+            # flash a terminal at the user. Same flag is a no-op run from a shell.
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, **kwargs)
 
     def start_monitoring(self) -> dict:
         # A packaged app has no engine (torch/Ollama) inside it — it's a playback
         # demo. Don't try to spawn; the recorded alerts are already shown.
         self._require(perms.CONTROL_ENGINE)
-        if getattr(sys, "frozen", False):
+        if getattr(sys, "frozen", False) and self._bundled_engine() is None:
+            # A lean viewer-only build (no engine inside). The full installer
+            # ships argus-engine and never takes this branch.
             return {"running": False, "demo": True,
-                    "note": "Playback demo — alerts are pre-recorded. Run from source for live monitoring."}
+                    "note": "Playback demo — alerts are pre-recorded. This build has no detection engine inside."}
         if self._monitor and self._monitor.poll() is None:
             return {"running": True, "pid": self._monitor.pid, "already": True}
         self._monitor_should_run = True

@@ -1,4 +1,4 @@
-name: Build CVTI Console (desktop app)
+name: Build Argus (desktop app)
 
 # Builds the operator desktop app for macOS, Windows, and Linux. PyInstaller
 # can't cross-compile, so each OS builds its own artifact on its own runner.
@@ -71,11 +71,11 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact: cvti-console-macos
+            artifact: argus-macos
           - os: windows-latest
-            artifact: cvti-console-windows
+            artifact: argus-windows
           - os: ubuntu-latest
-            artifact: cvti-console-linux
+            artifact: argus-linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -94,9 +94,25 @@ jobs:
             libasound2t64 libxtst6 libxi6 libdrm2 libgbm1
 
       - name: Install build deps
+        # The bundle now contains the ENGINE (EP-05-T1), so the build needs the
+        # full detection stack — CPU torch keeps the wheels (and the installer)
+        # a fraction of the CUDA size. GPU acceleration inside the bundle is a
+        # deliberate non-goal at this stage: same behavior on every machine.
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller PyQt6 PyQt6-WebEngine opencv-python-headless numpy
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchvision==0.23.0
+          pip install -r requirements.txt
+          pip uninstall -y opencv-python
+          pip install pyinstaller PyQt6 PyQt6-WebEngine "opencv-python-headless==4.13.0.92"
+
+      # Ship the AI runtime inside the bundle. Best-effort on Linux (zstd
+      # availability varies); the mac/windows installers must carry it.
+      - name: Fetch Ollama runtime (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: bash scripts/fetch_ollama.sh || [ "$RUNNER_OS" = "Linux" ]
+      - name: Fetch Ollama runtime (Windows)
+        if: runner.os == 'Windows'
+        run: scripts\fetch_ollama.bat
 
       - name: Build (macOS -> .app + .dmg)
         if: runner.os == 'macOS'
@@ -106,10 +122,23 @@ jobs:
         if: runner.os != 'macOS'
         run: python packaging/build.py --clean
 
+      # The one test that counts, approximated in CI: the runner never had the
+      # repo's venv on PATH for the bundle — argus-engine must come up on its
+      # own (imports torch/ultralytics from INSIDE the bundle, prints usage).
+      - name: Smoke-run the bundled engine (macOS)
+        if: runner.os == 'macOS'
+        run: "dist/Argus.app/Contents/MacOS/argus-engine --help"
+      - name: Smoke-run the bundled engine (Linux)
+        if: runner.os == 'Linux'
+        run: "dist/Argus/argus-engine --help"
+      - name: Smoke-run the bundled engine (Windows)
+        if: runner.os == 'Windows'
+        run: dist/Argus/argus-engine.exe --help
+
       # macOS ships the .dmg directly; the other two ship a zipped onedir.
       - name: Package artifact (macOS)
         if: runner.os == 'macOS'
-        run: cp "dist/CVTI-Console.dmg" "${{ matrix.artifact }}.dmg"
+        run: cp "dist/Argus.dmg" "${{ matrix.artifact }}.dmg"
       - name: Package artifact (Linux)
         if: runner.os == 'Linux'
         run: cd dist && zip -r "../${{ matrix.artifact }}.zip" .

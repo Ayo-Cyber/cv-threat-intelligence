@@ -191,3 +191,14 @@ Tokens, type, components and copy voice are specified in
 Mockups live in the Claude Design project; this file records what was decided.
 If implementation forces a deviation, update this file in the same PR and say
 why — the spec must never drift behind the shipped UI.
+
+### Recorded changes
+
+- **2026-08-20 (EP-05-T1).** First-run "Local AI verification" step: when the
+  Ollama runtime ships inside the bundle (the installed product), the offline
+  state no longer sends the user to ollama.com — it shows **Start verifier**,
+  which brings up the bundled runtime and pulls the model with progress
+  (resume is native to the runtime). The install-Ollama copy remains only for
+  dev/source runs without a bundled runtime. Why: the epic's zero-terminal
+  acceptance — telling an installer to go install a dependency is the exact
+  wall EP-05 removes.

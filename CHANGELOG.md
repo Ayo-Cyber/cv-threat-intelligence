@@ -18,6 +18,17 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **One installer that contains the product** (EP-05-T1). The bundle now ships
+  BOTH executables — the operator console and `argus-engine`, the full
+  detection pipeline (YOLO + VideoMAE + the TrueSight gate) — plus the Ollama
+  runtime, so "Start monitoring" works on a machine with no Python and no
+  Ollama. The ~3.3 GB verifier model is the one thing not inside: it downloads
+  on first run, in-app, with progress, and an interrupted download resumes.
+  Replaces the viewer-only build the audit described as "installers that
+  cannot detect anything on their own" (USR-01). Artifacts, bundle and data
+  directory now say **Argus** (an existing CVTI data directory is migrated in
+  place, events and logs intact).
+
 - **Mobile response view** (EP-06-T3). One page served by the engine over the
   site's own network — no app, no cloud. Telegram alerts now deep-link straight
   to the specific alert; from the phone a guard sees the frames and the model's

@@ -1766,6 +1766,8 @@ function wizVlm(){
     action = wiz.pull&&wiz.pull.state==="pulling"
       ? '<div style="margin-top:14px"><div class="confbar" style="max-width:none"><div id="wzPullBar" style="width:'+(wiz.pull.percent||0)+'%;background:var(--c-accent)"></div></div><div id="wzPullDetail" class="mono sub" style="margin-top:6px;font-size:11px">'+esc(wiz.pull.detail||"")+' '+(wiz.pull.percent||0)+'%</div></div>'
       : '<button class="btn" style="margin-top:14px" onclick="wizPull()">Download model (3.3 GB)</button> <button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
+  else if(g.runtime_bundled){ dot="var(--sev-high)"; title="On-device AI isn't running yet"; detail="Argus ships its own AI runtime — nothing to install. Click Start and Argus will bring it up (and fetch the vision model on first run, ~3.3 GB with progress; an interrupted download resumes).";
+    action='<button class="btn" style="margin-top:14px" onclick="wizPull()">Start verifier</button> <button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
   else { dot="var(--sev-crit)"; title="Ollama isn't running"; detail="Argus uses Ollama to run the local AI. Start it (or install it from ollama.com), then recheck. You can continue without it — alerts just won't be AI-verified yet.";
     action='<button class="btn ghost" style="margin-top:14px" onclick="wizCheckGate()">Recheck</button>'; }
   return '<h2>Local AI verification</h2><p class="lead">A vision model runs on this machine and confirms each alert is real — this is what keeps false alarms out.</p>'
@@ -1819,7 +1821,7 @@ function sendTestAlert(btn){
 }
 function wizCheckGateStandalone(){ var el=$("sysGate"); if(el) el.textContent="Checking VLM gate…";
   call("gateStatus",[],function(g){ if(!el) return; if(g.error){el.textContent=g.error;return;}
-    var msg = g.mode==="live"?"● Live — TrueSight (on-device verification)":g.mode==="no-model"?"● Ollama up, model not installed — run setup to download":"● Ollama offline — gate falls back to mock";
+    var msg = g.mode==="live"?"● Live — TrueSight (on-device verification)":g.mode==="no-model"?"● Ollama up, model not installed — run setup to download":(g.runtime_bundled?"● On-device AI not running — it starts automatically with monitoring":"● Ollama offline — gate falls back to mock");
     el.textContent = msg; }); }
 
 /* ---------- offline / local-only proof (#9) ---------- */
