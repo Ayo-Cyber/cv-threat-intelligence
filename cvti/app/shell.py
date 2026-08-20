@@ -28,7 +28,7 @@ def _web_index() -> Path:
     """Locate web/index.html in dev AND in a PyInstaller bundle.
 
     Frozen builds unpack data under sys._MEIPASS (the assets ship at
-    cvti/app/web via packaging/cvti-console.spec); in dev it sits next to this
+    cvti/app/web via packaging/argus.spec); in dev it sits next to this
     file.
     """
     if getattr(sys, "frozen", False):
@@ -50,9 +50,22 @@ def _qwebchannel_js() -> str:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Argus operator console (desktop app).")
-    p.add_argument("--site-config", default="configs/site_live.json")
-    p.add_argument("--db", default="runs/site/events.db")
+    p.add_argument("--site-config", default=None)
+    p.add_argument("--db", default=None)
     args = p.parse_args()
+
+    # Dev keeps the repo-relative defaults. A frozen app is launched from
+    # Finder/Explorer with cwd '/', so relative paths would try to write into
+    # the filesystem root (and fail) — its site lives in the per-user data dir.
+    if getattr(sys, "frozen", False):
+        from cvti.utils import user_data_dir
+        site_dir = user_data_dir() / "site"
+        site_dir.mkdir(parents=True, exist_ok=True)
+        args.site_config = args.site_config or str(site_dir / "site.json")
+        args.db = args.db or str(site_dir / "events.db")
+    else:
+        args.site_config = args.site_config or "configs/site_live.json"
+        args.db = args.db or "runs/site/events.db"
 
     from cvti.logging_setup import setup_logging
     setup_logging(Path(args.db).parent, component="argus-app")

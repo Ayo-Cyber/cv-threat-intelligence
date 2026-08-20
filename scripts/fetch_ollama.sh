@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fetch the Ollama binary into vendor/ollama/<platform>/ so cvti.spec can bundle it.
-# Run this once before `pyinstaller cvti.spec`. The model itself is NOT downloaded
+# Fetch the Ollama binary into vendor/ollama/<platform>/ so packaging/argus.spec can bundle it.
+# Run this once before `python packaging/build.py`. The model itself is NOT downloaded
 # here — it pulls on the app's first run. (~120 MB runtime, not the ~3.3 GB model.)
 set -euo pipefail
 

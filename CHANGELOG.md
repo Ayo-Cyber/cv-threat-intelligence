@@ -18,6 +18,53 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **The decided design, shipped** (EP-09 · Sprint UI). Nine navigation items
+  collapse to three surfaces — Watch, Triage, Configure — with Value under an
+  Owner section and Settings behind a gear; every screen renders from the
+  signed-in role's permissions. Watch tells the truth per camera (link-state
+  rows, dashed NO SIGNAL offline tiles, a banner that says "Nothing is being
+  watched there") and per engine ("Engine not running", never silence).
+  Triage opens on the **Now screen**: one alert, evidence, why TrueSight
+  confirmed it, and one next action — "I'm on it" claims it in everyone's
+  sight; a quiet queue renders "All systems normal" so a watched night never
+  looks dead. Settings gains Users, the tamper-evident Audit trail, and disk
+  encryption status. UNVERIFIED alerts are dashed grey everywhere — never a
+  severity colour, never a confidence bar.
+
+- **Code signing and notarisation, ready to engage** (EP-05-T2). CI now
+  imports a Developer ID certificate, signs with the hardened runtime,
+  notarises and staples the dmg, and Authenticode-signs the Windows
+  executables — the moment the certificates exist as repo secrets. Until
+  then builds are unchanged and CI says "shipping UNSIGNED" out loud.
+  [docs/SIGNING.md](docs/SIGNING.md) records what to buy, where every key
+  lives, and how to recover each one (the bus-factor requirement).
+
+- **Cameras find themselves** (EP-05-T4). One tap sends an ONVIF WS-Discovery
+  probe and lists every camera that answers; manual RTSP entry stays as the
+  fallback. The connection test now speaks RTSP itself before letting OpenCV
+  near the stream, so every failure has a name and a fix: wrong credentials,
+  unreachable (with host:port), wrong stream path, or an unsupported codec
+  (named, with "switch the camera to H.264"). "Failed to open stream" is gone.
+
+- **First-run wizard with use-case templates and a self-test** (EP-05-T3).
+  Setup is now a guided seven-step flow ending in proof: pick what the site IS
+  (Retail / Warehouse-HSE / Office) and sensible detectors are preselected;
+  confirm them; then a self-test names every component's state in plain
+  English — which camera is unreachable and why, whether the verifier model is
+  downloaded, where alerts go — and "Send me a test alert" confirms delivery
+  end-to-end before the system is trusted with anything real.
+
+- **One installer that contains the product** (EP-05-T1). The bundle now ships
+  BOTH executables — the operator console and `argus-engine`, the full
+  detection pipeline (YOLO + VideoMAE + the TrueSight gate) — plus the Ollama
+  runtime, so "Start monitoring" works on a machine with no Python and no
+  Ollama. The ~3.3 GB verifier model is the one thing not inside: it downloads
+  on first run, in-app, with progress, and an interrupted download resumes.
+  Replaces the viewer-only build the audit described as "installers that
+  cannot detect anything on their own" (USR-01). Artifacts, bundle and data
+  directory now say **Argus** (an existing CVTI data directory is migrated in
+  place, events and logs intact).
+
 - **Two-tier alerting for critical threats** (EP-06-T4). Detection is ~163ms;
   the ~20s latency is entirely verification — right for theft, wrong for a
   weapon or a fire. Critical detectors now raise a **provisional alert

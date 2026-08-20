@@ -1,6 +1,6 @@
 @echo off
-REM Fetch the Ollama binary into vendor\ollama\windows\ so cvti.spec can bundle it.
-REM Run once before `pyinstaller cvti.spec`. Downloads the ~40 MB binary only;
+REM Fetch the Ollama binary into vendor\ollama\windows\ so packaging\argus.spec can bundle it.
+REM Run once before `python packaging\build.py`. Downloads the ~40 MB binary only;
 REM the ~3.3 GB model pulls on the app's first run.
 setlocal
 set REPO_ROOT=%~dp0..

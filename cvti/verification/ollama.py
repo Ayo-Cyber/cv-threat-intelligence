@@ -17,6 +17,7 @@ import shutil
 import stat
 import subprocess
 import sys
+from pathlib import Path
 from typing import Callable, Iterator
 from urllib import error as urlerror
 from urllib import request as urlrequest
@@ -118,8 +119,13 @@ def ollama_binary() -> str | None:
     return bundled_binary() or shutil.which("ollama")
 
 
-def start_server() -> bool:
-    """Best-effort launch of `ollama serve` in the background. True if spawned."""
+def start_server(models_dir: str | None = None) -> bool:
+    """Best-effort launch of `ollama serve` in the background. True if spawned.
+
+    `models_dir` sets OLLAMA_MODELS for the spawned server. The bundled app
+    passes its per-user data directory so the ~3 GB model lands somewhere
+    writable that survives app updates — never inside the .app itself.
+    """
     binary = ollama_binary()
     if not binary:
         return False
@@ -129,12 +135,46 @@ def start_server() -> bool:
         os.chmod(binary, current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     except OSError:
         pass
+    env = dict(os.environ)
+    if models_dir:
+        Path(models_dir).mkdir(parents=True, exist_ok=True)
+        env["OLLAMA_MODELS"] = str(models_dir)
     try:
         subprocess.Popen(
             [binary, "serve"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=env,
         )
         return True
     except OSError:
         return False
+
+
+def default_models_dir() -> str:
+    """Where the app keeps pulled models: per-user, writable, upgrade-proof."""
+    from cvti.utils import user_data_dir
+    return str(user_data_dir() / "ollama-models")
+
+
+def ensure_server(host: str = DEFAULT_HOST, wait: float = 12.0) -> bool:
+    """Make sure an Ollama server is answering; start ours if none is.
+
+    A server the user already runs (brew service, the Ollama app) is used
+    as-is — we never fight over the port or the model directory. Only when
+    nothing answers do we launch the bundled/PATH binary, and then we wait
+    for it to come up rather than reporting success on a spawn that dies.
+    """
+    if server_up(host):
+        return True
+    if not start_server(models_dir=default_models_dir()):
+        return False
+    import time
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if server_up(host, timeout=1.0):
+            log.info("bundled Ollama server is up")
+            return True
+        time.sleep(0.5)
+    log.warning("spawned ollama serve but it never answered within %.0fs", wait)
+    return False

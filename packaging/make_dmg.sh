@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Package dist/CVTI Console.app into a distributable .dmg (macOS only).
+# Package dist/Argus.app into a distributable .dmg (macOS only).
 #
 #   bash packaging/make_dmg.sh
 #
-# Produces dist/CVTI-Console.dmg — mount it, drag the app to Applications.
+# Produces dist/Argus.dmg — mount it, drag the app to Applications.
 # Uses hdiutil (built into macOS), so no extra tooling required.
 set -euo pipefail
 
-APP_NAME="CVTI Console"
-VOL_NAME="CVTI Console"
+APP_NAME="Argus"
+VOL_NAME="Argus"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 APP="$DIST/$APP_NAME.app"
-DMG="$DIST/CVTI-Console.dmg"
+DMG="$DIST/Argus.dmg"
 
 if [[ "$(uname)" != "Darwin" ]]; then
   echo "make_dmg.sh only runs on macOS." >&2; exit 1

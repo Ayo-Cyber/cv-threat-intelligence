@@ -25,6 +25,7 @@ from cvti.security import permissions as perms
 from cvti.security.accounts import AccountStore, AuthError
 from cvti.security.audit import AuditLog
 from cvti.serving import onboarding, vlm
+from cvti.utils import resource_path
 
 log = get_logger(__name__)
 
@@ -248,7 +249,31 @@ class ConsoleBackend:
         return {"cidr": onboarding.detect_subnet()}
 
     def test(self, url: str) -> dict:
+        """Stream test with a NAME for every failure (EP-05-T4).
+
+        For RTSP, a raw protocol probe first: it distinguishes unreachable /
+        wrong credentials / wrong path / unsupported codec — cv2 collapses all
+        four into "could not open". Only a passing probe pays for the cv2 open
+        that produces the preview snapshot."""
+        if str(url).startswith("rtsp"):
+            from cvti.serving import discovery
+            probe = discovery.probe_rtsp(url)
+            if not probe["ok"]:
+                return {"error": probe["message"], "kind": probe["kind"]}
+            out = onboarding.test_url(url)
+            if out.get("error"):
+                out.setdefault("kind", "open-failed")
+            else:
+                out["codec"] = probe.get("codec")
+            return out
         return onboarding.test_url(url)
+
+    def discover_cameras(self) -> dict:
+        """ONVIF WS-Discovery sweep of the local segment (EP-05-T4)."""
+        self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.serving import discovery
+        cams = discovery.discover()
+        return {"cameras": cams, "count": len(cams)}
 
     def add_camera(self, camera: dict) -> list[dict]:
         self._require(perms.CONFIGURE_CAMERAS)
@@ -274,6 +299,163 @@ class ConsoleBackend:
         "crowd_formation": {"crowd_min_people": 5, "crowd_min_frames": 3,
                             "crowd_max_cluster_ratio": 0.32},
     }
+
+    # --- first-run use-case templates (EP-05-T3) ---------------------------
+    # Where the CustomizationEngine's flags finally meet the interface: a
+    # non-technical installer picks what the site IS, not which of ten
+    # detectors to enable. Keys are RULE_FLAGS; anything absent is OFF.
+    USE_CASE_TEMPLATES = {
+        "retail": {
+            "label": "Retail / Store",
+            "blurb": "Shoplifting, concealment, weapons and fire — the shop-floor set.",
+            "detectors": {"concealment": True, "video_action": True, "theft": True,
+                          "weapons": True, "violence": True, "tamper": True,
+                          "fire_smoke": True},
+            "config": "configs/all_threats_video_v1.json",
+        },
+        "warehouse": {
+            "label": "Warehouse / HSE",
+            "blurb": "People down, fire, panic and crowding — safety first, theft off.",
+            "detectors": {"fall": True, "fire_smoke": True, "running": True,
+                          "crowd_formation": True, "tamper": True, "weapons": True},
+            "config": "configs/all_threats_v1.json",
+        },
+        "office": {
+            "label": "Office",
+            "blurb": "After-hours intrusion essentials: violence, weapons, fire, tamper.",
+            "detectors": {"violence": True, "weapons": True, "fire_smoke": True,
+                          "tamper": True},
+            "config": "configs/all_threats_v1.json",
+        },
+    }
+
+    def use_case_templates(self) -> dict:
+        """The three templates, detector labels resolved — read-only, any role."""
+        return {k: {"label": t["label"], "blurb": t["blurb"],
+                    "detectors": {f: bool(t["detectors"].get(f)) for f in self.RULE_FLAGS}}
+                for k, t in self.USE_CASE_TEMPLATES.items()}
+
+    def apply_template(self, key: str) -> dict:
+        """Apply a use-case template to EVERY configured camera.
+
+        Sets each RULE_FLAG explicitly (on or off) so switching templates is
+        deterministic, then lets set_camera_rules seed detector defaults for
+        anything newly enabled. Per-camera fine-tuning stays possible after —
+        the template is a starting point, not a lock.
+        """
+        self._require(perms.CONFIGURE_DETECTORS)
+        tpl = self.USE_CASE_TEMPLATES.get(key)
+        if tpl is None:
+            return {"error": f"unknown template '{key}'"}
+        rules = {f: bool(tpl["detectors"].get(f)) for f in self.RULE_FLAGS}
+        rules["config"] = tpl["config"]
+        cams = onboarding.list_cameras(self.site_path)
+        for cam in cams:
+            self.set_camera_rules(cam["id"], rules)
+        self.audit.record(self.current_user.username, "config_change",
+                          "site:template", detail={"template": key, "cameras": len(cams)})
+        return {"ok": True, "template": key, "cameras": len(cams),
+                "detectors_on": sorted(k for k, v in tpl["detectors"].items() if v)}
+
+    # --- setup self-test (EP-05-T3) -----------------------------------------
+    @staticmethod
+    def _probe_stream(source) -> tuple:
+        """(ok, detail) — fast reachability, never a blocking cv2 open.
+
+        A wrong-credentials RTSP URL still connects at the TCP layer; the full
+        stream test is the wizard's per-camera Test button. This check answers
+        the self-test's question — is anything answering at all — in <1s.
+        """
+        import socket
+        from urllib.parse import urlparse
+        src = str(source)
+        if src.isdigit():
+            return True, "built-in webcam"
+        if "://" not in src:
+            return (True, "video file on disk") if Path(src).exists()                 else (False, f"file not found: {src}")
+        u = urlparse(src)
+        port = u.port or {"rtsp": 554, "http": 80, "https": 443}.get(u.scheme, 554)
+        try:
+            with socket.create_connection((u.hostname, port), timeout=1.5):
+                return True, f"{u.hostname}:{port} answers"
+        except OSError as exc:
+            return False, f"{u.hostname}:{port} unreachable ({exc})"
+
+    def setup_check(self) -> list:
+        """Every component, verified, in plain English (EP-05-T3 acceptance:
+        'names exactly what is missing'). Each item: ok True/False/None(warn),
+        what was checked, what was found, and the one action that fixes it."""
+        checks = []
+
+        cams = [c for c in onboarding.list_cameras(self.site_path) if c.get("source")]
+        checks.append({"id": "cameras", "ok": bool(cams),
+                       "label": "Cameras configured",
+                       "detail": f"{len(cams)} camera(s) in the site config" if cams
+                       else "no cameras yet",
+                       "fix": None if cams else "Add a camera in the Cameras step."})
+
+        for c in cams[:8]:
+            ok, detail = self._probe_stream(c.get("source"))
+            checks.append({"id": f"stream:{c['id']}", "ok": ok,
+                           "label": f"Camera '{c['id']}' reachable",
+                           "detail": detail,
+                           "fix": None if ok else "Check the camera's power, network "
+                           "cable and IP address, then use Test on the Cameras step."})
+
+        g = self.gate_status()
+        if g.get("mode") == "live":
+            checks.append({"id": "verifier", "ok": True, "label": "AI verifier (TrueSight)",
+                           "detail": "running, model installed", "fix": None})
+        elif g.get("mode") == "no-model":
+            checks.append({"id": "verifier", "ok": False, "label": "AI verifier (TrueSight)",
+                           "detail": "runtime is up but the vision model is not downloaded",
+                           "fix": "Download the model in the Verification step (~3.3 GB, resumes)."})
+        else:
+            checks.append({"id": "verifier", "ok": False, "label": "AI verifier (TrueSight)",
+                           "detail": "not running",
+                           "fix": "Click Start verifier in the Verification step."
+                           if g.get("runtime_bundled")
+                           else "Install Ollama from ollama.com, then recheck."})
+
+        det = resource_path("models/yolov8n.pt")
+        checks.append({"id": "detector", "ok": det.exists(), "label": "Detection models",
+                       "detail": "YOLO weights present" if det.exists()
+                       else "models/yolov8n.pt is missing from this install",
+                       "fix": None if det.exists() else "Reinstall Argus — the bundle is incomplete."})
+        vm = resource_path("runs/video_finetune/videomae")
+        if not vm.exists():
+            checks.append({"id": "video_model", "ok": None, "label": "Video action model",
+                           "detail": "VideoMAE fine-tune not bundled — video theft "
+                           "detection will be off; everything else still runs",
+                           "fix": None})
+
+        meta = onboarding.get_site_meta(self.site_path)
+        notify = (meta.get("notify") or "console").strip()
+        if notify and notify != "console":
+            checks.append({"id": "notify", "ok": True, "label": "Notifications",
+                           "detail": f"alerts go to {notify}",
+                           "fix": "Confirm delivery with the test alert step."})
+        else:
+            checks.append({"id": "notify", "ok": None, "label": "Notifications",
+                           "detail": "alerts only appear inside the app (console)",
+                           "fix": "Pick WhatsApp/Telegram/webhook in Site settings "
+                           "to be reached when you're not at this screen."})
+
+        import shutil as _shutil
+        try:
+            du = _shutil.disk_usage(str(Path(self.db_path).parent))
+            pct = du.used * 100.0 / max(1, du.total)
+            free_gb = du.free / 1e9
+            low = free_gb < 5
+            checks.append({"id": "disk", "ok": (None if low else True) if free_gb >= 1 else False,
+                           "label": "Disk space for evidence",
+                           "detail": f"{free_gb:.0f} GB free ({pct:.0f}% used)",
+                           "fix": "Free some space — evidence recording needs room."
+                           if low else None})
+        except OSError:
+            checks.append({"id": "disk", "ok": None, "label": "Disk space for evidence",
+                           "detail": "could not be measured", "fix": None})
+        return checks
 
     def set_camera_rules(self, camera_id: str, rules: dict) -> dict:
         """Update which threat detectors run on a camera (+ optional rule preset).
@@ -603,6 +785,14 @@ class ConsoleBackend:
         """
         status = vlm.gate_status(model)
         status["engine"] = self._gate_health()
+        # Whether an Ollama binary ships inside this app: the UI's "offline"
+        # advice differs — "click Download" beats "go install ollama.com".
+        try:
+            from cvti.verification import ollama as _ollama
+            status["runtime_bundled"] = _ollama.ollama_binary() is not None
+        except Exception:  # noqa: BLE001
+            log.debug("could not resolve a local ollama binary", exc_info=True)
+            status["runtime_bundled"] = False
         return status
 
     def _gate_health(self) -> dict:
@@ -619,6 +809,15 @@ class ConsoleBackend:
         return health
 
     def pull_model(self, model: str = vlm.DEFAULT_MODEL) -> dict:
+        # The user clicked Download: if no server is answering, start the
+        # bundled/installed one now so the pull has somewhere to go. Ollama's
+        # pull resumes partial downloads natively, so a killed 3 GB download
+        # continues instead of restarting.
+        try:
+            from cvti.verification import ollama as _ollama
+            _ollama.ensure_server()
+        except Exception:  # noqa: BLE001
+            log.warning("could not start the local VLM server", exc_info=True)
         return vlm.start_pull(model)
 
     def pull_progress(self, model: str = vlm.DEFAULT_MODEL) -> dict:
@@ -699,7 +898,25 @@ class ConsoleBackend:
     # --- monitoring engine (Start/Stop) ---
     # Launches the full detection pipeline (YOLO + VideoMAE + Gemma gate) as a
     # subprocess pointed at this site, writing confirmed alerts into events.db.
-    # Runs from-source / dev env (needs torch etc.); not from the lean app bundle.
+    # In dev that is `python -m cvti.serving.pipeline`; in the installed app it
+    # is the argus-engine executable shipped INSIDE the bundle (EP-05-T1) — the
+    # installer that "cannot detect anything on its own" is exactly what the
+    # audit said we must stop shipping.
+    @staticmethod
+    def _bundled_engine() -> "Path | None":
+        """The engine executable next to this app's own, if we're a bundle."""
+        if not getattr(sys, "frozen", False):
+            return None
+        exe = "argus-engine.exe" if sys.platform == "win32" else "argus-engine"
+        candidate = Path(sys.executable).parent / exe
+        return candidate if candidate.exists() else None
+
+    def _engine_command(self) -> list:
+        engine = self._bundled_engine()
+        if engine is not None:
+            return [str(engine)]
+        return [sys.executable, "-m", "cvti.serving.pipeline"]
+
     def _spawn_engine(self) -> "subprocess.Popen":
         out_dir = Path(self.db_path).parent
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -707,21 +924,37 @@ class ConsoleBackend:
         log_file = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
         # Lean defaults keep the box cool: lower fps + image size cut compute a lot
         # with negligible quality loss at demo scale.
-        cmd = [sys.executable, "-m", "cvti.serving.pipeline",
+        # The gate needs the local Ollama server; in the bundled app nobody has
+        # run `ollama serve` in a terminal — that is the point — so bring up the
+        # bundled runtime if nothing is answering. Best-effort: if it still is
+        # not up, the gate stays fail-visible and alerts arrive UNVERIFIED.
+        try:
+            from cvti.verification import ollama as _ollama
+            _ollama.ensure_server()
+        except Exception:  # noqa: BLE001 - engine start must not die on this
+            log.warning("could not ensure the local VLM server", exc_info=True)
+        cmd = self._engine_command() + [
                "--site-config", self.site_path,
                "--gate-provider", "ollama", "--gate-model", "gemma3:4b",
                "--notify", notify, "--output-dir", str(out_dir),
                "--target-fps", "4", "--imgsz", "512",
                "--seconds", "100000", "--gate-drain", "60"]
-        return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT)
+        kwargs = {}
+        if sys.platform == "win32":
+            # The engine is a console-mode exe; from the windowed app that would
+            # flash a terminal at the user. Same flag is a no-op run from a shell.
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, **kwargs)
 
     def start_monitoring(self) -> dict:
         # A packaged app has no engine (torch/Ollama) inside it — it's a playback
         # demo. Don't try to spawn; the recorded alerts are already shown.
         self._require(perms.CONTROL_ENGINE)
-        if getattr(sys, "frozen", False):
+        if getattr(sys, "frozen", False) and self._bundled_engine() is None:
+            # A lean viewer-only build (no engine inside). The full installer
+            # ships argus-engine and never takes this branch.
             return {"running": False, "demo": True,
-                    "note": "Playback demo — alerts are pre-recorded. Run from source for live monitoring."}
+                    "note": "Playback demo — alerts are pre-recorded. This build has no detection engine inside."}
         if self._monitor and self._monitor.poll() is None:
             return {"running": True, "pid": self._monitor.pid, "already": True}
         self._monitor_should_run = True

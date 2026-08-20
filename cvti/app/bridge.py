@@ -72,6 +72,22 @@ class Backend(QObject):
     def presets(self) -> str:
         return self._safe(self._core.presets)
 
+    @pyqtSlot(result=str)
+    def useCaseTemplates(self) -> str:
+        return self._safe(self._core.use_case_templates)
+
+    @pyqtSlot(str, result=str)
+    def applyTemplate(self, key: str) -> str:
+        return self._safe(lambda: self._core.apply_template(key))
+
+    @pyqtSlot(result=str)
+    def setupCheck(self) -> str:
+        return self._safe(self._core.setup_check)
+
+    @pyqtSlot(result=str)
+    def discoverCameras(self) -> str:
+        return self._safe(self._core.discover_cameras)
+
     @pyqtSlot(str, str, result=str)
     def setCameraRules(self, camera_id: str, rules_json: str) -> str:
         return self._safe(lambda: self._core.set_camera_rules(camera_id, json.loads(rules_json)))

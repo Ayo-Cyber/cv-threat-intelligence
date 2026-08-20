@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Build the CVTI Console desktop app for the CURRENT operating system.
+"""Build the Argus desktop bundle (console + engine) for the CURRENT OS.
 
     python packaging/build.py            # build for this OS
     python packaging/build.py --clean    # wipe build/ and dist/ first
 
 PyInstaller cannot cross-compile, so this only ever produces an artifact for the
 OS it runs on:
-    macOS   -> dist/CVTI Console.app
-    Windows -> dist/CVTI Console/CVTI Console.exe
-    Linux   -> dist/CVTI Console/CVTI Console
+    macOS   -> dist/Argus.app
+    Windows -> dist/Argus/Argus.exe
+    Linux   -> dist/Argus/Argus
 
 To get all three from one commit, push and let the GitHub Actions matrix build
 them (.github/workflows/build-app.yml).
@@ -22,14 +22,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = ROOT / "packaging" / "cvti-console.spec"
+SPEC = ROOT / "packaging" / "argus.spec"
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--clean", action="store_true", help="Remove build/ and dist/ first.")
     ap.add_argument("--dmg", action="store_true",
-                    help="macOS only: also package the .app into dist/CVTI-Console.dmg.")
+                    help="macOS only: also package the .app into dist/Argus.dmg.")
     args = ap.parse_args()
 
     try:
@@ -52,6 +52,15 @@ def main() -> int:
         if rc != 0:
             print("(no demo_data assembled — bundling app without playback demo)")
 
+    # The AI runtime rides inside the bundle only if it has been fetched.
+    # Not fatal — a build without it still works, the app just directs the
+    # user to install Ollama — but a RELEASE build should never skip this.
+    import platform
+    plat = {"win32": "windows", "darwin": "darwin"}.get(sys.platform, "linux")
+    if not (ROOT / "vendor" / "ollama" / plat).is_dir():
+        print("NOTE: vendor/ollama/%s missing — run scripts/fetch_ollama.%s first "
+              "to ship the AI runtime inside the bundle." % (plat, "bat" if plat == "windows" else "sh"))
+
     cmd = [sys.executable, "-m", "PyInstaller", str(SPEC), "--noconfirm",
            "--distpath", str(ROOT / "dist"), "--workpath", str(ROOT / "build")]
     print("running:", " ".join(cmd))
@@ -62,11 +71,11 @@ def main() -> int:
 
     dist = ROOT / "dist"
     if sys.platform == "darwin":
-        art = dist / "CVTI Console.app"
+        art = dist / "Argus.app"
     elif sys.platform.startswith("win"):
-        art = dist / "CVTI Console" / "CVTI Console.exe"
+        art = dist / "Argus" / "Argus.exe"
     else:
-        art = dist / "CVTI Console" / "CVTI Console"
+        art = dist / "Argus" / "Argus"
     print(f"\nbuild OK -> {art}" if art.exists() else f"\nbuild finished but artifact missing: {art}")
 
     if args.dmg:

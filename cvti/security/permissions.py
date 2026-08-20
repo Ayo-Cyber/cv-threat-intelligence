@@ -61,10 +61,12 @@ _GRANTS: dict[str, frozenset] = {
 }
 
 # Where each role lands, because the first screen should be the one they came for.
+# Where each role lands after sign-in (UI_SPEC §1.2): owners and operators
+# live in Triage; installers live in Watch.
 LANDING: dict[str, str] = {
-    OWNER: "alerts",
-    OPERATOR: "alerts",
-    INSTALLER: "cameras",
+    OWNER: "triage",
+    OPERATOR: "triage",
+    INSTALLER: "watch",
 }
 
 
@@ -95,7 +97,7 @@ def require(role: str | None, permission: str) -> None:
 
 
 def landing_for(role: str) -> str:
-    return LANDING.get(role, "alerts")
+    return LANDING.get(role, "triage")
 
 
 def describe() -> dict:

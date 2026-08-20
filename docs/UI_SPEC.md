@@ -191,3 +191,43 @@ Tokens, type, components and copy voice are specified in
 Mockups live in the Claude Design project; this file records what was decided.
 If implementation forces a deviation, update this file in the same PR and say
 why — the spec must never drift behind the shipped UI.
+
+### Recorded changes
+
+- **2026-08-20 (EP-09, Sprint UI).** The shell itself now implements §1: nav is
+  Watch / Triage / Configure + an Owner section (Value) + Settings behind a
+  gear; legacy route names remap to surface tabs; landing is Triage for
+  owner/operator, Watch for installer. §2.2: link-state rows under tiles,
+  dashed dimmed NO SIGNAL offline tiles, the offline consequence banner, and
+  the engine truth line. §2.3 phase 2: the Now screen is Triage's default tab
+  (the list survives as "All alerts"); a claimed alert stays with its claimant
+  until resolved. §2.7 panels and the §2.6 sweep (UNVERIFIED dashed-grey in
+  list, detail and Now; no confidence bar where nothing scored). Two wording
+  deviations, both because the spec's copy would have overstated what we
+  measure: the footer liveness line reads "N of M cameras live" (per-frame
+  freshness is not published outside the engine), and the shift strip reads
+  "Last 24 h: N shown · M filtered out" (the backend aggregates by day, and
+  claiming "since your shift began" would lie about the window).
+
+- **2026-08-20 (EP-05-T4).** Cameras step gains **Find cameras (ONVIF)** above
+  the subnet scan — one tap lists cameras that announce themselves; tapping a
+  result fills the address field (manual entry and vendor paths remain the
+  fallback). The **Test** button's failures are now named and actionable —
+  wrong credentials / unreachable (host:port) / wrong stream path / unsupported
+  codec — each with its own fix line; "failed to open stream" no longer exists.
+- **2026-08-20 (EP-05-T3).** First-run wizard extended from four steps to the
+  epic's seven-step guided flow: credentials (the auth gate, before the wizard)
+  → add camera → verify feed (Test button) → **draw zones** → **use-case
+  template** (Retail / Warehouse-HSE / Office cards; picking one preselects
+  detectors and rules) → **confirm detectors** (grouped toggles, applied to
+  every camera) → verification → **send a test alert**. The finish screen now
+  runs a **self-test** listing every component ✓/✕/⚠ with a plain-English fix
+  line per failure. Extends §2.2's first-run scope; state colours follow §2.6.
+- **2026-08-20 (EP-05-T1).** First-run "Local AI verification" step: when the
+  Ollama runtime ships inside the bundle (the installed product), the offline
+  state no longer sends the user to ollama.com — it shows **Start verifier**,
+  which brings up the bundled runtime and pulls the model with progress
+  (resume is native to the runtime). The install-Ollama copy remains only for
+  dev/source runs without a bundled runtime. Why: the epic's zero-terminal
+  acceptance — telling an installer to go install a dependency is the exact
+  wall EP-05 removes.

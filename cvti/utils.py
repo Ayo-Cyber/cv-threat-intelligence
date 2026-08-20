@@ -23,13 +23,28 @@ def resource_path(relative: str) -> Path:
 
 
 def user_data_dir() -> Path:
-    """Writable per-user directory for CVTI data (configs, logs, etc.)."""
+    """Writable per-user directory for Argus data (configs, logs, events).
+
+    The product is Argus; the directory used to say CVTI (the repo's working
+    name). Renaming without migrating would silently orphan every existing
+    site's events.db and logs, so the first call after an upgrade moves the
+    old directory into place — a same-volume rename, atomic enough that a
+    concurrently spawned engine sees either the old path or the new one,
+    never a half-copy.
+    """
     if sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support" / "CVTI"
+        support = Path.home() / "Library" / "Application Support"
+        base, legacy = support / "Argus", support / "CVTI"
     elif sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA", str(Path.home()))) / "CVTI"
+        appdata = Path(os.environ.get("APPDATA", str(Path.home())))
+        base, legacy = appdata / "Argus", appdata / "CVTI"
     else:
-        base = Path.home() / ".cvti"
+        base, legacy = Path.home() / ".argus", Path.home() / ".cvti"
+    if not base.exists() and legacy.is_dir():
+        try:
+            legacy.rename(base)
+        except OSError:
+            pass          # e.g. the other process won the race — base now exists
     base.mkdir(parents=True, exist_ok=True)
     return base
 
