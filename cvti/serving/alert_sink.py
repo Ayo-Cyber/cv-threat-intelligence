@@ -235,7 +235,9 @@ CREATE TABLE IF NOT EXISTS events (
     acknowledged_at REAL,
     resolved_at REAL,
     outcome TEXT,                  -- real | false_alarm | inconclusive
-    note TEXT                      -- free text captured at resolution
+    note TEXT,                     -- free text captured at resolution
+    provisional INTEGER DEFAULT 0, -- 1 = shown before verification (critical tier)
+    retracted INTEGER DEFAULT 0    -- 1 = provisional later verified as NOT a threat
 );
 
 -- What the gate threw away, per day. Only confirmed alerts become rows in
@@ -281,7 +283,9 @@ class AlertSink:
         for _col, _type in (("unverified", "INTEGER DEFAULT 0"), ("gate_error", "TEXT"),
                             ("legal_hold", "INTEGER DEFAULT 0"), ("state", "TEXT"),
                             ("owner", "TEXT"), ("acknowledged_at", "REAL"),
-                            ("resolved_at", "REAL"), ("outcome", "TEXT"), ("note", "TEXT")):
+                            ("resolved_at", "REAL"), ("outcome", "TEXT"), ("note", "TEXT"),
+                            ("provisional", "INTEGER DEFAULT 0"),
+                            ("retracted", "INTEGER DEFAULT 0")):
             try:
                 self._db.execute(f"ALTER TABLE events ADD COLUMN {_col} {_type}")
             except sqlite3.OperationalError:
@@ -308,6 +312,13 @@ class AlertSink:
         # When the mobile response view is up, every notification carries a
         # deep-link so the phone that receives the alert can also act on it.
         self.mobile_base = ""
+        # Latency per priority tier (detection -> the operator could see it),
+        # and detection -> provisional for the critical fast path. Published in
+        # /health: "we alert critical threats in under a second" is a claim
+        # that has to carry its measurement.
+        from collections import deque
+        self._tier_latency: dict = {}
+        self._provisional_latency = deque(maxlen=50)
         self._calib_path = self.root / "calibration.json"
         self._calib_mtime = 0.0
         self.calibration = Calibration()
@@ -347,8 +358,143 @@ class AlertSink:
             if demoted:
                 log.info(f"[calibration] loaded — demoting (no page): {', '.join(demoted)}")
 
+    # --- two-tier critical alerting (EP-06-T4) -----------------------------
+    def provisional(self, alert: Any) -> int | None:
+        """Persist + notify a critical candidate IMMEDIATELY, before the gate.
+
+        Detection is ~163ms; the 20s latency is entirely verification. For
+        theft that trade is right; for a weapon or a fire it is not. The
+        operator gets a provisional warning in under a second, and the verdict
+        updates this same row ~20s later — confirmation, or an explicit
+        retraction. Never silence.
+        """
+        ts = time.time()
+        payload = alert.payload or {}
+        try:
+            with self._lock:
+                cur = self._db.execute(
+                    "INSERT INTO events (ts, iso, camera_id, rule, priority, "
+                    "confidence, reason, track_id, zone, object_label, provisional, "
+                    "unverified) VALUES (?,?,?,?,?,?,?,?,?,?,1,1)",
+                    (ts, time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ts)),
+                     alert.camera_id, alert.rule_name, alert.priority, 0.0,
+                     "PROVISIONAL — the detector fired; verification is in "
+                     "progress. Treat as unconfirmed.",
+                     alert.track_id, alert.zone, alert.object_label))
+                event_id = cur.lastrowid
+                self._db.commit()
+        except Exception:  # noqa: BLE001 - the fast path must never kill detection
+            log.error("provisional persist failed", exc_info=True)
+            return None
+        enq = payload.get("enqueued_at")
+        if isinstance(enq, (int, float)):
+            self._provisional_latency.append(ts - enq)
+        event = {"ts": ts, "iso": time.strftime("%Y-%m-%dT%H:%M:%S"), "id": event_id,
+                 "camera_id": alert.camera_id, "rule": alert.rule_name,
+                 "priority": alert.priority, "confidence": 0.0, "zone": alert.zone,
+                 "track_id": alert.track_id, "object_label": alert.object_label,
+                 "reason": "⚠️ PROVISIONAL (unconfirmed) — verification in progress, "
+                           "verdict follows in ~20s.",
+                 "evidence_dir": None}
+        if self.mobile_base:
+            event["link"] = f"{self.mobile_base}/alert/{event_id}"
+        self._dispatch(event, event_id)
+        log.warning("[PROVISIONAL] %s :: %s (%s) — shown unverified, verdict pending",
+                    alert.camera_id, alert.rule_name, alert.priority.upper())
+        return event_id
+
+    def _settle_provisional(self, event_id: int, alert: Any, result: Any) -> None:
+        """The verdict arrives: update the provisional row IN PLACE."""
+        ts = time.time()
+        payload = alert.payload or {}
+        enq = payload.get("enqueued_at")
+        latency = round(ts - enq, 2) if isinstance(enq, (int, float)) else None
+        errored = bool(getattr(result, "errored", False))
+        if result.confirmed or errored:
+            # Confirmed (or fail-visible unverified): the provisional was right
+            # to show. Evidence is written now, exactly as a normal confirm.
+            ev_dir = None
+            frames = payload.get("frames") or []
+            if self.save_evidence and frames:
+                stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(ts))
+                ev_dir = self.events_dir / f"{stamp}_{alert.camera_id}_{alert.rule_name}"
+                ev_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    self._write_evidence(ev_dir, payload)
+                except Exception:  # noqa: BLE001
+                    log.error("evidence write failed for provisional %s", event_id,
+                              exc_info=True)
+            with self._lock:
+                self._db.execute(
+                    "UPDATE events SET provisional = 0, confidence = ?, reason = ?, "
+                    "unverified = ?, gate_error = ?, latency_s = ?, evidence_dir = ? "
+                    "WHERE id = ?",
+                    (float(result.confidence), result.reason,
+                     1 if errored else 0, getattr(result, "error", "") or None,
+                     latency, str(ev_dir) if ev_dir else None, event_id))
+                self._db.commit()
+            self.persisted += 1
+            self._note_latency(alert.priority, latency)
+            verdict = "UNVERIFIED — review manually" if errored else "CONFIRMED"
+            event = {"ts": ts, "iso": time.strftime("%Y-%m-%dT%H:%M:%S"), "id": event_id,
+                     "camera_id": alert.camera_id, "rule": alert.rule_name,
+                     "priority": alert.priority, "confidence": float(result.confidence),
+                     "zone": alert.zone, "track_id": alert.track_id,
+                     "object_label": alert.object_label,
+                     "reason": f"{verdict}: {result.reason}",
+                     "evidence_dir": str(ev_dir) if ev_dir else None}
+            if self.mobile_base:
+                event["link"] = f"{self.mobile_base}/alert/{event_id}"
+            self._dispatch(event, event_id)
+        else:
+            # Retraction: explicit and visible, never a quiet deletion. The row
+            # stays, marked, so "why did my phone buzz?" always has an answer.
+            # review stays NULL: TrueSight's own rejection is NOT an operator
+            # label and must not feed the training data as one.
+            with self._lock:
+                self._db.execute(
+                    "UPDATE events SET provisional = 0, retracted = 1, "
+                    "confidence = ?, reason = ?, latency_s = ? WHERE id = ?",
+                    (float(result.confidence),
+                     f"RETRACTED — verified as not a threat: {result.reason}",
+                     latency, event_id))
+                self._db.commit()
+            event = {"ts": ts, "iso": time.strftime("%Y-%m-%dT%H:%M:%S"), "id": event_id,
+                     "camera_id": alert.camera_id, "rule": alert.rule_name,
+                     "priority": "low", "confidence": float(result.confidence),
+                     "zone": alert.zone, "track_id": alert.track_id,
+                     "object_label": alert.object_label,
+                     "reason": f"❎ RETRACTED — the provisional {alert.rule_name} alert "
+                               f"on {alert.camera_id} was verified as NOT a threat. "
+                               f"({result.reason})",
+                     "evidence_dir": None}
+            self._dispatch(event, event_id)
+            log.info("[RETRACTED] %s :: %s — provisional verified as not a threat",
+                     alert.camera_id, alert.rule_name)
+
+    def _note_latency(self, priority: str, latency) -> None:
+        if latency is None:
+            return
+        from collections import deque
+        self._tier_latency.setdefault(priority, deque(maxlen=50)).append(latency)
+
+    def latency_stats(self) -> dict:
+        """Detection -> operator-visible, per tier. Published in /health."""
+        def med(values):
+            ordered = sorted(values)
+            return round(ordered[len(ordered) // 2], 2) if ordered else None
+        out = {tier: {"median_s": med(dq), "n": len(dq)}
+               for tier, dq in self._tier_latency.items()}
+        out["provisional"] = {"median_s": med(self._provisional_latency),
+                              "n": len(self._provisional_latency)}
+        return out
+
     def handle(self, alert: Any, result: Any) -> None:
         if result is None:
+            return
+        provisional_id = (alert.payload or {}).get("provisional_event_id")
+        if provisional_id:
+            self._settle_provisional(provisional_id, alert, result)
             return
         # Three outcomes, not two. UNVERIFIED means the gate never reached a
         # verdict — logging it as CONFIRMED would overstate what we know, and as
@@ -494,6 +640,7 @@ class AlertSink:
         # detection -> verified wall-clock latency (queue wait + TrueSight time).
         enq = payload.get("enqueued_at")
         latency_s = round(ts - enq, 2) if isinstance(enq, (int, float)) else None
+        self._note_latency(alert.priority, latency_s)
 
         event = {
             "ts": ts, "iso": iso, "camera_id": alert.camera_id, "rule": alert.rule_name,

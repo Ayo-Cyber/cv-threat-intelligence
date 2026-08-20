@@ -1716,6 +1716,8 @@ function paintAlerts(){
     var sel = state.selected && state.selected.id===a.id ? " sel":"";
     var ownChip = a.owner && a.review==="ack"
       ? ' <span class="mono" style="font-size:10px;color:var(--c-accent)">'+esc(a.owner)+' \u25cf</span>' : "";
+    if(Number(a.provisional)) ownChip += ' <span style="font-size:9.5px;font-weight:700;color:var(--sev-high)">VERIFYING\u2026</span>';
+    if(Number(a.retracted)) ownChip += ' <span style="font-size:9.5px;font-weight:700;color:var(--c-sub);text-decoration:line-through">RETRACTED</span>';
     var st = a.review==="true"?"TRUE":a.review==="false"?"FALSE":a.review==="ack"?"ACK":"NEW";
     var tc = threatClass(a.rule);
     var header = "";
@@ -1788,6 +1790,10 @@ function renderDetail(){
       : '<div class="panel" style="padding:14px 16px;margin-top:16px"><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--c-accent);text-transform:uppercase;margin-bottom:6px">Why TrueSight confirmed this</div>'
         +'<p style="margin:0;font-size:14px;line-height:1.5">'+esc(a.reason||"")+'</p>'
         +'<div class="row" style="margin-top:12px"><span class="mut" style="font-size:11px">confidence</span><div class="confbar"><div style="width:'+confPct+'%;background:'+sev+'"></div></div><span class="mono">'+(Number(a.confidence)||0).toFixed(2)+'</span></div></div>')
+    +(Number(a.provisional)
+        ? '<div class="panel" style="padding:11px 14px;margin-top:12px;border-color:var(--sev-high)"><b style="color:var(--sev-high)">PROVISIONAL — verification in progress.</b> <span class="mut" style="font-size:12.5px">Shown immediately because this is a critical threat; the verdict will replace this in ~20s. Confirmed or retracted, never silent.</span></div>' : "")
+    +(Number(a.retracted)
+        ? '<div class="panel" style="padding:11px 14px;margin-top:12px;border-style:dashed"><b class="mut">RETRACTED.</b> <span class="mut" style="font-size:12.5px">This provisional alert was verified as not a threat. Kept so \u201cwhy did my phone buzz?\u201d has an answer.</span></div>' : "")
     +ownerHTML(a)
     +'<div class="row" style="margin-top:18px">'
     +'<button class="btn" onclick="doClaim()">'+(a.owner ? esc(a.owner)+" is on it" : "I\u2019m on it")+'</button>'

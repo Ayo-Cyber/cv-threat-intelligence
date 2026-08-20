@@ -1509,7 +1509,8 @@ class ConsoleBackend:
                     "SELECT COUNT(*), "
                     "SUM(CASE WHEN review='true' THEN 1 ELSE 0 END), "
                     "SUM(CASE WHEN review='false' THEN 1 ELSE 0 END) "
-                    "FROM events WHERE ts >= ?", (since,)).fetchone()
+                    "FROM events WHERE ts >= ? AND COALESCE(retracted,0)=0 "
+                    "AND COALESCE(provisional,0)=0", (since,)).fetchone()
                 incidents = row[0] or 0
                 reviewed_true = row[1] or 0
                 reviewed_false = row[2] or 0
@@ -1591,7 +1592,8 @@ class ConsoleBackend:
             try:
                 # "to review" = not yet handled. Ack/True/False all clear it.
                 pending = con.execute(
-                    "SELECT COUNT(*) FROM events WHERE review IS NULL").fetchone()[0]
+                    "SELECT COUNT(*) FROM events WHERE review IS NULL "
+                    "AND COALESCE(retracted, 0) = 0").fetchone()[0]
             except sqlite3.OperationalError:
                 pending = 0
             con.close()

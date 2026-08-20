@@ -65,6 +65,16 @@ to fail silently, and the claims survivable under scrutiny.
   directory now say **Argus** (an existing CVTI data directory is migrated in
   place, events and logs intact).
 
+- **Two-tier alerting for critical threats** (EP-06-T4). Detection is ~163ms;
+  the ~20s latency is entirely verification — right for theft, wrong for a
+  weapon or a fire. Critical detectors now raise a **provisional alert
+  immediately** (measured: well under a second), clearly labelled unconfirmed on
+  every surface, and the verdict **updates the same row in place**:
+  confirmation, or an **explicit retraction** — the row is kept and marked, so
+  "why did my phone buzz?" always has an answer, and a retraction is *not* fed
+  to the training data as if a human had labelled it. Criticals already jump
+  the verification queue (now pinned by a test), and detection→operator latency
+  is measured and published per priority tier in `/health`.
 - **Mobile response view** (EP-06-T3). One page served by the engine over the
   site's own network — no app, no cloud. Telegram alerts now deep-link straight
   to the specific alert; from the phone a guard sees the frames and the model's

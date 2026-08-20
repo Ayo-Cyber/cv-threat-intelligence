@@ -141,7 +141,8 @@ def needs_attention(con: sqlite3.Connection, *, min_priority: str = "medium",
     threshold = _PRIORITY_RANK.get(min_priority, 1)
     ranked = " ".join(f"WHEN '{p}' THEN {r}" for p, r in _PRIORITY_RANK.items())
     rows = con.execute(
-        f"SELECT * FROM events WHERE COALESCE(state, CASE "
+        f"SELECT * FROM events WHERE COALESCE(retracted, 0) = 0 "
+        f"AND COALESCE(state, CASE "
         f"  WHEN review IN ('true','false') THEN 'resolved' "
         f"  WHEN review = 'ack' THEN 'acknowledged' ELSE 'new' END) = 'new' "
         f"AND (CASE priority {ranked} ELSE 0 END) >= ? "
@@ -151,7 +152,8 @@ def needs_attention(con: sqlite3.Connection, *, min_priority: str = "medium",
         "SELECT id, rule, camera_id, owner, acknowledged_at FROM events "
         "WHERE state = 'acknowledged' ORDER BY acknowledged_at DESC LIMIT 5").fetchall()
     waiting = con.execute(
-        f"SELECT COUNT(*) FROM events WHERE COALESCE(state, CASE "
+        f"SELECT COUNT(*) FROM events WHERE COALESCE(retracted, 0) = 0 "
+        f"AND COALESCE(state, CASE "
         f"  WHEN review IN ('true','false') THEN 'resolved' "
         f"  WHEN review = 'ack' THEN 'acknowledged' ELSE 'new' END) = 'new' "
         f"AND (CASE priority {ranked} ELSE 0 END) >= ?", (threshold,)).fetchone()[0]
