@@ -866,6 +866,101 @@ Second, `weapons` and `violence` are `critical` priority in `baseline_critical_v
 
 ---
 
+### 🟩 EP-09 — Sprint UI · 10 pts · added 20 Aug
+
+> **Goal:** the product looks like the decided design — three surfaces, one
+> next action, and a system that says out loud what it is doing.
+
+**Added mid-sprint, deliberately.** PD-01 was deferred as "cosmetic next to
+legal and security exposure" — that rationale is spent: the legal and security
+epics shipped weeks early and the sprint is ~20 days ahead. The pilot (EP-08)
+is the first time outsiders see the product; it should look like
+[UI_SPEC.md](UI_SPEC.md), which is the acceptance document for every task
+below. Per §5, any deviation updates the spec in the same PR.
+
+**Why it matters.** The audit's PD findings all reduce to one sentence: the
+model's value is delivered by the model and not at all by the interface. Ten
+undifferentiated nav items mean no role knows where to start; a black tile is
+indistinguishable from a working camera watching a dark room; and an operator
+at 2am gets a list where they need a single next action.
+
+| ID | Task | Pts | Spec |
+|---|---|---|---|
+| EP-09-T1 | The three-surface shell | 3 | §1 |
+| EP-09-T2 | Watch — one question, two zoom levels | 2 | §2.2 |
+| EP-09-T3 | Triage — the Now screen as the default | 3 | §2.3 phase 2 |
+| EP-09-T4 | Settings panels: Users / Audit / Security | 1 | §2.7 |
+| EP-09-T5 | State + visual language sweep | 1 | §2.6, §3 |
+
+**EP-09-T1 · The three-surface shell · 3 pts**
+
+*What:* Nine nav items collapse to Watch / Triage / Configure, Value under an
+owner section, Settings behind a gear. Ask leaves primary nav and becomes a
+secondary affordance inside Watch. Always-visible nav footer: liveness line
+(`● 6 cameras live · last frame 0.4s ago`) + signed-in identity. Nav renders
+from `authState.permissions`; `landing_for()` routes to the new surfaces.
+
+*Acceptance:*
+- [ ] Exactly three primary surfaces + Value + gear; every old screen reachable
+- [ ] Operator sees no Configure/Settings; installer lands on Watch, no Value
+- [ ] Footer liveness line on every surface, from real `camera_links` data
+- [ ] Ask reachable from Watch, absent from primary nav
+
+**EP-09-T2 · Watch — one question, two zoom levels · 2 pts**
+
+*What:* Live + Map merge into Watch with a Grid / Floor-plan toggle over the
+same tiles. Link-state row under every tile (dot · id · freshness/state).
+Offline tile: dashed `--sev-crit` border, dimmed, `no signal` — never an empty
+black tile. Offline-past-grace banner names the consequence ("Nothing is being
+watched there") + Diagnose. Top bar: engine truth line from gate_health
+freshness — "Engine not running" when stale, never a silent nothing.
+
+*Acceptance:*
+- [ ] One surface, Grid/Floor toggle, same tiles both views
+- [ ] Kill a camera: tile goes dashed/dimmed with `OFFLINE <duration>`, banner
+      appears with the consequence line — verified live, not just unit-tested
+- [ ] Engine stopped ⇒ truth line says so within its freshness window
+
+**EP-09-T3 · Triage — the Now screen as the default · 3 pts**
+
+*What:* EP-06 gave the backend ownership; this is spec phase 2. Default tab =
+one alert full-width (severity pill, evidence strip, "Why TrueSight confirmed
+this"), right rail = Your call ("I'm on it" claims, sub-copy says everyone
+sees your name) + the next two waiting + other people's claims. Queue depth is
+a number in the top bar, never a wall of rows. Shift strip: "Since your shift
+began: N shown · M filtered out". Empty state is the §2.6 all-systems-normal
+panel — a quiet night looks watched, not dead. List + handover stay as tabs.
+
+*Acceptance:*
+- [ ] Now is the default Triage tab; claims/resolves flow through the same
+      state machine and are visible to a second signed-in user
+- [ ] Shift strip shows real counts from the suppression data
+- [ ] Empty queue renders the all-systems-normal panel, never a blank
+
+**EP-09-T4 · Settings panels: Users / Audit / Security · 1 pt**
+
+*What:* Three panels over existing backend methods: Users (list/add/role,
+owner-only), Audit trail (time·actor·action·target, chain-verify line,
+export), Security (disk-encryption status with `requirement_message()` text).
+
+*Acceptance:*
+- [ ] All three panels functional for an owner; hidden from other roles
+- [ ] Audit panel shows the hash-chain verification state
+
+**EP-09-T5 · State + visual language sweep · 1 pt**
+
+*What:* Apply §2.6 everywhere: UNVERIFIED never wears a severity colour or a
+confidence bar; OFFLINE reads from `camera_links`, never inferred from
+silence; degraded shows numbers, not adjectives; "all systems normal" is said
+explicitly; zeros never stand in for missing measurements. §3 rules: severity
+tokens never repurposed, both themes for every new colour, copy voice plain.
+
+*Acceptance:*
+- [ ] Each §2.6 row demonstrably true on every surface (screenshot audit)
+- [ ] Both themes verified in a real browser
+
+---
+
 ## 7. Scope control
 
 ### 7.1 What is deliberately NOT in this plan
