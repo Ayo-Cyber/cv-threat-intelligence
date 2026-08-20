@@ -194,6 +194,12 @@ why — the spec must never drift behind the shipped UI.
 
 ### Recorded changes
 
+- **2026-08-20 (EP-05-T4).** Cameras step gains **Find cameras (ONVIF)** above
+  the subnet scan — one tap lists cameras that announce themselves; tapping a
+  result fills the address field (manual entry and vendor paths remain the
+  fallback). The **Test** button's failures are now named and actionable —
+  wrong credentials / unreachable (host:port) / wrong stream path / unsupported
+  codec — each with its own fix line; "failed to open stream" no longer exists.
 - **2026-08-20 (EP-05-T3).** First-run wizard extended from four steps to the
   epic's seven-step guided flow: credentials (the auth gate, before the wizard)
   → add camera → verify feed (Test button) → **draw zones** → **use-case

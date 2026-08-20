@@ -249,7 +249,31 @@ class ConsoleBackend:
         return {"cidr": onboarding.detect_subnet()}
 
     def test(self, url: str) -> dict:
+        """Stream test with a NAME for every failure (EP-05-T4).
+
+        For RTSP, a raw protocol probe first: it distinguishes unreachable /
+        wrong credentials / wrong path / unsupported codec — cv2 collapses all
+        four into "could not open". Only a passing probe pays for the cv2 open
+        that produces the preview snapshot."""
+        if str(url).startswith("rtsp"):
+            from cvti.serving import discovery
+            probe = discovery.probe_rtsp(url)
+            if not probe["ok"]:
+                return {"error": probe["message"], "kind": probe["kind"]}
+            out = onboarding.test_url(url)
+            if out.get("error"):
+                out.setdefault("kind", "open-failed")
+            else:
+                out["codec"] = probe.get("codec")
+            return out
         return onboarding.test_url(url)
+
+    def discover_cameras(self) -> dict:
+        """ONVIF WS-Discovery sweep of the local segment (EP-05-T4)."""
+        self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.serving import discovery
+        cams = discovery.discover()
+        return {"cameras": cams, "count": len(cams)}
 
     def add_camera(self, camera: dict) -> list[dict]:
         self._require(perms.CONFIGURE_CAMERAS)

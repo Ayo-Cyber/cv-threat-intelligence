@@ -18,6 +18,13 @@ to fail silently, and the claims survivable under scrutiny.
 
 ### Added
 
+- **Cameras find themselves** (EP-05-T4). One tap sends an ONVIF WS-Discovery
+  probe and lists every camera that answers; manual RTSP entry stays as the
+  fallback. The connection test now speaks RTSP itself before letting OpenCV
+  near the stream, so every failure has a name and a fix: wrong credentials,
+  unreachable (with host:port), wrong stream path, or an unsupported codec
+  (named, with "switch the camera to H.264"). "Failed to open stream" is gone.
+
 - **First-run wizard with use-case templates and a self-test** (EP-05-T3).
   Setup is now a guided seven-step flow ending in proof: pick what the site IS
   (Retail / Warehouse-HSE / Office) and sensible detectors are preselected;

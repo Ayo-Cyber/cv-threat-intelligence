@@ -1720,6 +1720,9 @@ function wizCameras(){
     }).join("")+'</div>') : '<p class="mut" style="margin-top:12px">No cameras added yet.</p>';
   return '<h2>Connect your cameras</h2><p class="lead">Argus scans your network automatically to find cameras. Tap one and add it with its login — the password stays on this machine.</p>'
     +'<div class="panel" style="padding:16px">'
+    +  '<div class="row"><button class="btn sm" onclick="wizOnvif(this)">🔍 Find cameras (ONVIF)</button><span id="wzOnvifRes" class="mut" style="font-size:12px;flex:1">Most network cameras announce themselves — try this first.</span></div>'
+    +  '<div id="wzOnvifList"></div>'
+    +  '<div style="height:1px;background:var(--c-border);margin:14px 0"></div>'
     +  '<div class="row"><input id="wzCidr" value="'+esc(wiz.cidr)+'" placeholder="detecting your network…" style="flex:1"><button class="btn ghost sm" onclick="wizScan()">'+(wiz.scanned?"Rescan":"Scan")+'</button></div>'
     +  '<div id="wzScanRes" class="mut" style="margin-top:8px;font-size:12px">'+wizScanMsg()+'</div>'
     +  '<div style="height:1px;background:var(--c-border);margin:14px 0"></div>'
@@ -1728,6 +1731,18 @@ function wizCameras(){
     +  '<div class="row" style="margin-top:10px"><input id="wzName" placeholder="name (optional) e.g. entrance" style="flex:1"><button class="btn ghost sm" onclick="wizTest()">Test</button><button class="btn sm" onclick="wizAdd()">Add camera</button></div>'
     +  '<div id="wzTest" style="margin-top:12px;max-width:420px">'+wizTestBox()+'</div>'
     +'</div>'+added;
+}
+function wizOnvif(btn){
+  btn.disabled=true; var msg=$("wzOnvifRes"); if(msg) msg.textContent="searching the network (about 3 seconds)…";
+  call("discoverCameras",[],function(r){
+    btn.disabled=false;
+    var list=$("wzOnvifList"), msg=$("wzOnvifRes");
+    if(!r || r.error){ if(msg) msg.textContent=(r&&r.error)||"search failed"; return; }
+    var cams=r.cameras||[];
+    if(msg) msg.textContent = cams.length ? (cams.length+" camera(s) answered — tap one to fill in its address, then add its login.") : "No ONVIF answers — your cameras may have ONVIF off, or be on another network. Use the scan below or type the IP.";
+    if(list) list.innerHTML = cams.map(function(c){
+      return '<button class="chip" style="margin:8px 8px 0 0" onclick="wizPick(\''+esc(c.ip)+'\')">📷 '+esc(c.name||c.ip)+' · '+esc(c.ip)+'</button>'; }).join("");
+  });
 }
 function wizTestBox(){
   var t=wiz.test; if(!t) return '';
