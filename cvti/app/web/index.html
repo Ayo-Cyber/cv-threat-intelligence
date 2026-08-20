@@ -249,6 +249,21 @@
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   /* live wall */
   .wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+  /* Watch (UI_SPEC §2.2): the link-state row lives UNDER the tile, and an
+     offline camera can never be a black tile — black is indistinguishable
+     from a working camera watching a dark room. */
+  .linkrow{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:11.5px;font-family:var(--ff-mono)}
+  .linkrow .lid{color:var(--c-text);font-weight:600}
+  .linkrow .lst{margin-left:auto;color:var(--c-mut)}
+  .linkrow .lst.crit{color:var(--sev-crit);font-weight:700}
+  .linkrow .lst.warn{color:var(--sev-high);font-weight:600}
+  .tile.offline{border:1.5px dashed var(--sev-crit);opacity:.55}
+  .tile.offline img{visibility:hidden}
+  .tile .nosignal{position:absolute;inset:0;display:grid;place-items:center;color:var(--c-mut);
+    font-family:var(--ff-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  .offbanner{margin-top:14px;padding:13px 16px;border:1px solid var(--sev-crit);border-radius:10px;
+    background:color-mix(in srgb, var(--sev-crit) 9%, transparent);display:flex;align-items:center;gap:12px}
+  .offbanner b{color:var(--sev-crit)}
   .tile{position:relative;aspect-ratio:16/9;background:var(--c-feed);border:1px solid var(--c-border);
     border-radius:10px;overflow:hidden}
   .tile img{width:100%;height:100%;object-fit:cover;display:block}
@@ -387,6 +402,7 @@
       <h1 id="title">Watch</h1>
       <div id="tabs" class="tabbar"></div>
       <div class="stats">
+        <span class="mono" id="engineLine" style="font-size:11px;color:var(--c-mut)"></span>
         <span><b id="stCams">0</b> cameras</span>
         <span><b id="stPending">0</b> to review</span>
         <span class="feedtog" id="feedTog"></span>
@@ -766,16 +782,20 @@ function renderLive(){
     state.liveCams = cams; state.livePort = port; state.frameTick = 0;
     state.frameToken = (res && res.token) || "";
     var tiles = cams.map(function(c){
-      return '<div class="tile" id="tile-'+esc(c.id)+'" style="cursor:pointer" onclick="openLiveModal(\''+esc(c.id)+'\')" title="click to expand">'
+      return '<div class="cell"><div class="tile" id="tile-'+esc(c.id)+'" style="cursor:pointer" onclick="openLiveModal(\''+esc(c.id)+'\')" title="click to expand">'
         +'<img id="live-'+esc(c.id)+'" alt="" src="'+frameUrl(c.id)+'">'
+        +'<div class="nosignal" id="nosig-'+esc(c.id)+'" hidden>no signal</div>'
         +'<div class="talert" id="talert-'+esc(c.id)+'"></div>'
         +'<div class="tzoom">⤢</div>'
-        +'<div class="tlabel"><span class="livedot"></span>'+esc(c.id)+'</div></div>';
+        +'<div class="tlabel"><span class="livedot"></span>'+esc(c.id)+'</div></div>'
+        +'<div class="linkrow" id="link-'+esc(c.id)+'"><span class="dot" style="background:var(--c-sub)"></span>'
+        +'<span class="lid">'+esc(c.id)+'</span><span class="lst">checking…</span></div></div>';
     }).join("");
     $("screen").innerHTML='<div class="pad"><div class="row" style="margin-bottom:12px"><h2 style="margin:0">Live wall</h2>'
-      +'<span class="mut" style="font-size:12px">'+cams.length+' feeds · looping demo footage</span></div>'
-      +'<div class="wall">'+tiles+'</div></div>';
+      +'<span class="mut" style="font-size:12px">'+cams.length+' feeds</span></div>'
+      +'<div class="wall">'+tiles+'</div><div id="offBanner"></div></div>';
     startLivePoll();
+    startWatchPoll();
     updateLiveAlertTiles();   // reflect any current alerts immediately
   });
 }
@@ -838,7 +858,53 @@ function updateLiveModalLabel(){
 function closeLiveModal(){ state.liveModal=null; var m=$("liveModal"); if(m) m.remove(); }
 document.addEventListener("keydown", function(e){ if(e.key==="Escape" && state.liveModal) closeLiveModal(); });
 function stopLivePoll(){ if(state.liveTimer){ clearInterval(state.liveTimer); state.liveTimer=null; } }
-function stopLive(){ stopLivePoll(); call("liveStop",[],function(){}); }
+
+/* Watch link-state (UI_SPEC §2.2): dot · id · state under every tile, dashed
+   dimmed tile + banner when a camera is offline past grace, and the engine
+   truth line in the top bar — "Engine not running" when health is stale,
+   never a silent nothing. */
+function fmtDur(sec){ sec=Math.max(0,Math.round(sec||0));
+  if(sec<60) return sec+"s"; if(sec<3600) return Math.round(sec/60)+"m"; return (sec/3600).toFixed(1)+"h"; }
+function refreshWatchState(){
+  call("cameraLinks",[],function(links){
+    if(!Array.isArray(links)) links=[];
+    var offline=[];
+    links.forEach(function(l){
+      var row=$("link-"+l.camera_id); var tile=$("tile-"+l.camera_id); var ns=$("nosig-"+l.camera_id);
+      var st=l.state||"unknown";
+      if(row){
+        var dot=row.querySelector(".dot"), lab=row.querySelector(".lst");
+        if(st==="connected"){ dot.style.background="var(--c-live)"; lab.className="lst"; lab.textContent="live · "+fmtDur(l.time_in_state); }
+        else if(st==="reconnecting"){ dot.style.background="var(--sev-high)"; lab.className="lst warn"; lab.textContent="reconnecting · "+(l.reconnects||0)+" attempts"; }
+        else if(st==="offline"){ dot.style.background="var(--sev-crit)"; lab.className="lst crit"; lab.textContent="OFFLINE "+fmtDur(l.time_in_state); }
+        else { dot.style.background="var(--c-sub)"; lab.className="lst"; lab.textContent="not monitoring"; }
+      }
+      if(tile){ tile.classList.toggle("offline", st==="offline"); if(ns) ns.hidden = st!=="offline"; }
+      if(st==="offline") offline.push(l);
+    });
+    var b=$("offBanner");
+    if(b){
+      b.innerHTML = offline.map(function(l){
+        return '<div class="offbanner"><span><b>'+esc(l.camera_id)+'</b> has been unreachable for '
+          +fmtDur(l.time_in_state)+'. Reconnecting — '+(l.reconnects||0)+' attempts. '
+          +'<b>Nothing is being watched there.</b></span>'
+          +'<span style="margin-left:auto"></span>'
+          +'<button class="btn ghost sm" onclick="downloadDiag(this)">Diagnose</button></div>'; }).join("");
+    }
+  });
+  call("gateStatus",[],function(g){
+    var el=$("engineLine"); if(!el) return;
+    var eng=(g&&g.engine)||{};
+    if(!g || g.error){ el.textContent=""; return; }
+    if(!Object.keys(eng).length){ el.textContent="Engine not running"; el.style.color="var(--c-mut)"; return; }
+    var errs=eng.errors||0;
+    if(errs){ el.textContent="Detectors running · "+errs+" gate error"+(errs===1?"":"s"); el.style.color="var(--sev-high)"; }
+    else { el.textContent="All detectors running · last check "+fmtDur((Date.now()/1000)-(eng.updated_at||Date.now()/1000))+" ago"; el.style.color="var(--c-live)"; }
+  });
+}
+function startWatchPoll(){ refreshWatchState(); if(!state.watchTimer) state.watchTimer=setInterval(refreshWatchState, 4000); }
+function stopWatchPoll(){ if(state.watchTimer){ clearInterval(state.watchTimer); state.watchTimer=null; } }
+function stopLive(){ stopLivePoll(); stopWatchPoll(); call("liveStop",[],function(){}); }
 
 /* ---------- Value (what the system was worth) ---------- */
 /* Deliberately not framed as "suppression %". The buyer is deciding about
@@ -1986,6 +2052,15 @@ function initNetWatch(){
   window.addEventListener("online", updateNetBadge);
   window.addEventListener("offline", updateNetBadge);
 }
+function downloadDiag(btn){
+  btn.disabled=true; btn.textContent="collecting…";
+  call("downloadDiagnostics",[],function(r){
+    btn.disabled=false; btn.textContent="Diagnose";
+    alert(r&&r.ok ? ("Diagnostics bundle written to:\n"+r.path+"\n("+r.size_kb+" KB — logs and health only, no footage.)")
+                  : ("Could not build diagnostics: "+((r&&r.error)||"unknown")));
+  });
+}
+
 /* ---------- nav-footer liveness (UI_SPEC §1.1): the blinking light ---------- */
 function refreshLiveness(){
   call("cameraLinks",[],function(links){
