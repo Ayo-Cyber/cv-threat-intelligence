@@ -227,3 +227,36 @@ class BaselineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaptureCheckpointTest(unittest.TestCase):
+    """Capture is an hour of detector time; a crash at clip 90 must cost one
+    clip, not ninety. Every case checkpoints as it lands; a new writer
+    resumes; write() banks the manifest and clears the checkpoint."""
+
+    def test_a_new_writer_resumes_from_the_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            w1 = GoldenSetWriter(tmp)
+            w1.add(clip_name="a.mp4", is_threat=True, candidate=_candidate(),
+                   frames=[np.zeros((8, 8, 3), np.uint8)], scene={})
+            # crash: no write() — a second writer picks the case up
+            w2 = GoldenSetWriter(tmp)
+            self.assertEqual(len(w2.cases), 1)
+            self.assertEqual(w2.captured_clips, {"a.mp4"})
+            w2.add(clip_name="b.mp4", is_threat=False, candidate=_candidate(),
+                   frames=[np.zeros((8, 8, 3), np.uint8)], scene={})
+            w2.write({})
+            golden = GoldenSet(tmp)
+            self.assertEqual(len(golden), 2)
+            self.assertFalse((Path(tmp) / "cases.partial.jsonl").exists(),
+                             "checkpoint left behind after the manifest banked it")
+
+    def test_checkpointed_frames_survive_on_disk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            w1 = GoldenSetWriter(tmp)
+            case = w1.add(clip_name="a.mp4", is_threat=True, candidate=_candidate(),
+                          frames=[np.zeros((8, 8, 3), np.uint8)], scene={})
+            w2 = GoldenSetWriter(tmp)
+            w2.write({})
+            golden = GoldenSet(tmp)
+            self.assertEqual(len(golden.load_frames(golden.cases[0])), 1)

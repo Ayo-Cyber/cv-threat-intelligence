@@ -67,7 +67,12 @@ def cmd_capture(args) -> int:
         or ("concealment", "video_action")
     harness = EvalHarness(config=args.config, detectors=detectors,
                           max_seconds_per_clip=args.max_seconds)
+    done = writer.captured_clips
+    if done:
+        log.info("[capture] resuming — %d clip(s) already captured", len(done))
     for i, clip in enumerate(clips, 1):
+        if clip.name in done:
+            continue
         log.info("[capture] %d/%d %s (%s)", i, len(clips), clip.name,
                  "threat" if clip.is_threat else "normal")
         alerts = _candidates_for(harness, clip)

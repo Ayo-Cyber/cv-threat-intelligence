@@ -64,6 +64,24 @@ class GoldenSetWriter:
         self.cases_dir = self.root / "cases"
         self.cases: list[GoldenCase] = []
         self._seen: set[str] = set()
+        # Checkpoint (capture is an hour of GPU time — a crash at clip 90 must
+        # not cost 90 clips): every case is appended to cases.partial.jsonl the
+        # moment it lands, and a new writer resumes from it. write() finalises
+        # into the manifest and removes the partial.
+        self._partial = self.root / "cases.partial.jsonl"
+        if self._partial.exists():
+            import json as _json
+            for line in self._partial.read_text().splitlines():
+                if not line.strip():
+                    continue
+                case = GoldenCase.from_dict(_json.loads(line))
+                self.cases.append(case)
+                self._seen.add(case.case_id)
+
+    @property
+    def captured_clips(self) -> set:
+        """Clips already fully captured (for skip-on-resume)."""
+        return {c.clip for c in self.cases}
 
     def add(self, *, clip_name: str, is_threat: bool, candidate: Any,
             frames: list, scene: dict | None = None) -> GoldenCase | None:
@@ -93,6 +111,10 @@ class GoldenSetWriter:
             object_label=getattr(candidate, "object_label", "") or "",
             person_id=getattr(candidate, "person_id", None))
         self.cases.append(case)
+        import json as _json
+        self.root.mkdir(parents=True, exist_ok=True)
+        with self._partial.open("a") as fh:
+            fh.write(_json.dumps(case.to_dict()) + "\n")
         return case
 
     def write(self, meta: dict | None = None) -> Path:
@@ -103,6 +125,7 @@ class GoldenSetWriter:
             "cases": [c.to_dict() for c in self.cases],
         }, indent=2))
         log.info("golden set: %d case(s) written to %s", len(self.cases), self.root)
+        self._partial.unlink(missing_ok=True)   # banked in the manifest now
         return path
 
 
