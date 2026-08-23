@@ -963,12 +963,20 @@ function renderValue(){
     state.value=v; drawValue(v);
   });
 }
+function makeWeekly(btn){
+  btn.disabled=true; var m=$("wsMsg"); if(m) m.textContent="building…";
+  call("weeklySummary",[],function(r){ btn.disabled=false; if(!m) return;
+    m.textContent = r&&r.pdf ? ("✓ "+r.pdf+" (auto-sent every Monday 08:00)")
+                             : ("✕ "+((r&&r.error)||"failed")); });
+}
 function money(n){ return n==null? null : n.toLocaleString(undefined,{maximumFractionDigits:0}); }
 function drawValue(v){
   var days=v.days||30, m=v.money||{}, inp=v.inputs||{};
   var head='<div class="row" style="margin-bottom:12px"><h2 style="margin:0">Value</h2>'
     +'<span class="mut" style="font-size:12px">last '+days+' days</span><span style="flex:1"></span>'
     +[7,30,90].map(function(d){ return '<button class="btn '+(d===days?"sm":"ghost sm")+'" onclick="setValueDays('+d+')">'+d+'d</button>'; }).join("")
+    +'<button class="btn ghost sm" style="margin-left:8px" onclick="makeWeekly(this)">📄 Weekly summary</button>'
+    +'<span id="wsMsg" class="sub" style="font-size:11.5px;margin-left:6px"></span>'
     +'</div>';
 
   if(!v.has_data){

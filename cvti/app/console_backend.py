@@ -888,6 +888,15 @@ class ConsoleBackend:
         onboarding.set_site_meta(self.site_path, backup_dir=(path or "").strip())
         return {"ok": True, "backup_dir": (path or "").strip()}
 
+    def weekly_summary(self) -> dict:
+        """On-demand build of the owner summary (the engine also auto-sends
+        one every Monday morning through the site notifier)."""
+        self._require(perms.CONFIGURE_SITE)
+        from cvti.owner_summary import weekly_summary
+        db, _ = self._effective_db()
+        meta = onboarding.get_site_meta(self.site_path)
+        return weekly_summary(db, meta, Path(self.db_path).parent)
+
     def gate_status(self, model: str = vlm.DEFAULT_MODEL) -> dict:
         """Ollama reachability + the running engine's own view of the gate.
 

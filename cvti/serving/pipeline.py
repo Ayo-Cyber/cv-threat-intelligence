@@ -641,6 +641,36 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
     threading.Thread(target=_watch_site_meta, name="site-meta-watch", daemon=True).start()
 
+    # Weekly owner summary (EP-08-T2): automatic, no action required. Checked
+    # hourly; fires Monday 08:00+ at most once per ISO week, survives restarts
+    # via summaries/state.json, and delivers through the same notifier alerts
+    # use — the person deciding renewal hears from the product weekly.
+    def _weekly_summary_loop():
+        from cvti.owner_summary import due, mark_sent, weekly_summary
+        while True:
+            time.sleep(3600)
+            try:
+                if not due(output_dir):
+                    continue
+                meta = get_site_meta(site_config_path)
+                s = weekly_summary(Path(output_dir) / "events.db", meta, output_dir)
+                w = s["week"]
+                sink.notifier.notify({
+                    "ts": time.time(), "iso": s["generated_at"],
+                    "camera_id": "weekly_summary", "rule": "weekly_summary",
+                    "priority": "low", "confidence": None, "zone": None,
+                    "track_id": None, "object_label": None, "evidence_dir": None,
+                    "reason": (f"Weekly summary {s['window']['from']}->{s['window']['to']}: "
+                               f"{w['incidents']} incidents ({w['real']} real), "
+                               f"{w['noise_removed']} false alarms filtered, "
+                               f"~{s['hours_saved']}h of attention given back. "
+                               f"Full report: {s['pdf']}")})
+                mark_sent(output_dir)
+            except Exception:  # noqa: BLE001 - the summary must never hurt monitoring
+                log.warning("weekly summary failed; will retry next hour", exc_info=True)
+
+    threading.Thread(target=_weekly_summary_loop, name="weekly-summary", daemon=True).start()
+
     # Daily proof of life (EP-04-T4): the self-test exercises a real frame ->
     # the real gate -> a real notification, and the all-normal message makes
     # silence stop being the success signal. Skipped entirely for a mock gate —

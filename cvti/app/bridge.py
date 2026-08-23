@@ -108,6 +108,10 @@ class Backend(QObject):
     def setBackupDir(self, path: str) -> str:
         return self._safe(lambda: self._core.set_backup_dir(path))
 
+    @pyqtSlot(result=str)
+    def weeklySummary(self) -> str:
+        return self._safe(self._core.weekly_summary)
+
     @pyqtSlot(str, str, result=str)
     def setCameraRules(self, camera_id: str, rules_json: str) -> str:
         return self._safe(lambda: self._core.set_camera_rules(camera_id, json.loads(rules_json)))
