@@ -1534,6 +1534,11 @@ function renderAlerts(){
   var tk = state.renderToken;
   call("listEvents",[100],function(evs){
     if(!fresh(tk) || !onAlertsTab()) return;    // user has moved on — do not repaint over them
+    if(evs && evs.error){
+      $("screen").innerHTML='<div class="pad"><div class="offbanner"><span><b>Alert storage is unreadable.</b> '
+        +esc(evs.error)+' — this is a system fault, not a quiet site.</span></div></div>';
+      return;
+    }
     state.events = Array.isArray(evs)?evs:[];
     state.alertsSig = state.events.map(function(e){return e.id+":"+e.review;}).join(",");
     paintAlerts();
@@ -1801,7 +1806,9 @@ function paintAlerts(){
 function setAlertFilter(f){ state.alertFilter=f; state.selected=null; paintAlerts(); }
 function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(function(){
   if(!onAlertsTab()){ stopAlertsPoll(); return; }
-  call("listEvents",[100],function(evs){ if(!Array.isArray(evs)) return;
+  call("listEvents",[100],function(evs){
+    if(evs && evs.error){ stopAlertsPoll(); renderAlerts(); return; }
+    if(!Array.isArray(evs)) return;
     var sig=evs.map(function(e){return e.id+":"+e.review;}).join(",");
     if(sig!==state.alertsSig){ state.events=evs; state.alertsSig=sig; paintAlerts(); refreshCounts(); } }); }, 3000); }
 function stopAlertsPoll(){ if(state.alertsTimer){ clearInterval(state.alertsTimer); state.alertsTimer=null; }

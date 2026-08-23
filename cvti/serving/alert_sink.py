@@ -538,9 +538,17 @@ class AlertSink:
         return self._notifier_cache[spec]
 
     def _dispatch(self, event: dict, event_id: Any = None) -> None:
-        """Send an event to whichever channels its routing rule names."""
+        """Send an event to whichever channels its routing rule names.
+
+        A routing table routes what it MATCHES. An alert no rule claims goes
+        to the site-wide notifier the operator configured — not to the routing
+        file's own default, which used to send a Telegram site's daytime
+        alerts to the engine log because one night-shift rule existed.
+        (Audit 23 Aug, #2.)
+        """
         spec, rule_name = self.routing.channels_for(event)
-        target = self._notifier_for(spec) if self.routing.rules else self.notifier
+        matched = self.routing.rules and rule_name != "default"
+        target = self._notifier_for(spec) if matched else self.notifier
         try:
             target.notify(event)
             self.routed += 1

@@ -1148,10 +1148,15 @@ class ConsoleBackend:
                 self.stop_monitoring()
             self.site_path = src["config"]
             restarted = False
-            if was_running and not getattr(sys, "frozen", False):
+            # The frozen guard predated EP-05: the installed bundle SHIPS an
+            # engine now, so a feed switch there used to stop monitoring and
+            # report "done" — permanently dark. start_monitoring itself knows
+            # how to refuse on a truly engine-less lean build.
+            # (Audit 23 Aug, #3.)
+            if was_running:
                 st["status"] = "restarting engine…"
-                self.start_monitoring()
-                restarted = True
+                out = self.start_monitoring()
+                restarted = bool(out.get("running"))
             st.update(busy=False, done=True, active=key, error=None,
                       kind=src.get("kind", "demo"), config=src["config"],
                       engine_restarted=restarted, status="done")
@@ -1237,13 +1242,19 @@ class ConsoleBackend:
         db, frame_base = self._effective_db()
         try:
             con = self._connect(db)
-        except sqlite3.OperationalError:
-            return []
+        except sqlite3.OperationalError as exc:
+            # "No alerts" and "the events database is unreadable" must never
+            # look the same on an operator's screen. (Audit 23 Aug, #12.)
+            log.error("events db unreadable", exc_info=True)
+            return {"error": f"events database unavailable: {str(exc)[:120]}"}
         try:
             rows = con.execute("SELECT * FROM events ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as exc:
             con.close()
-            return []
+            if "no such table" in str(exc):
+                return []          # a fresh site with no events yet IS quiet
+            log.error("events query failed", exc_info=True)
+            return {"error": f"events database unavailable: {str(exc)[:120]}"}
         con.close()
         out = []
         for r in rows:
