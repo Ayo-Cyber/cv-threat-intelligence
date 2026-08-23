@@ -123,12 +123,29 @@ class DbErrorHonestyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "site.json").write_text('{"cameras": []}')
-            (root / "events.db").mkdir()      # a directory: guaranteed OperationalError
             be = signed_in("owner", site_path=str(root / "site.json"),
                            db_path=str(root / "events.db"), enable_demo=False)
+            # Break the store AFTER startup: the integrity check has already
+            # run (and would have quarantined a pre-broken file — that path is
+            # covered in test_backup.py). This is the mid-session failure.
+            db = Path(be.db_path)
+            if db.exists():
+                db.unlink()
+            db.mkdir()                    # a directory: guaranteed OperationalError
             out = be.list_events(10)
             self.assertIsInstance(out, dict)
             self.assertIn("events database unavailable", out["error"])
+
+    def test_a_pre_broken_store_is_quarantined_at_startup_instead(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "site.json").write_text('{"cameras": []}')
+            (root / "events.db").write_bytes(b"never a database" * 64)
+            be = signed_in("owner", site_path=str(root / "site.json"),
+                           db_path=str(root / "events.db"), enable_demo=False)
+            self.assertEqual(be.db_check.get("state"), "quarantined")
+            self.assertTrue(list(root.glob("events.corrupt-*.db")),
+                            "corrupt store not preserved for recovery")
 
 
 class SceneContextPersistenceTest(unittest.TestCase):
