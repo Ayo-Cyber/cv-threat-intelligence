@@ -55,6 +55,14 @@ if [[ ! -f "$DEST/ollama" && -f "$DEST/bin/ollama" ]]; then
 fi
 chmod +x "$DEST/ollama" 2>/dev/null || true
 
+# Prune GPU runner libraries (CUDA/ROCm/HIP/Vulkan): the product runs the VLM
+# on CPU (Metal on macOS) by design — "same behavior on every machine" — and
+# these runners are the difference between a bundle that fits GitHub's 2 GiB
+# release-asset cap and one that does not (v1.0.0 release failure, 23 Aug).
+echo "Pruning GPU runners ..."
+find "$DEST" -depth \( -iname "*cuda*" -o -iname "*rocm*" -o -iname "*hip*" -o -iname "*vulkan*" \) -exec rm -rf {} + 2>/dev/null || true
+du -sh "$DEST" | awk '{print "runtime size after prune: "$1}'
+
 if [[ -f "$DEST/ollama" ]]; then
   echo "Done: $DEST/ollama"
 else

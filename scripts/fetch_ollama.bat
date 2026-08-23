@@ -20,6 +20,12 @@ if not exist "%DEST%\ollama.exe" (
   if exist "%DEST%\bin\ollama.exe" copy "%DEST%\bin\ollama.exe" "%DEST%\ollama.exe" >nul
 )
 
+REM Prune GPU runner libraries (CUDA/ROCm/HIP/Vulkan) — CPU-only by design,
+REM and required to fit GitHub's 2 GiB release-asset cap (v1.0.0 failure).
+echo Pruning GPU runners ...
+for /d /r "%DEST%" %%D in (*cuda* *rocm* *hip* *vulkan*) do rd /s /q "%%D" 2>nul
+del /s /q "%DEST%\*cuda*" "%DEST%\*rocm*" "%DEST%\*hip*" "%DEST%\*vulkan*" 2>nul
+
 if exist "%DEST%\ollama.exe" (
   echo Done: %DEST%\ollama.exe
 ) else (
