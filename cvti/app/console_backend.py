@@ -529,11 +529,60 @@ class ConsoleBackend:
             rules.append({"name": f"loitering_{z['name']}", "trigger": {"detector": "presence"},
                           "context_filter": f"zone == '{z['name']}' and dwell_seconds >= {dw}",
                           "priority": "medium"})
+        custom = cam.get("custom_rule") or {}
+        if custom.get("question"):
+            # The camera's plain-English rule (EP-05 follow-through, demo-day
+            # gap): the sentence goes to TrueSight verbatim whenever a person
+            # lingers anywhere on this camera. Regenerated here so drawing or
+            # deleting zones never silently drops it.
+            rules.append({"name": "custom_english",
+                          "title": "CUSTOM RULE MATCHED",
+                          "trigger": {"detector": "presence"},
+                          "context_filter": f"dwell_seconds >= {float(custom.get('dwell', 4))}",
+                          "priority": custom.get("priority", "high"),
+                          "gate_question": custom["question"]})
         rdir = Path("configs/rules")
         rdir.mkdir(parents=True, exist_ok=True)
         rfile = rdir / f"{camera_id}.json"
         rfile.write_text(json.dumps({"use_case_id": f"{camera_id}_zones", "rules": rules}, indent=2))
         cam["config"] = str(rfile)
+
+    def set_custom_rule(self, camera_id: str, question: str, dwell: float = 4.0) -> dict:
+        """The plain-English rule, from the app (demo-day gap: the sentence had
+        no home in the UI). Empty question removes the rule. A person lingering
+        `dwell` seconds anywhere on this camera triggers it; the sentence is
+        what TrueSight judges. Applies on the next Start monitoring.
+
+        If the camera has no zones yet, an everywhere-zone is created — without
+        one the presence detector never runs and the sentence would sit there
+        looking configured while detecting nothing.
+        """
+        self._require(perms.CONFIGURE_DETECTORS)
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam is None:
+            return {"error": f"camera '{camera_id}' not found"}
+        question = (question or "").strip()
+        if question:
+            cam["custom_rule"] = {"question": question, "dwell": float(dwell)}
+        else:
+            cam.pop("custom_rule", None)
+        f = self._zones_file(camera_id)
+        data = json.loads(f.read_text()) if f.exists() else {"zones": []}
+        if question and not data["zones"]:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            data["zones"] = [{"name": "everywhere", "kind": "restricted",
+                              "anchors": ["BOTTOM_CENTER"], "dwell_alert_seconds": 999999,
+                              "polygon": [[0, 0], [99999, 0], [99999, 99999], [0, 99999]]}]
+            f.write_text(json.dumps(data, indent=2))
+            cam["zones"] = str(f)
+        self._regen_zone_rules(camera_id, cam, data["zones"])
+        onboarding.add_camera(self.site_path, cam)
+        self.audit.record(self.current_user.username, "config_change",
+                          f"camera:{camera_id}",
+                          detail={"custom_rule": question[:120] or "(removed)"})
+        return {"ok": True, "question": question,
+                "note": "applies the next time monitoring starts"}
 
     def add_zone(self, camera_id: str, name: str, points: list, dwell_seconds: float = 5.0) -> dict:
         """Save a drawn zone (>=3 [x,y] points in ORIGINAL pixels) + wire a
