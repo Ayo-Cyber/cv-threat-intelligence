@@ -473,7 +473,18 @@ class ConsoleBackend:
                     for pk, pv in self.DETECTOR_DEFAULTS.get(k, {}).items():
                         cam.setdefault(pk, pv)
         if rules.get("config"):
-            cam["config"] = rules["config"]
+            # A preset choice is a new BASE, not a raw config pointer: cameras
+            # with zones or an English rule keep them — regen layers the base
+            # under the generated rules instead of clobbering the pointer.
+            # (Audit 23 Aug, #9: applying a template used to silently drop the
+            # camera's loitering + custom-English rules, and the next zone edit
+            # reverted the camera to the pre-template preset.)
+            cam["_base_config"] = rules["config"]
+            zones = self.list_zones(camera_id)
+            if zones or cam.get("custom_rule"):
+                self._regen_zone_rules(camera_id, cam, zones)
+            else:
+                cam["config"] = rules["config"]
         onboarding.add_camera(self.site_path, cam)   # upsert by id
         return {"ok": True, "camera": cam}
 
@@ -1031,11 +1042,20 @@ class ConsoleBackend:
             return
 
         def loop():
+            started = time.time()
             while getattr(self, "_monitor_should_run", False):
                 time.sleep(3)
                 if not getattr(self, "_monitor_should_run", False):
                     break
                 if self._monitor and self._monitor.poll() is not None:   # died
+                    # An engine that ran for an hour+ did not crash-loop: the
+                    # spawn caps --seconds (~28h), so long-lived exits are
+                    # SCHEDULED. Without this reset, a 24/7 site burned one
+                    # restart per day and the watchdog gave up inside a week —
+                    # silently, on a monitoring product. (Audit 23 Aug, #1.)
+                    if time.time() - started > 3600:
+                        self._restarts = 0
+                    started = time.time()
                     if self._restarts < max_restarts:
                         self._restarts += 1
                         log.info(f"[watchdog] engine exited unexpectedly — restarting "

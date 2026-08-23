@@ -488,9 +488,10 @@ function go(r){
 function tabGo(k){
   var r=state.route;
   if(r==="watch" && (state.watchTab||"grid")==="grid" && k!=="grid") stopLive();
-  if(r==="triage" && (state.triageTab||"alerts")==="alerts" && k!=="alerts") stopAlertsPoll();
+  if(r==="triage") stopAlertsPoll();   // clears BOTH triage timers; the new tab restarts its own
   state[r+"Tab"]=k; state.selected=null; render();
 }
+function fresh(tk){ return tk === state.renderToken; }
 function renderTabs(){
   var el=$("tabs"); if(!el) return;
   var tabs=SURFACE_TABS[state.route]||[];
@@ -516,7 +517,7 @@ function toggleMonitor(){
   else { call("startMonitoring",[],function(r){ applyMonitor(true);
     // engine takes ~15-30s to load models; alerts start flowing after that
     if($("monGate")) $("monGate").textContent="TrueSight · loading models…";
-    setTimeout(function(){ if($("monGate")) $("monGate").textContent="TrueSight · live"; }, 25000);
+    setTimeout(function(){ if(state.monitoring && $("monGate")) $("monGate").textContent="TrueSight · live"; }, 25000);
   }); }
 }
 
@@ -563,6 +564,11 @@ function finishSwitch(s){
 }
 
 function render(){
+  /* Stale-callback guard: every navigation bumps this token; any async
+     callback that wants to paint $("screen") must still hold the current
+     token. Kills the whole class of "slow response overwrites the screen
+     you navigated to" bugs (audit findings 1-3,5, 23 Aug). */
+  state.renderToken = (state.renderToken||0) + 1;
   var t = {watch:"Watch",triage:"Triage",configure:"Configure",settings:"Settings",value:"Value"}[state.route]||"Argus";
   $("title").textContent = t;
   renderTabs();
@@ -794,8 +800,10 @@ function frameUrl(camId){
     +"?t="+(state.frameTick||0)+tok;
 }
 function renderLive(){
+  var tk = state.renderToken;
   $("screen").innerHTML='<div class="pad mut">Starting live view…</div>';
   call("liveStart",[6],function(res){
+    if(!fresh(tk)){ call("liveStop",[],function(){}); return; }   // navigated away mid-start
     var cams = res && res.cameras, port = res && res.port;
     if(!Array.isArray(cams) || !cams.length || !port){
       $("screen").innerHTML='<div class="pad"><h2>Live wall</h2><p class="mut">No camera feeds available. Add cameras (or drop clips in data/test_clips) and reopen this tab.</p></div>';
@@ -1521,8 +1529,11 @@ function setRulePreset(camId, cfg){
 }
 
 /* ---------- Alerts ---------- */
+function onAlertsTab(){ return state.route==="triage" && (state.triageTab||"now")==="alerts"; }
 function renderAlerts(){
+  var tk = state.renderToken;
   call("listEvents",[100],function(evs){
+    if(!fresh(tk) || !onAlertsTab()) return;    // user has moved on — do not repaint over them
     state.events = Array.isArray(evs)?evs:[];
     state.alertsSig = state.events.map(function(e){return e.id+":"+e.review;}).join(",");
     paintAlerts();
@@ -1703,7 +1714,9 @@ function nowResolve(outcome){ var a=nowEvent(); if(!a) return;
 }
 /* Empty state is a feature (§2.3/§2.6): a quiet night must look WATCHED. */
 function paintAllNormal(){
+  var tk = state.renderToken;
   call("cameraLinks",[],function(links){ call("diskEncryption",[],function(d){ call("getSite",[],function(m){
+    if(!fresh(tk) || !onNowTab()) return;
     links=Array.isArray(links)?links:[];
     var up=links.filter(function(l){return l.state==="connected";}).length;
     var monitoring = links.length && !links.every(function(l){return l.state==="unknown";});
@@ -1727,6 +1740,7 @@ function paintAllNormal(){
 }
 
 function paintAlerts(){
+  if(!onAlertsTab()) return;   // claims/resolves from other views must not drag the list in
   var filt = state.alertFilter || "active";
   var sortMode = state.alertSort || "time";
   var c = {active:0, "true":0, "false":0};
@@ -1786,7 +1800,7 @@ function paintAlerts(){
 }
 function setAlertFilter(f){ state.alertFilter=f; state.selected=null; paintAlerts(); }
 function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(function(){
-  if(state.route!=="triage"){ stopAlertsPoll(); return; }
+  if(!onAlertsTab()){ stopAlertsPoll(); return; }
   call("listEvents",[100],function(evs){ if(!Array.isArray(evs)) return;
     var sig=evs.map(function(e){return e.id+":"+e.review;}).join(",");
     if(sig!==state.alertsSig){ state.events=evs; state.alertsSig=sig; paintAlerts(); refreshCounts(); } }); }, 3000); }
@@ -2220,7 +2234,9 @@ function wizVlm(){
 function wizCheckGate(){ wiz.gate=null; renderWizard(); call("gateStatus",[],function(g){ wiz.gate=g.error?{mode:"offline"}:g; renderWizard(); }); }
 function wizPull(){ wiz.pull={state:"pulling",percent:0,detail:"starting"}; renderWizard();
   call("pullModel",[],function(){ wizPollPull(); }); }
-function wizPollPull(){ call("pullProgress",[],function(p){ wiz.pull=p||wiz.pull;
+function wizPollPull(){
+  var w=$("wizard"); if(!w || !w.classList.contains("on")) return;   // wizard closed — stop polling
+  call("pullProgress",[],function(p){ wiz.pull=p||wiz.pull;
     if(p&&p.state==="done"){ wizCheckGate(); return; }
     if(p&&p.state==="error"){ renderWizard(); return; }
     var bar=$("wzPullBar"); if(bar){ bar.style.width=((p&&p.percent)||0)+'%'; var d=$("wzPullDetail"); if(d) d.textContent=((p&&p.detail)||"")+' '+((p&&p.percent)||0)+'%'; }

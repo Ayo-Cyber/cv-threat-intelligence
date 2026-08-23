@@ -212,3 +212,49 @@ class CameraMappingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AuditHardeningTests(unittest.TestCase):
+    """Pins for the 23 Aug head-to-toe audit's fixed findings."""
+
+    def test_watchdog_treats_long_lived_exit_as_scheduled(self):
+        # The spawn caps --seconds (~28h); an exit after an hour+ of uptime is
+        # a scheduled restart and must not burn crash budget. (finding #1)
+        import inspect
+        from cvti.app.console_backend import ConsoleBackend
+        src = inspect.getsource(ConsoleBackend._start_watchdog)
+        self.assertIn("self._restarts = 0", src)
+        self.assertIn("3600", src)
+
+    def test_gate_base_url_reaches_the_ollama_call(self):
+        # --gate-base-url was silently ignored by the default provider (finding #4)
+        import inspect
+        from cvti.verification import gate as g
+        self.assertIn("base_url", inspect.signature(g._call_ollama).parameters)
+        src = inspect.getsource(g.VerificationGate._call_provider)
+        self.assertIn("base_url=self.base_url", src)
+
+    def test_a_preset_change_keeps_zone_and_english_rules(self):
+        # Applying a template used to clobber cam["config"], dropping the
+        # loitering + custom-English rules silently. (finding #9)
+        import json, os, tempfile
+        import sys as _sys
+        _sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+        from _backend_helper import signed_in
+        from pathlib import Path
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "site.json").write_text(json.dumps({"cameras": [{"id": "c1", "source": "0"}]}))
+        cwd = os.getcwd()
+        os.chdir(tmp)     # zones/rules regen writes under configs/ relative
+        try:
+            be = signed_in("owner", site_path=str(tmp / "site.json"),
+                           db_path=str(tmp / "events.db"), enable_demo=False)
+            be.set_custom_rule("c1", "Is anyone wearing a black hoodie?")
+            be.apply_template("office")
+            cam = json.loads((tmp / "site.json").read_text())["cameras"][0]
+            rules = json.loads(Path(cam["config"]).read_text())["rules"]
+            names = [r["name"] for r in rules]
+            self.assertIn("custom_english", names,
+                          "template application dropped the customer's English rule")
+        finally:
+            os.chdir(cwd)
