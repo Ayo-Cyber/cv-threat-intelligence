@@ -1450,11 +1450,11 @@ function renderRules(){
         +'<div class="row" style="margin-top:9px"><button class="btn ghost sm" onclick="openZoneEditor(\''+esc(c.id)+'\')">✏️ Draw a zone</button></div>'
         +'<div style="margin-top:13px;padding-top:11px;border-top:1px solid var(--c-border)">'
         +  '<div class="plabel" style="color:var(--c-accent)">DESCRIBE IT IN ENGLISH <span class="valbadge exp">EXPERIMENTAL</span></div>'
-        +  '<div class="row" style="gap:8px;margin-top:7px">'
-        +    '<input id="cr-'+esc(c.id)+'" value="'+esc((c.custom_rule&&c.custom_rule.question)||"")+'" placeholder="e.g. Is any person wearing a black hoodie?" style="flex:1;font-size:12.5px">'
-        +    '<button class="btn sm" onclick="saveCustomRule(\''+esc(c.id)+'\', this)">Save</button></div>'
-        +  '<div id="crmsg-'+esc(c.id)+'" class="sub" style="font-size:11.5px;margin-top:6px">'
-        +    (c.custom_rule&&c.custom_rule.question ? 'Active: TrueSight judges this sentence whenever a person lingers ~'+((c.custom_rule.dwell||4))+'s on this camera.' : 'TrueSight will judge your sentence, on live frames, whenever a person lingers here. Clear the box to remove.')+'</div>'
+        +  customRuleRows(c)
+        +  '<div class="row" style="gap:8px;margin-top:8px">'
+        +    '<input id="cr-'+esc(c.id)+'" placeholder="e.g. Is any person wearing a black hoodie?" style="flex:1;font-size:12.5px">'
+        +    '<button class="btn sm" onclick="addCustomRule(\''+esc(c.id)+'\', this)">+ Watch for this</button></div>'
+        +  '<div id="crmsg-'+esc(c.id)+'" class="sub" style="font-size:11.5px;margin-top:6px">Sentences add up — TrueSight scans this camera for each of them about every 12 seconds, person in frame or not. New sentences go live within one scan.</div>'
         +'</div></div>';
     }).join("");
     $("screen").innerHTML='<div class="pad"><div class="row" style="justify-content:space-between;margin-bottom:6px">'
@@ -1609,15 +1609,41 @@ function threatClass(rule){ rule=String(rule||"");
     return {label:THREAT_CLASS[i][1], color:THREAT_CLASS[i][2], icon:THREAT_CLASS[i][3]}; }
   return {label:"Other", color:"#9aa4b2", icon:"⚠"};
 }
-function saveCustomRule(camId, btn){
+function customRules(c){
+  var list = Array.isArray(c.custom_rules) ? c.custom_rules.slice() : [];
+  if(c.custom_rule && c.custom_rule.question &&
+     !list.some(function(r){return r.question===c.custom_rule.question;}))
+    list.unshift(c.custom_rule);
+  return list.filter(function(r){return r && (r.question||"").trim();});
+}
+function customRuleRows(c){
+  var rules = customRules(c);
+  if(!rules.length) return '<div class="mut" style="font-size:12px;margin-top:6px">Nothing described yet.</div>';
+  return rules.map(function(r){
+    return '<div class="row" style="gap:8px;padding:6px 0;border-bottom:1px solid var(--c-border)">'
+      +'<span style="font-size:12.5px;flex:1">“'+esc(r.question)+'”</span>'
+      +'<button class="btn ghost sm" onclick="dropCustomRule(\''+esc(c.id)+'\', this)" data-q="'+esc(r.question)+'">✕</button></div>'; }).join("");
+}
+function addCustomRule(camId, btn){
   var box=$("cr-"+camId), msg=$("crmsg-"+camId);
-  btn.disabled=true; btn.textContent="Saving…";
-  call("setCustomRule",[camId, (box&&box.value)||"", 4],function(r){
-    btn.disabled=false; btn.textContent="Save";
-    if(!msg) return;
-    if(r&&r.error){ msg.style.color="var(--sev-crit)"; msg.textContent="✕ "+r.error; return; }
-    msg.style.color="var(--c-live)";
-    msg.textContent = r.question ? "✓ Saved — "+r.note+"." : "✓ Removed — "+r.note+".";
+  var q=(box&&box.value||"").trim();
+  if(!q){ if(msg){msg.style.color="var(--sev-high)"; msg.textContent="Describe the event in a sentence first.";} return; }
+  btn.disabled=true;
+  call("addCustomRule",[camId, q, 4],function(r){
+    btn.disabled=false;
+    if(r&&r.error){ if(msg){msg.style.color="var(--sev-crit)"; msg.textContent="✕ "+r.error;} return; }
+    if(box) box.value="";
+    if(msg){ msg.style.color="var(--c-live)"; msg.textContent="✓ Watching for it — "+((r&&r.note)||""); }
+    renderRules();
+  });
+}
+function dropCustomRule(camId, btn){
+  var q=btn.getAttribute("data-q");
+  btn.disabled=true;
+  call("removeCustomRule",[camId, q],function(r){
+    var msg=$("crmsg-"+camId);
+    if(r&&r.error){ btn.disabled=false; if(msg){msg.style.color="var(--sev-crit)"; msg.textContent="✕ "+r.error;} return; }
+    renderRules();
   });
 }
 function setAlertSort(m){ state.alertSort=m; paintAlerts(); }

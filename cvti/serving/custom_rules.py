@@ -22,11 +22,40 @@ from cvti.logging_setup import get_logger
 log = get_logger(__name__)
 
 
+def _rules_for(cam: dict) -> list[dict]:
+    """Every English rule on a camera, whatever field it arrived in.
+
+    `custom_threats` is the original hand-written config shape
+    ({name, description}); `custom_rules` is what the app's DESCRIBE IT IN
+    ENGLISH box writes ({question, dwell}). The two never met — the box wrote
+    one field, the scanner read the other, and a sentence like "Detect the
+    white aeroplane" sat configured while nothing scanned for it (user report,
+    23 Aug). Questions become threats named by their own words.
+    """
+    out = list(cam.get("custom_threats") or [])
+    for r in cam.get("custom_rules") or []:
+        q = (r.get("question") or "").strip()
+        if not q:
+            continue
+        name = " ".join(q.strip("?!. ").split()[:6]).lower()
+        out.append({"name": name, "description": q})
+    legacy = cam.get("custom_rule")
+    if legacy and (legacy.get("question") or "").strip():
+        q = legacy["question"].strip()
+        if q not in [t["description"] for t in out]:
+            out.append({"name": " ".join(q.strip("?!. ").split()[:6]).lower(),
+                        "description": q})
+    return out
+
+
 class CustomRuleScanner:
     def __init__(self, cameras: list[dict], sink, *, model: str,
                  base_url: str = "http://localhost:11434/v1",
-                 interval: float = 12.0, cooldown: float = 90.0) -> None:
-        self.cameras = [c for c in cameras if c.get("custom_threats")]
+                 interval: float = 12.0, cooldown: float = 90.0,
+                 site_config_path: str | None = None) -> None:
+        self.site_config_path = site_config_path
+        self.cameras = [c for c in cameras if _rules_for(c)]
+        self._all_cameras = list(cameras)
         self.sink = sink
         self.model = model
         self.base_url = base_url
@@ -36,13 +65,26 @@ class CustomRuleScanner:
         self._thread: threading.Thread | None = None
         self._last_fire: dict[tuple, float] = {}   # (cam, rule) -> ts
 
+    def _refresh_cameras(self) -> None:
+        """Re-read the site file so a sentence typed in the app starts scanning
+        within one cycle — no restart. Cheap: one JSON read per interval."""
+        if not self.site_config_path:
+            return
+        try:
+            site = json.loads(Path(self.site_config_path).read_text())
+            self._all_cameras = site.get("cameras", [])
+        except (OSError, ValueError):
+            log.debug("[custom-rules] site re-read failed; keeping current", exc_info=True)
+            return
+        self.cameras = [c for c in self._all_cameras if _rules_for(c)]
+
     def start(self) -> "CustomRuleScanner":
-        if not self.cameras:
+        if not self.cameras and not self.site_config_path:
             return self
         self._thread = threading.Thread(target=self._loop, name="custom-rules", daemon=True)
         self._thread.start()
-        names = ", ".join(c["id"] for c in self.cameras)
-        log.info(f"[custom-rules] scanning {len(self.cameras)} camera(s) [{names}] every {self.interval:.0f}s")
+        names = ", ".join(c["id"] for c in self.cameras) or "none yet — watching the site file"
+        log.info(f"[custom-rules] scanning [{names}] every {self.interval:.0f}s")
         return self
 
     def _open(self, source):
@@ -63,11 +105,23 @@ class CustomRuleScanner:
         return fr if ok else None
 
     def _loop(self) -> None:
-        caps = {c["id"]: self._open(c["source"]) for c in self.cameras}
+        caps: dict = {}
         dead_since: dict = {}     # camera_id -> when frames stopped
         self._stop.wait(self.interval)               # let models load / scene settle
         while not self._stop.is_set():
+            self._refresh_cameras()
+            wanted = {c["id"] for c in self.cameras}
+            for cid in list(caps):                   # camera lost its rules: stop decoding it
+                if cid not in wanted:
+                    try:
+                        caps.pop(cid).release()
+                    except Exception:  # noqa: BLE001
+                        log.debug("release failed", exc_info=True)
             for c in self.cameras:
+                if c["id"] not in caps:              # camera gained rules: start decoding
+                    caps[c["id"]] = self._open(c["source"])
+                    log.info(f"[custom-rules] now scanning {c['id']} "
+                             f"({len(_rules_for(c))} rule(s))")
                 cap = caps.get(c["id"])
                 if cap is None:
                     continue
@@ -124,7 +178,7 @@ class CustomRuleScanner:
 
     def _check(self, cam: dict, frame) -> dict | None:
         import cv2
-        threats = cam.get("custom_threats") or []
+        threats = _rules_for(cam)
         if not threats:
             return None
         lines = "\n".join(f'- {t["name"]}: {t["description"]}' for t in threats)
