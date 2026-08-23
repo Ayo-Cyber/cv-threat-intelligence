@@ -118,26 +118,32 @@ class MultipleEnglishRulesTest(unittest.TestCase):
         return signed_in("owner", site_path=str(Path(tmp) / "site.json"),
                          db_path=str(Path(tmp) / "events.db"), enable_demo=False)
 
-    def test_sentences_accumulate_instead_of_overwriting(self):
+    def test_sentences_accumulate_and_the_scanner_sees_them_all(self):
         import json, os, tempfile
         from pathlib import Path
+        from cvti.serving.custom_rules import _rules_for
         cwd = os.getcwd()
         with tempfile.TemporaryDirectory() as tmp:
             try:
                 be = self._backend(tmp)
                 be.add_custom_rule("c1", "Is anyone wearing a black hoodie?")
-                be.add_custom_rule("c1", "Is anyone carrying a ladder?")
+                be.add_custom_rule("c1", "Is there a white aeroplane on the apron?")
                 cam = json.loads((Path(tmp) / "site.json").read_text())["cameras"][0]
+                threats = _rules_for(cam)
+                descs = [t["description"] for t in threats]
+                self.assertEqual(len(descs), 2, "the second sentence overwrote the first")
+                self.assertIn("hoodie", descs[0]); self.assertIn("aeroplane", descs[1])
+                # a plane needs no person: the scanner path has no presence gate
                 rules = json.loads(Path(cam["config"]).read_text())["rules"]
-                qs = [r["gate_question"] for r in rules if r.get("gate_question")]
-                self.assertEqual(len(qs), 2, "the second sentence overwrote the first")
-                self.assertIn("hoodie", qs[0]); self.assertIn("ladder", qs[1])
+                self.assertFalse([r for r in rules if r.get("gate_question")],
+                                 "English rules leaked back into the person-gated path")
             finally:
                 os.chdir(cwd)
 
     def test_removing_one_sentence_keeps_the_others(self):
         import json, os, tempfile
         from pathlib import Path
+        from cvti.serving.custom_rules import _rules_for
         cwd = os.getcwd()
         with tempfile.TemporaryDirectory() as tmp:
             try:
@@ -146,12 +152,31 @@ class MultipleEnglishRulesTest(unittest.TestCase):
                 be.add_custom_rule("c1", "Is anyone carrying a ladder?")
                 be.remove_custom_rule("c1", "Is anyone wearing a black hoodie?")
                 cam = json.loads((Path(tmp) / "site.json").read_text())["cameras"][0]
-                rules = json.loads(Path(cam["config"]).read_text())["rules"]
-                qs = [r["gate_question"] for r in rules if r.get("gate_question")]
-                self.assertEqual(len(qs), 1)
-                self.assertIn("ladder", qs[0])
+                descs = [t["description"] for t in _rules_for(cam)]
+                self.assertEqual(len(descs), 1)
+                self.assertIn("ladder", descs[0])
             finally:
                 os.chdir(cwd)
+
+    def test_the_scanner_hot_picks_up_a_new_sentence(self):
+        # 'It should kick off automatically' — the scanner re-reads the site
+        # file every cycle; a sentence typed in the app starts scanning within
+        # one interval, no restart of anything.
+        import json, tempfile
+        from pathlib import Path
+        from cvti.serving.custom_rules import CustomRuleScanner
+        with tempfile.TemporaryDirectory() as tmp:
+            site = Path(tmp) / "site.json"
+            site.write_text(json.dumps({"cameras": [{"id": "apron", "source": "x.mp4"}]}))
+            sc = CustomRuleScanner([], sink=None, model="m", site_config_path=str(site))
+            sc._refresh_cameras()
+            self.assertEqual(sc.cameras, [], "scanning a camera with no rules")
+            site.write_text(json.dumps({"cameras": [{"id": "apron", "source": "x.mp4",
+                "custom_rules": [{"question": "Is there a white aeroplane?", "dwell": 4}]}]}))
+            sc._refresh_cameras()
+            self.assertEqual(len(sc.cameras), 1)
+            from cvti.serving.custom_rules import _rules_for
+            self.assertIn("aeroplane", _rules_for(sc.cameras[0])[0]["description"])
 
     def test_legacy_single_rule_is_migrated_not_lost(self):
         import json, os, tempfile

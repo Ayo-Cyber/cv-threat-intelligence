@@ -397,12 +397,15 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                 base_url=gate_base_url or "http://localhost:11434/v1",
                 frame_source=_latest_frame).start()
 
-        # Customer-written rules run as a slow VLM scan (the VLM is the detector).
-        if any(c.get("custom_threats") for c in cams_cfg):
-            from cvti.serving.custom_rules import CustomRuleScanner
-            custom_scanner = CustomRuleScanner(
-                cams_cfg, sink, model=gate_model or "gemma3:4b",
-                base_url=gate_base_url or "http://localhost:11434/v1").start()
+        # Customer-written English rules run as a slow VLM scan — the VLM IS the
+        # detector, no person-trigger required (an aeroplane on an empty apron
+        # counts). Always started: it watches the site file and begins scanning
+        # a camera within one cycle of a sentence being typed in the app.
+        from cvti.serving.custom_rules import CustomRuleScanner
+        custom_scanner = CustomRuleScanner(
+            cams_cfg, sink, model=gate_model or "gemma3:4b",
+            base_url=gate_base_url or "http://localhost:11434/v1",
+            site_config_path=site_config_path).start()
     # Retention. Storage limitation is not optional, and an edge box with no
     # purge fills its disk and stops recording evidence exactly when it matters.
     from cvti.serving.onboarding import get_site_meta

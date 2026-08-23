@@ -580,19 +580,12 @@ class ConsoleBackend:
             rules.append({"name": f"loitering_{z['name']}", "trigger": {"detector": "presence"},
                           "context_filter": f"zone == '{z['name']}' and dwell_seconds >= {dw}",
                           "priority": "medium"})
-        # The camera's plain-English rules — PLURAL: one sentence used to
-        # overwrite the last, so the system looked "tailored to hoodies".
-        # Each sentence becomes its own rule; TrueSight judges each verbatim
-        # whenever a person lingers anywhere on this camera. Regenerated here
-        # so drawing or deleting zones never silently drops any of them.
-        for i, custom in enumerate(self._custom_rules(cam)):
-            title = custom["question"][:60] + ("…" if len(custom["question"]) > 60 else "")
-            rules.append({"name": f"custom_english_{i + 1}",
-                          "title": title.upper(),
-                          "trigger": {"detector": "presence"},
-                          "context_filter": f"dwell_seconds >= {float(custom.get('dwell', 4))}",
-                          "priority": custom.get("priority", "high"),
-                          "gate_question": custom["question"]})
+        # English rules do NOT regenerate into presence-gated rules any more:
+        # that path only fired when a PERSON lingered, so "detect the white
+        # aeroplane" never ran (user report, 23 Aug). The engine's
+        # CustomRuleScanner is the single path — it reads cam["custom_rules"]
+        # from the site file directly, scans every ~12s person-or-not, and
+        # hot-picks-up new sentences within one cycle.
         rdir = Path("configs/rules")
         rdir.mkdir(parents=True, exist_ok=True)
         rfile = rdir / f"{camera_id}.json"
@@ -626,7 +619,7 @@ class ConsoleBackend:
         self._regen_zone_rules(camera_id, cam, data["zones"])
         onboarding.add_camera(self.site_path, cam)
         return {"ok": True, "rules": [r["question"] for r in rules],
-                "note": "live within seconds while monitoring runs; otherwise at next start"}
+                "note": "scanned about every 12s, person or not — live within one scan"}
 
     def add_custom_rule(self, camera_id: str, question: str, dwell: float = 4.0) -> dict:
         """Add one plain-English rule to a camera. Sentences accumulate — a new

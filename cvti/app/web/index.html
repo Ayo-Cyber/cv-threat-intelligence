@@ -1454,7 +1454,7 @@ function renderRules(){
         +  '<div class="row" style="gap:8px;margin-top:8px">'
         +    '<input id="cr-'+esc(c.id)+'" placeholder="e.g. Is any person wearing a black hoodie?" style="flex:1;font-size:12.5px">'
         +    '<button class="btn sm" onclick="addCustomRule(\''+esc(c.id)+'\', this)">+ Watch for this</button></div>'
-        +  '<div id="crmsg-'+esc(c.id)+'" class="sub" style="font-size:11.5px;margin-top:6px">Sentences add up — each is judged by TrueSight whenever a person lingers here. Changes go LIVE within seconds while monitoring runs.</div>'
+        +  '<div id="crmsg-'+esc(c.id)+'" class="sub" style="font-size:11.5px;margin-top:6px">Sentences add up — TrueSight scans this camera for each of them about every 12 seconds, person in frame or not. New sentences go live within one scan.</div>'
         +'</div></div>';
     }).join("");
     $("screen").innerHTML='<div class="pad"><div class="row" style="justify-content:space-between;margin-bottom:6px">'
