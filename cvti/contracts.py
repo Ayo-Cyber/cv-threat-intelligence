@@ -66,6 +66,11 @@ class VerificationResult:
     # not parse. Collapsing the two means a connection failure is indistinguishable
     # from TrueSight examining a fire and deciding it is safe.
     error: str = ""
+    # Which prompt wording produced this verdict (short fingerprint, see
+    # cvti/eval/prompt_fingerprint.py). Three revisions moved precision 26
+    # points; an event that cannot say which wording judged it cannot be
+    # compared honestly with one judged by another.
+    prompt_version: str = ""
 
     @property
     def errored(self) -> bool:

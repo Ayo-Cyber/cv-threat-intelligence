@@ -19,7 +19,9 @@ followed.
 |---|---|
 | [NUMBERS.md](NUMBERS.md) | Every measured figure, with its sample size and 95% interval. **Generated** — run `python tools/make_numbers_sheet.py`, never hand-edit. |
 | [GATE_MODEL_BAKEOFF.md](GATE_MODEL_BAKEOFF.md) | How the on-device gate model was chosen, and what it scored. |
+| [prompt_baseline.json](prompt_baseline.json) | The gate prompts' measured precision/recall, and the fingerprint CI checks them against. **Generated** — `tools/prompt_regression.py run --update-baseline`. |
 | [AUDIT.md](AUDIT.md) | Independent audit of the whole system. The backlog everything else traces to. |
+| [BACKLOG.md](BACKLOG.md) | Work that is started, blocked or deferred — what state it is in and what would unblock it. |
 | [UI_SPEC.md](UI_SPEC.md) | **The decided UI direction.** Every UI-touching task implements this; deviations update this file first. |
 | [DESIGN_BRIEF.md](DESIGN_BRIEF.md) | The interface problem stated for a designer: the three jobs, the missing triage workflow, and what is built but undesigned. |
 | [SPRINT_PLAN.md](SPRINT_PLAN.md) | The current three-week delivery plan. Every task cites an audit ID. |

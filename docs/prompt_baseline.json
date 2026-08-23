@@ -1,0 +1,38 @@
+{
+  "tolerance": {
+    "precision": 0.05,
+    "recall": 0.03
+  },
+  "cases": 96,
+  "scored": 96,
+  "errors": 0,
+  "tp": 16,
+  "fn": 40,
+  "fp": 8,
+  "tn": 32,
+  "precision": 0.6667,
+  "precision_ci": [
+    0.4671,
+    0.8203
+  ],
+  "precision_n": 24,
+  "recall": 0.2857,
+  "recall_ci": [
+    0.1842,
+    0.4148
+  ],
+  "recall_n": 56,
+  "fingerprint": "a62a05bbaf95688c04d201d447d11f9da8913cf480e94fbe69f08a3c94cfcfe3",
+  "prompts": {
+    "SENSITIVITY_QUESTIONS": 3,
+    "_COT_PROMPT_TEMPLATE": 1843,
+    "_DETECTOR_QUESTIONS": 7,
+    "_PROMPT_TEMPLATE": 1997,
+    "_QUESTIONS": 16
+  },
+  "sensitivity": "balanced",
+  "gate_model": "gemma3:4b",
+  "gate_model_digest": "a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a",
+  "measured_at": "2026-08-20T14:29:17",
+  "golden_cases": 96
+}

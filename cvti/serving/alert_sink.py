@@ -285,7 +285,8 @@ class AlertSink:
                             ("owner", "TEXT"), ("acknowledged_at", "REAL"),
                             ("resolved_at", "REAL"), ("outcome", "TEXT"), ("note", "TEXT"),
                             ("provisional", "INTEGER DEFAULT 0"),
-                            ("retracted", "INTEGER DEFAULT 0")):
+                            ("retracted", "INTEGER DEFAULT 0"),
+                            ("prompt_version", "TEXT")):
             try:
                 self._db.execute(f"ALTER TABLE events ADD COLUMN {_col} {_type}")
             except sqlite3.OperationalError:
@@ -665,12 +666,13 @@ class AlertSink:
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO events (ts,iso,camera_id,rule,priority,confidence,reason,"
-                "track_id,zone,object_label,evidence_dir,latency_s,bbox,unverified,gate_error) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "track_id,zone,object_label,evidence_dir,latency_s,bbox,unverified,gate_error,"
+                "prompt_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ts, iso, alert.camera_id, alert.rule_name, alert.priority,
                  float(result.confidence), result.reason, alert.track_id, alert.zone,
                  alert.object_label, str(ev_dir), latency_s, event["bbox"],
-                 event["unverified"], event["gate_error"]))
+                 event["unverified"], event["gate_error"],
+                 getattr(result, "prompt_version", "") or None))
             event_id = cur.lastrowid
             self._db.commit()
         self.persisted += 1

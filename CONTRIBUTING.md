@@ -79,6 +79,21 @@ would notice. Skip it for pure internal refactors.
   start on it unless `ARGUS_ALLOW_MOCK_GATE=1` is set, and show a permanent red
   banner when they do. If a change makes that guard easier to bypass, it is the
   wrong change.
+- **Prompt text is a measured surface.** The wording in `gate.py`
+  (`_QUESTIONS`, `_DETECTOR_QUESTIONS`, the templates) determines the headline
+  precision figure — three revisions moved it 26 points. Change any of it and CI
+  fails until you re-measure:
+
+  ```bash
+  ollama serve &
+  python tools/prompt_regression.py run                     # compare to baseline
+  python tools/prompt_regression.py run --update-baseline   # accept the new numbers
+  ```
+
+  and commit `docs/prompt_baseline.json`. CI does not re-measure — a GitHub
+  runner cannot run a 3 GB VLM — it enforces that the wording and the recorded
+  measurement agree. If the golden set is missing locally, rebuild it with
+  `python tools/prompt_regression.py capture` (slow, once).
 - **Generated files are generated.** `docs/NUMBERS.md` comes from
   `tools/make_numbers_sheet.py`; `reports/` is eval output and is not tracked.
 - **Large binaries stay out of git.** The nine demo clips in `data/test_clips/`

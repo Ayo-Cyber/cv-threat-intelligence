@@ -202,11 +202,17 @@ SENSITIVITY_QUESTIONS: dict[str, dict[str, str]] = {
 }
 
 # Measured on the held-out set — surfaced so the UI/docs can state real numbers.
+# --- BEGIN GENERATED: SENSITIVITY_MEASURED (tools/make_sensitivity.py) ---
+# Computed from the archived eval runs (runs/eval/v2-tightened, v3-strict),
+# not hand-maintained: regenerate with `python tools/make_sensitivity.py`
+# after any re-measurement. A test asserts these equal what the archives
+# produce, so the code cannot drift from the reality it claims to describe.
 SENSITIVITY_MEASURED = {
     "balanced": {"recall": 0.889, "precision": 0.533, "fpr": 0.259, "alerts": 61},
     "strict": {"recall": 0.778, "precision": 0.636, "fpr": 0.148, "alerts": 28},
     "_dataset": "36 held-out CamNuvem test clips (9 threat / 27 normal), gemma3:4b",
 }
+# --- END GENERATED: SENSITIVITY_MEASURED ---
 
 
 def _format_examples(examples: list | None) -> str:
@@ -353,6 +359,18 @@ class VerificationGate:
         self.save_dir = Path(save_dir) if save_dir else None
         self._call_count = 0
 
+    @property
+    def prompt_version(self) -> str:
+        """Short fingerprint of the prompt wording this gate is running."""
+        if not getattr(self, "_prompt_version", ""):
+            try:
+                from cvti.eval.prompt_fingerprint import fingerprint
+                self._prompt_version = fingerprint()[:12]
+            except Exception:  # noqa: BLE001 - versioning must never break verification
+                log.debug("prompt fingerprint unavailable", exc_info=True)
+                self._prompt_version = ""
+        return self._prompt_version
+
     def verify(
         self,
         frame: Any,               # a single numpy BGR frame OR a list of them (multi-frame)
@@ -403,6 +421,7 @@ class VerificationGate:
                 .isoformat().replace("+00:00", "Z"),
                 raw_response="",
                 error=f"transport: {type(exc).__name__}: {str(exc)[:160]}")
+            result.prompt_version = self.prompt_version
             if self.save_dir:
                 _save_artifacts(self.save_dir, self._call_count, frames, alert, result, "")
             return result
@@ -425,6 +444,7 @@ class VerificationGate:
                 alert_priority=result.alert_priority, timestamp=result.timestamp,
                 raw_response=result.raw_response)
 
+        result.prompt_version = self.prompt_version
         if self.save_dir:
             _save_artifacts(self.save_dir, self._call_count, frames, alert, result, raw_response)
 

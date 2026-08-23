@@ -39,8 +39,10 @@ def main() -> None:
     from cvti.logging_setup import setup_logging
     setup_logging(component="argus-eval-harness")
     p = argparse.ArgumentParser(description="Measure detection + TrueSight suppression.")
-    p.add_argument("--dataset", choices=("camnuvem", "local", "all"), default="camnuvem",
-                   help="camnuvem = the held-out test split (the honest one).")
+    p.add_argument("--dataset", choices=("camnuvem", "local", "all", "critical", "ucf_crime"),
+                   default="camnuvem",
+                   help="camnuvem = held-out theft split; critical = data/critical/<kind>/ "
+                        "(EP-07-T3); ucf_crime = data/ucf_crime official layout + critical.")
     p.add_argument("--limit", type=int, default=0, help="cap total clips (keeps both classes).")
     p.add_argument("--kind", default="", help="measure one threat only: fire|crowd|theft|violence")
     p.add_argument("--gate", choices=("ollama", "mock", "none"), default="mock",
