@@ -1,14 +1,16 @@
 {
-  "_comment": "DEMO: a plain-English rule. The gate_question below goes to TrueSight verbatim — change that one sentence and the system detects what YOU said, judged by the vision model on the live frames. Trigger: any person lingering in the zone named 'demo_floor' for 5s (draw it in Configure > Cameras > Draw a zone, name it demo_floor). The baseline critical rules stay merged underneath as always.",
+  "_comment": "DEMO base config. Change gate_question and restart monitoring.",
   "use_case_id": "demo_custom_rule_v1",
   "rules": [
     {
       "name": "stated_in_english",
       "title": "CUSTOM RULE MATCHED",
-      "trigger": { "detector": "presence" },
-      "context_filter": "zone == 'demo_floor' and dwell_seconds >= 5",
+      "trigger": {
+        "detector": "presence"
+      },
+      "context_filter": "zone == 'demo_floor' and dwell_seconds >= 4",
       "priority": "high",
-      "gate_question": "Is a person in these frames holding a phone above their head? Answer yes only if the phone is clearly raised above head height."
+      "gate_question": "Is any person in these frames wearing a black hoodie? Answer yes only if someone clearly wears a black hooded sweatshirt or hooded top; dark shirts, jackets or coats without a hood do not count."
     }
   ]
 }

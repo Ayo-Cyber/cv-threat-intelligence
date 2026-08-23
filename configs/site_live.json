@@ -1,0 +1,30 @@
+{
+  "name": "Demo Stage",
+  "notify": "console",
+  "configured": true,
+  "cameras": [
+    {
+      "id": "stage",
+      "source": "0",
+      "config": "configs/rules/stage.json",
+      "concealment": false,
+      "video_action": false,
+      "violence": false,
+      "weapons": false,
+      "theft": false,
+      "tamper": false,
+      "fire_smoke": false,
+      "running": false,
+      "crowd_formation": false,
+      "fall": false,
+      "zones": "configs/zones/stage.json",
+      "_base_config": "configs/all_threats_v1.json",
+      "scene_description": "A room monitored by a demo webcam.",
+      "environment_type": "office",
+      "custom_rule": {
+        "question": "Is any person in these frames wearing a black hoodie? Answer yes only if someone clearly wears a black hooded sweatshirt or hooded top; dark shirts, jackets or coats without a hood do not count.",
+        "dwell": 4.0
+      }
+    }
+  ]
+}

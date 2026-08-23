@@ -88,6 +88,10 @@ class Backend(QObject):
     def discoverCameras(self) -> str:
         return self._safe(self._core.discover_cameras)
 
+    @pyqtSlot(str, str, float, result=str)
+    def setCustomRule(self, camera_id: str, question: str, dwell: float) -> str:
+        return self._safe(lambda: self._core.set_custom_rule(camera_id, question, dwell or 4.0))
+
     @pyqtSlot(str, str, result=str)
     def setCameraRules(self, camera_id: str, rules_json: str) -> str:
         return self._safe(lambda: self._core.set_camera_rules(camera_id, json.loads(rules_json)))
