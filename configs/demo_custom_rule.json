@@ -1,0 +1,16 @@
+{
+  "_comment": "DEMO base config. Change gate_question and restart monitoring.",
+  "use_case_id": "demo_custom_rule_v1",
+  "rules": [
+    {
+      "name": "stated_in_english",
+      "title": "CUSTOM RULE MATCHED",
+      "trigger": {
+        "detector": "presence"
+      },
+      "context_filter": "zone == 'demo_floor' and dwell_seconds >= 4",
+      "priority": "high",
+      "gate_question": "Is any person in these frames wearing a black hoodie? Answer yes only if someone clearly wears a black hooded sweatshirt or hooded top; dark shirts, jackets or coats without a hood do not count."
+    }
+  ]
+}

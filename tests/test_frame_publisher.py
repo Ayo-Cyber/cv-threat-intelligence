@@ -147,7 +147,7 @@ class AppFallbackTests(unittest.TestCase):
         d = Path(tempfile.mkdtemp())
         be = signed_in(site_path=str(d / "s.json"), db_path=str(d / "e.db"),
                             enable_demo=False)
-        self.assertEqual(be._engine_frame_port(), 0)      # nothing published
+        self.assertEqual(be._engine_frame_port(), (0, ""))   # nothing published
         res = be.live_start(2)
         try:
             # falls back to its own decode rather than showing nothing
@@ -161,8 +161,37 @@ class AppFallbackTests(unittest.TestCase):
         (d / "frames.json").write_text(json.dumps({"port": 9}))   # nothing listening
         be = signed_in(site_path=str(d / "s.json"), db_path=str(d / "e.db"),
                             enable_demo=False)
-        self.assertEqual(be._engine_frame_port(), 0)
+        self.assertEqual(be._engine_frame_port(), (0, ""))
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TokenThreadingTests(unittest.TestCase):
+    """The demo-day broken-tile bug: EP-03 put a token on every frame route,
+    but live_start's probe checked /cameras WITHOUT it (so engine frames were
+    never used) and neither return path handed the UI a token (so every <img>
+    got 401). The UI cannot render what it cannot authenticate to."""
+
+    def test_engine_probe_sends_the_token_and_returns_it(self):
+        from cvti.serving.frame_publisher import FramePublisher
+        import numpy as np
+        d = Path(tempfile.mkdtemp())
+        pub = FramePublisher().start(d)
+        try:
+            pub.publish("cam1", np.zeros((8, 8, 3), np.uint8), [])
+            be = signed_in(site_path=str(d / "s.json"), db_path=str(d / "e.db"),
+                           enable_demo=False)
+            port, token = be._engine_frame_port()
+            self.assertEqual(port, pub.port)
+            self.assertEqual(token, pub.token, "the UI is useless without the token")
+        finally:
+            pub.stop()
+
+    def test_live_start_app_path_returns_the_frameserver_token(self):
+        import inspect
+        from cvti.app.console_backend import ConsoleBackend
+        src = inspect.getsource(ConsoleBackend.live_start)
+        self.assertIn('"token"', src)
+        self.assertIn("self._fs.token", src)

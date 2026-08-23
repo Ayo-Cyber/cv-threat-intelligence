@@ -467,7 +467,8 @@ class VerificationGate:
         elif self.provider == "openrouter":
             raw_response = _call_openrouter(prompt, frames_bytes, self.model, self.api_key_env)
         elif self.provider == "ollama":
-            raw_response = _call_ollama(prompt, frames_bytes, self.model, self.api_key_env)
+            raw_response = _call_ollama(prompt, frames_bytes, self.model, self.api_key_env,
+                                        base_url=self.base_url)
         else:
             raise UnsupportedProvider(f"Unsupported provider: {self.provider}")
 
@@ -495,7 +496,8 @@ def _mock_response(alert: CandidateAlert) -> str:
     })
 
 
-def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str) -> str:
+def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str,
+                 base_url: str = "") -> str:
     """Verify via a LOCAL Ollama server — offline, on-device (the edge gate path).
 
     Ollama exposes an OpenAI-compatible API at localhost:11434 and ignores auth, so we
@@ -509,7 +511,10 @@ def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env
         frame_bytes=frames_bytes,
         model=model,
         api_key_env=api_key_env,
-        api_base_url="http://localhost:11434/v1",
+        # --gate-base-url used to be silently ignored on this (default) path:
+        # a nonstandard Ollama host made every alert UNVERIFIED with nothing
+        # saying the flag never took. (Audit 23 Aug, #4.)
+        api_base_url=base_url or "http://localhost:11434/v1",
     )
 
 

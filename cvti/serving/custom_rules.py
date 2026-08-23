@@ -64,6 +64,7 @@ class CustomRuleScanner:
 
     def _loop(self) -> None:
         caps = {c["id"]: self._open(c["source"]) for c in self.cameras}
+        dead_since: dict = {}     # camera_id -> when frames stopped
         self._stop.wait(self.interval)               # let models load / scene settle
         while not self._stop.is_set():
             for c in self.cameras:
@@ -72,7 +73,23 @@ class CustomRuleScanner:
                     continue
                 frame = self._grab(cap)
                 if frame is None:
+                    # The main pipeline's decoder reconnects; this scanner used
+                    # to hold one dead VideoCapture forever, so the customer's
+                    # English rules silently stopped scanning that camera after
+                    # any stream drop. Reopen with a 30s backoff.
+                    # (Audit 23 Aug, #8.)
+                    import time as _t
+                    first = dead_since.setdefault(c["id"], _t.time())
+                    if _t.time() - first >= 30:
+                        log.info(f"[custom-rules {c['id']}] no frames for 30s — reopening stream")
+                        try:
+                            cap.release()
+                        except Exception:  # noqa: BLE001
+                            log.debug("release failed", exc_info=True)
+                        caps[c["id"]] = self._open(c["source"])
+                        dead_since[c["id"]] = _t.time()
                     continue
+                dead_since.pop(c["id"], None)
                 try:
                     hit = self._check(c, frame)
                 except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop

@@ -102,6 +102,11 @@ class CustomizationEngine:
                         person_id=event.person_id,
                         object_label=event.object_label,
                         timestamp=event.timestamp,
+                        # A rule's own plain-English question reaches the VLM
+                        # verbatim. Compound recipes always had this; simple
+                        # trigger rules silently dropped it — the sentence the
+                        # customer wrote never reached the model.
+                        question=rule.get("gate_question"),
                     )
                 )
                 break  # one alert per rule per frame is enough

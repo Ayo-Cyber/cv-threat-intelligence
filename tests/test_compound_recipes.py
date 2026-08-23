@@ -60,3 +60,43 @@ class CompoundRecipeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SimpleRuleQuestionTest(unittest.TestCase):
+    """A rule's plain-English gate_question must reach the VLM (demo-day bug).
+
+    Compound recipes always carried it; simple trigger rules silently dropped
+    it — the customer's sentence never reached the model, and the gate fell
+    back to a generic question while the UI implied otherwise.
+    """
+
+    def test_gate_question_rides_the_candidate(self):
+        import json
+        import tempfile
+        from cvti.contracts import RawEvent
+        from cvti.rules.customization import CustomizationEngine
+        rule = {"use_case_id": "t", "rules": [{
+            "name": "stated", "trigger": {"detector": "presence"},
+            "priority": "high",
+            "gate_question": "Is someone waving both arms above their head?"}]}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(rule, f)
+        eng = CustomizationEngine(f.name)
+        got = eng.evaluate([RawEvent(detector="presence", active=True,
+                                     title="p", level="low")], scene_context={})
+        self.assertEqual(got[0].question,
+                         "Is someone waving both arms above their head?")
+
+    def test_rules_without_a_question_keep_the_default(self):
+        import json
+        import tempfile
+        from cvti.contracts import RawEvent
+        from cvti.rules.customization import CustomizationEngine
+        rule = {"use_case_id": "t", "rules": [{
+            "name": "plain", "trigger": {"detector": "presence"}}]}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(rule, f)
+        eng = CustomizationEngine(f.name)
+        got = eng.evaluate([RawEvent(detector="presence", active=True,
+                                     title="p", level="low")], scene_context={})
+        self.assertIsNone(got[0].question)
