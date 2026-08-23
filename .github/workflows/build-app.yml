@@ -217,6 +217,21 @@ jobs:
         if: runner.os == 'Windows'
         run: Compress-Archive -Path dist/* -DestinationPath ${{ matrix.artifact }}.zip
 
+      # GitHub refuses release assets >= 2 GiB — fail HERE, loudly, not in the
+      # release job after three successful builds (v1.0.0 post-mortem, 23 Aug).
+      - name: Enforce the release-asset size cap
+        shell: bash
+        run: |
+          for f in ${{ matrix.artifact }}.dmg ${{ matrix.artifact }}.zip; do
+            [ -f "$f" ] || continue
+            size=$(wc -c < "$f")
+            echo "$f = $((size / 1024 / 1024)) MB"
+            if [ "$size" -ge 2000000000 ]; then
+              echo "::error::$f is over the 2 GiB GitHub release-asset cap — prune the bundle"
+              exit 1
+            fi
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
