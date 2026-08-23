@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -259,6 +260,10 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         from cvti.detector.core import load_ultralytics_model
         pose_model = load_ultralytics_model(pose_weights)
         log.info(f"[site] shared pose model loaded ({pose_weights})")
+    # Detectors the operator configured that could NOT actually run. Feeds the
+    # health doc: "weapons: true" with a model that failed to load used to be
+    # one log line and then permanent silent non-coverage. (Audit 23 Aug, #10.)
+    model_failures: list = []
     # Load ONE shared weapon model iff any camera enables weapons (best-effort).
     weapon_model = None
     if any(c.get("weapons") for c in cams_cfg):
@@ -268,6 +273,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             log.info(f"[site] shared weapon model loaded ({weapon_weights})")
         except Exception as exc:  # noqa: BLE001
             log.warning(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled", exc_info=True)
+            model_failures.append(f"weapons detector configured but its model failed to load: {str(exc)[:90]}")
     # Load ONE shared video-action model iff any camera enables it (best-effort).
     video_action_model = None
     if any(c.get("video_action") for c in cams_cfg):
@@ -277,6 +283,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             log.info(f"[site] shared video-action model loaded ({video_action_model_path})")
         except Exception as exc:  # noqa: BLE001
             log.warning(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled", exc_info=True)
+            model_failures.append(f"video-action detector configured but its model failed to load: {str(exc)[:90]}")
     cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
                                video_action_model=video_action_model, baseline_config=baseline_config)
     sources = {cid: c["source"] for cid, c in cams.items()}
@@ -486,6 +493,12 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                     "alerts_queued": pipe.alerts_queued,
                     "target_fps": target_fps, "cameras": len(pipe._decoders)},
             self_test=(assurance.last_result if assurance else {}))
+        if model_failures:
+            # Configured coverage that is NOT running is at least degraded,
+            # and the reason is named — never inferred from silence.
+            doc["reasons"] = list(doc.get("reasons") or []) + model_failures
+            if doc.get("status") == "ok":
+                doc["status"] = "degraded"
         # Legacy keys the System panel already reads — kept at the top level so
         # the app needs no migration.
         doc.update(stats)
@@ -531,12 +544,27 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     mobile = None
     if mobile_port:
         from cvti.serving.mobile import MobileServer
-        try:
-            mobile = MobileServer(output_dir, port=mobile_port).start()
-            sink.mobile_base = mobile.base_url()
-        except OSError as exc:
-            log.warning("mobile view could not start on port %s: %s — alerts will "
-                        "not carry a response link", mobile_port, exc)
+        # Port taken? Walk forward a few before giving up — and if it still
+        # fails, say so in /health instead of only the log: a dead mobile view
+        # silently strips the response link from every notification.
+        # (Audit 23 Aug, #11.)
+        for _try_port in range(mobile_port, mobile_port + 5):
+            try:
+                mobile = MobileServer(output_dir, port=_try_port).start()
+                sink.mobile_base = mobile.base_url()
+                if _try_port != mobile_port:
+                    log.warning("mobile view: port %s taken, serving on %s instead",
+                                mobile_port, _try_port)
+                break
+            except OSError as exc:
+                _mobile_err = exc
+        if mobile is None:
+            log.warning("mobile view could not start on ports %s-%s: %s — alerts "
+                        "will not carry a response link", mobile_port,
+                        mobile_port + 4, _mobile_err)
+            model_failures.append(
+                f"mobile response view failed to start (ports {mobile_port}-{mobile_port + 4} busy) "
+                "— notifications carry no respond link")
 
     # Heartbeat (EP-04-T2): OFF unless the site configured a URL. Sends the
     # whitelisted health payload outbound only; docs/HEARTBEAT.md is the schema.
@@ -547,6 +575,101 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             url=_site_meta["heartbeat_url"], site_key=_site_meta.get("heartbeat_key", ""),
             site_id=(_site_meta.get("name") or "site").strip().lower().replace(" ", "-"),
             health_provider=_build_health, output_dir=output_dir).start()
+
+    # Live re-read of operator-editable site meta (audit 23 Aug, #5/#6/#13).
+    # The UI edits notify / retention / heartbeat in the site file and implies
+    # immediate effect; the engine used to read them once at spawn, so a test
+    # alert would arrive on the NEW channel while real alerts kept going to the
+    # old one until a restart nobody knew to do — and the UI claimed a
+    # retention period the purger was not enforcing. The engine now watches
+    # the file (mtime, 5s) and applies those three live. Cameras/zones/rules
+    # still require a restart: they rebuild models, which is a real restart.
+    def _watch_site_meta():
+        state = {"mtime": 0.0, "notify": notify,
+                 "hb_url": _site_meta.get("heartbeat_url", ""),
+                 "hb_key": _site_meta.get("heartbeat_key", "")}
+        try:
+            state["mtime"] = Path(site_config_path).stat().st_mtime
+        except OSError:
+            pass
+        while True:
+            time.sleep(5)
+            try:
+                mtime = Path(site_config_path).stat().st_mtime
+                if mtime == state["mtime"]:
+                    continue
+                state["mtime"] = mtime
+                meta = get_site_meta(site_config_path)
+            except Exception:  # noqa: BLE001 - a half-written file is retried next tick
+                log.debug("site meta re-read failed; retrying", exc_info=True)
+                continue
+            new_notify = (meta.get("notify") or "console").strip()
+            if new_notify != state["notify"]:
+                try:
+                    sink.notifier = build_notifier(new_notify)
+                    state["notify"] = new_notify
+                    log.info("[site] notifier changed live -> %s", new_notify)
+                except Exception:  # noqa: BLE001 - keep the old channel over none
+                    log.error("[site] new notifier %r failed to build; keeping the old one",
+                              new_notify, exc_info=True)
+            try:
+                new_policy = RetentionPolicy.from_site(meta)
+                if new_policy != retention.policy:
+                    retention.policy = new_policy
+                    log.info("[site] retention policy changed live -> %s days",
+                             new_policy.days)
+            except Exception:  # noqa: BLE001 - a bad setting must not stop the watcher
+                log.warning("[site] new retention setting unreadable; keeping current",
+                            exc_info=True)
+            hb_url = (meta.get("heartbeat_url") or "").strip()
+            hb_key = (meta.get("heartbeat_key") or "").strip()
+            if (hb_url, hb_key) != (state["hb_url"], state["hb_key"]):
+                nonlocal heartbeat
+                if heartbeat:
+                    heartbeat.stop()
+                    heartbeat = None
+                if hb_url:
+                    from cvti.serving.heartbeat import Heartbeat
+                    heartbeat = Heartbeat(
+                        url=hb_url, site_key=hb_key,
+                        site_id=(meta.get("name") or "site").strip().lower().replace(" ", "-"),
+                        health_provider=_build_health, output_dir=output_dir).start()
+                    log.info("[site] heartbeat %s live", "reconfigured" if state["hb_url"] else "enabled")
+                else:
+                    log.info("[site] heartbeat disabled live")
+                state["hb_url"], state["hb_key"] = hb_url, hb_key
+
+    threading.Thread(target=_watch_site_meta, name="site-meta-watch", daemon=True).start()
+
+    # Weekly owner summary (EP-08-T2): automatic, no action required. Checked
+    # hourly; fires Monday 08:00+ at most once per ISO week, survives restarts
+    # via summaries/state.json, and delivers through the same notifier alerts
+    # use — the person deciding renewal hears from the product weekly.
+    def _weekly_summary_loop():
+        from cvti.owner_summary import due, mark_sent, weekly_summary
+        while True:
+            time.sleep(3600)
+            try:
+                if not due(output_dir):
+                    continue
+                meta = get_site_meta(site_config_path)
+                s = weekly_summary(Path(output_dir) / "events.db", meta, output_dir)
+                w = s["week"]
+                sink.notifier.notify({
+                    "ts": time.time(), "iso": s["generated_at"],
+                    "camera_id": "weekly_summary", "rule": "weekly_summary",
+                    "priority": "low", "confidence": None, "zone": None,
+                    "track_id": None, "object_label": None, "evidence_dir": None,
+                    "reason": (f"Weekly summary {s['window']['from']}->{s['window']['to']}: "
+                               f"{w['incidents']} incidents ({w['real']} real), "
+                               f"{w['noise_removed']} false alarms filtered, "
+                               f"~{s['hours_saved']}h of attention given back. "
+                               f"Full report: {s['pdf']}")})
+                mark_sent(output_dir)
+            except Exception:  # noqa: BLE001 - the summary must never hurt monitoring
+                log.warning("weekly summary failed; will retry next hour", exc_info=True)
+
+    threading.Thread(target=_weekly_summary_loop, name="weekly-summary", daemon=True).start()
 
     # Daily proof of life (EP-04-T4): the self-test exercises a real frame ->
     # the real gate -> a real notification, and the all-normal message makes

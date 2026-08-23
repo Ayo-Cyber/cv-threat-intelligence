@@ -52,6 +52,18 @@ class ConsoleBackend:
         _sec_dir = Path(self.db_path).parent
         self.accounts = AccountStore(_sec_dir / "auth.db")
         self.audit = AuditLog(_sec_dir / "audit.db")
+        # EP-08-T1: a corrupt events.db is quarantined LOUDLY at startup (a
+        # fresh store follows), and the config is backed up daily, versioned.
+        from cvti import backup as _backup
+        try:
+            self.db_check = _backup.check_events_db(self.db_path)
+        except Exception:  # noqa: BLE001 - the check must not stop the app
+            log.error("events.db startup check failed", exc_info=True)
+            self.db_check = {"ok": True, "state": "unchecked"}
+        try:
+            self._maybe_auto_backup()
+        except Exception:  # noqa: BLE001
+            log.warning("auto-backup failed", exc_info=True)
         self._session: str = ""          # token of the signed-in operator
 
     # --- session ----------------------------------------------------------
@@ -473,7 +485,18 @@ class ConsoleBackend:
                     for pk, pv in self.DETECTOR_DEFAULTS.get(k, {}).items():
                         cam.setdefault(pk, pv)
         if rules.get("config"):
-            cam["config"] = rules["config"]
+            # A preset choice is a new BASE, not a raw config pointer: cameras
+            # with zones or an English rule keep them — regen layers the base
+            # under the generated rules instead of clobbering the pointer.
+            # (Audit 23 Aug, #9: applying a template used to silently drop the
+            # camera's loitering + custom-English rules, and the next zone edit
+            # reverted the camera to the pre-template preset.)
+            cam["_base_config"] = rules["config"]
+            zones = self.list_zones(camera_id)
+            if zones or cam.get("custom_rule"):
+                self._regen_zone_rules(camera_id, cam, zones)
+            else:
+                cam["config"] = rules["config"]
         onboarding.add_camera(self.site_path, cam)   # upsert by id
         return {"ok": True, "camera": cam}
 
@@ -824,6 +847,56 @@ class ConsoleBackend:
         return {"ok": True, "path": str(path),
                 "size_kb": round(path.stat().st_size / 1024, 1)}
 
+    # --- config backup / restore (EP-08-T1) --------------------------------
+    def _backup_dir(self):
+        meta = onboarding.get_site_meta(self.site_path)
+        d = (meta.get("backup_dir") or "").strip() if isinstance(meta, dict) else ""
+        return d or None
+
+    def _maybe_auto_backup(self) -> None:
+        """One versioned backup per calendar day, on app start."""
+        from cvti import backup as _backup
+        dest = Path(self._backup_dir() or _backup._default_dir())
+        today = time.strftime("%Y%m%d")
+        if any(dest.glob(f"argus-config-{today}_*.zip")):
+            return
+        _backup.backup_config(self.site_path, dest)
+
+    def backup_now(self) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        from cvti import backup as _backup
+        out = _backup.backup_config(self.site_path, self._backup_dir())
+        self.audit.record(self.current_user.username, "config_change", "backup",
+                          detail={"path": out.get("path")})
+        return out
+
+    def list_backups(self) -> list:
+        self._require(perms.CONFIGURE_SITE)
+        from cvti import backup as _backup
+        return _backup.list_backups(self._backup_dir())
+
+    def restore_backup(self, zip_path: str) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        from cvti import backup as _backup
+        out = _backup.restore_config(zip_path, self.site_path)
+        self.audit.record(self.current_user.username, "config_change", "restore",
+                          detail={"path": zip_path, "ok": out.get("ok")})
+        return out
+
+    def set_backup_dir(self, path: str) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        onboarding.set_site_meta(self.site_path, backup_dir=(path or "").strip())
+        return {"ok": True, "backup_dir": (path or "").strip()}
+
+    def weekly_summary(self) -> dict:
+        """On-demand build of the owner summary (the engine also auto-sends
+        one every Monday morning through the site notifier)."""
+        self._require(perms.CONFIGURE_SITE)
+        from cvti.owner_summary import weekly_summary
+        db, _ = self._effective_db()
+        meta = onboarding.get_site_meta(self.site_path)
+        return weekly_summary(db, meta, Path(self.db_path).parent)
+
     def gate_status(self, model: str = vlm.DEFAULT_MODEL) -> dict:
         """Ollama reachability + the running engine's own view of the gate.
 
@@ -885,7 +958,7 @@ class ConsoleBackend:
         clips = sorted(Path("data/test_clips").glob("*.mp4"))[:count]
         return [{"id": p.stem, "source": str(p)} for p in clips]
 
-    def _engine_frame_port(self) -> int:
+    def _engine_frame_port(self) -> tuple:
         """The engine's frame-publisher port, if it's running and serving.
 
         When the engine is up it has already decoded every stream and knows where
@@ -894,32 +967,42 @@ class ConsoleBackend:
         try:
             info = json.loads((Path(self.db_path).parent / "frames.json").read_text())
             port = int(info.get("port") or 0)
+            token = str(info.get("token") or "")
         except Exception as exc:  # noqa: BLE001
             log.debug("engine frame port unreadable", exc_info=True)
-            return 0
+            return 0, ""
         if not port:
-            return 0
-        try:      # only trust it if it actually answers
+            return 0, ""
+        try:      # only trust it if it actually answers — WITH the token: the
+            # publisher 401s tokenless probes, which made this check always
+            # fail and the app silently re-decode every stream itself.
             import urllib.request
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/cameras", timeout=1.5) as r:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/cameras",
+                                         headers={"X-Argus-Token": token})
+            with urllib.request.urlopen(req, timeout=1.5) as r:
                 cams = json.loads(r.read().decode()).get("cameras") or []
-            return port if cams else 0
+            return (port, token) if cams else (0, "")
         except Exception as exc:  # noqa: BLE001
             log.debug("engine frame port unreachable", exc_info=True)
-            return 0
+            return 0, ""
 
     def live_start(self, count: int = 6) -> dict:
         self._require(perms.VIEW_LIVE)
         from cvti.app.live_wall import FrameServer, LiveWall
         self.live_stop()
         # Prefer the engine's already-decoded frames (no second decode, live boxes).
-        port = self._engine_frame_port()
+        port, token = self._engine_frame_port()
         if port:
             try:
                 import urllib.request
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/cameras", timeout=1.5) as r:
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/cameras",
+                                             headers={"X-Argus-Token": token})
+                with urllib.request.urlopen(req, timeout=1.5) as r:
                     cams = json.loads(r.read().decode()).get("cameras") or []
-                return {"cameras": [{"id": c} for c in cams], "port": port, "source": "engine"}
+                # The token MUST travel with the port: the UI's <img> tags are
+                # refused without it, which is exactly the broken-tile bug.
+                return {"cameras": [{"id": c} for c in cams], "port": port,
+                        "token": token, "source": "engine"}
             except Exception as exc:  # noqa: BLE001
                 log.debug("engine frames unavailable; decoding locally", exc_info=True)
                 pass          # fall through to decoding ourselves
@@ -930,7 +1013,8 @@ class ConsoleBackend:
         self._fs = FrameServer(self._live)
         port = self._fs.start()
         # cameras + the localhost port the UI fetches JPEG frames from
-        return {"cameras": [{"id": s["id"]} for s in sources], "port": port, "source": "app"}
+        return {"cameras": [{"id": s["id"]} for s in sources], "port": port,
+                "token": self._fs.token, "source": "app"}
 
     def live_frames(self) -> dict:
         return self._live.frames() if self._live else {}
@@ -1020,11 +1104,20 @@ class ConsoleBackend:
             return
 
         def loop():
+            started = time.time()
             while getattr(self, "_monitor_should_run", False):
                 time.sleep(3)
                 if not getattr(self, "_monitor_should_run", False):
                     break
                 if self._monitor and self._monitor.poll() is not None:   # died
+                    # An engine that ran for an hour+ did not crash-loop: the
+                    # spawn caps --seconds (~28h), so long-lived exits are
+                    # SCHEDULED. Without this reset, a 24/7 site burned one
+                    # restart per day and the watchdog gave up inside a week —
+                    # silently, on a monitoring product. (Audit 23 Aug, #1.)
+                    if time.time() - started > 3600:
+                        self._restarts = 0
+                    started = time.time()
                     if self._restarts < max_restarts:
                         self._restarts += 1
                         log.info(f"[watchdog] engine exited unexpectedly — restarting "
@@ -1117,10 +1210,15 @@ class ConsoleBackend:
                 self.stop_monitoring()
             self.site_path = src["config"]
             restarted = False
-            if was_running and not getattr(sys, "frozen", False):
+            # The frozen guard predated EP-05: the installed bundle SHIPS an
+            # engine now, so a feed switch there used to stop monitoring and
+            # report "done" — permanently dark. start_monitoring itself knows
+            # how to refuse on a truly engine-less lean build.
+            # (Audit 23 Aug, #3.)
+            if was_running:
                 st["status"] = "restarting engine…"
-                self.start_monitoring()
-                restarted = True
+                out = self.start_monitoring()
+                restarted = bool(out.get("running"))
             st.update(busy=False, done=True, active=key, error=None,
                       kind=src.get("kind", "demo"), config=src["config"],
                       engine_restarted=restarted, status="done")
@@ -1206,13 +1304,19 @@ class ConsoleBackend:
         db, frame_base = self._effective_db()
         try:
             con = self._connect(db)
-        except sqlite3.OperationalError:
-            return []
+        except sqlite3.OperationalError as exc:
+            # "No alerts" and "the events database is unreadable" must never
+            # look the same on an operator's screen. (Audit 23 Aug, #12.)
+            log.error("events db unreadable", exc_info=True)
+            return {"error": f"events database unavailable: {str(exc)[:120]}"}
         try:
             rows = con.execute("SELECT * FROM events ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as exc:
             con.close()
-            return []
+            if "no such table" in str(exc):
+                return []          # a fresh site with no events yet IS quiet
+            log.error("events query failed", exc_info=True)
+            return {"error": f"events database unavailable: {str(exc)[:120]}"}
         con.close()
         out = []
         for r in rows:

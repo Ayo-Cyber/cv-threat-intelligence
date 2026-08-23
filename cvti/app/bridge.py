@@ -92,6 +92,26 @@ class Backend(QObject):
     def setCustomRule(self, camera_id: str, question: str, dwell: float) -> str:
         return self._safe(lambda: self._core.set_custom_rule(camera_id, question, dwell or 4.0))
 
+    @pyqtSlot(result=str)
+    def backupNow(self) -> str:
+        return self._safe(self._core.backup_now)
+
+    @pyqtSlot(result=str)
+    def listBackups(self) -> str:
+        return self._safe(self._core.list_backups)
+
+    @pyqtSlot(str, result=str)
+    def restoreBackup(self, zip_path: str) -> str:
+        return self._safe(lambda: self._core.restore_backup(zip_path))
+
+    @pyqtSlot(str, result=str)
+    def setBackupDir(self, path: str) -> str:
+        return self._safe(lambda: self._core.set_backup_dir(path))
+
+    @pyqtSlot(result=str)
+    def weeklySummary(self) -> str:
+        return self._safe(self._core.weekly_summary)
+
     @pyqtSlot(str, str, result=str)
     def setCameraRules(self, camera_id: str, rules_json: str) -> str:
         return self._safe(lambda: self._core.set_camera_rules(camera_id, json.loads(rules_json)))

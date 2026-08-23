@@ -268,6 +268,7 @@
   .tile.offline img{visibility:hidden}
   .tile .nosignal{position:absolute;inset:0;display:grid;place-items:center;color:var(--c-mut);
     font-family:var(--ff-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  .tile .nosignal[hidden]{display:none}  /* author display beats UA [hidden] — same bug as .gatebanner */
   .offbanner{margin-top:14px;padding:13px 16px;border:1px solid var(--sev-crit);border-radius:10px;
     background:color-mix(in srgb, var(--sev-crit) 9%, transparent);display:flex;align-items:center;gap:12px}
   .offbanner b{color:var(--sev-crit)}
@@ -487,9 +488,10 @@ function go(r){
 function tabGo(k){
   var r=state.route;
   if(r==="watch" && (state.watchTab||"grid")==="grid" && k!=="grid") stopLive();
-  if(r==="triage" && (state.triageTab||"alerts")==="alerts" && k!=="alerts") stopAlertsPoll();
+  if(r==="triage") stopAlertsPoll();   // clears BOTH triage timers; the new tab restarts its own
   state[r+"Tab"]=k; state.selected=null; render();
 }
+function fresh(tk){ return tk === state.renderToken; }
 function renderTabs(){
   var el=$("tabs"); if(!el) return;
   var tabs=SURFACE_TABS[state.route]||[];
@@ -515,7 +517,7 @@ function toggleMonitor(){
   else { call("startMonitoring",[],function(r){ applyMonitor(true);
     // engine takes ~15-30s to load models; alerts start flowing after that
     if($("monGate")) $("monGate").textContent="TrueSight · loading models…";
-    setTimeout(function(){ if($("monGate")) $("monGate").textContent="TrueSight · live"; }, 25000);
+    setTimeout(function(){ if(state.monitoring && $("monGate")) $("monGate").textContent="TrueSight · live"; }, 25000);
   }); }
 }
 
@@ -562,6 +564,11 @@ function finishSwitch(s){
 }
 
 function render(){
+  /* Stale-callback guard: every navigation bumps this token; any async
+     callback that wants to paint $("screen") must still hold the current
+     token. Kills the whole class of "slow response overwrites the screen
+     you navigated to" bugs (audit findings 1-3,5, 23 Aug). */
+  state.renderToken = (state.renderToken||0) + 1;
   var t = {watch:"Watch",triage:"Triage",configure:"Configure",settings:"Settings",value:"Value"}[state.route]||"Argus";
   $("title").textContent = t;
   renderTabs();
@@ -793,8 +800,10 @@ function frameUrl(camId){
     +"?t="+(state.frameTick||0)+tok;
 }
 function renderLive(){
+  var tk = state.renderToken;
   $("screen").innerHTML='<div class="pad mut">Starting live view…</div>';
   call("liveStart",[6],function(res){
+    if(!fresh(tk)){ call("liveStop",[],function(){}); return; }   // navigated away mid-start
     var cams = res && res.cameras, port = res && res.port;
     if(!Array.isArray(cams) || !cams.length || !port){
       $("screen").innerHTML='<div class="pad"><h2>Live wall</h2><p class="mut">No camera feeds available. Add cameras (or drop clips in data/test_clips) and reopen this tab.</p></div>';
@@ -856,8 +865,24 @@ function updateLiveAlertTiles(){
 function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function(){
   if(!(state.route==="watch" && (state.watchTab||"grid")==="grid") && !state.liveModal){ stopLive(); return; }
   state.frameTick = (state.frameTick||0) + 1;    // cache-bust -> fetch the newest JPEG natively
-  (state.liveCams||[]).forEach(function(c){ var img=$("live-"+c.id); if(img) img.src=frameUrl(c.id); });
+  var broken = 0;
+  (state.liveCams||[]).forEach(function(c){ var img=$("live-"+c.id); if(img){
+    if(img.complete && img.naturalWidth===0) broken++;
+    img.src=frameUrl(c.id); } });
   if(state.liveModal){ var lm=$("lmimg"); if(lm) lm.src=frameUrl(state.liveModal); updateLiveModalLabel(); }
+  /* Self-heal (the always-NO-SIGNAL bug): every engine restart mints a new
+     frame port + token, and a cached pair goes stale forever. If every tile
+     is failing, re-resolve — at most once per 5s so a dead engine can't
+     make this loop. */
+  if(broken && broken >= (state.liveCams||[]).length){
+    var now = Date.now();
+    if(!state.frameHealAt || now - state.frameHealAt > 5000){
+      state.frameHealAt = now;
+      call("liveStart",[6],function(res){
+        if(res && res.port){ state.livePort=res.port; state.frameToken=res.token||""; }
+      });
+    }
+  }
 }, 90); }   // ~11 fps
 /* click a feed to expand it */
 function openLiveModal(camId){
@@ -938,12 +963,20 @@ function renderValue(){
     state.value=v; drawValue(v);
   });
 }
+function makeWeekly(btn){
+  btn.disabled=true; var m=$("wsMsg"); if(m) m.textContent="building…";
+  call("weeklySummary",[],function(r){ btn.disabled=false; if(!m) return;
+    m.textContent = r&&r.pdf ? ("✓ "+r.pdf+" (auto-sent every Monday 08:00)")
+                             : ("✕ "+((r&&r.error)||"failed")); });
+}
 function money(n){ return n==null? null : n.toLocaleString(undefined,{maximumFractionDigits:0}); }
 function drawValue(v){
   var days=v.days||30, m=v.money||{}, inp=v.inputs||{};
   var head='<div class="row" style="margin-bottom:12px"><h2 style="margin:0">Value</h2>'
     +'<span class="mut" style="font-size:12px">last '+days+' days</span><span style="flex:1"></span>'
     +[7,30,90].map(function(d){ return '<button class="btn '+(d===days?"sm":"ghost sm")+'" onclick="setValueDays('+d+')">'+d+'d</button>'; }).join("")
+    +'<button class="btn ghost sm" style="margin-left:8px" onclick="makeWeekly(this)">📄 Weekly summary</button>'
+    +'<span id="wsMsg" class="sub" style="font-size:11.5px;margin-left:6px"></span>'
     +'</div>';
 
   if(!v.has_data){
@@ -1068,13 +1101,15 @@ function renderSystem(){
         +  '<div id="usersBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="auditPanel"><div class="syslabel">Audit trail</div>'
         +  '<div id="auditBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="bkpPanel"><div class="syslabel">Backup &amp; restore</div>'
+        +  '<div id="bkpBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="secPanel"><div class="syslabel">Security</div>'
         +  '<div id="secBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px"><div class="syslabel">Edge</div>'
         +  '<div class="row" style="gap:22px;margin-top:9px;font-size:13px"><span class="mut">runs fully offline <b style="color:var(--c-live)">✓</b></span>'
         +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">Argus Edge <b class="mono">v0.9</b></span></div></div>'
         +'<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Re-run setup wizard</button></div></div>';
-      paintUsersPanel(); paintAuditPanel(); paintSecurityPanel();
+      paintUsersPanel(); paintAuditPanel(); paintSecurityPanel(); paintBackupPanel();
     });
   });
 }
@@ -1146,6 +1181,33 @@ function exportAudit(btn){
   btn.disabled=true;
   call("auditExport",[],function(r){ btn.disabled=false; var m=$("auditMsg");
     if(m) m.textContent = r&&r.ok? ("written to "+r.path) : ((r&&r.error)||"export failed"); });
+}
+function paintBackupPanel(){
+  call("listBackups",[],function(list){
+    var el=$("bkpBody"); if(!el) return;
+    if(list && list.denied){ $("bkpPanel").hidden=true; return; }
+    var rows = Array.isArray(list)&&list.length ? list.slice(0,7).map(function(b){
+      return '<div class="row" style="gap:10px;padding:6px 0;border-bottom:1px solid var(--c-border)">'
+        +'<span class="mono" style="font-size:11.5px">'+esc(b.created_at||"?")+'</span>'
+        +'<span class="sub" style="font-size:11px">'+(b.entries!=null?b.entries+" files":"")+' · '+(b.size_kb||"?")+' KB</span>'
+        +'<span style="flex:1"></span>'
+        +'<button class="btn ghost sm" onclick="doRestore(\''+esc(b.path)+'\', this)">Restore</button></div>'; }).join("")
+      : '<div class="mut" style="margin:6px 0">No backups yet — one is written automatically each day the app starts.</div>';
+    el.innerHTML = rows
+      +'<div class="row" style="gap:8px;margin-top:11px"><button class="btn sm" onclick="doBackupNow(this)">Back up now</button>'
+      +'<span id="bkpMsg" class="sub" style="font-size:12px">cameras, zones, rules, routing — not evidence, not accounts</span></div>';
+  });
+}
+function doBackupNow(btn){ btn.disabled=true;
+  call("backupNow",[],function(r){ btn.disabled=false; var m=$("bkpMsg");
+    if(m) m.textContent = r&&r.ok? ("✓ "+r.path) : ("✕ "+((r&&r.error)||"failed"));
+    if(r&&r.ok) paintBackupPanel(); });
+}
+function doRestore(path, btn){
+  if(!confirm("Restore this configuration? Your CURRENT config is backed up first. Applies the next time monitoring starts.")) return;
+  btn.disabled=true;
+  call("restoreBackup",[path],function(r){ btn.disabled=false; var m=$("bkpMsg");
+    if(m) m.textContent = r&&r.ok? ("✓ restored "+r.restored+" file(s) — "+r.note) : ("✕ "+((r&&r.error)||"failed")); });
 }
 function paintSecurityPanel(){
   call("diskEncryption",[],function(d){
@@ -1504,8 +1566,16 @@ function setRulePreset(camId, cfg){
 }
 
 /* ---------- Alerts ---------- */
+function onAlertsTab(){ return state.route==="triage" && (state.triageTab||"now")==="alerts"; }
 function renderAlerts(){
+  var tk = state.renderToken;
   call("listEvents",[100],function(evs){
+    if(!fresh(tk) || !onAlertsTab()) return;    // user has moved on — do not repaint over them
+    if(evs && evs.error){
+      $("screen").innerHTML='<div class="pad"><div class="offbanner"><span><b>Alert storage is unreadable.</b> '
+        +esc(evs.error)+' — this is a system fault, not a quiet site.</span></div></div>';
+      return;
+    }
     state.events = Array.isArray(evs)?evs:[];
     state.alertsSig = state.events.map(function(e){return e.id+":"+e.review;}).join(",");
     paintAlerts();
@@ -1686,7 +1756,9 @@ function nowResolve(outcome){ var a=nowEvent(); if(!a) return;
 }
 /* Empty state is a feature (§2.3/§2.6): a quiet night must look WATCHED. */
 function paintAllNormal(){
+  var tk = state.renderToken;
   call("cameraLinks",[],function(links){ call("diskEncryption",[],function(d){ call("getSite",[],function(m){
+    if(!fresh(tk) || !onNowTab()) return;
     links=Array.isArray(links)?links:[];
     var up=links.filter(function(l){return l.state==="connected";}).length;
     var monitoring = links.length && !links.every(function(l){return l.state==="unknown";});
@@ -1710,6 +1782,7 @@ function paintAllNormal(){
 }
 
 function paintAlerts(){
+  if(!onAlertsTab()) return;   // claims/resolves from other views must not drag the list in
   var filt = state.alertFilter || "active";
   var sortMode = state.alertSort || "time";
   var c = {active:0, "true":0, "false":0};
@@ -1769,8 +1842,10 @@ function paintAlerts(){
 }
 function setAlertFilter(f){ state.alertFilter=f; state.selected=null; paintAlerts(); }
 function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(function(){
-  if(state.route!=="triage"){ stopAlertsPoll(); return; }
-  call("listEvents",[100],function(evs){ if(!Array.isArray(evs)) return;
+  if(!onAlertsTab()){ stopAlertsPoll(); return; }
+  call("listEvents",[100],function(evs){
+    if(evs && evs.error){ stopAlertsPoll(); renderAlerts(); return; }
+    if(!Array.isArray(evs)) return;
     var sig=evs.map(function(e){return e.id+":"+e.review;}).join(",");
     if(sig!==state.alertsSig){ state.events=evs; state.alertsSig=sig; paintAlerts(); refreshCounts(); } }); }, 3000); }
 function stopAlertsPoll(){ if(state.alertsTimer){ clearInterval(state.alertsTimer); state.alertsTimer=null; }
@@ -2203,7 +2278,9 @@ function wizVlm(){
 function wizCheckGate(){ wiz.gate=null; renderWizard(); call("gateStatus",[],function(g){ wiz.gate=g.error?{mode:"offline"}:g; renderWizard(); }); }
 function wizPull(){ wiz.pull={state:"pulling",percent:0,detail:"starting"}; renderWizard();
   call("pullModel",[],function(){ wizPollPull(); }); }
-function wizPollPull(){ call("pullProgress",[],function(p){ wiz.pull=p||wiz.pull;
+function wizPollPull(){
+  var w=$("wizard"); if(!w || !w.classList.contains("on")) return;   // wizard closed — stop polling
+  call("pullProgress",[],function(p){ wiz.pull=p||wiz.pull;
     if(p&&p.state==="done"){ wizCheckGate(); return; }
     if(p&&p.state==="error"){ renderWizard(); return; }
     var bar=$("wzPullBar"); if(bar){ bar.style.width=((p&&p.percent)||0)+'%'; var d=$("wzPullDetail"); if(d) d.textContent=((p&&p.detail)||"")+' '+((p&&p.percent)||0)+'%'; }

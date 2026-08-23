@@ -84,6 +84,19 @@ def map_cameras_async(cams_cfg: list[dict], states: dict, *, model: str,
                     states[cid].scene_context = scene
                     log.info("[agent-map] %s: %s — %s", cid, scene["environment_type"],
                              scene["scene_description"][:90])
+                    # Persist what the mapper learned: the UI's scene panel and
+                    # the custom-rule scanner both read this file, and it was
+                    # never written by the live path — they showed "a monitored
+                    # area" forever after a successful mapping.
+                    # (Audit 23 Aug, #7.)
+                    try:
+                        import json as _json
+                        from pathlib import Path as _P
+                        d = _P("runs/context") / str(cid)
+                        d.mkdir(parents=True, exist_ok=True)
+                        (d / "scene_context.json").write_text(_json.dumps(scene, indent=2))
+                    except OSError:
+                        log.warning("[agent-map] %s: scene file write failed", cid, exc_info=True)
             except Exception as exc:  # noqa: BLE001 - mapping must never break monitoring
                 log.warning("[agent-map] %s failed: %s", cid, str(exc)[:100], exc_info=True)
     t = threading.Thread(target=worker, name="agent-map", daemon=True)

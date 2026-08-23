@@ -129,7 +129,8 @@ _META_KEYS = ("name", "notify", "gate", "configured",
               "incident_value", "guard_hourly_cost", "review_minutes",
               "retention_days", "disk_warn_pct", "disk_critical_pct",
               "daily_normal",   # the daily "all systems normal" message; opt-OUT
-              "heartbeat_url", "heartbeat_key")  # remote monitoring; opt-IN (empty = off)
+              "heartbeat_url", "heartbeat_key",  # remote monitoring; opt-IN (empty = off)
+              "backup_dir")                      # config backups; empty = per-user default
 
 # Deliberately conservative: a low review time and a modest guard rate make the
 # saving harder to argue with than a flattering one.
