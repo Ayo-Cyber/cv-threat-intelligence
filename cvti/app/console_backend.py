@@ -885,7 +885,7 @@ class ConsoleBackend:
         clips = sorted(Path("data/test_clips").glob("*.mp4"))[:count]
         return [{"id": p.stem, "source": str(p)} for p in clips]
 
-    def _engine_frame_port(self) -> int:
+    def _engine_frame_port(self) -> tuple:
         """The engine's frame-publisher port, if it's running and serving.
 
         When the engine is up it has already decoded every stream and knows where
@@ -894,32 +894,42 @@ class ConsoleBackend:
         try:
             info = json.loads((Path(self.db_path).parent / "frames.json").read_text())
             port = int(info.get("port") or 0)
+            token = str(info.get("token") or "")
         except Exception as exc:  # noqa: BLE001
             log.debug("engine frame port unreadable", exc_info=True)
-            return 0
+            return 0, ""
         if not port:
-            return 0
-        try:      # only trust it if it actually answers
+            return 0, ""
+        try:      # only trust it if it actually answers — WITH the token: the
+            # publisher 401s tokenless probes, which made this check always
+            # fail and the app silently re-decode every stream itself.
             import urllib.request
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/cameras", timeout=1.5) as r:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/cameras",
+                                         headers={"X-Argus-Token": token})
+            with urllib.request.urlopen(req, timeout=1.5) as r:
                 cams = json.loads(r.read().decode()).get("cameras") or []
-            return port if cams else 0
+            return (port, token) if cams else (0, "")
         except Exception as exc:  # noqa: BLE001
             log.debug("engine frame port unreachable", exc_info=True)
-            return 0
+            return 0, ""
 
     def live_start(self, count: int = 6) -> dict:
         self._require(perms.VIEW_LIVE)
         from cvti.app.live_wall import FrameServer, LiveWall
         self.live_stop()
         # Prefer the engine's already-decoded frames (no second decode, live boxes).
-        port = self._engine_frame_port()
+        port, token = self._engine_frame_port()
         if port:
             try:
                 import urllib.request
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/cameras", timeout=1.5) as r:
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/cameras",
+                                             headers={"X-Argus-Token": token})
+                with urllib.request.urlopen(req, timeout=1.5) as r:
                     cams = json.loads(r.read().decode()).get("cameras") or []
-                return {"cameras": [{"id": c} for c in cams], "port": port, "source": "engine"}
+                # The token MUST travel with the port: the UI's <img> tags are
+                # refused without it, which is exactly the broken-tile bug.
+                return {"cameras": [{"id": c} for c in cams], "port": port,
+                        "token": token, "source": "engine"}
             except Exception as exc:  # noqa: BLE001
                 log.debug("engine frames unavailable; decoding locally", exc_info=True)
                 pass          # fall through to decoding ourselves
@@ -930,7 +940,8 @@ class ConsoleBackend:
         self._fs = FrameServer(self._live)
         port = self._fs.start()
         # cameras + the localhost port the UI fetches JPEG frames from
-        return {"cameras": [{"id": s["id"]} for s in sources], "port": port, "source": "app"}
+        return {"cameras": [{"id": s["id"]} for s in sources], "port": port,
+                "token": self._fs.token, "source": "app"}
 
     def live_frames(self) -> dict:
         return self._live.frames() if self._live else {}
