@@ -52,6 +52,18 @@ class ConsoleBackend:
         _sec_dir = Path(self.db_path).parent
         self.accounts = AccountStore(_sec_dir / "auth.db")
         self.audit = AuditLog(_sec_dir / "audit.db")
+        # EP-08-T1: a corrupt events.db is quarantined LOUDLY at startup (a
+        # fresh store follows), and the config is backed up daily, versioned.
+        from cvti import backup as _backup
+        try:
+            self.db_check = _backup.check_events_db(self.db_path)
+        except Exception:  # noqa: BLE001 - the check must not stop the app
+            log.error("events.db startup check failed", exc_info=True)
+            self.db_check = {"ok": True, "state": "unchecked"}
+        try:
+            self._maybe_auto_backup()
+        except Exception:  # noqa: BLE001
+            log.warning("auto-backup failed", exc_info=True)
         self._session: str = ""          # token of the signed-in operator
 
     # --- session ----------------------------------------------------------
@@ -834,6 +846,47 @@ class ConsoleBackend:
             return {"ok": False, "error": str(exc)[:200]}
         return {"ok": True, "path": str(path),
                 "size_kb": round(path.stat().st_size / 1024, 1)}
+
+    # --- config backup / restore (EP-08-T1) --------------------------------
+    def _backup_dir(self):
+        meta = onboarding.get_site_meta(self.site_path)
+        d = (meta.get("backup_dir") or "").strip() if isinstance(meta, dict) else ""
+        return d or None
+
+    def _maybe_auto_backup(self) -> None:
+        """One versioned backup per calendar day, on app start."""
+        from cvti import backup as _backup
+        dest = Path(self._backup_dir() or _backup._default_dir())
+        today = time.strftime("%Y%m%d")
+        if any(dest.glob(f"argus-config-{today}_*.zip")):
+            return
+        _backup.backup_config(self.site_path, dest)
+
+    def backup_now(self) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        from cvti import backup as _backup
+        out = _backup.backup_config(self.site_path, self._backup_dir())
+        self.audit.record(self.current_user.username, "config_change", "backup",
+                          detail={"path": out.get("path")})
+        return out
+
+    def list_backups(self) -> list:
+        self._require(perms.CONFIGURE_SITE)
+        from cvti import backup as _backup
+        return _backup.list_backups(self._backup_dir())
+
+    def restore_backup(self, zip_path: str) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        from cvti import backup as _backup
+        out = _backup.restore_config(zip_path, self.site_path)
+        self.audit.record(self.current_user.username, "config_change", "restore",
+                          detail={"path": zip_path, "ok": out.get("ok")})
+        return out
+
+    def set_backup_dir(self, path: str) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        onboarding.set_site_meta(self.site_path, backup_dir=(path or "").strip())
+        return {"ok": True, "backup_dir": (path or "").strip()}
 
     def gate_status(self, model: str = vlm.DEFAULT_MODEL) -> dict:
         """Ollama reachability + the running engine's own view of the gate.

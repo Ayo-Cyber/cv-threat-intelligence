@@ -1093,13 +1093,15 @@ function renderSystem(){
         +  '<div id="usersBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="auditPanel"><div class="syslabel">Audit trail</div>'
         +  '<div id="auditBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
+        +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="bkpPanel"><div class="syslabel">Backup &amp; restore</div>'
+        +  '<div id="bkpBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px;margin-bottom:13px" id="secPanel"><div class="syslabel">Security</div>'
         +  '<div id="secBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px"><div class="syslabel">Edge</div>'
         +  '<div class="row" style="gap:22px;margin-top:9px;font-size:13px"><span class="mut">runs fully offline <b style="color:var(--c-live)">✓</b></span>'
         +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">Argus Edge <b class="mono">v0.9</b></span></div></div>'
         +'<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Re-run setup wizard</button></div></div>';
-      paintUsersPanel(); paintAuditPanel(); paintSecurityPanel();
+      paintUsersPanel(); paintAuditPanel(); paintSecurityPanel(); paintBackupPanel();
     });
   });
 }
@@ -1171,6 +1173,33 @@ function exportAudit(btn){
   btn.disabled=true;
   call("auditExport",[],function(r){ btn.disabled=false; var m=$("auditMsg");
     if(m) m.textContent = r&&r.ok? ("written to "+r.path) : ((r&&r.error)||"export failed"); });
+}
+function paintBackupPanel(){
+  call("listBackups",[],function(list){
+    var el=$("bkpBody"); if(!el) return;
+    if(list && list.denied){ $("bkpPanel").hidden=true; return; }
+    var rows = Array.isArray(list)&&list.length ? list.slice(0,7).map(function(b){
+      return '<div class="row" style="gap:10px;padding:6px 0;border-bottom:1px solid var(--c-border)">'
+        +'<span class="mono" style="font-size:11.5px">'+esc(b.created_at||"?")+'</span>'
+        +'<span class="sub" style="font-size:11px">'+(b.entries!=null?b.entries+" files":"")+' · '+(b.size_kb||"?")+' KB</span>'
+        +'<span style="flex:1"></span>'
+        +'<button class="btn ghost sm" onclick="doRestore(\''+esc(b.path)+'\', this)">Restore</button></div>'; }).join("")
+      : '<div class="mut" style="margin:6px 0">No backups yet — one is written automatically each day the app starts.</div>';
+    el.innerHTML = rows
+      +'<div class="row" style="gap:8px;margin-top:11px"><button class="btn sm" onclick="doBackupNow(this)">Back up now</button>'
+      +'<span id="bkpMsg" class="sub" style="font-size:12px">cameras, zones, rules, routing — not evidence, not accounts</span></div>';
+  });
+}
+function doBackupNow(btn){ btn.disabled=true;
+  call("backupNow",[],function(r){ btn.disabled=false; var m=$("bkpMsg");
+    if(m) m.textContent = r&&r.ok? ("✓ "+r.path) : ("✕ "+((r&&r.error)||"failed"));
+    if(r&&r.ok) paintBackupPanel(); });
+}
+function doRestore(path, btn){
+  if(!confirm("Restore this configuration? Your CURRENT config is backed up first. Applies the next time monitoring starts.")) return;
+  btn.disabled=true;
+  call("restoreBackup",[path],function(r){ btn.disabled=false; var m=$("bkpMsg");
+    if(m) m.textContent = r&&r.ok? ("✓ restored "+r.restored+" file(s) — "+r.note) : ("✕ "+((r&&r.error)||"failed")); });
 }
 function paintSecurityPanel(){
   call("diskEncryption",[],function(d){
