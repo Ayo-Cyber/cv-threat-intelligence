@@ -584,6 +584,26 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # retention period the purger was not enforcing. The engine now watches
     # the file (mtime, 5s) and applies those three live. Cameras/zones/rules
     # still require a restart: they rebuild models, which is a real restart.
+    def _rule_fingerprint():
+        """mtimes of everything that shapes rules per camera: the site file's
+        camera entries plus each camera's rules + zones files."""
+        out = {}
+        try:
+            fresh = load_site_config(site_config_path)
+        except Exception:  # noqa: BLE001 - half-written file: keep the old view
+            log.debug("site re-read failed", exc_info=True)
+            return None, None
+        for cam in fresh.get("cameras", []):
+            sig = []
+            for key in ("config", "zones"):
+                path = cam.get(key)
+                try:
+                    sig.append((key, path, Path(path).stat().st_mtime if path else 0))
+                except OSError:
+                    sig.append((key, path, 0))
+            out[cam.get("id")] = tuple(sig)
+        return fresh, out
+
     def _watch_site_meta():
         state = {"mtime": 0.0, "notify": notify,
                  "hb_url": _site_meta.get("heartbeat_url", ""),
@@ -592,8 +612,26 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             state["mtime"] = Path(site_config_path).stat().st_mtime
         except OSError:
             pass
+        _, state["rules_fp"] = _rule_fingerprint()
         while True:
             time.sleep(5)
+            # English rules and zones are JSON, not models: hot-swap them into
+            # the running per-camera states so "describe it in English" takes
+            # effect in seconds, not at the next restart. (User feedback,
+            # 23 Aug: "it should kick off automatically".)
+            fresh_site, fp = _rule_fingerprint()
+            if fp is not None and fp != state.get("rules_fp"):
+                from cvti.serving.camera import refresh_camera_rules
+                for cam in fresh_site.get("cameras", []):
+                    cid = cam.get("id")
+                    if cid in states and fp.get(cid) != (state.get("rules_fp") or {}).get(cid):
+                        try:
+                            refresh_camera_rules(states[cid], cam, baseline_config)
+                            log.info("[site] rules/zones hot-reloaded for camera %s", cid)
+                        except Exception:  # noqa: BLE001 - keep the old rules over none
+                            log.error("[site] rules hot-reload failed for %s; keeping "
+                                      "current rules", cid, exc_info=True)
+                state["rules_fp"] = fp
             try:
                 mtime = Path(site_config_path).stat().st_mtime
                 if mtime == state["mtime"]:

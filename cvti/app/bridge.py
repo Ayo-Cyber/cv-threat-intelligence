@@ -96,6 +96,14 @@ class Backend(QObject):
     def setCustomRule(self, camera_id: str, question: str, dwell: float) -> str:
         return self._safe(lambda: self._core.set_custom_rule(camera_id, question, dwell or 4.0))
 
+    @pyqtSlot(str, str, float, result=str)
+    def addCustomRule(self, camera_id: str, question: str, dwell: float) -> str:
+        return self._safe(lambda: self._core.add_custom_rule(camera_id, question, dwell or 4.0))
+
+    @pyqtSlot(str, str, result=str)
+    def removeCustomRule(self, camera_id: str, question: str) -> str:
+        return self._safe(lambda: self._core.remove_custom_rule(camera_id, question))
+
     @pyqtSlot(result=str)
     def backupNow(self) -> str:
         return self._safe(self._core.backup_now)

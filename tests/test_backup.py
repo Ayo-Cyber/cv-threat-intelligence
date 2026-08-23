@@ -47,7 +47,7 @@ class BackupRestoreEndToEndTest(unittest.TestCase):
         for p, want in before.items():
             self.assertEqual(Path(p).read_bytes(), want, f"{p} did not round-trip")
         rules = json.loads(Path("configs/rules/till.json").read_text())["rules"]
-        self.assertIn("custom_english", [r["name"] for r in rules])
+        self.assertTrue(any(r["name"].startswith("custom_english") for r in rules))
 
     def test_restore_backs_up_the_current_config_first(self):
         out = backup.backup_config("site.json", "backups")

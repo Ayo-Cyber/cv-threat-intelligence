@@ -254,7 +254,7 @@ class AuditHardeningTests(unittest.TestCase):
             cam = json.loads((tmp / "site.json").read_text())["cameras"][0]
             rules = json.loads(Path(cam["config"]).read_text())["rules"]
             names = [r["name"] for r in rules]
-            self.assertIn("custom_english", names,
-                          "template application dropped the customer's English rule")
+            self.assertTrue(any(n.startswith("custom_english") for n in names),
+                            "template application dropped the customer's English rule")
         finally:
             os.chdir(cwd)

@@ -100,3 +100,107 @@ class SimpleRuleQuestionTest(unittest.TestCase):
         got = eng.evaluate([RawEvent(detector="presence", active=True,
                                      title="p", level="low")], scene_context={})
         self.assertIsNone(got[0].question)
+
+
+class MultipleEnglishRulesTest(unittest.TestCase):
+    """User feedback 23 Aug: 'it seems to only be tailored to hoodie' — one
+    sentence per camera overwrote the last. Sentences now accumulate, each its
+    own rule with its own question, and changes hot-apply to a running engine."""
+
+    def _backend(self, tmp):
+        import json, os, sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent))
+        from _backend_helper import signed_in
+        (Path(tmp) / "site.json").write_text(json.dumps(
+            {"cameras": [{"id": "c1", "source": "0"}]}))
+        os.chdir(tmp)
+        return signed_in("owner", site_path=str(Path(tmp) / "site.json"),
+                         db_path=str(Path(tmp) / "events.db"), enable_demo=False)
+
+    def test_sentences_accumulate_instead_of_overwriting(self):
+        import json, os, tempfile
+        from pathlib import Path
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                be = self._backend(tmp)
+                be.add_custom_rule("c1", "Is anyone wearing a black hoodie?")
+                be.add_custom_rule("c1", "Is anyone carrying a ladder?")
+                cam = json.loads((Path(tmp) / "site.json").read_text())["cameras"][0]
+                rules = json.loads(Path(cam["config"]).read_text())["rules"]
+                qs = [r["gate_question"] for r in rules if r.get("gate_question")]
+                self.assertEqual(len(qs), 2, "the second sentence overwrote the first")
+                self.assertIn("hoodie", qs[0]); self.assertIn("ladder", qs[1])
+            finally:
+                os.chdir(cwd)
+
+    def test_removing_one_sentence_keeps_the_others(self):
+        import json, os, tempfile
+        from pathlib import Path
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                be = self._backend(tmp)
+                be.add_custom_rule("c1", "Is anyone wearing a black hoodie?")
+                be.add_custom_rule("c1", "Is anyone carrying a ladder?")
+                be.remove_custom_rule("c1", "Is anyone wearing a black hoodie?")
+                cam = json.loads((Path(tmp) / "site.json").read_text())["cameras"][0]
+                rules = json.loads(Path(cam["config"]).read_text())["rules"]
+                qs = [r["gate_question"] for r in rules if r.get("gate_question")]
+                self.assertEqual(len(qs), 1)
+                self.assertIn("ladder", qs[0])
+            finally:
+                os.chdir(cwd)
+
+    def test_legacy_single_rule_is_migrated_not_lost(self):
+        import json, os, tempfile
+        from pathlib import Path
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                be = self._backend(tmp)
+                # a site file from before the list existed
+                site = json.loads((Path(tmp) / "site.json").read_text())
+                site["cameras"][0]["custom_rule"] = {"question": "Old sentence?", "dwell": 4}
+                (Path(tmp) / "site.json").write_text(json.dumps(site))
+                be.add_custom_rule("c1", "New sentence?")
+                cam = json.loads((Path(tmp) / "site.json").read_text())["cameras"][0]
+                self.assertNotIn("custom_rule", cam, "legacy field left to shadow the list")
+                qs = [r["question"] for r in cam["custom_rules"]]
+                self.assertEqual(qs, ["Old sentence?", "New sentence?"])
+            finally:
+                os.chdir(cwd)
+
+
+class HotReloadTest(unittest.TestCase):
+    """'It should kick off automatically, not until a Start monitoring' —
+    rules and zones are JSON, not models: the running engine swaps them in."""
+
+    def test_refresh_swaps_the_rules_engine_in_place(self):
+        import json, tempfile
+        from pathlib import Path
+        from cvti.serving.camera import build_camera_states, refresh_camera_rules
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "rules.json"
+            cfg.write_text(json.dumps({"use_case_id": "t", "rules": [{
+                "name": "r1", "trigger": {"detector": "presence"},
+                "gate_question": "Old question?"}]}))
+            site = {"cameras": [{"id": "c1", "source": "x.mp4", "config": str(cfg)}]}
+            states = build_camera_states(site)
+            st = states["c1"]["state"]
+            ev = RawEvent(detector="presence", active=True, title="p", level="low")
+            self.assertEqual(st.engine.evaluate([ev], scene_context={})[0].question,
+                             "Old question?")
+            # the operator types a new sentence -> the file changes on disk
+            cfg.write_text(json.dumps({"use_case_id": "t", "rules": [{
+                "name": "r1", "trigger": {"detector": "presence"},
+                "gate_question": "New question?"}]}))
+            refresh_camera_rules(st, site["cameras"][0])
+            self.assertEqual(st.engine.evaluate([ev], scene_context={})[0].question,
+                             "New question?", "the running engine kept the old rules")
+
+    def test_the_engine_watcher_wires_the_refresh(self):
+        src = (Path(__file__).resolve().parents[1] / "cvti/serving/pipeline.py").read_text()
+        self.assertIn("_rule_fingerprint", src)
+        self.assertIn("refresh_camera_rules(states[cid], cam, baseline_config)", src)

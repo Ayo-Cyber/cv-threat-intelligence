@@ -487,5 +487,21 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
     return out
 
 
+def refresh_camera_rules(state: "PerCameraState", cam: dict,
+                         baseline_config: str | None = None) -> None:
+    """Hot-swap a camera's rules engine and zone monitor from its config files.
+
+    Rules and zones are JSON — reloading them is cheap and touches no model,
+    so a plain-English rule typed in the app takes effect on the RUNNING
+    engine within seconds instead of waiting for a restart nobody was told to
+    do. Attribute swaps are atomic in CPython: a frame in flight sees either
+    the old engine or the new one, never a half-built one.
+    """
+    from cvti.retail.zones import RetailZoneMonitor, load_zone_config
+    state.engine = CustomizationEngine(cam["config"], baseline_path=baseline_config)
+    if cam.get("zones"):
+        state.zone_monitor = RetailZoneMonitor(load_zone_config(cam["zones"]))
+
+
 def load_site_config(path: str | Path) -> dict:
     return json.loads(Path(path).read_text())
