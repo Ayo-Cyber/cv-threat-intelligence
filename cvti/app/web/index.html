@@ -1727,7 +1727,7 @@ function paintNow(){
   var hero = fr.length ? '<img class="hero" id="nowHero" src="'+fr[fi]+'" alt="">'
     : '<div class="allnormal" style="padding:40px"><span class="mut">No evidence frames for this alert'+(a.unverified?'':' yet')+'.</span></div>';
   var strip = fr.length>1 ? '<div class="fstrip">'+fr.map(function(u,i){
-      return '<img src="'+u+'" class="'+(i===fi?"on":"")+'" onclick="nowFrame('+i+')">'; }).join("")+'</div>' : "";
+      return '<img src="'+u+'" class="'+(i===fi?"on":"")+'" onclick="nowFrame('+i+', true)">'; }).join("")+'</div>' : "";
   var conf = a.confidence!=null ? Number(a.confidence) : null;
   var why = a.unverified
     ? '<div class="panel" style="padding:14px 16px;margin-top:14px;border-style:dashed"><div class="plabel" style="color:var(--c-mut)">UNVERIFIED</div>'
@@ -1767,10 +1767,26 @@ function paintNow(){
     +    (then || '<p class="mut" style="font-size:12px;margin:7px 0 0">Nothing else is waiting.</p>')+held
     +  '</div>'
     +'</div></div>';
+  startNowClip();
 }
-function nowFrame(i){ state.nowFrame=i; var h=$("nowHero"); var fr=(nowEvent()||{}).frames||[];
+function nowFrame(i, manual){ state.nowFrame=i; var h=$("nowHero"); var fr=(nowEvent()||{}).frames||[];
   if(h && fr[i]) h.src=fr[i];
-  document.querySelectorAll(".fstrip img").forEach(function(el,idx){ el.classList.toggle("on", idx===i); }); }
+  document.querySelectorAll(".fstrip img").forEach(function(el,idx){ el.classList.toggle("on", idx===i); });
+  if(manual) state.nowClipHold = Date.now() + 5000;   // a click holds auto-play for 5s
+}
+/* The evidence PLAYS (user: "it keeps showing one image"): cycle the frames
+   like the detail view's clip, ~1.4 fps — evidence, not cinema. */
+function startNowClip(){
+  stopNowClip();
+  state.nowClipTimer = setInterval(function(){
+    if(!onNowTab()){ stopNowClip(); return; }
+    var fr=(nowEvent()||{}).frames||[];
+    if(fr.length < 2) return;
+    if(state.nowClipHold && Date.now() < state.nowClipHold) return;
+    nowFrame(((state.nowFrame||0)+1) % fr.length);
+  }, 700);
+}
+function stopNowClip(){ if(state.nowClipTimer){ clearInterval(state.nowClipTimer); state.nowClipTimer=null; } }
 function nowClaim(){ var a=nowEvent(); if(!a) return;
   call("acknowledgeAlert",[String(a.id)],function(r){
     if(r && r.error){ alert(r.error); }
@@ -1879,7 +1895,8 @@ function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(func
     var sig=evs.map(function(e){return e.id+":"+e.review;}).join(",");
     if(sig!==state.alertsSig){ state.events=evs; state.alertsSig=sig; paintAlerts(); refreshCounts(); } }); }, 3000); }
 function stopAlertsPoll(){ if(state.alertsTimer){ clearInterval(state.alertsTimer); state.alertsTimer=null; }
-  if(state.nowTimer){ clearInterval(state.nowTimer); state.nowTimer=null; } stopClip(); }
+  if(state.nowTimer){ clearInterval(state.nowTimer); state.nowTimer=null; }
+  stopNowClip(); stopClip(); }
 function selectAlert(i){ state.selected = state.shown[i]; $("detail").innerHTML = renderDetail(); startClipMedia();
   document.querySelectorAll(".arow").forEach(function(el,idx){el.classList.toggle("sel",idx===i);}); }
 function renderDetail(){
