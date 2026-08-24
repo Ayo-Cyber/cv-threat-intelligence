@@ -66,7 +66,8 @@ class MultiStreamPipeline:
                  conf: float = 0.4, device: str = "", half: bool = False,
                  max_batch: int = 32, on_result: ResultHandler | None = None,
                  camera_states: dict[str, Any] | None = None, alert_queue: Any = None,
-                 publisher: Any = None, on_link_change=None) -> None:
+                 publisher: Any = None, on_link_change=None,
+                 publish_fps: float = 12.0) -> None:
         self.sources = sources
         self.weights = weights
         self.target_fps = target_fps
@@ -80,6 +81,11 @@ class MultiStreamPipeline:
         self._alert_queue = alert_queue
         # Publishes frames (with boxes) so the UI never decodes the stream twice.
         self.publisher = publisher
+        self.publish_fps = publish_fps
+        self.smooth_publish = bool(publisher is not None and publish_fps > 0)
+        self.latest_boxes: dict = {}       # camera_id -> last detection's boxes
+        self._smooth_thread = None
+        self._last_detect: dict = {}       # camera_id -> last model-sample time
         self.on_link_change = on_link_change
         # Called the moment an alert is accepted onto the queue — the two-tier
         # fast path hangs off this, ahead of any verification.
@@ -110,12 +116,58 @@ class MultiStreamPipeline:
         self._names = self._model.names
         from cvti.detector.core import normalize_threat_classes
         self._threat_classes = normalize_threat_classes("gun,knife")
+        decode_fps = max(self.target_fps, self.publish_fps) if self.smooth_publish \
+            else self.target_fps
         for cam_id, src in self.sources.items():
             self._decoders[cam_id] = StreamDecoder(
-                cam_id, src, target_fps=self.target_fps,
+                cam_id, src, target_fps=decode_fps,
                 on_state_change=self.on_link_change).start()
+        if self.smooth_publish:
+            import threading as _th
+            self._smooth_thread = _th.Thread(target=self._smooth_publish_loop,
+                                             name="smooth-publish", daemon=True)
+            self._smooth_thread.start()
+            log.info("[serving] live wall decoupled: publishing at %.0f fps, "
+                     "detection sampling at %.0f fps", self.publish_fps, self.target_fps)
         log.info(f"[serving] {len(self._decoders)} camera(s) | device={self.device} "
               f"half={self.half} target_fps={self.target_fps} | model={self.weights}")
+
+    def _smooth_publish_loop(self) -> None:
+        """Ship the newest decoded frame per camera at publish_fps, overlaying
+        the LAST detection's boxes — the live wall stops being chained to the
+        model's cadence (user ask, 24 Aug: 'live stream smooth and fast, the
+        detection on the other end'). Peek never consumes, so detection loses
+        nothing; boxes lag the video by at most one detection interval."""
+        last_seq: dict = {}
+        period = 1.0 / self.publish_fps
+        while True:
+            t0 = time.perf_counter()
+            for cam_id, d in list(self._decoders.items()):
+                try:
+                    frame, seq = d.peek_latest()
+                except Exception:  # noqa: BLE001 - one camera must not stop the wall
+                    log.debug("peek failed for %s", cam_id, exc_info=True)
+                    continue
+                if frame is None or last_seq.get(cam_id) == seq:
+                    continue
+                last_seq[cam_id] = seq
+                try:
+                    self.publisher.publish(cam_id, frame.image,
+                                           self.latest_boxes.get(cam_id) or [])
+                except Exception:  # noqa: BLE001
+                    log.debug("smooth publish failed for %s", cam_id, exc_info=True)
+            sleep = period - (time.perf_counter() - t0)
+            if sleep > 0:
+                time.sleep(sleep)
+
+    def _due_for_detection(self, camera_id: str, now: float) -> bool:
+        """Detection samples at target_fps even when decoders run faster for
+        the live wall — without this gate, faster decode = 2-3x model load."""
+        last = self._last_detect.get(camera_id, 0.0)
+        if now - last >= 0.95 / self.target_fps:
+            self._last_detect[camera_id] = now
+            return True
+        return False
 
     def _default_handler(self, frame: Frame, result: Any) -> None:
         n = 0 if result.boxes is None else len(result.boxes)
@@ -148,15 +200,19 @@ class MultiStreamPipeline:
                         self.on_queued(alert)
                     except Exception:  # noqa: BLE001 - fast path must not stop routing
                         log.error("on_queued callback failed", exc_info=True)
-        # Publish this frame for the UI instead of letting it decode the stream a
-        # second time. We already have the frame AND the tracks, so the boxes are free.
+        # The live wall is DECOUPLED from detection (user ask, 24 Aug): the
+        # smooth-publish thread ships frames at stream cadence; detection only
+        # refreshes the box overlay it draws. Boxes therefore lag the video by
+        # at most one detection interval (~200ms) — standard for CCTV overlays.
         if self.publisher is not None:
             boxes = [(tid, *box) for tid, box in
                      (getattr(state, "_box_by_track", None) or {}).items()]
+            self.latest_boxes[frame.camera_id] = boxes
             if alerts:
                 self.publisher.mark_alerting(
                     frame.camera_id, {a.track_id for a in alerts if a.track_id is not None})
-            self.publisher.publish(frame.camera_id, frame.image, boxes)
+            if not self.smooth_publish:
+                self.publisher.publish(frame.camera_id, frame.image, boxes)
 
     def _all_ended(self) -> bool:
         return all(d.ended and not d.read_latest() for d in self._decoders.values())
@@ -168,6 +224,9 @@ class MultiStreamPipeline:
         while time.perf_counter() < t_end:
             tick = time.perf_counter()
             batch = collect_batch(self._decoders, max_batch=self.max_batch)
+            if batch and self.smooth_publish:
+                now = time.perf_counter()
+                batch = [f for f in batch if self._due_for_detection(f.camera_id, now)]
             if batch:
                 images = [f.image for f in batch]
                 t0 = time.perf_counter()
@@ -227,6 +286,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              device: str = "", half: bool = False, seconds: float = 90.0,
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
              gate_sensitivity: str = "balanced", publish_frames: bool = True,
+             publish_fps: float = 12.0,
              memory_guard: bool = True, memory_warn_gb: float = 2.0,
              memory_critical_gb: float = 1.0,
              pose_weights: str = "models/yolov8n-pose.pt",
@@ -357,7 +417,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     pipe = MultiStreamPipeline(sources, weights=weights, target_fps=target_fps, imgsz=imgsz,
                                conf=conf, device=device, half=half, camera_states=states,
                                alert_queue=queue, publisher=publisher,
-                               on_link_change=_on_link_change)
+                               on_link_change=_on_link_change, publish_fps=publish_fps)
 
     def _fast_path(alert) -> None:
         """Two-tier alerting (EP-06-T4): criticals are shown provisionally the
@@ -788,6 +848,8 @@ def main() -> None:
     p.add_argument("--site-config", default="", help="Site JSON: per-camera source + rules + zones.")
     p.add_argument("--weights", default="models/yolov8n.pt")
     p.add_argument("--target-fps", type=float, default=5.0)
+    p.add_argument("--publish-fps", type=float, default=12.0,
+                   help="live-wall frame rate, decoupled from detection; 0 = old coupled behavior")
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--conf", type=float, default=0.4)
     p.add_argument("--device", default="")
@@ -841,6 +903,7 @@ def main() -> None:
                  seconds=args.seconds, gate_provider=args.gate_provider,
                  gate_sensitivity=args.gate_sensitivity,
                  publish_frames=not args.no_publish_frames,
+                 publish_fps=args.publish_fps,
                  memory_guard=not args.no_memory_guard,
                  memory_warn_gb=args.memory_warn_gb,
                  memory_critical_gb=args.memory_critical_gb,
