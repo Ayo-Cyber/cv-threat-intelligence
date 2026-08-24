@@ -58,6 +58,7 @@ class StreamDecoder:
         self.loop_files = loop_files
         self._min_period = 1.0 / target_fps if target_fps > 0 else 0.0
         self._latest: Frame | None = None
+        self._seq = 0                      # bumps per decoded frame (peek dedup)
         self._consumed = True          # True once the current latest was read
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -191,6 +192,7 @@ class StreamDecoder:
             with self._lock:
                 self._index += 1
                 self._latest = Frame(self.camera_id, image, orig_index, ts)
+                self._seq += 1
                 self._consumed = False
             # Pace each kept frame to target_fps: files play at real time; a live
             # source is naturally paced already, so this just caps intake.
@@ -207,6 +209,17 @@ class StreamDecoder:
                 return None
             self._consumed = True
             return self._latest
+
+    def peek_latest(self) -> tuple:
+        """(frame, seq) WITHOUT consuming — the smooth-publish path reads here.
+
+        read_latest() marks frames consumed for the DETECTION loop; a second
+        consumer would steal frames from the models. The live wall doesn't need
+        to own the frame, only to see the newest one, so it peeks. `seq` lets
+        the publisher skip frames it has already shipped.
+        """
+        with self._lock:
+            return self._latest, self._seq
 
     def stop(self) -> None:
         self._stop.set()

@@ -258,3 +258,42 @@ class AuditHardeningTests(unittest.TestCase):
                             "template application dropped the customer's English rule")
         finally:
             os.chdir(cwd)
+
+
+class SmoothPublishTest(unittest.TestCase):
+    """The live wall is decoupled from detection (24 Aug): frames publish at
+    stream cadence, the model samples at target_fps, and neither starves the
+    other."""
+
+    def test_peek_never_consumes_the_detection_frame(self):
+        from cvti.serving.streams import Frame, StreamDecoder
+        d = StreamDecoder.__new__(StreamDecoder)     # no stream: state only
+        import threading
+        d._lock = threading.Lock()
+        d._latest = Frame("c", object(), 1, 0.1)
+        d._seq = 7
+        d._consumed = False
+        f1, s1 = d.peek_latest()
+        f2, s2 = d.peek_latest()
+        self.assertIs(f1, f2); self.assertEqual((s1, s2), (7, 7))
+        self.assertIsNotNone(d.read_latest(), "peek consumed the frame")
+        self.assertIsNone(d.read_latest())
+        f3, _ = d.peek_latest()
+        self.assertIs(f3, f1, "peek must still see a consumed frame")
+
+    def test_detection_gate_holds_the_model_to_target_fps(self):
+        from cvti.serving.pipeline import MultiStreamPipeline
+        pipe = MultiStreamPipeline.__new__(MultiStreamPipeline)
+        pipe.target_fps = 4.0
+        pipe._last_detect = {}
+        hits = sum(1 for i in range(120)                    # 12 fps for 10s
+                   if pipe._due_for_detection("cam", i / 12.0))
+        self.assertLessEqual(hits, 45, "faster decode leaked into model load")
+        self.assertGreaterEqual(hits, 35, "gate starves detection")
+
+    def test_decoders_pace_to_publish_rate_when_decoupled(self):
+        import inspect
+        from cvti.serving.pipeline import MultiStreamPipeline
+        src = inspect.getsource(MultiStreamPipeline.start)
+        self.assertIn("max(self.target_fps, self.publish_fps)", src)
+        self.assertIn("_smooth_publish_loop", src)
