@@ -54,6 +54,12 @@ class RunningPanicDetector:
         frame_shape: tuple[int, ...],
     ) -> dict[str, Any] | None:
         center = _bbox_center(bbox)
+        # Sweep departed tracks: ByteTrack ids never return, so anything not
+        # updated for 30s is a person who left — one leaked _TrackMotion per
+        # visitor otherwise, forever. (RAM audit 24 Aug, #3.)
+        stale = [t for t, m in self._tracks.items() if timestamp - m.timestamp > 30.0]
+        for t in stale:
+            self._tracks.pop(t, None)
         previous = self._tracks.get(track_id)
         if previous is None:
             self._tracks[track_id] = _TrackMotion(center=center, timestamp=timestamp)

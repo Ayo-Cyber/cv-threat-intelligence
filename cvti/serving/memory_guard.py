@@ -177,7 +177,16 @@ def build_default_actions(pipe: Any, states: dict | None = None) -> tuple[list, 
                 while len(buf) > 16:
                     buf.popleft()
                 trimmed += 1
-        return f"trimmed replay buffers on {trimmed} camera(s)" if trimmed else None
+            # The RAW frame buffer is the big one — ~62 MB/camera at 1080p
+            # (10 undownscaled BGR frames) — and the guard never touched it.
+            # Under pressure, halve it: evidence pre-roll gets shorter, the
+            # box stops swapping. (RAM audit 24 Aug.)
+            fbuf = getattr(st, "_frame_buffer", None)
+            if fbuf is not None and len(fbuf) > 4:
+                while len(fbuf) > 4:
+                    fbuf.popleft()
+                trimmed += 1
+        return f"trimmed frame/replay buffers on {trimmed} camera(s)" if trimmed else None
 
     def lower_fps() -> str | None:
         cur = getattr(pipe, "target_fps", 0)

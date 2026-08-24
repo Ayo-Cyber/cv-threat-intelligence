@@ -160,11 +160,20 @@ class CaseBook:
         return case, False
 
     def expire(self, now: float | None = None) -> list[Case]:
-        """Close cases whose subject hasn't been seen for a while."""
+        """Close cases whose subject hasn't been seen for a while.
+
+        Closed cases are DELETED after being returned once: track ids never
+        recur, so a closed case can never reopen — it used to sit in the dict
+        forever, one dead Case per person who ever matched a watch, plus a
+        full-dict scan every cycle. (RAM audit 24 Aug, service #1.)
+        """
         now = time.time() if now is None else now
         closed = []
-        for case in self._cases.values():
-            if not case.closed and (now - case.last_seen) > self.stale_after:
+        for key, case in list(self._cases.items()):
+            if case.closed:
+                self._cases.pop(key, None)        # reported last cycle; gone now
+                continue
+            if (now - case.last_seen) > self.stale_after:
                 case.closed = True
                 closed.append(case)
         return closed

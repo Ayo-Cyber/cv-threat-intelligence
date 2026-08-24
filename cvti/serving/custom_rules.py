@@ -77,6 +77,10 @@ class CustomRuleScanner:
             log.debug("[custom-rules] site re-read failed; keeping current", exc_info=True)
             return
         self.cameras = [c for c in self._all_cameras if _rules_for(c)]
+        # Cooldown keys for renamed/deleted rules are dead — prune to the live set.
+        live = {(c["id"], t["name"]) for c in self.cameras for t in _rules_for(c)}
+        for k in [k for k in self._last_fire if k not in live]:
+            self._last_fire.pop(k, None)
 
     def start(self) -> "CustomRuleScanner":
         if not self.cameras and not self.site_config_path:
