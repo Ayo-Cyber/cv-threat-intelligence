@@ -167,6 +167,10 @@ class OllamaServerManagementTest(unittest.TestCase):
                 self.assertEqual(captured["cmd"][:2], ["/fake/ollama", "serve"])
                 self.assertEqual(captured["env"]["OLLAMA_MODELS"], models)
                 self.assertTrue(Path(models).is_dir(), "model dir not pre-created")
+                # RAM policy: without these, a 3.3 GB model runs ~13 GB resident
+                self.assertEqual(captured["env"]["OLLAMA_NUM_PARALLEL"], "2")
+                self.assertEqual(captured["env"]["OLLAMA_CONTEXT_LENGTH"], "8192")
+                self.assertEqual(captured["env"]["OLLAMA_KV_CACHE_TYPE"], "q8_0")
         finally:
             vlm_ollama.subprocess.Popen = real_popen
             vlm_ollama.ollama_binary = real_binary

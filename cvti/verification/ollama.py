@@ -136,6 +136,18 @@ def start_server(models_dir: str | None = None) -> bool:
     except OSError:
         pass
     env = dict(os.environ)
+    # Memory policy (RAM audit 24 Aug): Ollama's defaults grow a 3.3 GB model
+    # into ~13 GB resident — 4 parallel slots, each pre-allocating a full
+    # context's KV cache, plus the vision tower. Two slots at 8K context with
+    # quantised KV holds multi-frame verification comfortably at roughly a
+    # third of the memory; requests beyond 2 queue server-side (slightly
+    # higher tail latency, bounded RAM). Every value yields to an explicit
+    # env var, so an operator who wants speed over memory can have it.
+    env.setdefault("OLLAMA_NUM_PARALLEL", "2")
+    env.setdefault("OLLAMA_CONTEXT_LENGTH", "8192")
+    env.setdefault("OLLAMA_FLASH_ATTENTION", "1")
+    env.setdefault("OLLAMA_KV_CACHE_TYPE", "q8_0")
+    env.setdefault("OLLAMA_MAX_LOADED_MODELS", "1")
     if models_dir:
         Path(models_dir).mkdir(parents=True, exist_ok=True)
         env["OLLAMA_MODELS"] = str(models_dir)
