@@ -17,6 +17,10 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+from cvti.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 # Higher rank = more urgent; used to order the gate funnel.
 _PRIORITY_RANK = {"critical": 3, "high": 2, "medium": 1, "low": 0}
 
@@ -79,11 +83,35 @@ class AlertQueue:
                 self.dropped_duplicates += 1
                 return False
             self._last_seen[dedup_key] = alert.timestamp
+            # A signature past its cooldown is dead weight (track ids never
+            # recur), yet this dict grew one entry per alert forever — the
+            # only unbounded structure in the queue. (RAM audit 24 Aug, #2.)
+            if len(self._last_seen) > 4 * self.max_pending:
+                cutoff = alert.timestamp - self.cooldown_seconds
+                for k in [k for k, ts in self._last_seen.items() if ts < cutoff]:
+                    self._last_seen.pop(k, None)
             self._pending.append(alert)
             # Bound memory: if a slow gate lets the backlog grow, keep the most urgent.
             if len(self._pending) > self.max_pending:
                 self._pending.sort()
                 self._pending = self._pending[: self.max_pending]
+            # The count cap is byte-blind: 256 alerts can pin gigabytes of clip
+            # JPEGs while a slow gate drains. Past half the cap, strip clip
+            # frames from the alerts that will be VERIFIED LAST (drain-order
+            # tail) — their clips would sit pinned longest. Evidence stills
+            # survive; the replay clip is sacrificed before the box swaps.
+            # (Audit #3.)
+            if len(self._pending) > self.max_pending // 2:
+                self._pending.sort()
+                shed = 0
+                for stale in self._pending[self.max_pending // 2:]:
+                    if stale.payload and stale.payload.get("clip_frames"):
+                        stale.payload["clip_frames"] = []
+                        shed += 1
+                if shed:
+                    log.info("[queue] backlog past %d: dropped clip frames from %d "
+                             "oldest pending alert(s) to bound memory",
+                             self.max_pending // 2, shed)
         return True
 
     def drain(self, max_per_drain: int = 4) -> list[QueuedAlert]:

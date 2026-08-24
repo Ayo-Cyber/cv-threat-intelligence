@@ -701,6 +701,18 @@ def _save_artifacts(
 ) -> None:
     out_dir = save_dir / f"gate_{call_count:04d}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Cap the archive: one frame-bearing directory PER VERDICT, outside the
+    # retention manager's reach, grew the disk forever on a 24/7 site. Keep
+    # the newest 200 — debugging depth without unbounded growth.
+    # (RAM/disk audit 24 Aug, service #5.)
+    if call_count % 50 == 0:
+        try:
+            dirs = sorted(d for d in save_dir.glob("gate_*") if d.is_dir())
+            for old_dir in dirs[:-200]:
+                import shutil
+                shutil.rmtree(old_dir, ignore_errors=True)
+        except OSError:
+            log.debug("gate artifact prune failed", exc_info=True)
     for stale_frame in out_dir.glob("frame*.jpg"):
         stale_frame.unlink()
     for i, fr in enumerate(frames):

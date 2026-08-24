@@ -98,6 +98,18 @@ never installs.
 | Telegram/WhatsApp notifier creds | env vars on the site machine | Re-issue from the bot provider; nothing stored in the repo. |
 | Heartbeat receiver key | site file (`heartbeat_key`) + receiver config | Rotate both ends; see [HEARTBEAT.md](HEARTBEAT.md). |
 
+## 4.5 · Memory policy for the verifier
+
+The bundled Ollama is started with `OLLAMA_NUM_PARALLEL=2`,
+`OLLAMA_CONTEXT_LENGTH=8192`, `OLLAMA_KV_CACHE_TYPE=q8_0` — without these,
+Ollama's defaults (4 parallel slots × full-context KV caches + the vision
+tower) grow the 3.3 GB gemma3:4b to **~13 GB resident**. With them it runs at
+roughly a third of that; extra concurrent verifications queue server-side.
+**If you run `ollama serve` yourself** (brew service, the Ollama app), Argus
+uses your server as-is — set the same variables in its environment to get the
+same footprint. The model unloads automatically after ~5 minutes idle;
+`ollama stop gemma3:4b` frees it immediately.
+
 ## 5 · Routine operations
 
 - **Weekly owner summary**: automatic, Mondays 08:00, via the site notifier;

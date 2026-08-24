@@ -51,7 +51,10 @@ class FallDetector:
                         result = {"kind": "fall", "track_id": int(tid), "aspect": round(aspect, 2)}
             elif aspect <= self.up_aspect:
                 self._streak[tid] = 0        # clearly upright → reset latch
-        # forget tracks that vanished
+        # forget tracks that vanished — INCLUDING their fired latches: ids never
+        # return, so a latch for a departed track is a pure leak. (Audit #4.)
         for tid in [t for t in self._streak if t not in seen]:
             self._streak.pop(tid, None)
+        for tid in [t for t in self._fired if t not in seen]:
+            self._fired.pop(tid, None)
         return result

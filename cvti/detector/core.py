@@ -857,6 +857,13 @@ def enrich_pose_people_with_history(
             person.max_wrist_accel = (person.max_wrist_speed - previous.max_wrist_speed) / dt
         history = track_history.setdefault(person.track_id, deque(maxlen=6))
         history.append(person)
+    # Prune departed tracks: pose ids are minted fresh and never reused, so a
+    # key that isn't in this frame is dead forever. Without this, the dict
+    # gained one entry per person who EVER walked past — tens of MB/day on a
+    # busy camera, unbounded over weeks. (RAM audit 24 Aug, #1.)
+    alive = {p.track_id for p in current_people}
+    for tid in [t for t in track_history if t not in alive]:
+        track_history.pop(tid, None)
     return current_people
 
 
