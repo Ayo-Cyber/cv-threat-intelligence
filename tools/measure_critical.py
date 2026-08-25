@@ -80,7 +80,8 @@ def cmd_run(args) -> int:
            "--dataset", "ucf_crime", "--kind", kind, "--detectors", kind,
            "--gate", args.gate, "--gate-model", args.gate_model,
            "--sensitivity", args.sensitivity, "--out", str(out),
-           "--max-seconds", str(args.max_seconds)]
+           "--max-seconds", str(args.max_seconds),
+           "--max-candidates-per-clip", str(args.max_candidates)]
     if args.limit:
         cmd += ["--limit", str(args.limit)]
     print("running:", " ".join(cmd))
@@ -103,11 +104,16 @@ def _report(kind: str, out: Path, *, smoke: bool) -> int:
     precision = tp / (tp + fp) if (tp + fp) else None
     lo, hi = wilson_interval(tp, len(threat)) if threat else (None, None)
 
+    capped = sum(1 for c in clips if c.get("capped"))
+    verified = sum(c.get("verified", c.get("candidates", 0)) for c in clips)
     label = "SMOKE — NOT A MEASUREMENT" if smoke else "measured"
     print(f"\n[{label}] {kind}: recall {recall:.1%} (n={len(threat)}, "
           f"CI {lo:.1%}–{hi:.1%}), precision "
           f"{('%.1f%%' % (precision*100)) if precision is not None else '—'}, "
           f"FPR {fpr:.1%} (n={len(normal)})")
+    print(f"  {verified} VLM verdicts over {len(clips)} clips"
+          + (f" — {capped} clip(s) hit the per-clip cap, so recall is a LOWER BOUND"
+             if capped else ""))
     if smoke:
         print("smoke run: numbers above are wiring proof only; nothing to publish.")
         return 0
@@ -133,6 +139,9 @@ def main() -> int:
     run.add_argument("--sensitivity", default="balanced",
                      choices=("sensitive", "balanced", "strict"))
     run.add_argument("--max-seconds", type=float, default=30.0)
+    run.add_argument("--max-candidates", type=int, default=0,
+                     help="cap VLM calls per clip (0 = no cap). Biases recall DOWN, "
+                          "never up; capped runs are labelled in the report.")
     run.add_argument("--limit", type=int, default=0)
     run.add_argument("--smoke", action="store_true",
                      help="run below the clip floor; loudly non-publishable")

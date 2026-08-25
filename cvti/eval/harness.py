@@ -33,15 +33,18 @@ class ClipResult:
     name: str
     path: str
     is_threat: bool
-    candidates: int = 0          # Stage 1
-    confirmed: int = 0           # Stage 2
+    candidates: int = 0          # Stage 1: everything the detectors proposed
+    verified: int = 0            # Stage 2: how many actually reached the VLM
+    confirmed: int = 0           # Stage 2: how many it confirmed
+    capped: bool = False         # a per-clip cap skipped some candidates
     rules_fired: tuple = ()
     seconds: float = 0.0
     error: str = ""
 
     def to_dict(self) -> dict:
         return {"name": self.name, "path": self.path, "is_threat": self.is_threat,
-                "candidates": self.candidates, "confirmed": self.confirmed,
+                "candidates": self.candidates, "verified": self.verified,
+                "confirmed": self.confirmed, "capped": self.capped,
                 "rules_fired": list(self.rules_fired), "seconds": round(self.seconds, 1),
                 "error": self.error}
 
@@ -57,6 +60,8 @@ class EvalHarness:
                  gate: Any = None, target_fps: float = 4.0,
                  imgsz: int = 640, conf: float = 0.25,
                  max_seconds_per_clip: float = 30.0,
+                 stop_on_first_confirm: bool = True,
+                 max_candidates_per_clip: int = 0,
                  out_dir: str = "runs/eval", run_key: str = "default") -> None:
         self.config = config
         self.baseline = baseline
@@ -72,6 +77,13 @@ class EvalHarness:
         self.conf = conf
         self.target_fps = target_fps
         self.max_seconds_per_clip = max_seconds_per_clip
+        # Lossless: a clip is flagged if ANY candidate confirms.
+        self.stop_on_first_confirm = stop_on_first_confirm
+        # LOSSY and reported: caps VLM calls per clip. Biases recall DOWN (a
+        # confirmation might have come from a skipped candidate), never up —
+        # so a capped run understates the detector, which is the safe
+        # direction for a claim.
+        self.max_candidates_per_clip = max_candidates_per_clip
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         # Checkpoints are per RUN KEY (gate + detectors). Resuming a real ollama
@@ -190,8 +202,20 @@ class EvalHarness:
                 for alert in state.process(dets, frame, ts, object_detections=objs):
                     res.candidates += 1
                     rules.append(alert.rule_name)
-                    if self.gate is not None and self._confirm(alert):
-                        res.confirmed += 1
+                    # Clip-level scoring asks ONE question: did anything on this
+                    # clip confirm? Once something has, every further VLM call
+                    # is ~12s spent to learn nothing. Lossless early exit — the
+                    # 9.5h/detector estimate was mostly this. (25 Aug.)
+                    if res.confirmed and self.stop_on_first_confirm:
+                        continue
+                    if (self.max_candidates_per_clip
+                            and res.verified >= self.max_candidates_per_clip):
+                        res.capped = True
+                        continue
+                    if self.gate is not None:
+                        res.verified += 1
+                        if self._confirm(alert):
+                            res.confirmed += 1
         except Exception as exc:  # noqa: BLE001 - one bad clip must not sink the run
             log.warning("clip evaluation failed; recorded on the result", exc_info=True)
             res.error = str(exc)[:200]
@@ -242,10 +266,17 @@ class EvalHarness:
             for i, clip in enumerate(clips, 1):
                 if clip.path in done:
                     d = done[clip.path]
-                    out.append(ClipResult(d["name"], d["path"], d["is_threat"],
-                                          d["candidates"], d["confirmed"],
-                                          tuple(d.get("rules_fired", [])),
-                                          d.get("seconds", 0.0), d.get("error", "")))
+                    # By keyword, and tolerant of older checkpoint rows: a new
+                    # field used to shift every positional after it and silently
+                    # load garbage on resume.
+                    out.append(ClipResult(
+                        name=d["name"], path=d["path"], is_threat=d["is_threat"],
+                        candidates=d.get("candidates", 0),
+                        verified=d.get("verified", d.get("candidates", 0)),
+                        confirmed=d.get("confirmed", 0),
+                        capped=bool(d.get("capped", False)),
+                        rules_fired=tuple(d.get("rules_fired", [])),
+                        seconds=d.get("seconds", 0.0), error=d.get("error", "")))
                     continue
                 if progress:
                     log.info(f"[eval] {i}/{len(clips)}  {clip.name} "

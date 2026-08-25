@@ -53,6 +53,10 @@ def main() -> None:
     p.add_argument("--detectors", default="concealment,video_action",
                    help="comma-separated detectors to enable.")
     p.add_argument("--max-seconds", type=float, default=30.0, help="max seconds analysed per clip.")
+    p.add_argument("--max-candidates-per-clip", type=int, default=0,
+                   help="cap VLM calls per clip (0 = uncapped). Lowers recall, never raises it.")
+    p.add_argument("--verify-every-candidate", action="store_true",
+                   help="do NOT stop a clip after its first confirmation (slower, same result)")
     p.add_argument("--target-fps", type=float, default=4.0)
     p.add_argument("--imgsz", type=int, default=640, help="detector input size")
     p.add_argument("--conf", type=float, default=0.25)
@@ -83,7 +87,9 @@ def main() -> None:
                           gate=gate, target_fps=args.target_fps,
                           imgsz=args.imgsz, conf=args.conf,
                           max_seconds_per_clip=args.max_seconds, out_dir=args.out,
-                          run_key=run_key)
+                          run_key=run_key,
+                          stop_on_first_confirm=not args.verify_every_candidate,
+                          max_candidates_per_clip=args.max_candidates_per_clip)
     try:
         results = harness.run(clips)
     except GateUnavailable as exc:
