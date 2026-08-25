@@ -133,3 +133,68 @@ class HarnessWiringTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MeasurementTractabilityTest(unittest.TestCase):
+    """9.5h/detector was mostly wasted VLM calls (25 Aug). Clip-level scoring
+    asks one question — did ANYTHING confirm — so verifying past the first
+    confirmation buys nothing. That exit must be lossless; the optional cap
+    must be lossy in the SAFE direction and say so."""
+
+    def _harness(self, **kw):
+        from cvti.eval.harness import EvalHarness
+        h = EvalHarness(gate=object(), **kw)
+        return h
+
+    def test_early_exit_is_on_by_default_and_optional(self):
+        self.assertTrue(self._harness().stop_on_first_confirm)
+        self.assertFalse(self._harness(stop_on_first_confirm=False).stop_on_first_confirm)
+
+    def test_the_loop_stops_verifying_after_the_first_confirmation(self):
+        src = (ROOT / "cvti/eval/harness.py").read_text()
+        loop = src.split("for alert in state.process")[1].split("except Exception")[0]
+        self.assertIn("if res.confirmed and self.stop_on_first_confirm", loop)
+        self.assertIn("res.verified += 1", loop)
+
+    def test_a_capped_clip_is_flagged_so_recall_reads_as_a_lower_bound(self):
+        src = (ROOT / "cvti/eval/harness.py").read_text()
+        self.assertIn("res.capped = True", src)
+        tool = (ROOT / "tools/measure_critical.py").read_text()
+        self.assertIn("recall is a LOWER BOUND", tool)
+
+    def test_verified_count_is_reported_separately_from_candidates(self):
+        from cvti.eval.harness import ClipResult
+        d = ClipResult("a.mp4", "/a.mp4", True, candidates=16, verified=3,
+                       confirmed=1).to_dict()
+        self.assertEqual((d["candidates"], d["verified"], d["confirmed"]), (16, 3, 1))
+        self.assertIn("capped", d)
+
+
+class ProductionFidelityTest(unittest.TestCase):
+    """The eval must measure the PRODUCT. Production dedups candidates through
+    AlertQueue before the gate ever sees them; the harness used to verify every
+    detector proposal — ~1/second of video, 105 from one 30s clip — which is a
+    firehose no customer experiences (and ~10x the VLM cost)."""
+
+    def test_the_harness_dedups_by_default(self):
+        from cvti.eval.harness import EvalHarness
+        self.assertTrue(EvalHarness().dedup_like_production)
+        self.assertFalse(EvalHarness(dedup_like_production=False).dedup_like_production)
+
+    def test_it_uses_the_product_queue_not_a_lookalike(self):
+        src = (ROOT / "cvti/eval/harness.py").read_text()
+        self.assertIn("from cvti.serving.alert_queue import AlertQueue", src)
+        self.assertIn("queue.add(_queued(alert, ts))", src)
+        self.assertIn("res.deduped += 1", src)
+
+    def test_the_queue_is_per_clip_so_cooldowns_never_leak(self):
+        src = (ROOT / "cvti/eval/harness.py").read_text()
+        body = src.split("def run_clip")[1].split("def _confirm")[0]
+        self.assertIn("AlertQueue(cooldown_seconds=self.dedup_cooldown_s)", body,
+                      "a shared queue would suppress clip B's alerts using clip A's")
+
+    def test_dedup_counts_are_reported(self):
+        from cvti.eval.harness import ClipResult
+        d = ClipResult("a.mp4", "/a.mp4", True, candidates=105, deduped=98,
+                       verified=7, confirmed=1).to_dict()
+        self.assertEqual((d["candidates"], d["deduped"], d["verified"]), (105, 98, 7))
