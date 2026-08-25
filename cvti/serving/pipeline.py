@@ -451,8 +451,13 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             from cvti.serving.watch_runner import WatchRunner
 
             def _latest_frame(cam_id: str):
+                # peek, never read: read_latest() CONSUMES the frame, and this
+                # helper was quietly stealing frames from detection on every
+                # watch check (same family as the scanner's double-decode).
                 d = pipe._decoders.get(cam_id)
-                f = d.read_latest() if d else None
+                if d is None:
+                    return None
+                f, _seq = d.peek_latest()
                 return f.image if f is not None else None
 
             watch_runner = WatchRunner(
@@ -465,10 +470,19 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         # counts). Always started: it watches the site file and begins scanning
         # a camera within one cycle of a sentence being typed in the app.
         from cvti.serving.custom_rules import CustomRuleScanner
+
+        def _scanner_frame(cam_id: str):
+            d = pipe._decoders.get(cam_id)
+            if d is None:
+                return None
+            f, _seq = d.peek_latest()
+            return f.image if f is not None else None
+
         custom_scanner = CustomRuleScanner(
             cams_cfg, sink, model=gate_model or "gemma3:4b",
             base_url=gate_base_url or "http://localhost:11434/v1",
-            site_config_path=site_config_path).start()
+            site_config_path=site_config_path,
+            frame_source=_scanner_frame).start()
     # Retention. Storage limitation is not optional, and an edge box with no
     # purge fills its disk and stops recording evidence exactly when it matters.
     from cvti.serving.onboarding import get_site_meta
@@ -580,6 +594,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
     def _write_health() -> None:
         st = _build_health()
+        try:
+            from cvti.serving.health_history import record as _record_health
+            _record_health(output_dir, st)
+        except Exception:  # noqa: BLE001 - history must never hurt monitoring
+            log.debug("health history write failed", exc_info=True)
         try:
             _health_path.write_text(json.dumps(st))
         except OSError:
@@ -784,7 +803,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
         def _any_latest_frame():
             for d in pipe._decoders.values():
-                f = d.read_latest()
+                f, _seq = d.peek_latest()      # peek: detection owns read_latest
                 if f is not None:
                     return f.image
             return None

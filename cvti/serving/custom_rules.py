@@ -52,7 +52,13 @@ class CustomRuleScanner:
     def __init__(self, cameras: list[dict], sink, *, model: str,
                  base_url: str = "http://localhost:11434/v1",
                  interval: float = 12.0, cooldown: float = 90.0,
-                 site_config_path: str | None = None) -> None:
+                 site_config_path: str | None = None,
+                 frame_source=None) -> None:
+        # frame_source(camera_id) -> frame|None: when the engine provides it,
+        # the scanner PEEKS the frames the engine already decoded instead of
+        # opening its own VideoCapture per camera — which doubled network
+        # bandwidth and decode CPU for every RTSP camera with English rules.
+        self.frame_source = frame_source
         self.site_config_path = site_config_path
         self.cameras = [c for c in cameras if _rules_for(c)]
         self._all_cameras = list(cameras)
@@ -122,7 +128,20 @@ class CustomRuleScanner:
                     except Exception:  # noqa: BLE001
                         log.debug("release failed", exc_info=True)
             for c in self.cameras:
-                if c["id"] not in caps:              # camera gained rules: start decoding
+                if self.frame_source is not None:
+                    # the engine already decoded this stream — just look at it
+                    frame = self.frame_source(c["id"])
+                    if frame is None:
+                        continue
+                    try:
+                        hit = self._check(c, frame)
+                    except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
+                        log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
+                        continue
+                    if hit and not self._cooling(c["id"], hit["name"]):
+                        self._emit(c, frame, hit)
+                    continue
+                if c["id"] not in caps:              # standalone fallback: own decode
                     caps[c["id"]] = self._open(c["source"])
                     log.info(f"[custom-rules] now scanning {c['id']} "
                              f"({len(_rules_for(c))} rule(s))")

@@ -42,6 +42,13 @@ class ConsoleBackend:
         self._monitor = None    # detection-engine subprocess (Start monitoring)
         self._monitor_should_run = False  # watchdog: respawn engine if it dies
         self._restarts = 0
+        # The HOME site keeps the original store; every other feed gets its own
+        # (quick-win #2, 25 Aug): demo/EarthCam alerts used to pollute the real
+        # triage queue — 95 junk Dublin Street events in one sitting — because
+        # every feed wrote into one events.db. Auth and audit stay pinned to
+        # the home directory below regardless of feed (accounts are global).
+        self._home_site = str(Path(site_path).resolve())
+        self._home_db = self.db_path
         # bundled playback demo (for machines w/o the engine); off in tests
         self._demo = self._locate_demo() if enable_demo else None
 
@@ -1272,6 +1279,7 @@ class ConsoleBackend:
                 st["status"] = "stopping engine…"
                 self.stop_monitoring()
             self.site_path = src["config"]
+            self.db_path = self._db_for_feed(key, src["config"])
             restarted = False
             # The frozen guard predated EP-05: the installed bundle SHIPS an
             # engine now, so a feed switch there used to stop monitoring and
@@ -1348,6 +1356,18 @@ class ConsoleBackend:
         con = sqlite3.connect(path or self.db_path)
         con.row_factory = sqlite3.Row
         return con
+
+    def _db_for_feed(self, key: str, config: str) -> str:
+        """Each feed's events live in their own store; the home site keeps the
+        original path (existing data, and auth/audit stay beside it)."""
+        try:
+            if str(Path(config).resolve()) == self._home_site:
+                return self._home_db
+        except OSError:
+            pass
+        d = Path("runs/feeds") / key
+        d.mkdir(parents=True, exist_ok=True)
+        return str(d / "events.db")
 
     def _effective_db(self) -> tuple[str, "Path | None"]:
         """The DB to read + a base dir to resolve evidence frames against.
