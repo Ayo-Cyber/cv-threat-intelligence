@@ -34,6 +34,7 @@ class ClipResult:
     path: str
     is_threat: bool
     candidates: int = 0          # Stage 1: everything the detectors proposed
+    deduped: int = 0             # suppressed by the queue, exactly as in production
     verified: int = 0            # Stage 2: how many actually reached the VLM
     confirmed: int = 0           # Stage 2: how many it confirmed
     capped: bool = False         # a per-clip cap skipped some candidates
@@ -43,7 +44,8 @@ class ClipResult:
 
     def to_dict(self) -> dict:
         return {"name": self.name, "path": self.path, "is_threat": self.is_threat,
-                "candidates": self.candidates, "verified": self.verified,
+                "candidates": self.candidates, "deduped": self.deduped,
+                "verified": self.verified,
                 "confirmed": self.confirmed, "capped": self.capped,
                 "rules_fired": list(self.rules_fired), "seconds": round(self.seconds, 1),
                 "error": self.error}
@@ -62,6 +64,8 @@ class EvalHarness:
                  max_seconds_per_clip: float = 30.0,
                  stop_on_first_confirm: bool = True,
                  max_candidates_per_clip: int = 0,
+                 dedup_like_production: bool = True,
+                 dedup_cooldown_s: float = 60.0,
                  out_dir: str = "runs/eval", run_key: str = "default") -> None:
         self.config = config
         self.baseline = baseline
@@ -84,6 +88,9 @@ class EvalHarness:
         # so a capped run understates the detector, which is the safe
         # direction for a claim.
         self.max_candidates_per_clip = max_candidates_per_clip
+        # Evaluate what a customer's gate actually receives.
+        self.dedup_like_production = dedup_like_production
+        self.dedup_cooldown_s = dedup_cooldown_s
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         # Checkpoints are per RUN KEY (gate + detectors). Resuming a real ollama
@@ -164,6 +171,23 @@ class EvalHarness:
                               **kwargs)
 
     # --- one clip ---
+    @staticmethod
+    def _queued_from(alert: Any, ts: float):
+        """A CandidateAlert as the queue sees it in production."""
+        from cvti.serving.alert_queue import QueuedAlert
+        payload = alert.payload or {}
+        cand = payload.get("candidate")
+        return QueuedAlert(
+            camera_id=getattr(alert, "camera_id", "eval"),
+            rule_name=alert.rule_name,
+            priority=getattr(cand, "priority", "high"),
+            title=getattr(cand, "title", alert.rule_name),
+            timestamp=ts,
+            track_id=getattr(cand, "person_id", None),
+            zone=payload.get("zone"),
+            object_label=getattr(cand, "object_label", None),
+            payload=payload)
+
     def run_clip(self, clip: EvalClip) -> ClipResult:
         import cv2
         import supervision as sv
@@ -171,6 +195,13 @@ class EvalHarness:
         from cvti.detector.core import extract_detections
         self._load_models()
         res = ClipResult(clip.name, clip.path, clip.is_threat)
+        queue = None
+        if self.dedup_like_production:
+            from cvti.serving.alert_queue import AlertQueue
+            # Fresh per clip — a cooldown must never leak across clips, and
+            # max_pending is irrelevant here (we drain synchronously).
+            queue = AlertQueue(cooldown_seconds=self.dedup_cooldown_s)
+        _queued = self._queued_from
         t0 = time.time()
         cap = cv2.VideoCapture(clip.path)
         if not cap.isOpened():
@@ -202,6 +233,16 @@ class EvalHarness:
                 for alert in state.process(dets, frame, ts, object_detections=objs):
                     res.candidates += 1
                     rules.append(alert.rule_name)
+                    # Measure the PRODUCT, not a component. Production sends
+                    # candidates through AlertQueue, which suppresses repeats of
+                    # the same (camera, rule, track, zone, object) within the
+                    # cooldown — a 30s clip that proposes 105 candidates reaches
+                    # the gate as a handful. Verifying all 105 measured a
+                    # firehose no customer ever experiences (and cost ~10x the
+                    # VLM time). The eval now applies the same dedup. (25 Aug.)
+                    if queue is not None and not queue.add(_queued(alert, ts)):
+                        res.deduped += 1
+                        continue
                     # Clip-level scoring asks ONE question: did anything on this
                     # clip confirm? Once something has, every further VLM call
                     # is ~12s spent to learn nothing. Lossless early exit — the
@@ -272,6 +313,7 @@ class EvalHarness:
                     out.append(ClipResult(
                         name=d["name"], path=d["path"], is_threat=d["is_threat"],
                         candidates=d.get("candidates", 0),
+                        deduped=d.get("deduped", 0),
                         verified=d.get("verified", d.get("candidates", 0)),
                         confirmed=d.get("confirmed", 0),
                         capped=bool(d.get("capped", False)),

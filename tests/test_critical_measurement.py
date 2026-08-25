@@ -168,3 +168,33 @@ class MeasurementTractabilityTest(unittest.TestCase):
                        confirmed=1).to_dict()
         self.assertEqual((d["candidates"], d["verified"], d["confirmed"]), (16, 3, 1))
         self.assertIn("capped", d)
+
+
+class ProductionFidelityTest(unittest.TestCase):
+    """The eval must measure the PRODUCT. Production dedups candidates through
+    AlertQueue before the gate ever sees them; the harness used to verify every
+    detector proposal — ~1/second of video, 105 from one 30s clip — which is a
+    firehose no customer experiences (and ~10x the VLM cost)."""
+
+    def test_the_harness_dedups_by_default(self):
+        from cvti.eval.harness import EvalHarness
+        self.assertTrue(EvalHarness().dedup_like_production)
+        self.assertFalse(EvalHarness(dedup_like_production=False).dedup_like_production)
+
+    def test_it_uses_the_product_queue_not_a_lookalike(self):
+        src = (ROOT / "cvti/eval/harness.py").read_text()
+        self.assertIn("from cvti.serving.alert_queue import AlertQueue", src)
+        self.assertIn("queue.add(_queued(alert, ts))", src)
+        self.assertIn("res.deduped += 1", src)
+
+    def test_the_queue_is_per_clip_so_cooldowns_never_leak(self):
+        src = (ROOT / "cvti/eval/harness.py").read_text()
+        body = src.split("def run_clip")[1].split("def _confirm")[0]
+        self.assertIn("AlertQueue(cooldown_seconds=self.dedup_cooldown_s)", body,
+                      "a shared queue would suppress clip B's alerts using clip A's")
+
+    def test_dedup_counts_are_reported(self):
+        from cvti.eval.harness import ClipResult
+        d = ClipResult("a.mp4", "/a.mp4", True, candidates=105, deduped=98,
+                       verified=7, confirmed=1).to_dict()
+        self.assertEqual((d["candidates"], d["deduped"], d["verified"]), (105, 98, 7))
