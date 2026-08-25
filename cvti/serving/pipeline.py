@@ -152,8 +152,7 @@ class MultiStreamPipeline:
                     continue
                 last_seq[cam_id] = seq
                 try:
-                    self.publisher.publish(cam_id, frame.image,
-                                           self.latest_boxes.get(cam_id) or [])
+                    self.publisher.publish(cam_id, frame.image)   # raw glass — no boxes
                 except Exception:  # noqa: BLE001
                     log.debug("smooth publish failed for %s", cam_id, exc_info=True)
             sleep = period - (time.perf_counter() - t0)
@@ -385,7 +384,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # The UI reads frames from here instead of opening every stream a second time
     # (decode is the dominant per-camera cost) — and gets live boxes for free.
     from cvti.serving.frame_publisher import FramePublisher
-    publisher = FramePublisher().start(output_dir) if publish_frames else None
+    # Watch is pure glass (user, 25 Aug): the live wall ships RAW frames — no
+    # box drawing, no per-frame copy. Boxes belong to the alert, where the
+    # sink already writes the annotated subject shot; a live overlay trailing
+    # the person by a detection interval looked broken and bought nothing.
+    publisher = FramePublisher(draw_boxes=False).start(output_dir) if publish_frames else None
 
     def _on_link_change(cam_id: str, previous: str, state: str, held: float) -> None:
         """A camera going offline raises its own alert through normal routing.

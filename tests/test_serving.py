@@ -297,3 +297,13 @@ class SmoothPublishTest(unittest.TestCase):
         src = inspect.getsource(MultiStreamPipeline.start)
         self.assertIn("max(self.target_fps, self.publish_fps)", src)
         self.assertIn("_smooth_publish_loop", src)
+
+    def test_the_live_wall_ships_raw_glass(self):
+        # Boxes live with the alert (the sink's annotated subject shot); the
+        # wall draws nothing — no per-frame copy, no trailing rectangles.
+        import inspect
+        from cvti.serving import pipeline as pl
+        src = inspect.getsource(pl.run_site)
+        self.assertIn("FramePublisher(draw_boxes=False)", src)
+        loop = inspect.getsource(pl.MultiStreamPipeline._smooth_publish_loop)
+        self.assertNotIn("latest_boxes", loop)
