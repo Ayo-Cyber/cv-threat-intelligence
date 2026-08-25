@@ -92,8 +92,13 @@ def compute_summary(db_path: str | Path, site_meta: dict, now: float | None = No
         a, b = prev_month.get(key, 0), this_month.get(key, 0)
         return {"prev": a, "now": b, "change": b - a}
 
+    from cvti.serving.health_history import stats as _health_stats
+    measured = _health_stats(Path(db_path).parent, now - WEEK, now)
+
     return {
         "site": site_meta.get("name") or "My Site",
+        # Measured per-minute by the engine itself; {} = unmeasured, never zero.
+        "monitoring": measured,
         "window": {"from": time.strftime("%Y-%m-%d", time.localtime(now - WEEK)),
                    "to": time.strftime("%Y-%m-%d", time.localtime(now))},
         "week": this_week,
@@ -161,10 +166,17 @@ def render_pdf(summary: dict, dest: str | Path) -> Path:
         page.y -= 6
 
     page.rule()
-    page.text(summary["traceability"], size=8, colour="0.45 0.48 0.55")
-    if w["active_days"] < 7:
+    mon = summary.get("monitoring") or {}
+    if mon.get("uptime_pct") is not None:
+        page.text(f"Monitoring uptime: {mon['uptime_pct']}% of the week "
+                  f"(measured per minute, {mon['samples']} samples)"
+                  + (f" - cameras reachable {mon['camera_availability_pct']}% of monitored time"
+                     if mon.get("camera_availability_pct") is not None else ""),
+                  size=9)
+    elif w["active_days"] < 7:
         page.text(f"Monitoring was active on {w['active_days']} of 7 days this week — "
                   f"figures cover only those days.", size=8, colour="0.55 0.35 0.05")
+    page.text(summary["traceability"], size=8, colour="0.45 0.48 0.55")
 
     page.done()
     dest = Path(dest)
