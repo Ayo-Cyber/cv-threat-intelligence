@@ -83,12 +83,17 @@ class BackendExposureTests(unittest.TestCase):
         be = signed_in(site_path=str(d / "s.json"), db_path=str(d / "events.db"),
                             enable_demo=False)
         ev = be.list_events(10)[0]
-        self.assertTrue(ev["subject"].startswith("data:image/jpeg;base64,"))
+        # The list is metadata-only (perf fix, 25 Aug: embedding evidence made
+        # it ~189 MB over the channel). Images come with the selected alert.
         self.assertEqual(ev["bbox"], "90,60,160,200")
+        for img_field in ("frames", "subject"):
+            self.assertNotIn(img_field, ev, "images leaked back into the list")
+        clip = be.event_clip(ev["evidence_dir"])
+        self.assertTrue(clip["subject"].startswith("data:image/jpeg;base64,"))
         # the annotated shot must NOT appear in the clip frames, or a box would
         # flash at the end of every loop
-        self.assertGreaterEqual(len(ev["frames"]), 1)
-        self.assertNotIn(ev["subject"], ev["frames"])
+        self.assertGreaterEqual(len(clip["frames"]), 1)
+        self.assertNotIn(clip["subject"], clip["frames"])
 
 
 if __name__ == "__main__":

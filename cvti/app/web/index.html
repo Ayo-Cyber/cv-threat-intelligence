@@ -1721,6 +1721,10 @@ function paintNow(){
   var t = state.triage||{};
   var a = nowEvent();
   if(!a){ paintAllNormal(); return; }
+  if(!a.frames){                      // fetch this alert's evidence, then repaint
+    ensureFrames(a, function(){ if(onNowTab()) paintNow(); });
+    a.frames = a.frames || [];
+  }
   var sev = SEV[a.priority]||SEV.low;
   var fr = a.frames||[];
   var fi = Math.min(state.nowFrame||0, Math.max(0,fr.length-1));
@@ -1897,7 +1901,10 @@ function startAlertsPoll(){ stopAlertsPoll(); state.alertsTimer=setInterval(func
 function stopAlertsPoll(){ if(state.alertsTimer){ clearInterval(state.alertsTimer); state.alertsTimer=null; }
   if(state.nowTimer){ clearInterval(state.nowTimer); state.nowTimer=null; }
   stopNowClip(); stopClip(); }
-function selectAlert(i){ state.selected = state.shown[i]; $("detail").innerHTML = renderDetail(); startClipMedia();
+function selectAlert(i){ state.selected = state.shown[i];
+  ensureFrames(state.selected, function(){
+    if(state.selected === state.shown[i]){ $("detail").innerHTML = renderDetail(); startClipMedia(); } });
+  $("detail").innerHTML = renderDetail(); startClipMedia();
   document.querySelectorAll(".arow").forEach(function(el,idx){el.classList.toggle("sel",idx===i);}); }
 function renderDetail(){
   var a = state.selected; if(!a) return '<p class="mut">Select an alert to review it.</p>';
@@ -2159,6 +2166,24 @@ function clipSeek(i){
 /* Play the event as a smooth IMAGE cine-loop over its full frame set — no video
    codec involved (QtWebEngine can't reliably decode the mp4). Fetch the frames for
    the selected event and cache them so the 3s alert poll doesn't re-download. */
+/* Evidence loads for the alert you are LOOKING AT, never for the whole list
+   (the list used to carry ~189 MB of base64 through the channel — that was
+   the slow tab switch). Cached per evidence dir; the 3s poll never refetches. */
+function ensureFrames(a, cb){
+  if(!a){ cb([]); return; }
+  if(a.frames && a.frames.length){ cb(a.frames); return; }
+  state.clipCache = state.clipCache || {};
+  var key = a.evidence_dir || ("id"+a.id);
+  if(key in state.clipCache){ a.frames = state.clipCache[key] || []; cb(a.frames); return; }
+  call("eventClip",[a.evidence_dir||""],function(r){
+    var frames = (r && r.frames) || [];
+    state.clipCache[key] = frames;
+    a.frames = frames;
+    if(r && r.subject) a.subject = r.subject;   // the WHO shot rides with it
+    cb(frames);
+  });
+}
+
 function startClipMedia(){ stopClip(); var a=state.selected; if(!a) return;
   var v=$("clipVideo"); if(v) v.style.display="none";   // never use the <video> element
   state.clipFrames=(a.frames||[]).slice(); state.clipIdx=0; state.clipThumb=null;

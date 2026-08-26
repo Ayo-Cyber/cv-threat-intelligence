@@ -1382,7 +1382,15 @@ class ConsoleBackend:
             return str(self._demo / "events.db"), self._demo
         return self.db_path, None
 
-    def list_events(self, limit: int = 100, embed_frames: bool = True) -> list[dict]:
+    def list_events(self, limit: int = 100, embed_frames: bool = False) -> list[dict]:
+        """The alert list — METADATA ONLY by default.
+
+        Embedding evidence used to base64 every event's JPEGs into the reply:
+        100 events x ~8 frames measured at ~189 MB through the QWebChannel, on
+        every alerts render AND every poll cycle that saw a change. That is the
+        'switching tabs is slow' report (25 Aug). Frames now load for the ONE
+        alert being looked at, via event_clip(), which the UI already caches.
+        """
         self._require(perms.VIEW_ALERTS)
         db, frame_base = self._effective_db()
         try:
@@ -1405,6 +1413,12 @@ class ConsoleBackend:
         for r in rows:
             e = dict(r)
             e["review"] = e.get("review") or "new"
+            # NO images in the list. The rows are text; only the detail and Now
+            # screens show evidence, and they fetch it for the ONE alert being
+            # looked at via event_clip(). Measured on a real store: embedding
+            # frames + subject shots made listEvents(100) ~189 MB over the
+            # QWebChannel on every render and every poll that saw a change —
+            # the 'switching tabs is slow' report. (25 Aug.)
             if embed_frames:
                 e["frames"] = self._frames_as_data_uris(e.get("evidence_dir"), frame_base)
                 e["subject"] = self._subject_uri(e.get("evidence_dir"), frame_base)
@@ -1424,11 +1438,12 @@ class ConsoleBackend:
         # Return ALL the event's frames (for the smooth image cine-loop the app plays)
         # plus the mp4 as a data URI (archival / download).
         frames = self._frames_as_data_uris(evidence_dir, frame_base, cap=120)
+        subject = self._subject_uri(evidence_dir, frame_base)
         clip = d / "clip.mp4"
         uri = None
         if clip.exists():
             uri = "data:video/mp4;base64," + base64.b64encode(clip.read_bytes()).decode()
-        return {"uri": uri, "frames": frames}
+        return {"uri": uri, "frames": frames, "subject": subject}
 
     def search_events(self, query: str, limit: int = 200) -> dict:
         """Ask-your-cameras: natural-language search over past events.
