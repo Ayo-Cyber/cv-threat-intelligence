@@ -151,3 +151,40 @@ class SelfTestTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BackgroundPrefetchTest(unittest.TestCase):
+    """The 3.3 GB verifier model downloads WHILE the user sets up (26 Aug),
+    not as a wall at step 6. Pins the wiring; the visual flow was verified in
+    a browser across every step."""
+
+    UI = (Path(__file__).resolve().parents[1] / "cvti/app/web/index.html").read_text()
+
+    def test_the_download_starts_when_the_wizard_opens(self):
+        opener = self.UI.split("function openWizard")[1].split("\nfunction ")[0]
+        self.assertIn("prepareVerifier()", opener,
+                      "setup still waits until the Verification step to start 3.3 GB")
+
+    def test_it_is_started_once_per_session(self):
+        prep = self.UI.split("function prepareVerifier")[1].split("\nfunction ")[0]
+        self.assertIn("if(wiz.prep) return;", prep)
+
+    def test_an_already_installed_model_skips_straight_to_ready(self):
+        prep = self.UI.split("function prepareVerifier")[1].split("\nfunction ")[0]
+        self.assertIn('g.mode === "live"', prep)
+        self.assertIn('state:"done"', prep)
+
+    def test_progress_survives_every_step_change(self):
+        render = self.UI.split("function renderWizard")[1].split("\nfunction ")[0]
+        self.assertIn("renderPrepStrip()", render, "the strip vanishes on re-render")
+        self.assertIn('id="wizPrep"', render)
+
+    def test_a_failed_download_does_not_block_finishing_setup(self):
+        strip = self.UI.split("function renderPrepStrip")[1].split("\nfunction ")[0]
+        self.assertIn("You can finish setup", strip)
+        self.assertIn("unverified", strip)
+
+    def test_polling_stops_when_the_wizard_closes(self):
+        poll = self.UI.split("function pollPrep")[1].split("\nfunction ")[0]
+        self.assertIn('$("wizard").classList.contains("on")', poll,
+                      "the poller outlives the wizard")
