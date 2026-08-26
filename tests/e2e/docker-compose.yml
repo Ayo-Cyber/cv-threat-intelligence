@@ -1,0 +1,53 @@
+# End-to-end: a real RTSP camera feeding the real engine (25 Aug).
+#
+#   docker compose -f tests/e2e/docker-compose.yml up --build --abort-on-container-exit
+#
+# `camera` publishes a looping clip over RTSP — the same protocol a customer's
+# camera speaks, so the decoder, reconnect logic and frame publisher are all
+# exercised for real rather than mocked. `engine` runs the product. `assert`
+# waits for the artefacts and fails the run if the pipeline did not work.
+services:
+  rtsp:
+    image: bluenviron/mediamtx:latest
+    environment:
+      MTX_RTSPTRANSPORTS: tcp
+      MTX_RTSPADDRESS: :8554
+    # No healthcheck: the image is minimal (no nc/curl), and probing it with a
+    # shell is how this compose file failed the first time it ran. The camera
+    # retries instead, and the ENGINE's own reconnect logic covers the rest —
+    # which is a path worth exercising anyway.
+
+  camera:
+    image: linuxserver/ffmpeg:latest
+    depends_on: [rtsp]
+    volumes:
+      - ../../data/test_clips:/clips:ro
+    restart: on-failure          # publish as soon as the server is listening
+    # Loop one clip forever as a live RTSP camera.
+    entrypoint: >
+      ffmpeg -re -stream_loop -1 -i /clips/crowd_01.mp4
+             -c copy -f rtsp -rtsp_transport tcp rtsp://rtsp:8554/cam1
+
+  engine:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile.engine
+    depends_on: [rtsp, camera]
+    volumes:
+      - ./out:/out
+      - ./site:/site:ro
+    command: >
+      --site-config /site/e2e_site.json
+      --gate-provider local --gate-base-url http://127.0.0.1:59999/v1
+      --target-fps 4 --imgsz 512 --seconds 150 --gate-drain 5
+      --mobile-port 8710 --output-dir /out
+
+  assert:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile.engine
+    depends_on: [engine]
+    volumes:
+      - ./out:/out
+      - ../..:/repo:ro
+    entrypoint: ["python", "/repo/tests/e2e/assert_pipeline.py", "/out"]

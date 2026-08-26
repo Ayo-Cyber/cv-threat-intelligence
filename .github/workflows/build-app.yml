@@ -69,8 +69,26 @@ jobs:
       - name: Prompt regression guard
         run: python tools/prompt_regression.py check
 
-  build:
+  # The product, end to end, in containers: a real RTSP camera feeding the real
+  # engine, with assertions on what came out. Runs on every push — this is the
+  # test that would have caught the bugs humans found by running it. (25 Aug.)
+  e2e:
+    name: End-to-end (RTSP -> engine -> alerts)
     needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the pipeline against a live RTSP stream
+        run: |
+          docker compose -f tests/e2e/docker-compose.yml up \
+            --build --abort-on-container-exit --exit-code-from assert
+      - name: Engine log on failure
+        if: failure()
+        run: docker compose -f tests/e2e/docker-compose.yml logs engine | tail -80
+
+  build:
+    needs: [test, e2e]
     # Tags and manual runs only. A push to a branch gets the test job and stops
     # there; three OS runners per commit is not worth it.
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -193,18 +211,34 @@ jobs:
             "dist/Argus/Argus.exe" "dist/Argus/argus-engine.exe"
           Remove-Item cert.pfx
 
-      # The one test that counts, approximated in CI: the runner never had the
-      # repo's venv on PATH for the bundle — argus-engine must come up on its
-      # own (imports torch/ultralytics from INSIDE the bundle, prints usage).
-      - name: Smoke-run the bundled engine (macOS)
+      # --help proves the bundle imports. It does NOT prove the product works,
+      # and every bug that actually hurt this project got past it. These steps
+      # RUN the shipped bundle against a real video source and assert the
+      # artefacts a customer depends on. (25 Aug.)
+      - name: Run the bundled engine for real (macOS)
         if: runner.os == 'macOS'
-        run: "dist/Argus.app/Contents/MacOS/argus-engine --help"
-      - name: Smoke-run the bundled engine (Linux)
+        run: |
+          "dist/Argus.app/Contents/MacOS/argus-engine" --help > /dev/null
+          python tests/e2e/bundle_smoke.py "dist/Argus.app/Contents/MacOS/argus-engine"
+      - name: Run the bundled engine for real (Linux)
         if: runner.os == 'Linux'
-        run: "dist/Argus/argus-engine --help"
-      - name: Smoke-run the bundled engine (Windows)
+        run: |
+          dist/Argus/argus-engine --help > /dev/null
+          python tests/e2e/bundle_smoke.py dist/Argus/argus-engine
+      - name: Run the bundled engine for real (Windows)
         if: runner.os == 'Windows'
-        run: dist/Argus/argus-engine.exe --help
+        shell: bash
+        run: |
+          dist/Argus/argus-engine.exe --help > /dev/null
+          python tests/e2e/bundle_smoke.py dist/Argus/argus-engine.exe
+
+      # Windows specifically: prove the AI runtime SHIPPED and is launchable.
+      # 'the ollama doesn't come in with it' (25 Aug) was a UX misreading, but
+      # nothing in CI could have told us either way.
+      - name: Assert the bundled AI runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: python tests/e2e/bundle_runtime_check.py dist/Argus
 
       # macOS ships the .dmg directly; the other two ship a zipped onedir.
       - name: Package artifact (macOS)

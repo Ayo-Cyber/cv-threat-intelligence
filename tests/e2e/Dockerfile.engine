@@ -1,0 +1,31 @@
+# The Argus engine, headless, for end-to-end tests (25 Aug).
+#
+# Why this exists: until now CI only ran `argus-engine --help`. Every bug that
+# actually hurt — the Windows runtime question, per-feed identity, the 189 MB
+# alert payload — surfaced because a human ran the product, not because a test
+# did. This image runs the real engine against a real RTSP stream and lets the
+# assertions look at what came out.
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 ffmpeg curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# CPU torch only: the test asserts wiring and data flow, not GPU throughput,
+# and the CUDA wheels are 2 GB of download per CI run.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+        torch==2.8.0 torchvision==0.23.0 \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y opencv-python \
+    && pip install --no-cache-dir opencv-python-headless==4.13.0.92
+
+COPY cvti ./cvti
+COPY configs ./configs
+COPY models ./models
+
+# No gate provider is baked in: each test picks one. A dead-port 'local' gate
+# exercises the fail-visible path without needing a 3.3 GB model in CI.
+ENTRYPOINT ["python", "-m", "cvti.serving.pipeline"]
