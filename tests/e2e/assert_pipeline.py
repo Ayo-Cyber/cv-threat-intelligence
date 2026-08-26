@@ -72,12 +72,12 @@ def main(out: str) -> int:
     port, token = info["port"], info["token"]
 
     def frame_ok():
-        req = urllib.request.Request(f"http://engine:{port}/cameras",
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/cameras",
                                      headers={"X-Argus-Token": token})
         cams = json.loads(urllib.request.urlopen(req, timeout=5).read())["cameras"]
         if not cams:
             return False
-        url = f"http://engine:{port}/frame/{cams[0]}?token={token}"
+        url = f"http://127.0.0.1:{port}/frame/{cams[0]}?token={token}"
         data = urllib.request.urlopen(url, timeout=5).read()
         return data[:2] == b"\xff\xd8"        # a real JPEG, not an error page
     _wait(frame_ok, "an authenticated JPEG comes off the frame publisher")
@@ -85,12 +85,24 @@ def main(out: str) -> int:
     # 5. Unauthenticated access is refused. (Evidence on an open port is the
     #    one failure that is worse than being down.)
     try:
-        urllib.request.urlopen(f"http://engine:{port}/cameras", timeout=5)
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/cameras", timeout=5)
         fail("frame publisher served an UNAUTHENTICATED request")
     except urllib.error.HTTPError as exc:
         if exc.code != 401:
             fail(f"unauthenticated request got {exc.code}, expected 401")
         print("  ok  unauthenticated frame request refused (401)")
+
+    # 5b. The publisher is LOOPBACK-ONLY. Discovered by this very test failing
+    #     from a sibling container (25 Aug): evidence frames must not be
+    #     reachable from another host on the network, ever.
+    import socket
+    s = socket.socket(); s.settimeout(3)
+    reachable = s.connect_ex((socket.gethostname(), port)) == 0
+    s.close()
+    if reachable:
+        fail(f"the frame publisher answered on a NON-loopback address (port {port}) "
+             "— camera evidence is exposed to the network")
+    print("  ok  frame publisher is loopback-only (unreachable off-host)")
 
     # 6. Detection produced alerts, and they were PERSISTED. This is the whole
     #    product in one assertion: pixels in, rows out.
@@ -131,7 +143,7 @@ def main(out: str) -> int:
     # 9. The mobile view answers and refuses anonymous access.
     def mobile_gated():
         try:
-            r = urllib.request.urlopen("http://engine:8710/", timeout=5)
+            r = urllib.request.urlopen("http://127.0.0.1:8710/", timeout=5)
             return b"Sign in" in r.read()
         except urllib.error.HTTPError as exc:
             return exc.code in (401, 403)

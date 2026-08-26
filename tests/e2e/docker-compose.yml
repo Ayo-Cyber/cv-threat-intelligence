@@ -39,14 +39,25 @@ services:
     command: >
       --site-config /site/e2e_site.json
       --gate-provider local --gate-base-url http://127.0.0.1:59999/v1
-      --target-fps 4 --imgsz 512 --seconds 150 --gate-drain 5
+      --target-fps 4 --imgsz 512 --seconds 900 --gate-drain 5
       --mobile-port 8710 --output-dir /out
 
+  # The engine deliberately outlives the assertions (--seconds 900): with
+  # --abort-on-container-exit, whichever container finishes FIRST tears the
+  # stack down. On the first run the engine hit its 150s limit and killed the
+  # assertions mid-flight (exit 137, which reads like a failure and is not).
+  # The assertions must be the ones that finish first and decide the verdict.
   assert:
     build:
       context: ../..
       dockerfile: tests/e2e/Dockerfile.engine
     depends_on: [engine]
+    # Share the engine's network namespace ON PURPOSE. The frame publisher
+    # binds 127.0.0.1 only — evidence must never be reachable off-box — so a
+    # separate container CANNOT reach it, and the first run of this test proved
+    # exactly that (connection refused from a sibling container). The assertion
+    # therefore runs where the app runs: same host, loopback.
+    network_mode: "service:engine"
     volumes:
       - ./out:/out
       - ../..:/repo:ro

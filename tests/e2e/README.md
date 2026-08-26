@@ -49,3 +49,8 @@ actually had:
   model, and "the verifier is unreachable" is the case most worth asserting.
 - Assertions wait with deadlines rather than sleeping a fixed time — a slow
   runner should be slow, not flaky.
+- **The engine must outlive the assertions.** `--abort-on-container-exit` tears
+  the stack down when *any* container exits, so if the engine's `--seconds`
+  budget expires first it kills the assertions mid-run — exit 137, which looks
+  like a failure and is not. The engine runs 900s; the assertions finish in
+  ~90s and their exit code is the verdict.

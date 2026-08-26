@@ -111,3 +111,6 @@ configs/rules/*
 argus-work.bundle
 argus-patches/
 *.bundle
+
+# E2E test artefacts (the container run writes here)
+tests/e2e/out/
