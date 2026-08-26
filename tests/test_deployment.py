@@ -212,3 +212,23 @@ class FrozenDefaultsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BundleWeightTest(unittest.TestCase):
+    """A customer's download must not carry what the product never calls
+    (bundle audit of the shipped v1.0.0 windows zip, 25 Aug)."""
+
+    spec = (ROOT / "packaging" / "argus.spec").read_text()
+
+    def test_polars_is_excluded_from_both_analyses(self):
+        self.assertEqual(self.spec.count('"polars"'), 2,
+                         "156 MB of a dependency the product never imports")
+
+    def test_devtools_debug_resources_are_stripped(self):
+        self.assertIn("_strip_dead_weight", self.spec)
+        self.assertIn("qtwebengine_devtools_resources.debug.pak", self.spec)
+        self.assertIn("app_a.datas = _strip_dead_weight(app_a.datas)", self.spec)
+
+    def test_the_ai_runtime_is_still_bundled(self):
+        # the thing that must NEVER be pruned by a slimming pass
+        self.assertIn("vendor/ollama", self.spec)
