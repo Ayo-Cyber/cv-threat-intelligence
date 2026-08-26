@@ -94,7 +94,7 @@ app_a = Analysis(
         "PyQt6.QtGui",
     ],
     excludes=["torch", "torchvision", "ultralytics", "transformers", "pytorchvideo",
-              "matplotlib", "scipy", "pandas", "tkinter",
+              "matplotlib", "scipy", "pandas", "tkinter", "polars",
               "PyQt5", "PySide6", "PySide2", "IPython", "pytest", "notebook"],
     noarchive=False,
 )
@@ -121,7 +121,9 @@ engine_a = Analysis(
         "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont", "PIL.ImageOps",
         "cv2",
     ],
-    excludes=["PyQt6", "PyQt5", "PySide6", "PySide2", "tkinter",
+    # polars rides in via an optional pandas/arrow path nothing here uses:
+    # 156 MB of a customer's download for a dependency the product never calls.
+    excludes=["PyQt6", "PyQt5", "PySide6", "PySide2", "tkinter", "polars",
               "IPython", "pytest", "notebook", "matplotlib.backends.backend_qtagg"],
     noarchive=False,
 )
@@ -160,6 +162,17 @@ engine_exe = EXE(
 )
 
 # One COLLECT: both executables share one set of libraries and data files.
+def _strip_dead_weight(datas):
+    """Drop what a customer downloads but never uses (bundle audit, 25 Aug):
+    QtWebEngine's devtools DEBUG resources are 76 MB of symbols for a devtools
+    panel the app never opens."""
+    drop = ("qtwebengine_devtools_resources.debug.pak",)
+    return [d for d in datas if not str(d[0]).endswith(drop)]
+
+
+app_a.datas = _strip_dead_weight(app_a.datas)
+engine_a.datas = _strip_dead_weight(engine_a.datas)
+
 coll = COLLECT(
     app_exe,
     engine_exe,
