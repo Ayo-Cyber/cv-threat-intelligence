@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -195,3 +196,82 @@ class TokenThreadingTests(unittest.TestCase):
         src = inspect.getsource(ConsoleBackend.live_start)
         self.assertIn('"token"', src)
         self.assertIn("self._fs.token", src)
+
+
+class MjpegStreamTests(unittest.TestCase):
+    """The live wall streams instead of polling (26 Aug). The UI used to fire
+    11 requests/second/camera at /frame — a fresh HTTP round-trip, JPEG decode
+    and repaint each time, which is what 'the stream is sluggish' was."""
+
+    def setUp(self):
+        import numpy as np
+        from cvti.serving.frame_publisher import FramePublisher
+        self.d = Path(tempfile.mkdtemp())
+        self.pub = FramePublisher(max_width=64).start(self.d)
+        self.np = np
+        self.addCleanup(self.pub.stop)
+
+    def _url(self, path):
+        return f"http://127.0.0.1:{self.pub.port}{path}?token={self.pub.token}"
+
+    def test_the_stream_pushes_successive_frames(self):
+        import threading
+        import urllib.request
+        self.pub.publish("cam1", self.np.zeros((48, 64, 3), self.np.uint8))
+
+        chunks = []
+
+        def read_some():
+            r = urllib.request.urlopen(self._url("/stream/cam1"), timeout=10)
+            self.assertIn("multipart/x-mixed-replace", r.headers["Content-Type"])
+            deadline = time.time() + 6
+            while time.time() < deadline and len(chunks) < 2:
+                data = r.read(4096)
+                if not data:
+                    break
+                if b"\xff\xd8" in data:
+                    chunks.append(data)
+            r.close()
+
+        t = threading.Thread(target=read_some, daemon=True)
+        t.start()
+        for i in range(1, 12):          # keep publishing new frames
+            time.sleep(0.15)
+            img = self.np.full((48, 64, 3), i * 10, self.np.uint8)
+            self.pub.publish("cam1", img)
+        t.join(timeout=8)
+        self.assertGreaterEqual(len(chunks), 2,
+                                "the MJPEG stream sent fewer than two frames")
+
+    def test_the_stream_is_authenticated_like_every_other_route(self):
+        import urllib.error
+        import urllib.request
+        self.pub.publish("cam1", self.np.zeros((48, 64, 3), self.np.uint8))
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{self.pub.port}/stream/cam1", timeout=5)
+        self.assertEqual(ctx.exception.code, 401,
+                         "the stream route served video without a token")
+
+    def test_a_publish_bumps_the_sequence(self):
+        self.pub.publish("cam1", self.np.zeros((48, 64, 3), self.np.uint8))
+        _, s1 = self.pub.frame_seq("cam1")
+        self.pub.publish("cam1", self.np.ones((48, 64, 3), self.np.uint8))
+        _, s2 = self.pub.frame_seq("cam1")
+        self.assertGreater(s2, s1, "streams would never send a second frame")
+
+
+class UiStreamWiringTests(unittest.TestCase):
+    UI = (Path(__file__).resolve().parents[1] / "cvti/app/web/index.html").read_text()
+
+    def test_tiles_use_the_stream_not_a_polled_still(self):
+        self.assertIn("streamUrl(c.id)", self.UI)
+        live = self.UI.split("function startLivePoll")[1].split("\nfunction ")[0]
+        self.assertNotIn("img.src=frameUrl", live,
+                         "the wall still re-fetches a still image on a timer")
+
+    def test_leaving_the_wall_closes_the_streams(self):
+        stop = self.UI.split("function stopLive()")[1].split("\nfunction ")[0]
+        self.assertIn('img.src=""', stop,
+                      "an <img> on an MJPEG stream holds the socket (and an "
+                      "engine thread) open forever")
