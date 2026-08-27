@@ -43,6 +43,72 @@ OFFLINE = "offline"
 DEFAULT_OFFLINE_GRACE = 60.0
 
 
+
+class PlayoutBuffer:
+    """Paced playout for live URL sources: almost real-time, never fast-forward.
+
+    The live wall's problem is shaped like this: HLS (and a reconnecting RTSP
+    camera) delivers video in multi-second bursts. Draining to the newest frame
+    made the wall freeze for a segment and then replay it at decode speed — a
+    fast-forward lurch every five seconds (user report, 27 Aug). Pacing the
+    decode loop instead made the source-side buffer grow without bound (the
+    26 Aug lag bug). Both problems are the same mistake at different ends:
+    playback speed coupled to arrival speed.
+
+    This decouples them. Decode ingests as fast as the source delivers, frames
+    land here as bounded JPEGs, and the publisher POPS at content rate — so a
+    burst plays out smoothly a few seconds behind live. When the buffer runs
+    high the pop rate doubles: a gentle 2x catch-up that drains backlog without
+    looking like fast-forward. When the source outruns everything, the deque
+    evicts oldest — lag is hard-capped at the buffer's depth.
+
+    Frames are stored resized + JPEG-encoded (~60 KB), not raw (~6 MB): eight
+    seconds of 1080p raw would be half a gigabyte per camera.
+    """
+
+    def __init__(self, rate: float, depth_seconds: float = 8.0,
+                 max_width: int = 640, quality: int = 70) -> None:
+        import collections
+        self.rate = max(rate, 1.0)
+        self.max_width = max_width
+        self.quality = quality
+        self._frames = collections.deque(maxlen=max(4, int(depth_seconds * self.rate)))
+        self._lock = threading.Lock()
+        self._next_due = 0.0
+        self.evicted = 0                     # frames lost to the depth cap
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._frames)
+
+    def push(self, image) -> bool:
+        """Encode and queue a frame. Returns True if an old frame was evicted."""
+        import cv2
+        h, w = image.shape[:2]
+        if self.max_width and w > self.max_width:
+            image = cv2.resize(image, (self.max_width, max(1, int(h * self.max_width / w))))
+        ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+        if not ok:
+            return False
+        with self._lock:
+            evict = len(self._frames) == self._frames.maxlen
+            self._frames.append(buf.tobytes())
+            if evict:
+                self.evicted += 1
+        return evict
+
+    def pop_due(self, now: float) -> bytes | None:
+        """The next frame if one is due at `now`, else None. Never bursts."""
+        with self._lock:
+            if not self._frames or now < self._next_due:
+                return None
+            period = 1.0 / self.rate
+            if len(self._frames) > (self._frames.maxlen * 3) // 4:
+                period /= 2.0                # quietly play 2x until we catch up
+            self._next_due = now + period
+            return self._frames.popleft()
+
+
 class StreamDecoder:
     def __init__(self, camera_id: str, source: int | str, *, target_fps: float = 5.0,
                  reconnect: bool = True, reconnect_backoff: float = 1.0,
@@ -57,6 +123,9 @@ class StreamDecoder:
         # (real RTSP/webcam sources are live and never hit EOF).
         self.loop_files = loop_files
         self._min_period = 1.0 / target_fps if target_fps > 0 else 0.0
+        # URL sources deliver in bursts; the wall plays them from here, paced.
+        # Files pace themselves; a webcam is inherently real-time. Neither needs it.
+        self.playout = PlayoutBuffer(rate=target_fps) if self._is_live() else None
         self._latest: Frame | None = None
         self._seq = 0                      # bumps per decoded frame (peek dedup)
         self.stale_dropped = 0             # buffered frames skipped to stay live
@@ -205,24 +274,21 @@ class StreamDecoder:
             # permanent, growing lag. Live sources therefore DRAIN to the live
             # edge instead: grab (decode-free) whatever is already buffered,
             # bounded in both count and time, and keep only the newest.
-            if self._is_live():
-                dropped = 0
-                t_drain = time.perf_counter()
-                while dropped < 120 and (time.perf_counter() - t_drain) < 0.015:
-                    if not cap.grab():
-                        break
-                    dropped += 1
-                if dropped:
-                    ok_new, newest = cap.retrieve()
-                    if ok_new:
-                        orig_index += dropped
-                        self.stale_dropped += dropped
-                        ts = (orig_index / self._fps) if self._fps > 1e-3 \
-                            else (time.perf_counter() - self._t0)
-                        with self._lock:
-                            self._latest = Frame(self.camera_id, newest, orig_index, ts)
-                            self._seq += 1
-                            self._consumed = False
+            if self.playout is not None:
+                # Live URL source: the wall plays from the playout buffer, so
+                # KEEP the sampled frames instead of draining to the newest.
+                # Ingest speed is governed by fill level, not by sleep: at the
+                # live edge cap.grab() blocks at source rate anyway, and during
+                # a burst we chew the backlog flat-out — sleeping through a
+                # burst is exactly how the source-side lag grew before. The
+                # deque's depth cap bounds how far behind the wall can fall.
+                if self.playout.push(image):
+                    self.stale_dropped += 1
+                if len(self.playout) <= (self.playout._frames.maxlen // 2) \
+                        and self._min_period:
+                    elapsed = time.perf_counter() - loop_start
+                    if elapsed < self._min_period:
+                        time.sleep(self._min_period - elapsed)
             elif self._min_period:
                 elapsed = time.perf_counter() - loop_start
                 if elapsed < self._min_period:
