@@ -33,6 +33,20 @@ def _build_gate(kind: str, model: str, save_dir: str | None, sensitivity: str = 
                             save_dir=save_dir, sensitivity=sensitivity)
 
 
+# Which detector actually makes each claim. Measuring "weapons" with the
+# concealment detector is not a weak result, it is a wrong one.
+_KIND_DETECTORS = {
+    "weapons": "weapons",
+    "violence": "violence",
+    "fall": "fall",
+    "tamper": "tamper",
+    "fire": "fire_smoke",
+    "crowd": "crowd_formation",
+    "running": "running",
+    "theft": "concealment,video_action",
+}
+
+
 def main() -> None:
     # Entrypoint: without this, log records have no handler and
     # anything below WARNING is silently discarded.
@@ -50,8 +64,9 @@ def main() -> None:
     p.add_argument("--gate-model", default="gemma3:4b")
     p.add_argument("--sensitivity", choices=("sensitive", "balanced", "strict"),
                    default="balanced", help="verification strictness to measure")
-    p.add_argument("--detectors", default="concealment,video_action",
-                   help="comma-separated detectors to enable.")
+    p.add_argument("--detectors", default=None,
+                   help="comma-separated detectors to enable. Defaults to the "
+                        "detector that makes the claim named by --kind.")
     p.add_argument("--max-seconds", type=float, default=30.0, help="max seconds analysed per clip.")
     p.add_argument("--max-candidates-per-clip", type=int, default=0,
                    help="cap VLM calls per clip (0 = uncapped). Lowers recall, never raises it.")
@@ -66,6 +81,16 @@ def main() -> None:
     p.add_argument("--out", default="runs/eval")
     p.add_argument("--fresh", action="store_true", help="ignore checkpoints and re-run everything.")
     args = p.parse_args()
+    # --kind selects the CLIPS; it must also select the DETECTOR, or the run
+    # measures the wrong thing under the right name. A `--kind weapons` pass
+    # once ran with the default concealment detector and produced a tidy
+    # "16% recall on weapons" — a number describing the shoplifting detector's
+    # opinion of shooting footage. It would have gone into NUMBERS.md as a
+    # weapons figure. An explicit --detectors still wins.
+    if args.detectors is None:
+        args.detectors = _KIND_DETECTORS.get(args.kind or "", "concealment,video_action")
+        if args.kind:
+            log.info(f"[eval] --kind {args.kind} -> detectors={args.detectors}")
 
     clips = load_dataset(args.dataset, limit=args.limit, kind=args.kind)
     if not clips:
