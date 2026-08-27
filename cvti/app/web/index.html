@@ -887,7 +887,7 @@ function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function
   var broken = 0;
   (state.liveCams||[]).forEach(function(c){ var img=$("live-"+c.id);
     if(img && img.complete && img.naturalWidth===0) broken++; });
-  if(state.liveModal){ var lm=$("lmimg"); if(lm) lm.src=frameUrl(state.liveModal); updateLiveModalLabel(); }
+  if(state.liveModal){ updateLiveModalLabel(); }   // the modal streams too
   /* Self-heal (the always-NO-SIGNAL bug): every engine restart mints a new
      frame port + token, and a cached pair goes stale forever. If every tile
      is failing, re-resolve — at most once per 5s so a dead engine can't
@@ -909,7 +909,7 @@ function openLiveModal(camId){
   if(!m){ m=document.createElement("div"); m.id="liveModal"; (document.getElementById("modalRoot")||document.body).appendChild(m); }
   m.className="livemodal";
   m.innerHTML='<div class="livemodal-inner"><button class="lmclose" onclick="closeLiveModal()">✕</button>'
-    +'<img id="lmimg" alt="" src="'+frameUrl(camId)+'"><div class="lmlabel" id="lmlabel"></div></div>';
+    +'<img id="lmimg" alt="" src="'+streamUrl(camId)+'"><div class="lmlabel" id="lmlabel"></div></div>';
   m.onclick=function(e){ if(e.target===m) closeLiveModal(); };
   updateLiveModalLabel();
 }
@@ -919,7 +919,11 @@ function updateLiveModalLabel(){
   lbl.innerHTML='<span class="livedot"></span>'+esc(state.liveModal)
     +(a?' <span class="lmalert">⚠ '+esc(a.rule)+' — '+esc(a.reason||"")+'</span>':'');
 }
-function closeLiveModal(){ state.liveModal=null; var m=$("liveModal"); if(m) m.remove(); }
+function closeLiveModal(){
+  state.liveModal=null;
+  var lm=$("lmimg"); if(lm) lm.src="";      // release the stream socket
+  var m=$("liveModal"); if(m) m.remove();
+}
 document.addEventListener("keydown", function(e){ if(e.key==="Escape" && state.liveModal) closeLiveModal(); });
 function stopLivePoll(){ if(state.liveTimer){ clearInterval(state.liveTimer); state.liveTimer=null; } }
 

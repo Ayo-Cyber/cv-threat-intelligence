@@ -123,14 +123,10 @@ class StreamDecoder:
         return self
 
     def _open(self):
-        import os
-
-        import cv2
-        src = int(self.source) if str(self.source).isdigit() else self.source
-        if isinstance(src, str) and src.lower().startswith("rtsp"):
-            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
-            return cv2.VideoCapture(src, cv2.CAP_FFMPEG)
-        return cv2.VideoCapture(src)
+        # One capture path for every platform (cvti/serving/capture.py): the
+        # right backend, low-latency flags, and a one-frame buffer request.
+        from cvti.serving.capture import open_capture
+        return open_capture(self.source)
 
     def _loop(self) -> None:
         import cv2
