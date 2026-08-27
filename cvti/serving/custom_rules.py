@@ -98,13 +98,8 @@ class CustomRuleScanner:
         return self
 
     def _open(self, source):
-        import cv2
-        if str(source).isdigit():
-            return cv2.VideoCapture(int(source))
-        if str(source).lower().startswith("rtsp"):
-            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
-            return cv2.VideoCapture(source, cv2.CAP_FFMPEG)
-        return cv2.VideoCapture(source)
+        from cvti.serving.capture import open_capture
+        return open_capture(source)
 
     def _grab(self, cap):
         import cv2

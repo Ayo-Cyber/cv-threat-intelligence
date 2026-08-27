@@ -40,14 +40,8 @@ class LiveWall:
         return self
 
     def _open(self, source):
-        # webcam indices arrive as strings like "0"
-        if isinstance(source, str) and source.isdigit():
-            return cv2.VideoCapture(int(source))
-        if isinstance(source, str) and source.lower().startswith("rtsp"):
-            # RTSP over TCP is far more reliable than the UDP default (no tearing/drops)
-            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
-            return cv2.VideoCapture(source, cv2.CAP_FFMPEG)
-        return cv2.VideoCapture(source)
+        from cvti.serving.capture import open_capture
+        return open_capture(source)
 
     def _decode(self, cam_id: str, source) -> None:
         cap = self._open(source)
