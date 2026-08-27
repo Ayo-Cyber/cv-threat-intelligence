@@ -111,3 +111,13 @@ configs/rules/*
 argus-work.bundle
 argus-patches/
 *.bundle
+
+# E2E test artefacts (the container run writes here)
+tests/e2e/out/
+
+# Ultralytics downloads weights into the WORKING DIRECTORY the first time a
+# model is used, so running anything from the repo root drops a *.pt here.
+# Model weights are never committed; the one exception is the trained weapon
+# detector, which is tracked deliberately.
+*.pt
+!models/weapon_best.pt

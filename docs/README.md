@@ -26,6 +26,7 @@ followed.
 | [DESIGN_BRIEF.md](DESIGN_BRIEF.md) | The interface problem stated for a designer: the three jobs, the missing triage workflow, and what is built but undesigned. |
 | [SPRINT_PLAN.md](SPRINT_PLAN.md) | The current three-week delivery plan. Every task cites an audit ID. |
 | [../ARCHITECTURE.md](../ARCHITECTURE.md) | The system in one hour: two-process split, data flow, every key decision with its rationale. |
+| [WINDOWS_TESTING.md](WINDOWS_TESTING.md) | How to get a real Windows environment (VM, cloud, or a colleague's PC) and what to check on it. |
 | [RUNBOOK.md](RUNBOOK.md) | **Pilot operations**: deploy, diagnose, recover — with the recovery-time target and the key inventory. |
 | [PILOT_AGREEMENT.md](PILOT_AGREEMENT.md) | The pilot template: data terms, success criteria agreed in advance, reference clause. |
 | [PILOT_BASELINE.md](PILOT_BASELINE.md) | The before-numbers worksheet — filled in the week before install. |

@@ -1,0 +1,18 @@
+{
+  "name": "E2E",
+  "notify": "console",
+  "configured": true,
+  "retention_days": 30,
+  "cameras": [
+    {
+      "id": "cam1",
+      "source": "rtsp://rtsp:8554/cam1",
+      "config": "configs/all_threats_v1.json",
+      "crowd_formation": true,
+      "crowd_min_people": 2,
+      "crowd_min_frames": 2,
+      "running": true,
+      "custom_rules": [{"question": "Is there a person visible in this frame?", "dwell": 2}]
+    }
+  ]
+}
