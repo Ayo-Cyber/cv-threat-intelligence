@@ -897,11 +897,28 @@ function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function
     if(!state.frameHealAt || now - state.frameHealAt > 5000){
       state.frameHealAt = now;
       call("liveStart",[6],function(res){
-        if(res && res.port){ state.livePort=res.port; state.frameToken=res.token||""; }
+        if(res && res.port){ state.livePort=res.port; state.frameToken=res.token||"";
+          /* Re-resolving the port was never enough. This healed the STATE and
+             left the tiles holding their old src, so the wall stayed black
+             after every engine restart while zooming a tile worked — the
+             modal builds a fresh <img> from the healed state. Repaint the
+             tiles that are actually stale; leave the healthy ones connected
+             so one dead camera cannot restart the whole wall. */
+          repointLive(); }
       });
     }
   }
 }, 500); }   // the wall streams itself; this tick only watches health
+function repointLive(){
+  var want = "127.0.0.1:"+state.livePort+"/", cache = "&r="+Date.now();
+  (state.liveCams||[]).forEach(function(c){
+    var img=$("live-"+c.id); if(!img) return;
+    var stale = (img.getAttribute("src")||"").indexOf(want) < 0;
+    var dead  = img.complete && img.naturalWidth===0;
+    if(stale || dead) img.src = streamUrl(c.id)+cache;
+  });
+  if(state.liveModal){ var m=$("lmimg"); if(m) m.src = streamUrl(state.liveModal)+cache; }
+}
 /* click a feed to expand it */
 function openLiveModal(camId){
   state.liveModal=camId;
