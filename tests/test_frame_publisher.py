@@ -253,6 +253,31 @@ class MjpegStreamTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 401,
                          "the stream route served video without a token")
 
+    def test_the_stream_speaks_http_1_1(self):
+        """Chromium — which QtWebEngine is — will not progressively render
+        multipart/x-mixed-replace over HTTP/1.0. Every tile showed a broken
+        image while the engine published perfectly (27 Aug). A socket client
+        reads it either way, which is why the earlier test missed it."""
+        import urllib.request
+        self.pub.publish("cam1", self.np.zeros((48, 64, 3), self.np.uint8))
+        r = urllib.request.urlopen(self._url("/stream/cam1"), timeout=5)
+        try:
+            self.assertEqual(r.version, 11,
+                             "HTTP/1.0 multipart — a browser will show a broken image")
+            self.assertEqual(r.headers.get("Connection", "").lower(), "close",
+                             "a response with no end must not be kept alive")
+        finally:
+            r.close()
+
+    def test_normal_responses_still_carry_content_length(self):
+        # HTTP/1.1 without Content-Length would hang a keep-alive client.
+        import urllib.request
+        r = urllib.request.urlopen(self._url("/cameras"), timeout=5)
+        try:
+            self.assertTrue(r.headers.get("Content-Length"))
+        finally:
+            r.close()
+
     def test_a_publish_bumps_the_sequence(self):
         self.pub.publish("cam1", self.np.zeros((48, 64, 3), self.np.uint8))
         _, s1 = self.pub.frame_seq("cam1")
