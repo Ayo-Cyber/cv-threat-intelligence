@@ -144,6 +144,14 @@ class MultiStreamPipeline:
             t0 = time.perf_counter()
             for cam_id, d in list(self._decoders.items()):
                 try:
+                    if d.playout is not None:
+                        # Live URL source: paced playout — content plays at its
+                        # own rate a bounded lag behind live, instead of
+                        # freeze-then-fast-forward at every burst.
+                        jpeg = d.playout.pop_due(time.perf_counter())
+                        if jpeg is not None:
+                            self.publisher.publish_jpeg(cam_id, jpeg)
+                        continue
                     frame, seq = d.peek_latest()
                 except Exception:  # noqa: BLE001 - one camera must not stop the wall
                     log.debug("peek failed for %s", cam_id, exc_info=True)
@@ -255,7 +263,9 @@ class MultiStreamPipeline:
         tag = "FINAL" if final else "stats"
         log.info(f"[{tag}] batches={self.batches} frames={self.frames_processed} "
               f"avg_batch={avg_batch:.1f} detect={avg_ms:.1f}ms/batch "
-              f"throughput={fps:.0f} frames/s | batch_sizes={dict(sorted(self.batch_hist.items()))}")
+              f"model_capacity={fps:.0f} frames/s | batch_sizes={dict(sorted(self.batch_hist.items()))}")
+        # capacity = frames / MODEL time (1/latency), not a wall-clock rate —
+        # the old label "throughput" read as if detection ran that fast.
         if final:
             if self._camera_states is not None:
                 log.info(f"[FINAL] alerts_queued={self.alerts_queued}")

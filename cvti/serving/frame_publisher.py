@@ -91,6 +91,13 @@ class FramePublisher:
             self._tracks[camera_id] = [int(b[0]) for b in (boxes or [])]
             self.published += 1
 
+    def publish_jpeg(self, camera_id: str, jpeg: bytes) -> None:
+        """Store a frame the playout buffer already sized and encoded."""
+        with self._lock:
+            self._frames[camera_id] = jpeg
+            self._seq[camera_id] = self._seq.get(camera_id, 0) + 1
+            self.published += 1
+
     def mark_alerting(self, camera_id: str, track_ids) -> None:
         """Tracks to draw in alert colour (cleared by passing an empty set)."""
         with self._lock:

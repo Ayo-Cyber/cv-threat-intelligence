@@ -308,28 +308,30 @@ class SmoothPublishTest(unittest.TestCase):
         loop = inspect.getsource(pl.MultiStreamPipeline._smooth_publish_loop)
         self.assertNotIn("latest_boxes", loop)
 
-    def test_live_sources_drain_to_the_live_edge_instead_of_pacing(self):
-        """HLS hands OpenCV a burst at each segment boundary. Pacing through
-        that backlog one frame per tick falls progressively behind live — the
-        'stream is sluggish' report (26 Aug). Live sources must skip stale
-        buffered frames; FILES must still play at real time."""
+    def test_live_sources_play_from_the_playout_buffer(self):
+        """Two prior designs both failed the operator: pacing through an HLS
+        burst fell progressively behind live ('sluggish', 26 Aug); draining to
+        the newest frame replayed each burst at decode speed ('too fast',
+        27 Aug). The contract now: live URL sources ingest at arrival speed
+        into a BOUNDED playout buffer and the wall pops at content rate. Files
+        must still pace themselves to real time."""
         import inspect
         from cvti.serving.streams import StreamDecoder
-        src = inspect.getsource(StreamDecoder._loop) if hasattr(StreamDecoder, "_loop") \
-            else inspect.getsource(StreamDecoder)
-        self.assertIn("if self._is_live():", src)
-        self.assertIn("cap.grab()", src, "no drain — live sources still pace")
+        src = inspect.getsource(StreamDecoder._loop)
+        self.assertIn("self.playout.push(image)", src,
+                      "live frames no longer reach the playout buffer")
         self.assertIn("elif self._min_period:", src,
                       "files must still be paced to real time")
         self.assertIn("stale_dropped", src)
 
-    def test_the_drain_is_bounded_in_count_and_time(self):
-        # An unbounded drain on a stalled stream would block the decoder thread.
+    def test_ingest_is_governed_by_fill_level_not_sleep(self):
+        """Sleeping through a burst is how the source-side lag grew. The decode
+        loop may only sleep while the playout buffer is comfortably empty."""
         import inspect
         from cvti.serving.streams import StreamDecoder
-        src = inspect.getsource(StreamDecoder)
-        self.assertIn("dropped < 120", src)
-        self.assertIn("< 0.015", src)
+        src = inspect.getsource(StreamDecoder._loop)
+        self.assertIn("len(self.playout) <=", src,
+                      "the pacing sleep is no longer gated on buffer depth")
 
     def test_skipped_frames_are_reported_not_hidden(self):
         import inspect
