@@ -51,6 +51,25 @@ class ClipResult:
                 "error": self.error}
 
 
+# The gate is TOLD what it is looking at, the same way a site config tells it.
+# Every clip used to be introduced as "a shop interior monitored for theft" —
+# including UCF-Crime street footage of a shooting. That is not merely wrong,
+# it leads the model AWAY from the thing being measured, and every rejection it
+# produced then read as a detector failure. Context follows the footage.
+_RETAIL = {"environment_type": "retail",
+           "scene_description": "A shop interior monitored for theft."}
+_PUBLIC = {"environment_type": "public_space",
+           "scene_description": "A public area covered by CCTV."}
+
+
+def _scene_context_for(clip: EvalClip) -> dict:
+    if clip.kind == "theft" or clip.source.startswith("camnuvem"):
+        return _RETAIL
+    if clip.name.startswith(("theft_", "shop")):
+        return _RETAIL
+    return _PUBLIC
+
+
 class EvalHarness:
     def __init__(self, *, config: str = "configs/all_threats_video_v1.json",
                  baseline: str | None = "configs/baseline_critical_v1.json",
@@ -166,8 +185,7 @@ class EvalHarness:
         return PerCameraState(clip.name, engine, pose_model=self._pose,
                               weapon_model=self._weapon,
                               video_action_model=self._video,
-                              scene_context={"environment_type": "retail",
-                                             "scene_description": "A shop interior monitored for theft."},
+                              scene_context=_scene_context_for(clip),
                               **kwargs)
 
     # --- one clip ---
@@ -328,6 +346,6 @@ class EvalHarness:
                 fh.flush()
                 out.append(r)
                 if progress:
-                    log.error(f"        candidates={r.candidates} confirmed={r.confirmed} "
+                    log.info(f"        candidates={r.candidates} confirmed={r.confirmed} "
                           f"{r.seconds:.0f}s {r.error}")
         return out
