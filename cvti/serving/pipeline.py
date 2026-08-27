@@ -285,7 +285,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              device: str = "", half: bool = False, seconds: float = 90.0,
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
              gate_sensitivity: str = "balanced", publish_frames: bool = True,
-             publish_fps: float = 12.0,
+             publish_fps: float = 12.0, security_dir: str | None = None,
              memory_guard: bool = True, memory_warn_gb: float = 2.0,
              memory_critical_gb: float = 1.0,
              pose_weights: str = "models/yolov8n-pose.pt",
@@ -635,7 +635,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         # (Audit 23 Aug, #11.)
         for _try_port in range(mobile_port, mobile_port + 5):
             try:
-                mobile = MobileServer(output_dir, port=_try_port).start()
+                mobile = MobileServer(output_dir, port=_try_port,
+                                      security_dir=security_dir).start()
                 sink.mobile_base = mobile.base_url()
                 if _try_port != mobile_port:
                     log.warning("mobile view: port %s taken, serving on %s instead",
@@ -898,6 +899,9 @@ def main() -> None:
     p.add_argument("--notify", default="console",
                    help="Alert notifier: console | webhook:<url> | telegram:<token>:<chat_id> "
                         "| whatsapp (Twilio creds from env)")
+    p.add_argument("--security-dir", default="",
+                   help="where auth.db/audit.db live — GLOBAL to the install, not "
+                        "per-feed (defaults to the output dir for standalone runs)")
     p.add_argument("--mobile-port", type=int, default=8710,
                    help="Port for the phone response view on the site network; 0 disables.")
     p.add_argument("--output-dir", default="runs/serving",
@@ -930,6 +934,7 @@ def main() -> None:
                  memory_warn_gb=args.memory_warn_gb,
                  memory_critical_gb=args.memory_critical_gb,
                  mobile_port=args.mobile_port,
+                 security_dir=args.security_dir or None,
                  gate_model=args.gate_model, gate_base_url=args.gate_base_url,
                  notify=args.notify, output_dir=args.output_dir,
                  gate_workers=args.gate_workers, gate_drain=args.gate_drain)

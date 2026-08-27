@@ -173,10 +173,11 @@ def build_default_actions(pipe: Any, states: dict | None = None) -> tuple[list, 
         trimmed = 0
         for st in states.values():
             buf = getattr(st, "_clip_buffer", None)
+            touched = False
             if buf is not None and buf.maxlen and buf.maxlen > 16:
                 while len(buf) > 16:
                     buf.popleft()
-                trimmed += 1
+                touched = True
             # The RAW frame buffer is the big one — ~62 MB/camera at 1080p
             # (10 undownscaled BGR frames) — and the guard never touched it.
             # Under pressure, halve it: evidence pre-roll gets shorter, the
@@ -185,7 +186,8 @@ def build_default_actions(pipe: Any, states: dict | None = None) -> tuple[list, 
             if fbuf is not None and len(fbuf) > 4:
                 while len(fbuf) > 4:
                     fbuf.popleft()
-                trimmed += 1
+                touched = True
+            trimmed += 1 if touched else 0    # count CAMERAS, not buffers
         return f"trimmed frame/replay buffers on {trimmed} camera(s)" if trimmed else None
 
     def lower_fps() -> str | None:

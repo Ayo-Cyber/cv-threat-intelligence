@@ -57,7 +57,10 @@ def _events(limit: int = 200) -> list[dict]:
 
 
 def _frames_for(event: dict) -> list[str]:
-    d = Path(event.get("evidence_dir") or "")
+    ev = event.get("evidence_dir")
+    if not ev:
+        return []          # Path(None or "") is the CWD, not "no evidence"
+    d = Path(ev)
     if not d.exists():
         return []
     return sorted(p.name for p in d.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png"))

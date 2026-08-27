@@ -222,6 +222,10 @@
   .confbar{flex:1;height:6px;background:var(--c-border);border-radius:99px;max-width:280px}
   .confbar>div{height:100%;border-radius:99px}
   .plabel{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--c-mut)}
+  /* setup: the model downloads while the user works (26 Aug) */
+  .wizprep{margin-left:auto;display:flex;align-items:center;font-size:11.5px;color:var(--c-mut)}
+  .prepbar{display:inline-block;width:90px;height:4px;border-radius:99px;background:var(--c-border);margin-left:9px;overflow:hidden}
+  .prepbar>i{display:block;height:100%;background:var(--c-accent);transition:width .4s}
   /* EP-07-T4: measurement status where detectors are switched on */
   .valbadge{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:99px;font-size:9px;font-weight:800;letter-spacing:.05em;vertical-align:1px}
   .valbadge.ok{color:var(--c-live);border:1px solid var(--c-live)}
@@ -734,7 +738,7 @@ function fmtAge(sec){
   return Math.round(sec/3600)+"h";
 }
 function renderCameras(){
-  call("presets",[],function(p){ state.presets = (p&&!p.error)?p:{}; });
+  once("presets","presets",function(p){ state.presets = (p&&!p.error)?p:{}; });
   call("cameraLinks",[],function(l){ state.links = Array.isArray(l)?l:[]; });
   call("listCameras",[],function(cams){
     state.cameras = Array.isArray(cams)?cams:[];
@@ -769,7 +773,9 @@ function renderCameras(){
       + '</div>'
       + table + '</div>';
     // auto-fill the detected subnet so the operator never types one
-    call("detectSubnet",[],function(r){ if(r&&r.cidr && $("cidr") && !$("cidr").value) $("cidr").value=r.cidr; });
+    // detectSubnet opens a socket to find the default route — a network probe
+    // on EVERY Cameras render. Once per session is plenty. (26 Aug.)
+    once("subnet","detectSubnet",function(r){ if(r&&r.cidr && $("cidr") && !$("cidr").value) $("cidr").value=r.cidr; });
   });
 }
 function renderTestBox(){
@@ -795,6 +801,13 @@ function doAdd(){ var u=$("url").value.trim(); if(!u){state.test={error:"Enter a
   call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} state.test=null; refreshCounts(); renderCameras(); }); }
 
 /* ---------- Live wall ---------- */
+function streamUrl(camId){
+  /* MJPEG: one long-lived connection the browser decodes natively. No JS in
+     the render loop, no per-frame request. (26 Aug: the 90ms poll was the
+     sluggish wall.) */
+  var tok = state.frameToken ? "&token="+encodeURIComponent(state.frameToken) : "";
+  return "http://127.0.0.1:"+state.livePort+"/stream/"+encodeURIComponent(camId)+"?s=1"+tok;
+}
 function frameUrl(camId){
   /* The frame endpoint authenticates every route. An <img> tag cannot set a
      header, so the capability travels as a query parameter — it binds to
@@ -817,7 +830,7 @@ function renderLive(){
     state.frameToken = (res && res.token) || "";
     var tiles = cams.map(function(c){
       return '<div class="cell"><div class="tile" id="tile-'+esc(c.id)+'" style="cursor:pointer" onclick="openLiveModal(\''+esc(c.id)+'\')" title="click to expand">'
-        +'<img id="live-'+esc(c.id)+'" alt="" src="'+frameUrl(c.id)+'">'
+        +'<img id="live-'+esc(c.id)+'" alt="" src="'+streamUrl(c.id)+'">'
         +'<div class="nosignal" id="nosig-'+esc(c.id)+'" hidden>no signal</div>'
         +'<div class="talert" id="talert-'+esc(c.id)+'"></div>'
         +'<div class="tzoom">⤢</div>'
@@ -868,12 +881,13 @@ function updateLiveAlertTiles(){
 }
 function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function(){
   if(!(state.route==="watch" && (state.watchTab||"grid")==="grid") && !state.liveModal){ stopLive(); return; }
-  state.frameTick = (state.frameTick||0) + 1;    // cache-bust -> fetch the newest JPEG natively
+  state.frameTick = (state.frameTick||0) + 1;
+  // Tiles are MJPEG streams now — the browser pushes them; we only watch for
+  // a dead stream so the self-heal can re-resolve port+token.
   var broken = 0;
-  (state.liveCams||[]).forEach(function(c){ var img=$("live-"+c.id); if(img){
-    if(img.complete && img.naturalWidth===0) broken++;
-    img.src=frameUrl(c.id); } });
-  if(state.liveModal){ var lm=$("lmimg"); if(lm) lm.src=frameUrl(state.liveModal); updateLiveModalLabel(); }
+  (state.liveCams||[]).forEach(function(c){ var img=$("live-"+c.id);
+    if(img && img.complete && img.naturalWidth===0) broken++; });
+  if(state.liveModal){ updateLiveModalLabel(); }   // the modal streams too
   /* Self-heal (the always-NO-SIGNAL bug): every engine restart mints a new
      frame port + token, and a cached pair goes stale forever. If every tile
      is failing, re-resolve — at most once per 5s so a dead engine can't
@@ -887,7 +901,7 @@ function startLivePoll(){ stopLivePoll(); state.liveTimer = setInterval(function
       });
     }
   }
-}, 90); }   // ~11 fps
+}, 500); }   // the wall streams itself; this tick only watches health
 /* click a feed to expand it */
 function openLiveModal(camId){
   state.liveModal=camId;
@@ -895,7 +909,7 @@ function openLiveModal(camId){
   if(!m){ m=document.createElement("div"); m.id="liveModal"; (document.getElementById("modalRoot")||document.body).appendChild(m); }
   m.className="livemodal";
   m.innerHTML='<div class="livemodal-inner"><button class="lmclose" onclick="closeLiveModal()">✕</button>'
-    +'<img id="lmimg" alt="" src="'+frameUrl(camId)+'"><div class="lmlabel" id="lmlabel"></div></div>';
+    +'<img id="lmimg" alt="" src="'+streamUrl(camId)+'"><div class="lmlabel" id="lmlabel"></div></div>';
   m.onclick=function(e){ if(e.target===m) closeLiveModal(); };
   updateLiveModalLabel();
 }
@@ -905,7 +919,11 @@ function updateLiveModalLabel(){
   lbl.innerHTML='<span class="livedot"></span>'+esc(state.liveModal)
     +(a?' <span class="lmalert">⚠ '+esc(a.rule)+' — '+esc(a.reason||"")+'</span>':'');
 }
-function closeLiveModal(){ state.liveModal=null; var m=$("liveModal"); if(m) m.remove(); }
+function closeLiveModal(){
+  state.liveModal=null;
+  var lm=$("lmimg"); if(lm) lm.src="";      // release the stream socket
+  var m=$("liveModal"); if(m) m.remove();
+}
 document.addEventListener("keydown", function(e){ if(e.key==="Escape" && state.liveModal) closeLiveModal(); });
 function stopLivePoll(){ if(state.liveTimer){ clearInterval(state.liveTimer); state.liveTimer=null; } }
 
@@ -954,7 +972,13 @@ function refreshWatchState(){
 }
 function startWatchPoll(){ refreshWatchState(); if(!state.watchTimer) state.watchTimer=setInterval(refreshWatchState, 4000); }
 function stopWatchPoll(){ if(state.watchTimer){ clearInterval(state.watchTimer); state.watchTimer=null; } }
-function stopLive(){ stopLivePoll(); stopWatchPoll(); call("liveStop",[],function(){}); }
+function stopLive(){
+  stopLivePoll(); stopWatchPoll();
+  // Blank every tile: an <img> pointed at an MJPEG stream holds the socket
+  // open forever otherwise, and the engine keeps a thread per viewer.
+  (state.liveCams||[]).forEach(function(c){ var img=$("live-"+c.id); if(img) img.src=""; });
+  call("liveStop",[],function(){});
+}
 
 /* ---------- Value (what the system was worth) ---------- */
 /* Deliberately not framed as "suppression %". The buyer is deciding about
@@ -1399,8 +1423,15 @@ var DETECTORS=[
 ];
 var DET_GROUPS=[["security","Security","Theft, violence & intrusion"],
                 ["safety","Safety / HSE","Fire, panic, crowding & medical"]];
+/* Static-for-the-session data: fetching it on every render made each tab
+   switch pay avoidable QWebChannel round-trips. (26 Aug.) */
+function once(key, method, cb){
+  state.onceCache = state.onceCache || {};
+  if(key in state.onceCache){ cb(state.onceCache[key]); return; }
+  call(method,[],function(r){ state.onceCache[key] = r; cb(r); });
+}
 function renderRules(){
-  call("presets",[],function(pr){ state.presets = (pr&&!pr.error)?pr:{}; });
+  once("presets","presets",function(pr){ state.presets = (pr&&!pr.error)?pr:{}; });
   call("listCameras",[],function(cams){
     cams = Array.isArray(cams)?cams:[];
     var presetOpts = Object.keys(state.presets||{}).map(function(k){return '<option value="'+esc(state.presets[k])+'">'+esc(k)+'</option>';}).join("");
@@ -2217,6 +2248,57 @@ function openWizard(){
   call("getSite",[],function(s){ if(s&&!s.error){ wiz.site.name=s.name||"My Site"; wiz.site.notify=s.notify||"console"; } });
   call("listCameras",[],function(c){ wiz.added=Array.isArray(c)?c:[]; });
   wiz.step=0; $("wizard").classList.add("on"); renderWizard();
+  prepareVerifier();          // 3.3 GB downloads WHILE they set up, not after
+}
+
+/* The verifier model is the only slow part of setup. Start it at step 0 and
+   let it run in the background through cameras, zones, templates and
+   detectors, with progress visible the whole way — by the Verification step
+   it is usually done, and the user never sat watching a bar. (26 Aug.) */
+function prepareVerifier(){
+  if(wiz.prep) return;                 // once per wizard session
+  wiz.prep = {state:"starting", percent:0, detail:"starting the on-device AI"};
+  renderPrepStrip();
+  call("gateStatus",[],function(g){
+    wiz.gate = g && !g.error ? g : {mode:"offline"};
+    if(g && g.mode === "live"){        // already installed: nothing to do
+      wiz.prep = {state:"done", percent:100, detail:"ready"};
+      renderPrepStrip(); return;
+    }
+    call("pullModel",[],function(){ pollPrep(); });
+  });
+}
+function pollPrep(){
+  call("pullProgress",[],function(p){
+    if(p) wiz.prep = p;
+    renderPrepStrip();
+    if(STEPS[wiz.step]==="vlm") renderWizard();     // the step shows live detail
+    if(p && (p.state==="done" || p.state==="error")){
+      if(p.state==="done") call("gateStatus",[],function(g){
+        wiz.gate = g && !g.error ? g : wiz.gate;
+        if(STEPS[wiz.step]==="vlm") renderWizard(); });
+      return;
+    }
+    if($("wizard").classList.contains("on")) setTimeout(pollPrep, 1500);
+  });
+}
+function renderPrepStrip(){
+  var el = $("wizPrep"); if(!el) return;
+  var p = wiz.prep || {};
+  if(p.state === "done"){
+    el.innerHTML = '<span style="color:var(--c-live)">✓ On-device AI ready</span>';
+    return;
+  }
+  if(p.state === "error"){
+    el.innerHTML = '<span style="color:var(--sev-high)">On-device AI not ready — '
+      + esc(p.detail||"") + '. You can finish setup; alerts arrive unverified until it is.</span>';
+    return;
+  }
+  var pct = p.percent || 0;
+  el.innerHTML = '<span class="spin" style="width:10px;height:10px"></span>'
+    + '<span style="margin-left:7px">Downloading the on-device AI (3.3 GB) while you set up — '
+    + pct + '%</span>'
+    + '<span class="prepbar"><i style="width:' + pct + '%"></i></span>';
 }
 function closeWizard(){ $("wizard").classList.remove("on"); }
 function wizStepper(){
@@ -2232,9 +2314,11 @@ function renderWizard(){
   var body = ({welcome:wizWelcome,cameras:wizCameras,zones:wizZones,site:wizSite,detectors:wizDetectors,vlm:wizVlm,alert:wizAlert,done:wizDone}[step])();
   var showStepper = (step!=="welcome" && step!=="done");
   $("wizard").innerHTML =
-    '<div class="wizhead"><div class="wizbrand">Argus</div>'+(showStepper?wizStepper():'')+'</div>'
+    '<div class="wizhead"><div class="wizbrand">Argus</div>'+(showStepper?wizStepper():'')
+      +'<div class="wizprep" id="wizPrep"></div></div>'
     + '<div class="wizbody"><div class="wizcard">'+body+'</div></div>'
     + '<div class="wizfoot">'+wizFooter(step)+'</div>';
+  renderPrepStrip();          // the strip survives every step re-render
 }
 function wizFooter(step){
   if(step==="welcome") return '<div class="spacer"></div><button class="btn ghost" onclick="wizSkip()">Skip for now</button><button class="btn" onclick="wizGo(1)">Get started</button>';
@@ -2332,8 +2416,20 @@ function wizAdd(){ var u=wizBuildUrl(); if(!u){wiz.test={error:"Enter the camera
 function wizRemove(id){ call("removeCamera",[id],function(r){ wiz.added=Array.isArray(r)?r:wiz.added; renderWizard(); }); }
 
 function wizVlm(){
-  var g=wiz.gate;
-  if(!g) return '<h2>Local AI verification</h2><p class="lead">Checking the on-device AI…</p><div class="statusbig"><span class="spin"></span><span>Checking Ollama…</span></div>';
+  var g=wiz.gate, prep=wiz.prep||{};
+  // By the time they reach this step the download has usually been running for
+  // several minutes in the background — this step REPORTS, it does not ask.
+  if(prep.state==="pulling" || prep.state==="starting"){
+    return '<h2>Local AI verification</h2>'
+      +'<p class="lead">A vision model runs on this machine and confirms each alert is real — this is what keeps false alarms out. It has been downloading since you started.</p>'
+      +'<div class="statusbig"><span class="spin"></span><div style="flex:1">'
+      +  '<div style="font-weight:700;font-size:15px">Downloading — '+(prep.percent||0)+'%</div>'
+      +  '<div class="confbar" style="max-width:none;margin-top:9px"><div style="width:'+(prep.percent||0)+'%;background:var(--c-accent)"></div></div>'
+      +  '<div class="mono sub" style="margin-top:6px;font-size:11px">'+esc(prep.detail||"")+'</div>'
+      +  '<p class="mut" style="font-size:12.5px;margin:10px 0 0">You can continue — it keeps downloading in the background, and resumes by itself if it is interrupted. Alerts arrive marked UNVERIFIED until it finishes.</p>'
+      +'</div></div>';
+  }
+  if(!g) return '<h2>Local AI verification</h2><p class="lead">Checking the on-device AI…</p><div class="statusbig"><span class="spin"></span><span>Checking…</span></div>';
   var dot,title,detail,action="";
   if(g.mode==="live"){ dot="var(--c-live)"; title="TrueSight is ready"; detail="Every alert will be double-checked by TrueSight, the on-device vision AI, before it reaches you. Fully offline."; }
   else if(g.mode==="no-model"){ dot="var(--sev-high)"; title="TrueSight not installed yet"; detail="Ollama is running, but the TrueSight vision model (~3.3 GB) needs to be downloaded once.";

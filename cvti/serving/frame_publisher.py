@@ -22,6 +22,7 @@ import json
 import os
 import secrets
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,7 @@ class FramePublisher:
         self._frames: dict[str, bytes] = {}
         self._tracks: dict[str, list] = {}
         self._alerting: dict[str, set] = {}
+        self._seq: dict[str, int] = {}      # per-camera publish counter (MJPEG)
         self._lock = threading.Lock()
         self._server: Any = None
         self._thread: threading.Thread | None = None
@@ -85,6 +87,7 @@ class FramePublisher:
             return
         with self._lock:
             self._frames[camera_id] = buf.tobytes()
+            self._seq[camera_id] = self._seq.get(camera_id, 0) + 1
             self._tracks[camera_id] = [int(b[0]) for b in (boxes or [])]
             self.published += 1
 
@@ -96,6 +99,11 @@ class FramePublisher:
     def frame(self, camera_id: str) -> bytes | None:
         with self._lock:
             return self._frames.get(camera_id)
+
+    def frame_seq(self, camera_id: str) -> tuple:
+        """(jpeg, seq) — seq bumps per publish so a stream sends only new frames."""
+        with self._lock:
+            return self._frames.get(camera_id), self._seq.get(camera_id, 0)
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -109,6 +117,15 @@ class FramePublisher:
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_a):        # keep the engine log readable
                 return
+
+            # HTTP/1.1, not the BaseHTTPRequestHandler default of 1.0. A
+            # browser will not progressively render multipart/x-mixed-replace
+            # over HTTP/1.0 — the live wall showed broken-image icons on every
+            # tile while the engine was publishing perfectly (27 Aug). A raw
+            # socket client reads it either way, which is exactly why a test
+            # that was not a browser missed this. Safe because every non-stream
+            # response below sends Content-Length.
+            protocol_version = "HTTP/1.1"
 
             def _send(self, code: int, body: bytes, ctype: str) -> None:
                 self.send_response(code)
@@ -140,6 +157,40 @@ class FramePublisher:
                     log.warning("[frames] unauthenticated request to %s from %s",
                                 path, self.client_address[0])
                     self._send(401, b"unauthorised", "text/plain")
+                    return
+                if path.startswith("/stream/"):
+                    # MJPEG (multipart/x-mixed-replace): ONE long-lived
+                    # connection per camera, frames pushed as they are
+                    # published. The UI used to poll /frame every 90ms —
+                    # 11 requests/second/camera, each a fresh HTTP round-trip,
+                    # JPEG decode and repaint, which is what "the stream is
+                    # sluggish" was. The browser decodes this natively with no
+                    # JavaScript in the loop at all. (26 Aug.)
+                    cam = unquote(path[len("/stream/"):])
+                    self.send_response(200)
+                    self.send_header("Content-Type",
+                                     "multipart/x-mixed-replace; boundary=argusframe")
+                    self.send_header("Cache-Control", "no-store")
+                    # Never keep-alive a response that has no end.
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    last = -1
+                    try:
+                        while True:
+                            data, seq = pub.frame_seq(cam)
+                            if data is not None and seq != last:
+                                last = seq
+                                self.wfile.write(b"--argusframe\r\n")
+                                self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                                self.wfile.write(
+                                    f"Content-Length: {len(data)}\r\n\r\n".encode())
+                                self.wfile.write(data)
+                                self.wfile.write(b"\r\n")
+                                self.wfile.flush()
+                            else:
+                                time.sleep(0.02)
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        pass          # the viewer navigated away; drop the stream
                     return
                 if path.startswith("/frame/"):
                     cam = unquote(path[len("/frame/"):])

@@ -117,12 +117,21 @@ def lan_ip() -> str:
 
 class MobileServer:
     def __init__(self, output_dir: str | Path, *, port: int = DEFAULT_PORT,
-                 host: str = "0.0.0.0", frame_base: Path | None = None) -> None:
+                 host: str = "0.0.0.0", frame_base: Path | None = None,
+                 security_dir: str | Path | None = None) -> None:
         self.output_dir = Path(output_dir)
         self.host, self.port = host, port
         self.frame_base = frame_base
-        self.accounts = AccountStore(self.output_dir / "auth.db")
-        self.audit = AuditLog(self.output_dir / "audit.db")
+        self.security_dir = security_dir
+        # Accounts and the audit trail are GLOBAL to the install, never
+        # per-feed: with per-feed event stores (25 Aug) this silently pointed
+        # at an EMPTY auth.db on any non-home feed — nobody could sign into
+        # the phone view — and split the tamper-evident log into fragments.
+        # `security_dir` defaults to output_dir so standalone use is unchanged.
+        _sec = Path(self.security_dir) if self.security_dir else self.output_dir
+        _sec.mkdir(parents=True, exist_ok=True)
+        self.accounts = AccountStore(_sec / "auth.db")
+        self.audit = AuditLog(_sec / "audit.db")
         self._server = None
         self._thread = None
 

@@ -309,3 +309,74 @@ class MissingDatabaseTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EvidencePathResolutionTest(unittest.TestCase):
+    """Storage limitation silently did nothing for the life of an install
+    (27 Aug). Evidence paths were stored relative to the WORKING DIRECTORY;
+    retention resolved them against the OUTPUT ROOT; the containment guard
+    then refused every one — so no evidence was ever purged and the disk
+    filled to 94%. GDPR-relevant: the UI reported a retention period the
+    purger could not enforce."""
+
+    def _site(self, tmp):
+        root = Path(tmp) / "site"
+        (root / "events").mkdir(parents=True)
+        con = sqlite3.connect(root / "events.db")
+        con.execute("CREATE TABLE events (id INTEGER PRIMARY KEY, ts REAL, iso TEXT, "
+                    "camera_id TEXT, rule TEXT, evidence_dir TEXT, review TEXT, "
+                    "legal_hold INTEGER DEFAULT 0, state TEXT, outcome TEXT)")
+        con.commit()
+        return root, con
+
+    def test_a_relative_row_is_purged_not_refused_forever(self):
+        import os
+        from cvti.serving.retention import RetentionManager, RetentionPolicy
+        with tempfile.TemporaryDirectory() as tmp:
+            root, con = self._site(tmp)
+            ev = root / "events" / "20260101_000000_cam_rule"
+            ev.mkdir()
+            (ev / "frame.jpg").write_bytes(b"\xff\xd8x")
+            cwd = os.getcwd()
+            os.chdir(tmp)                       # rows were written relative to HERE
+            try:
+                rel = ev.relative_to(Path(tmp))
+                con.execute("INSERT INTO events (id, ts, evidence_dir, state, review) "
+                            "VALUES (1, 0, ?, 'resolved', 'true')", (str(rel),))
+                con.commit()
+                con.row_factory = sqlite3.Row
+                row = con.execute("SELECT * FROM events WHERE id=1").fetchone()
+                m = RetentionManager(root, RetentionPolicy(days=1))
+                self.assertTrue(m._delete_event(con, row),
+                                "retention refused a legitimate relative row — "
+                                "nothing would ever be purged")
+                con.commit()
+                self.assertFalse(ev.exists(), "evidence survived its own purge")
+            finally:
+                os.chdir(cwd)
+                con.close()
+
+    def test_it_still_refuses_a_path_outside_its_events_tree(self):
+        from cvti.serving.retention import RetentionManager, RetentionPolicy
+        with tempfile.TemporaryDirectory() as tmp:
+            root, con = self._site(tmp)
+            outside = Path(tmp) / "precious"
+            outside.mkdir()
+            (outside / "source.py").write_text("keep me")
+            con.execute("INSERT INTO events (id, ts, evidence_dir, state, review) "
+                        "VALUES (1, 0, ?, 'resolved', 'true')", (str(outside),))
+            con.commit()
+            con.row_factory = sqlite3.Row
+            row = con.execute("SELECT * FROM events WHERE id=1").fetchone()
+            m = RetentionManager(root, RetentionPolicy(days=1))
+            self.assertFalse(m._delete_event(con, row))
+            con.close()
+            self.assertTrue((outside / "source.py").exists(),
+                            "retention deleted outside its own tree")
+
+    def test_the_sink_writes_absolute_evidence_paths(self):
+        import inspect
+        from cvti.serving.alert_sink import AlertSink
+        src = inspect.getsource(AlertSink)
+        self.assertIn('str(ev_dir.resolve())', src,
+                      "a relative evidence path is unmatchable by retention")

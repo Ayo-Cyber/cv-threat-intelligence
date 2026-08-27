@@ -86,7 +86,10 @@ class TelegramNotifier:
                 f"{event['camera_id']} (conf {event['confidence']:.2f})\n{event['reason']}")
 
     def _frames(self, event: dict, cap: int = 3) -> list[Path]:
-        d = Path(event.get("evidence_dir") or "")
+        ev = event.get("evidence_dir")
+        if not ev:
+            return []            # no evidence yet (provisional): not the cwd
+        d = Path(ev)
         if not d.exists():
             return []
         imgs = sorted(p for p in d.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png"))
@@ -655,7 +658,12 @@ class AlertSink:
             "ts": ts, "iso": iso, "camera_id": alert.camera_id, "rule": alert.rule_name,
             "priority": alert.priority, "confidence": float(result.confidence),
             "reason": result.reason, "track_id": alert.track_id, "zone": alert.zone,
-            "object_label": alert.object_label, "evidence_dir": str(ev_dir),
+            # ABSOLUTE. A relative path is only meaningful next to the working
+            # directory that produced it, and retention resolves paths against
+            # the OUTPUT root — so a relative row could never be matched, and
+            # storage limitation silently did nothing for the life of the
+            # install. (27 Aug: 483 events, 3.6 GB, unpurgeable.)
+            "object_label": alert.object_label, "evidence_dir": str(ev_dir.resolve()),
             "latency_s": latency_s,
             "bbox": ",".join(str(int(v)) for v in payload["bbox"]) if payload.get("bbox") else None,
             "unverified": 1 if getattr(result, "errored", False) else 0,
