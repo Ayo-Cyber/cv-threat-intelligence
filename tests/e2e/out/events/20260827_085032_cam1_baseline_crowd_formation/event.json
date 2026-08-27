@@ -1,0 +1,17 @@
+{
+  "ts": 1787820632.1568358,
+  "iso": "2026-08-27T08:50:32",
+  "camera_id": "cam1",
+  "rule": "baseline_crowd_formation",
+  "priority": "medium",
+  "confidence": 0.0,
+  "reason": "UNVERIFIED \u2014 TrueSight could not decide. Review this manually.",
+  "track_id": null,
+  "zone": null,
+  "object_label": null,
+  "evidence_dir": "/out/events/20260827_085032_cam1_baseline_crowd_formation",
+  "latency_s": 0.05,
+  "bbox": null,
+  "unverified": 1,
+  "gate_error": "transport: RuntimeError: VLM request failed: <urlopen error [Errno 111] Connection refused>."
+}

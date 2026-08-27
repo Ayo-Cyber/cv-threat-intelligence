@@ -1,0 +1,8 @@
+{
+  "confirmed": true,
+  "confidence": 0.0,
+  "reason": "UNVERIFIED \u2014 TrueSight could not decide. Review this manually.",
+  "alert_priority": "medium",
+  "timestamp": "2026-08-27T08:50:32Z",
+  "error": "transport: RuntimeError: VLM request failed: <urlopen error [Errno 111] Connection refused>."
+}

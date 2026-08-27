@@ -118,6 +118,15 @@ class FramePublisher:
             def log_message(self, *_a):        # keep the engine log readable
                 return
 
+            # HTTP/1.1, not the BaseHTTPRequestHandler default of 1.0. A
+            # browser will not progressively render multipart/x-mixed-replace
+            # over HTTP/1.0 — the live wall showed broken-image icons on every
+            # tile while the engine was publishing perfectly (27 Aug). A raw
+            # socket client reads it either way, which is exactly why a test
+            # that was not a browser missed this. Safe because every non-stream
+            # response below sends Content-Length.
+            protocol_version = "HTTP/1.1"
+
             def _send(self, code: int, body: bytes, ctype: str) -> None:
                 self.send_response(code)
                 self.send_header("Content-Type", ctype)
@@ -162,6 +171,8 @@ class FramePublisher:
                     self.send_header("Content-Type",
                                      "multipart/x-mixed-replace; boundary=argusframe")
                     self.send_header("Cache-Control", "no-store")
+                    # Never keep-alive a response that has no end.
+                    self.send_header("Connection", "close")
                     self.end_headers()
                     last = -1
                     try:
