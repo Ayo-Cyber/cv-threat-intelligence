@@ -164,10 +164,15 @@ class RetentionManager:
         if ev_dir:
             path = Path(ev_dir)
             if not path.is_absolute():
-                path = self.root / path
+                # Historical rows stored paths relative to the WORKING
+                # DIRECTORY, not to the output root. Resolving them only one
+                # way meant the containment check refused them forever and
+                # nothing was ever purged. Try both, keep whichever exists.
+                candidates = [self.root / path, Path.cwd() / path]
+                path = next((c for c in candidates if c.exists()), candidates[0])
             # Never delete outside our own events directory, whatever the row says.
             try:
-                path.relative_to(self.events_dir.resolve())
+                path.resolve().relative_to(self.events_dir.resolve())
             except ValueError:
                 try:
                     path.relative_to(self.events_dir)
