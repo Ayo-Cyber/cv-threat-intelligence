@@ -1138,6 +1138,10 @@ class ConsoleBackend:
             log.warning("could not ensure the local VLM server", exc_info=True)
         cmd = self._engine_command() + [
                "--site-config", self.site_path,
+               # Identity is global: with per-feed event stores the engine's
+               # mobile view would otherwise build an EMPTY account store and
+               # nobody could sign in from a phone.
+               "--security-dir", str(Path(self._home_db).parent),
                "--gate-provider", "ollama", "--gate-model", "gemma3:4b",
                "--notify", notify, "--output-dir", str(out_dir),
                "--target-fps", "4", "--imgsz", "512",

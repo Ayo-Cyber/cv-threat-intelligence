@@ -254,3 +254,43 @@ class DeepLinkWiringTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GlobalIdentityTest(unittest.TestCase):
+    """Per-feed event stores (25 Aug) must never fragment identity: accounts
+    and the tamper-evident audit log are global to the install. The regression
+    this pins: on a non-home feed the phone view built an EMPTY auth.db and
+    nobody could sign in."""
+
+    def test_the_mobile_server_uses_the_security_dir_not_the_feed_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"; feed = Path(tmp) / "feeds" / "live"
+            home.mkdir(parents=True); feed.mkdir(parents=True)
+            accounts = AccountStore(home / "auth.db")
+            accounts.create_user("guard", "a-strong-password", role="operator")
+            accounts.close()
+            AlertSink(feed, save_evidence=False, routing_path=None).close()
+            srv = MobileServer(feed, port=0, host="127.0.0.1",
+                               security_dir=str(home))
+            try:
+                self.assertTrue(srv.accounts.any_users(),
+                                "phone view has no accounts — nobody can sign in")
+            finally:
+                srv.accounts.close()
+            self.assertFalse((feed / "auth.db").exists(),
+                             "identity leaked into the per-feed store")
+
+    def test_it_still_defaults_to_the_output_dir_standalone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            AlertSink(tmp, save_evidence=False, routing_path=None).close()
+            srv = MobileServer(tmp, port=0, host="127.0.0.1")
+            try:
+                self.assertTrue((Path(tmp) / "auth.db").exists())
+            finally:
+                srv.accounts.close()
+
+    def test_the_engine_is_told_where_identity_lives(self):
+        import inspect
+        from cvti.app.console_backend import ConsoleBackend
+        src = inspect.getsource(ConsoleBackend._spawn_engine)
+        self.assertIn("--security-dir", src)
