@@ -129,12 +129,13 @@ class CustomRuleScanner:
                     if frame is None:
                         continue
                     try:
-                        hit = self._check(c, frame)
+                        hits = self._check(c, frame)
                     except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
                         log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
                         continue
-                    if hit and not self._cooling(c["id"], hit["name"]):
-                        self._emit(c, frame, hit)
+                    for hit in hits:
+                        if not self._cooling(c["id"], hit["name"]):
+                            self._emit(c, frame, hit)
                     continue
                 if c["id"] not in caps:              # standalone fallback: own decode
                     caps[c["id"]] = self._open(c["source"])
@@ -163,12 +164,13 @@ class CustomRuleScanner:
                     continue
                 dead_since.pop(c["id"], None)
                 try:
-                    hit = self._check(c, frame)
+                    hits = self._check(c, frame)
                 except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
                     log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
                     continue
-                if hit and not self._cooling(c["id"], hit["name"]):
-                    self._emit(c, frame, hit)
+                for hit in hits:
+                    if not self._cooling(c["id"], hit["name"]):
+                        self._emit(c, frame, hit)
             self._stop.wait(self.interval)
         for cap in caps.values():
             try:
@@ -194,22 +196,30 @@ class CustomRuleScanner:
                 pass
         return "a monitored area"
 
-    def _check(self, cam: dict, frame) -> dict | None:
+    def _check(self, cam: dict, frame) -> list[dict]:
         import cv2
         threats = _rules_for(cam)
         if not threats:
-            return None
+            return []
         lines = "\n".join(f'- {t["name"]}: {t["description"]}' for t in threats)
+        # Plural on purpose. This used to ask for THE threat (singular), so a
+        # camera with several true rules got exactly one answer per cycle —
+        # whichever the model found most salient — and the rest were shadowed
+        # every scan. Caught live on 27 Aug: an operator wearing glasses AND a
+        # hoodie had written a glasses rule; the hoodie rule answered every
+        # cycle and the glasses rule never fired once. The evidence frame shows
+        # both, plainly.
         prompt = (
             "You are a security camera analyst. Only report a threat if it is clearly "
-            f"happening in the image; otherwise say none.\nScene: {self._scene(cam['id'])}.\n"
+            f"happening in the image; otherwise report none.\nScene: {self._scene(cam['id'])}.\n"
             f"Watch specifically for:\n{lines}\n"
-            'Reply ONLY compact JSON: {"threat": "<exact threat name that is happening, or none>", '
-            '"reason": "<one short sentence of what you see>"}'
+            "Check EVERY listed item independently — more than one can be true at once.\n"
+            'Reply ONLY compact JSON: {"threats": [{"name": "<exact name from the list>", '
+            '"reason": "<one short sentence of what you see>"}]} — an empty list if none.'
         )
         ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if not ok:
-            return None
+            return []
         os.environ.setdefault("OLLAMA_API_KEY", "ollama")
         from cvti.scene.agent_mapper import call_openai_compatible
         raw = call_openai_compatible(prompt=prompt, frame_bytes=buf.tobytes(), model=self.model,
@@ -217,25 +227,44 @@ class CustomRuleScanner:
                                      require_key=False)
         m = re.search(r"\{.*\}", raw or "", re.S)
         if not m:
-            return None
+            return []
         try:
             d = json.loads(m.group(0))
         except (ValueError, TypeError):
-            return None
-        threat = str(d.get("threat", "none")).strip().lower()
-        if not threat or threat in ("none", "no", "null", "n/a", "nothing"):
-            return None
-        # Only fire a threat the customer actually defined — never one the model
-        # invents. Match by name overlap or description word overlap.
-        match = next((t for t in threats
-                      if t["name"].lower() in threat or threat in t["name"].lower()), None)
-        if match is None:
-            desc_words = threat.split()
+            return []
+        claims = d.get("threats")
+        if claims is None:
+            # A model that saw the old prompt in its context, or free-styles the
+            # shape, still gets its single answer honoured.
+            claims = [{"name": d.get("threat", "none"), "reason": d.get("reason", "")}]
+        if not isinstance(claims, list):
+            return []
+        hits, seen = [], set()
+        for c in claims:
+            if not isinstance(c, dict):
+                continue
+            threat = str(c.get("name", "none")).strip().lower()
+            if not threat or threat in ("none", "no", "null", "n/a", "nothing"):
+                continue
+            # Only fire a threat the customer actually defined — never one the
+            # model invents. Match by name overlap or description word overlap.
             match = next((t for t in threats
-                          if any(w in t["description"].lower() for w in desc_words if len(w) > 3)), None)
-        if match is None:
-            return None
-        return {"name": match["name"], "reason": str(d.get("reason", ""))[:240]}
+                          if t["name"].lower() in threat or threat in t["name"].lower()), None)
+            if match is None:
+                # Paraphrase fallback ("black hoodie" for the hoodie rule) —
+                # but demand REAL overlap. A single generic word used to be
+                # enough, so an invented "person holding a rifle" matched any
+                # rule containing "person" and fired as the customer's rule.
+                words = [w for w in threat.split() if len(w) > 3]
+                def _overlap(t):
+                    return sum(w in t["description"].lower() for w in words)
+                match = next((t for t in threats
+                              if _overlap(t) >= (2 if len(words) > 1 else 1)), None)
+            if match is None or match["name"] in seen:
+                continue
+            seen.add(match["name"])
+            hits.append({"name": match["name"], "reason": str(c.get("reason", ""))[:240]})
+        return hits
 
     def _emit(self, cam: dict, frame, hit: dict) -> None:
         from cvti.contracts import VerificationResult
