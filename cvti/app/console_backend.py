@@ -1436,8 +1436,10 @@ class ConsoleBackend:
         demo (evidence_dir relative to the demo bundle)."""
         self._require(perms.VIEW_ALERTS)
         _, frame_base = self._effective_db()
-        d = Path(evidence_dir or "")
-        if not d.exists() and frame_base and evidence_dir:
+        if not evidence_dir:
+            return {"uri": None, "frames": [], "subject": None}
+        d = Path(evidence_dir)
+        if not d.exists() and frame_base:
             d = frame_base / evidence_dir
         # Return ALL the event's frames (for the smooth image cine-loop the app plays)
         # plus the mp4 as a data URI (archival / download).
@@ -1510,7 +1512,14 @@ class ConsoleBackend:
 
     def _frames_as_data_uris(self, evidence_dir: str | None,
                              frame_base: "Path | None" = None, cap: int = 5) -> list[str]:
-        d = Path(evidence_dir or "")
+        # Path(None or "") is Path(".") — the CURRENT DIRECTORY. A provisional
+        # alert legitimately has no evidence_dir yet (evidence is written when
+        # the verdict settles), so this used to scan the working directory and
+        # could hand back whatever JPEGs happened to be lying in it. Nearly
+        # cost the repo during a cleanup, 27 Aug.
+        if not evidence_dir:
+            return []
+        d = Path(evidence_dir)
         if not d.exists() and frame_base and evidence_dir:
             d = frame_base / evidence_dir       # bundled demo: paths are relative
         if not d.exists():
@@ -1529,7 +1538,10 @@ class ConsoleBackend:
     def _subject_uri(self, evidence_dir: str | None,
                      frame_base: "Path | None" = None) -> str | None:
         """The annotated frame with the subject boxed, if one was saved."""
-        d = Path(evidence_dir or "")
+        if not evidence_dir:
+            return {"ok": False, "error": "this alert has no evidence yet "
+                                          "(verification is still in progress)"}
+        d = Path(evidence_dir)
         if not d.exists() and frame_base and evidence_dir:
             d = frame_base / evidence_dir
         p = d / "subject.jpg"
