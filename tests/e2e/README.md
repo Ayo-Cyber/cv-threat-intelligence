@@ -49,6 +49,11 @@ actually had:
   model, and "the verifier is unreachable" is the case most worth asserting.
 - Assertions wait with deadlines rather than sleeping a fixed time — a slow
   runner should be slow, not flaky.
+- **No container may exit before the assertions do.** `--abort-on-container-exit`
+  stops everything when *any* container stops, so the camera retries ffmpeg in a
+  forever-loop rather than exiting when the RTSP server is not yet listening.
+  That race passed locally and failed in CI — the classic shape of a flaky
+  harness, and worth fixing rather than re-running.
 - **The engine must outlive the assertions.** `--abort-on-container-exit` tears
   the stack down when *any* container exits, so if the engine's `--seconds`
   budget expires first it kills the assertions mid-run — exit 137, which looks
