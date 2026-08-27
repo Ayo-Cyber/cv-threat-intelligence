@@ -32,8 +32,13 @@ services:
     # `sh -c` received only the word "while" and died instantly — which, with
     # --abort-on-container-exit, tore the stack down before the engine had even
     # loaded its models. Third attempt at this line; the shape matters.
+    # normal_street_01.mp4 and NOT one of the crowd_*.mp4 clips: data/test_clips/*
+    # is gitignored apart from a handful of tracked files, so the crowd clip this
+    # used to point at existed on the author's laptop and NOWHERE ELSE. CI decoded
+    # nothing, the engine reconnected for 15 minutes and the run failed with
+    # DESCRIBE 404. tests/test_e2e_compose_inputs.py now fails if this drifts again.
     command:
-      - "while true; do ffmpeg -re -stream_loop -1 -i /clips/crowd_01.mp4 -c copy -f rtsp -rtsp_transport tcp rtsp://rtsp:8554/cam1 || true; sleep 2; done"
+      - "while true; do ffmpeg -re -stream_loop -1 -i /clips/normal_street_01.mp4 -c copy -f rtsp -rtsp_transport tcp rtsp://rtsp:8554/cam1 || true; sleep 2; done"
 
   engine:
     build:
