@@ -59,6 +59,7 @@ class StreamDecoder:
         self._min_period = 1.0 / target_fps if target_fps > 0 else 0.0
         self._latest: Frame | None = None
         self._seq = 0                      # bumps per decoded frame (peek dedup)
+        self.stale_dropped = 0             # buffered frames skipped to stay live
         self._consumed = True          # True once the current latest was read
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -105,6 +106,10 @@ class StreamDecoder:
                 # frames stopped is exactly the ambiguity this exists to remove.
                 "last_frame_age_s": (round(time.time() - self.last_frame_at, 1)
                                      if self.last_frame_at else None),
+                # How far behind live we would have been: buffered frames
+                # skipped to stay at the present. A big number on a camera
+                # means its stream bursts (HLS), not that anything is wrong.
+                "stale_dropped": self.stale_dropped,
                 "attempts": list(self.attempt_history)}
 
     def _is_live(self) -> bool:
@@ -194,9 +199,35 @@ class StreamDecoder:
                 self._latest = Frame(self.camera_id, image, orig_index, ts)
                 self._seq += 1
                 self._consumed = False
-            # Pace each kept frame to target_fps: files play at real time; a live
-            # source is naturally paced already, so this just caps intake.
-            if self._min_period:
+            # Pace each kept frame to target_fps — for FILES, which must play at
+            # real time. A live source must NOT be paced this way: HLS (and a
+            # reconnecting RTSP camera) hands OpenCV a burst of buffered frames
+            # at a segment boundary, and reading one per period consumes that
+            # backlog instead of the present, falling further behind live the
+            # longer it runs. Measured 26 Aug on a reference HLS CDN: bursts at
+            # ~39 fps punctuated by stalls up to 5.5s — pacing turns that into
+            # permanent, growing lag. Live sources therefore DRAIN to the live
+            # edge instead: grab (decode-free) whatever is already buffered,
+            # bounded in both count and time, and keep only the newest.
+            if self._is_live():
+                dropped = 0
+                t_drain = time.perf_counter()
+                while dropped < 120 and (time.perf_counter() - t_drain) < 0.015:
+                    if not cap.grab():
+                        break
+                    dropped += 1
+                if dropped:
+                    ok_new, newest = cap.retrieve()
+                    if ok_new:
+                        orig_index += dropped
+                        self.stale_dropped += dropped
+                        ts = (orig_index / self._fps) if self._fps > 1e-3 \
+                            else (time.perf_counter() - self._t0)
+                        with self._lock:
+                            self._latest = Frame(self.camera_id, newest, orig_index, ts)
+                            self._seq += 1
+                            self._consumed = False
+            elif self._min_period:
                 elapsed = time.perf_counter() - loop_start
                 if elapsed < self._min_period:
                     time.sleep(self._min_period - elapsed)

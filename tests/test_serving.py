@@ -307,3 +307,31 @@ class SmoothPublishTest(unittest.TestCase):
         self.assertIn("FramePublisher(draw_boxes=False)", src)
         loop = inspect.getsource(pl.MultiStreamPipeline._smooth_publish_loop)
         self.assertNotIn("latest_boxes", loop)
+
+    def test_live_sources_drain_to_the_live_edge_instead_of_pacing(self):
+        """HLS hands OpenCV a burst at each segment boundary. Pacing through
+        that backlog one frame per tick falls progressively behind live — the
+        'stream is sluggish' report (26 Aug). Live sources must skip stale
+        buffered frames; FILES must still play at real time."""
+        import inspect
+        from cvti.serving.streams import StreamDecoder
+        src = inspect.getsource(StreamDecoder._loop) if hasattr(StreamDecoder, "_loop") \
+            else inspect.getsource(StreamDecoder)
+        self.assertIn("if self._is_live():", src)
+        self.assertIn("cap.grab()", src, "no drain — live sources still pace")
+        self.assertIn("elif self._min_period:", src,
+                      "files must still be paced to real time")
+        self.assertIn("stale_dropped", src)
+
+    def test_the_drain_is_bounded_in_count_and_time(self):
+        # An unbounded drain on a stalled stream would block the decoder thread.
+        import inspect
+        from cvti.serving.streams import StreamDecoder
+        src = inspect.getsource(StreamDecoder)
+        self.assertIn("dropped < 120", src)
+        self.assertIn("< 0.015", src)
+
+    def test_skipped_frames_are_reported_not_hidden(self):
+        import inspect
+        from cvti.serving.streams import StreamDecoder
+        self.assertIn("stale_dropped", inspect.getsource(StreamDecoder.link_status))
