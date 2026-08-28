@@ -92,6 +92,10 @@ app_a = Analysis(
         "PyQt6.QtWebEngineWidgets", "PyQt6.QtWebEngineCore", "PyQt6.QtWebChannel",
         "PyQt6.QtNetwork", "PyQt6.QtPrintSupport", "PyQt6.QtQml", "PyQt6.QtQuick",
         "PyQt6.QtGui",
+        # Imported inside the live-feed resolver, so PyInstaller cannot see it
+        # statically. Without it, Live EarthCams exists as a button and fails
+        # as a feature on every install.
+        "yt_dlp",
     ],
     excludes=["torch", "torchvision", "ultralytics", "transformers", "pytorchvideo",
               "matplotlib", "scipy", "pandas", "tkinter", "polars",
