@@ -9,12 +9,16 @@ name: Build Argus (desktop app)
 on:
   workflow_dispatch:        # build on demand from the Actions tab
   push:
-    branches: ["**"]        # tests on every branch
+    branches: [main]        # branch work is covered by its pull_request run
     tags: ["v*"]            # and a full build on every release tag
   pull_request:
 
-# A PR branch gets both a push event and a pull_request event. Keep the newest
-# run per ref and cancel the rest.
+# push used to fire on EVERY branch, so each PR push started two identical
+# runs and the concurrency rule cancelled one — which GitHub renders with the
+# same X as a failure. Every few days someone read "some checks failed" off a
+# PR whose real runs were green (28 Aug, twice). One event per commit instead:
+# PRs run as pull_request, main and tags run as push, and nothing needs
+# cancelling in the normal path.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
