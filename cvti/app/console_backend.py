@@ -123,6 +123,41 @@ class ConsoleBackend:
         return {"auth_db": str(path),
                 "evidence_untouched": True}
 
+    def auth_accounts(self) -> dict:
+        """Who already holds this site — shown on the Create tab pre-auth, so
+        'invalid credentials' is never a mystery about WHETHER an account
+        exists, only which. Names and roles only, never anything secret."""
+        return {"users": [{"username": u.username, "role": u.role}
+                          for u in self.accounts.list_users()]}
+
+    def create_owner_override(self, username: str, password: str) -> dict:
+        """Replace every existing account with a fresh owner — from the login
+        screen, unauthenticated.
+
+        PILOT-PHASE TRADEOFF, at the owner's explicit and reaffirmed decision
+        (28 Aug: "for now when we do create account just override it"): during
+        the pilot, lockouts on inherited machines cost more than the intrusion
+        risk of an on-console reset. The compensating controls: the screen
+        lists exactly which accounts will be replaced, the act is confirmed,
+        every replaced name goes into the audit log, and the audit log and
+        evidence live in files this cannot touch — a hostile reset is loud
+        and attributable, never invisible. Revisit before any deployment
+        where the console sits in a public spot.
+        """
+        replaced = [u.username for u in self.accounts.list_users()]
+        try:
+            for name in replaced:
+                self.accounts.delete_user(name)          # also revokes sessions
+            self.accounts.create_user(username, password, role=perms.OWNER)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        self._session = ""
+        self.audit.record(username, "accounts_override_via_login",
+                          detail={"replaced": replaced, "new_owner": username})
+        log.warning("[auth] accounts overridden from the login screen: %s -> %s",
+                    replaced, username)
+        return self.sign_in(username, password)
+
     def create_first_owner(self, username: str, password: str) -> dict:
         """First run. Nothing ships with a known credential because nothing
         ships with an account at all — the first one is created here."""

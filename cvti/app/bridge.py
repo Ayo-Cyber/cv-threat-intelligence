@@ -266,6 +266,14 @@ class Backend(QObject):
         return self._safe(self._core.auth_recovery)
 
     @pyqtSlot(result=str)
+    def authAccounts(self) -> str:
+        return self._safe(self._core.auth_accounts)
+
+    @pyqtSlot(str, str, result=str)
+    def createOwnerOverride(self, username: str, password: str) -> str:
+        return self._safe(lambda: self._core.create_owner_override(username, password))
+
+    @pyqtSlot(result=str)
     def signOut(self) -> str:
         return self._safe(self._core.sign_out)
 

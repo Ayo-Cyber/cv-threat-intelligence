@@ -442,7 +442,16 @@
 </div>
 <div id="modalRoot"></div>
 <div id="wizard"></div>
-<div id="authGate"></div>
+<!-- Pre-opened ON PURPOSE: the console shell paints instantly, but the
+     bridge + authState round-trip decides whether this user may see it. The
+     gate used to start hidden, so every launch flashed the full app before
+     the sign-in snapped over it — on a cold Windows start, for seconds
+     ("the first page should be sign in or create an account", 28 Aug).
+     boot() swaps this splash for create-owner / sign-in, or clears it. -->
+<div id="authGate" class="on"><div class="authbox">
+  <div class="brand-n">Argus</div>
+  <div class="mut" style="margin-top:6px">Starting&hellip;</div>
+</div></div>
 
 <script>
 "use strict";
@@ -2712,8 +2721,9 @@ document.addEventListener("click", function _unlock(){
 function boot(){
   call("authState",[],function(a){
     if(!a || a.error){ authScreen('<div class="pad mut">Could not read sign-in state: '+esc((a&&a.error)||"no response")+'</div>'); return; }
-    if(!a.configured){ renderFirstRun(); }
-    else if(!a.signed_in){ renderSignIn(""); }
+    state.authConfigured = !!a.configured;
+    if(!a.configured){ renderAuth("create",""); }
+    else if(!a.signed_in){ renderAuth("signin",""); }
     else { enterApp(a); }
   });
 }
@@ -2725,22 +2735,77 @@ function authField(id,label,type,help){
     +'<input class="field" id="'+id+'" type="'+type+'" autocomplete="off" spellcheck="false">'
     +(help?'<div class="sub" style="font-size:11px;margin-top:7px">'+help+'</div>':'');
 }
-function renderSignIn(err){
-  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:4px">Sign in to this site</div>'
-    +'<div class="panel" style="padding:20px;margin-top:22px">'
+function authTabs(mode){
+  /* BOTH doors are always on the first screen ("it has to be both", 28 Aug).
+     What the create door does depends on the site: on a fresh site it creates
+     the first owner; on a configured site it explains that the owner adds
+     accounts — an unauthenticated create on a configured SECURITY console
+     would let anyone at the login screen join the site. */
+  function tab(key,label){
+    var on = mode===key;
+    return '<button class="tab'+(on?" on":"")+'" style="flex:1" '
+      +(on?'':'onclick="renderAuth(\''+key+'\',\'\')"')+'>'+label+'</button>';
+  }
+  return '<div style="display:flex;gap:6px;margin-top:18px">'+tab("signin","Sign in")+tab("create","Create account")+'</div>';
+}
+function renderAuth(mode, err){
+  var head='<div class="brand-n">Argus</div>'
+    +'<div class="mut" style="margin-top:4px">'+(state.authConfigured?"Sign in to this site":"Set up this site")+'</div>'
+    +authTabs(mode);
+  if(mode==="signin"){
+    var body;
+    if(state.authConfigured===false){
+      body='<p class="mut" style="font-size:12.5px;line-height:1.6;margin:6px 0 0">No accounts exist on this site yet — nothing ships with a password. Create the owner account to get started.</p>';
+    } else {
+      body=authField("authUser","Name","text","")
+        +authField("authPass","Password","password","")
+        +'<div class="ferr" id="authErr">'+esc(err||"")+'</div>'
+        +'<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doSignIn()">Sign in</button>';
+    }
+    authScreen(head+'<div class="panel" style="padding:20px;margin-top:10px">'+body+'</div>'
+      +'<div class="sub" style="font-size:11.5px;margin-top:12px;text-align:center">'
+      +  '<a href="#" style="color:var(--c-accent);text-decoration:none" onclick="showAuthRecovery();return false">Can\'t sign in?</a>'
+      +'</div>'
+      +'<div id="authRecover" style="display:none"></div>');
+    if(state.authConfigured!==false){ wireAuthEnter("doSignIn"); $("authUser").focus(); }
+    return;
+  }
+  // create
+  if(state.authConfigured){
+    /* Pilot-phase decision, reaffirmed 28 Aug ("for now when we do create
+       account just override it"): the create tab on a configured site shows
+       WHO already holds it and lets a new owner REPLACE those accounts,
+       confirmed and loudly audited. Signed-in owners still add people the
+       normal way under Settings → People. */
+    call("authAccounts",[],function(r){
+      var users=(r&&r.users)||[];
+      var who=users.length
+        ? '<div class="panel" style="padding:12px 16px;margin:0 0 12px;font-size:12.5px;line-height:1.7"><b>This site already has '+users.length+' account'+(users.length>1?"s":"")+':</b> '
+          +users.map(function(u){return esc(u.username)+' <span class="mut">('+esc(u.role)+')</span>';}).join(", ")+'</div>'
+        : '';
+      authScreen(head+'<div class="panel" style="padding:20px;margin-top:10px">'
+        +who
+        +'<p class="mut" style="font-size:12.5px;line-height:1.6;margin:0 0 6px">Creating an account here <b style="color:var(--sev-high)">replaces every account above</b> with a new owner. Alerts, evidence and the audit trail are kept — and this replacement is written to the audit log with the old names.</p>'
+        +authField("authUser","New owner name","text","")
+        +authField("authPass","Password","password","At least 8 characters.")
+        +'<div class="ferr" id="authErr"></div>'
+        +'<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--sev-high);border-color:var(--sev-high);color:#04121f" onclick="doOwnerOverride()">Replace accounts and continue</button>'
+        +'</div>');
+      wireAuthEnter("doOwnerOverride"); $("authUser").focus();
+    });
+    return;
+  }
+  authScreen(head+'<div class="panel" style="padding:20px;margin-top:10px">'
+    +  '<div style="font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--c-sub)">Step 1 of 5 · Owner account</div>'
+    +  '<p class="mut" style="font-size:12.5px;margin:9px 0 3px;line-height:1.55">Nothing ships with a password, so there is nothing to change — you are creating the first account now. The owner can add operators and installers later.</p>'
     +  authField("authUser","Name","text","")
-    +  authField("authPass","Password","password","")
+    +  authField("authPass","Password","password","At least 8 characters. Stored hashed — it cannot be recovered, only reset.")
     +  '<div class="ferr" id="authErr">'+esc(err||"")+'</div>'
-    +  '<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doSignIn()">Sign in</button>'
+    +  '<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doFirstRun()">Create account and continue</button>'
     +'</div>'
-    /* A locked-out owner used to hit "invalid credentials" forever with no
-       hint that recovery exists (field report, 28 Aug). No dev account, no
-       reset email — accounts are local, so recovery is local too. */
-    +'<div class="sub" style="font-size:11.5px;margin-top:12px;text-align:center">'
-    +  '<a href="#" style="color:var(--c-accent);text-decoration:none" onclick="showAuthRecovery();return false">Can\'t sign in?</a>'
-    +'</div>'
-    +'<div id="authRecover" style="display:none"></div>');
-  wireAuthEnter("doSignIn"); $("authUser").focus();
+    +'<div class="authdots"><div class="on"></div><div></div><div></div><div></div><div></div></div>'
+    +'<div class="sub" style="font-size:11px;margin-top:8px">Then: cameras → zones → what to watch for → a test alert to your phone</div>');
+  wireAuthEnter("doFirstRun"); $("authUser").focus();
 }
 function showAuthRecovery(){
   call("authRecovery",[],function(r){
@@ -2758,20 +2823,6 @@ function showAuthRecovery(){
       +'</div>';
   });
 }
-function renderFirstRun(){
-  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:4px">Set up this site</div>'
-    +'<div class="panel" style="padding:20px;margin-top:22px">'
-    +  '<div style="font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--c-sub)">Step 1 of 5 · Owner account</div>'
-    +  '<p class="mut" style="font-size:12.5px;margin:9px 0 3px;line-height:1.55">Nothing ships with a password, so there is nothing to change — you are creating the first account now. The owner can add operators and installers later.</p>'
-    +  authField("authUser","Name","text","")
-    +  authField("authPass","Password","password","At least 8 characters. Stored hashed — it cannot be recovered, only reset.")
-    +  '<div class="ferr" id="authErr"></div>'
-    +  '<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doFirstRun()">Create account and continue</button>'
-    +'</div>'
-    +'<div class="authdots"><div class="on"></div><div></div><div></div><div></div><div></div></div>'
-    +'<div class="sub" style="font-size:11px;margin-top:8px">Then: cameras → zones → what to watch for → a test alert to your phone</div>');
-  wireAuthEnter("doFirstRun"); $("authUser").focus();
-}
 function wireAuthEnter(fn){
   ["authUser","authPass"].forEach(function(id){
     var el=$(id); if(el) el.addEventListener("keydown",function(e){ if(e.key==="Enter") window[fn](); });
@@ -2786,6 +2837,16 @@ function doSignIn(){
     // The backend returns one message for a wrong password and an unknown
     // user, on purpose. Display it verbatim; never elaborate.
     else if($("authErr")) $("authErr").textContent = (r&&r.error)||"sign-in failed";
+  });
+}
+function doOwnerOverride(){
+  var n=$("authUser").value.trim();
+  if(!confirm("Replace ALL existing accounts with a new owner '"+n+"'?\n\nThis cannot be undone. Alerts, evidence and the audit log are kept.")) return;
+  authBusy(true);
+  call("createOwnerOverride",[n, $("authPass").value],function(r){
+    authBusy(false);
+    if(r && r.ok){ enterApp(r); }
+    else if($("authErr")) $("authErr").textContent = (r&&r.error)||"could not replace accounts";
   });
 }
 function doFirstRun(){
@@ -2829,8 +2890,8 @@ function connect(tries){
     return;
   }
   if(tries>0){ setTimeout(function(){connect(tries-1);}, 60); return; }
-  document.getElementById("screen").innerHTML='<div class="pad mut">Backend bridge not found. Run this via <b>cvti-console</b> / <b>python -m cvti.app.shell</b> — not a plain browser.</div>';
-  renderNav();
+  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:10px">'
+    +'Backend bridge not found. Run this via <b>cvti-console</b> / <b>python -m cvti.app.shell</b> — not a plain browser.</div>');
 }
 if(document.readyState!=="loading") connect(30);
 else document.addEventListener("DOMContentLoaded", function(){connect(30);});
