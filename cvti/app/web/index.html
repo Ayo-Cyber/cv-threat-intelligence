@@ -2790,6 +2790,22 @@ function renderAuth(mode, err){
     +'<div class="sub" style="font-size:11px;margin-top:8px">Then: cameras → zones → what to watch for → a test alert to your phone</div>');
   wireAuthEnter("doFirstRun"); $("authUser").focus();
 }
+function showAuthRecovery(){
+  call("authRecovery",[],function(r){
+    var el=$("authRecover"); if(!el) return;
+    el.style.display="block";
+    el.innerHTML = '<div class="panel" style="padding:14px 16px;margin-top:10px;font-size:12.5px;line-height:1.6">'
+      +'<b>Accounts on this site are local</b> — there is no default login and no reset email.'
+      +'<div class="mut" style="margin-top:8px">If nobody knows the password, someone with access to <i>this machine\'s files</i> can reset accounts:</div>'
+      +'<ol class="mut" style="margin:8px 0 0 18px;padding:0">'
+      +'<li>Quit Argus</li>'
+      +'<li>Delete this file:<div class="mono" style="font-size:11px;margin:4px 0;word-break:break-all;user-select:all">'+esc((r&&r.auth_db)||"")+'</div></li>'
+      +'<li>Start Argus again — it will ask you to create a new owner account</li>'
+      +'</ol>'
+      +'<div class="mut" style="margin-top:8px">Recorded alerts, evidence and the audit trail are separate files and are not touched. This view was written to the audit log.</div>'
+      +'</div>';
+  });
+}
 function wireAuthEnter(fn){
   ["authUser","authPass"].forEach(function(id){
     var el=$(id); if(el) el.addEventListener("keydown",function(e){ if(e.key==="Enter") window[fn](); });
