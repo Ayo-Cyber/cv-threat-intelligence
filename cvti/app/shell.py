@@ -52,6 +52,9 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Argus operator console (desktop app).")
     p.add_argument("--site-config", default=None)
     p.add_argument("--db", default=None)
+    p.add_argument("--smoke", action="store_true",
+                   help="boot, load the UI, exit 0 if the page rendered — CI's "
+                        "proof that the SHIPPED APP starts, not just the engine")
     args = p.parse_args()
 
     # Dev keeps the repo-relative defaults. A frozen app is launched from
@@ -128,6 +131,13 @@ def main() -> None:
         log.info(f"[cvti-console] page loaded ok={ok}")
         if not ok:
             log.error("[cvti-console] load FAILED — check the index.html path above")
+        if args.smoke:
+            # Until 28 Aug nothing anywhere launched the app itself: CI proved
+            # the ENGINE ran on a clean machine while Argus.exe had only ever
+            # been started on developer laptops. This flag makes "the app
+            # boots and renders its UI" a release gate on all three OSes.
+            log.info(f"[cvti-console] smoke: exiting {0 if ok else 1}")
+            QApplication.instance().exit(0 if ok else 1)
     page.loadFinished.connect(_loaded)
 
     index = _web_index()

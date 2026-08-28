@@ -1,0 +1,30 @@
+{
+  "zones": [
+    {
+      "name": "demo_floor",
+      "kind": "restricted",
+      "anchors": [
+        "BOTTOM_CENTER"
+      ],
+      "dwell_alert_seconds": 999999,
+      "polygon": [
+        [
+          0,
+          0
+        ],
+        [
+          1920,
+          0
+        ],
+        [
+          1920,
+          1080
+        ],
+        [
+          0,
+          1080
+        ]
+      ]
+    }
+  ]
+}

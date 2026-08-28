@@ -21,10 +21,20 @@
       "_base_config": "configs/all_threats_v1.json",
       "scene_description": "A room monitored by a demo webcam.",
       "environment_type": "office",
-      "custom_rule": {
-        "question": "Is any person in these frames wearing a black hoodie? Answer yes only if someone clearly wears a black hooded sweatshirt or hooded top; dark shirts, jackets or coats without a hood do not count.",
-        "dwell": 4.0
-      }
+      "custom_rules": [
+        {
+          "question": "Is any person in these frames wearing a black hoodie? Answer yes only if someone clearly wears a black hooded sweatshirt or hooded top; dark shirts, jackets or coats without a hood do not count.",
+          "dwell": 4.0
+        },
+        {
+          "question": "Detect anyone wearing eye glasses",
+          "dwell": 4.0
+        },
+        {
+          "question": "Detect person in glasses",
+          "dwell": 4.0
+        }
+      ]
     }
   ]
 }

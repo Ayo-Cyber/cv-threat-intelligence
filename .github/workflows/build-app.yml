@@ -9,12 +9,16 @@ name: Build Argus (desktop app)
 on:
   workflow_dispatch:        # build on demand from the Actions tab
   push:
-    branches: ["**"]        # tests on every branch
+    branches: [main]        # branch work is covered by its pull_request run
     tags: ["v*"]            # and a full build on every release tag
   pull_request:
 
-# A PR branch gets both a push event and a pull_request event. Keep the newest
-# run per ref and cancel the rest.
+# push used to fire on EVERY branch, so each PR push started two identical
+# runs and the concurrency rule cancelled one — which GitHub renders with the
+# same X as a failure. Every few days someone read "some checks failed" off a
+# PR whose real runs were green (28 Aug, twice). One event per commit instead:
+# PRs run as pull_request, main and tags run as push, and nothing needs
+# cancelling in the normal path.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -231,6 +235,25 @@ jobs:
         run: |
           dist/Argus/argus-engine.exe --help > /dev/null
           python tests/e2e/bundle_smoke.py dist/Argus/argus-engine.exe
+
+      # The APP ITSELF must boot — engine checks below prove detection runs,
+      # but Argus(.exe) had only ever been launched on developer laptops until
+      # this step existed. Offscreen platform: no display on a runner.
+      - name: Boot the shipped app (macOS)
+        if: runner.os == 'macOS'
+        env: { QT_QPA_PLATFORM: offscreen }
+        run: dist/Argus.app/Contents/MacOS/Argus --smoke --db "$RUNNER_TEMP/smoke/events.db"
+      - name: Boot the shipped app (Linux)
+        if: runner.os == 'Linux'
+        env: { QT_QPA_PLATFORM: offscreen }
+        run: dist/Argus/Argus --smoke --db "$RUNNER_TEMP/smoke/events.db"
+      - name: Boot the shipped app (Windows)
+        if: runner.os == 'Windows'
+        env: { QT_QPA_PLATFORM: offscreen }
+        shell: pwsh
+        run: |
+          & dist\Argus\Argus.exe --smoke --db "$env:RUNNER_TEMP\smoke\events.db"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Windows specifically: prove the AI runtime SHIPPED and is launchable.
       # 'the ollama doesn't come in with it' (25 Aug) was a UX misreading, but

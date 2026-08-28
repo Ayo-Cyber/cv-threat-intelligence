@@ -243,6 +243,27 @@ class ConsoleBackend:
         """The whole permission table — for the UI, and for procurement."""
         return perms.describe()
 
+    def _writable_config(self, rel: str) -> Path:
+        """A per-user copy of a bundled config that the app needs to WRITE.
+
+        Feed switching regenerates live_camera.json; English rules and zones
+        edit the active site config. In dev those writes land in the repo —
+        fine. Installed, they would land inside the bundle: silently wrong on
+        macOS, PermissionError under Program Files on Windows (the installer
+        made this failure certain, not just likely). First use copies the
+        bundled file next to the user's site data and edits that copy.
+        """
+        if not getattr(sys, "frozen", False):
+            return resource_path(rel)
+        from cvti.utils import user_data_dir
+        dst = user_data_dir() / "feeds" / Path(rel).name
+        if not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            src = resource_path(rel)
+            if src.exists():
+                dst.write_text(src.read_text())
+        return dst
+
     @staticmethod
     def _locate_demo():
         """Self-contained playback demo (clips + recorded alerts) shipped in the
@@ -562,6 +583,11 @@ class ConsoleBackend:
                 "w": int(w), "h": int(h)}
 
     def _zones_file(self, camera_id: str) -> Path:
+        if getattr(sys, "frozen", False):
+            from cvti.utils import user_data_dir
+            d = user_data_dir() / "zones"
+            d.mkdir(parents=True, exist_ok=True)
+            return d / f"{camera_id}.json"
         return Path("configs/zones") / f"{camera_id}.json"
 
     def list_zones(self, camera_id: str) -> list[dict]:
@@ -1222,7 +1248,10 @@ class ConsoleBackend:
 
     # --- feed source switcher: flip between demo videos and live cameras ---
     def _feeds_registry(self) -> dict:
-        p = Path("configs/feeds.json")
+        # resource_path, NOT a bare relative Path: the installed app is
+        # launched with cwd anywhere, and a cwd-relative read here means the
+        # feed toggle simply never appears on customer machines.
+        p = resource_path("configs/feeds.json")
         if not p.exists():
             return {"sources": []}
         try:
@@ -1237,7 +1266,9 @@ class ConsoleBackend:
         active = None
         srcs = []
         for s in reg.get("sources", []):
-            is_active = str(Path(s.get("config", "")).resolve()) == str(Path(self.site_path).resolve())
+            cand = {str(Path(s.get("config", "")).resolve()),
+                    str(self._writable_config(s.get("config", "")).resolve())}
+            is_active = str(Path(self.site_path).resolve()) in cand
             if is_active:
                 active = s["key"]
             srcs.append({"key": s["key"], "label": s["label"], "kind": s.get("kind", "demo")})
@@ -1274,6 +1305,7 @@ class ConsoleBackend:
         try:
             if src.get("kind") == "live":
                 st["status"] = "resolving live streams…"
+                src = dict(src, config=str(self._writable_config(src["config"])))
                 res = self._resolve_live_config(src)
                 if not res.get("ok"):
                     st.update(busy=False, done=True, error=res.get("error", "resolve failed"))
@@ -1282,8 +1314,9 @@ class ConsoleBackend:
             if was_running:
                 st["status"] = "stopping engine…"
                 self.stop_monitoring()
-            self.site_path = src["config"]
-            self.db_path = self._db_for_feed(key, src["config"])
+            cfg = str(self._writable_config(src["config"]))
+            self.site_path = cfg
+            self.db_path = self._db_for_feed(key, cfg)
             restarted = False
             # The frozen guard predated EP-05: the installed bundle SHIPS an
             # engine now, so a feed switch there used to stop monitoring and
@@ -1302,22 +1335,44 @@ class ConsoleBackend:
             st.update(busy=False, done=True, error=str(exc)[:200], status="failed")
 
     def _resolve_live_config(self, src: dict) -> dict:
-        """Resolve each YouTube id to a fresh HLS URL (yt-dlp) and write the live
-        config with running + the shared loitering watch-zone."""
-        import shutil
-        if not shutil.which("yt-dlp"):
-            return {"ok": False, "error": "yt-dlp not installed — needed for live feeds. pip install yt-dlp"}
+        """Resolve each YouTube id to a fresh HLS URL and write the live config
+        with running + the shared loitering watch-zone.
+
+        The yt_dlp LIBRARY does the resolving — it is a normal dependency and
+        travels inside the installed bundle. This used to shell out to a
+        yt-dlp EXECUTABLE and refuse if the machine did not have one: true on
+        this laptop, false on every customer install, so the pilot's Windows
+        box showed the Live feed button and answered every click with an
+        instruction to install developer tooling. A field report ('it didn't
+        come on when it was switched', 28 Aug) is what surfaced it. The executable remains as a
+        dev-environment fallback only.
+        """
         from concurrent.futures import ThreadPoolExecutor
 
         def _resolve_one(entry):
             name, vid = entry
+            url = f"https://www.youtube.com/watch?v={vid}"
+            try:
+                import yt_dlp
+                opts = {"quiet": True, "no_warnings": True, "noplaylist": True,
+                        "format": "best[height<=720]/best",
+                        "extractor_args": {"youtube": {"player_client": ["android"]}},
+                        "socket_timeout": 20}
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                return name, str(info.get("url") or "")
+            except ImportError:
+                pass                       # dev env without the package — try the CLI
+            except Exception as exc:  # noqa: BLE001 - a dead feed shouldn't sink the others
+                log.debug("camera place lookup failed", exc_info=True)
+                return name, ""
             try:
                 out = subprocess.run(
                     ["yt-dlp", "-g", "--extractor-args", "youtube:player_client=android",
-                     "-f", "best[height<=720]/best", f"https://www.youtube.com/watch?v={vid}"],
+                     "-f", "best[height<=720]/best", url],
                     capture_output=True, text=True, timeout=25)
                 return name, ((out.stdout or "").strip().splitlines() or [""])[0]
-            except Exception as exc:  # noqa: BLE001 - a dead feed shouldn't sink the others
+            except Exception as exc:  # noqa: BLE001
                 log.debug("camera place lookup failed", exc_info=True)
                 return name, ""
 
@@ -1337,7 +1392,8 @@ class ConsoleBackend:
                         "running": True, "running_min_speed_ratio": 0.08,
                         "running_min_frames": 3})
         if not cams:
-            return {"ok": False, "error": "could not resolve any live feed (try `yt-dlp -U`)"}
+            return {"ok": False, "error": "could not reach the public demo feeds — "
+                              "check this machine's internet connection and try again"}
         Path(src["config"]).write_text(json.dumps(
             {"name": "Live Dashboard", "notify": "console", "configured": True, "cameras": cams}, indent=2))
         return {"ok": True, "resolved": len(cams)}
