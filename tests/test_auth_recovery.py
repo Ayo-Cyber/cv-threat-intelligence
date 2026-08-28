@@ -81,3 +81,21 @@ class AuthRecoveryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FirstPaintIsAuthTest(unittest.TestCase):
+    """The console must never be the first thing an unauthenticated eye sees.
+
+    The auth gate used to start hidden and only appear after the bridge
+    connected and authState answered — so every launch flashed the whole
+    console first (28 Aug: 'the front and first page should be sign in or
+    create an account not this thing we are seeing')."""
+
+    def test_the_gate_is_open_in_the_static_html(self):
+        html = Path("cvti/app/web/index.html").read_text()
+        self.assertIn('<div id="authGate" class="on">', html,
+                      "first paint shows the console, not the auth gate")
+
+    def test_a_missing_bridge_reports_into_the_gate(self):
+        html = Path("cvti/app/web/index.html").read_text()
+        self.assertNotIn('document.getElementById("screen").innerHTML=\'<div class="pad mut">Backend bridge', html)

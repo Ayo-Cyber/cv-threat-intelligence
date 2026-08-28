@@ -442,7 +442,16 @@
 </div>
 <div id="modalRoot"></div>
 <div id="wizard"></div>
-<div id="authGate"></div>
+<!-- Pre-opened ON PURPOSE: the console shell paints instantly, but the
+     bridge + authState round-trip decides whether this user may see it. The
+     gate used to start hidden, so every launch flashed the full app before
+     the sign-in snapped over it — on a cold Windows start, for seconds
+     ("the first page should be sign in or create an account", 28 Aug).
+     boot() swaps this splash for create-owner / sign-in, or clears it. -->
+<div id="authGate" class="on"><div class="authbox">
+  <div class="brand-n">Argus</div>
+  <div class="mut" style="margin-top:6px">Starting&hellip;</div>
+</div></div>
 
 <script>
 "use strict";
@@ -2829,8 +2838,8 @@ function connect(tries){
     return;
   }
   if(tries>0){ setTimeout(function(){connect(tries-1);}, 60); return; }
-  document.getElementById("screen").innerHTML='<div class="pad mut">Backend bridge not found. Run this via <b>cvti-console</b> / <b>python -m cvti.app.shell</b> — not a plain browser.</div>';
-  renderNav();
+  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:10px">'
+    +'Backend bridge not found. Run this via <b>cvti-console</b> / <b>python -m cvti.app.shell</b> — not a plain browser.</div>');
 }
 if(document.readyState!=="loading") connect(30);
 else document.addEventListener("DOMContentLoaded", function(){connect(30);});
