@@ -101,6 +101,28 @@ class ConsoleBackend:
             "permissions": sorted(perms.permissions_for(user.role)) if user else [],
         }
 
+    def auth_recovery(self) -> dict:
+        """What the sign-in screen shows a locked-out owner (pre-auth, read-only).
+
+        'Invalid credentials' used to be a dead end: no dev account exists by
+        design, so an owner who lost the password — or inherited a machine
+        with an account someone else created — had no path forward and no way
+        to know one existed (field report, 28 Aug). Recovery stays an
+        OS-level act on purpose: deleting the store needs access to the
+        machine's files, not just this window, so a passer-by at the console
+        cannot seize the site. This only tells the operator where that file
+        is on THIS machine; viewing it is audit-logged.
+        """
+        path = Path(self.accounts.db_path if hasattr(self.accounts, "db_path")
+                    else Path(self._home_db).parent / "auth.db")
+        try:
+            self.audit.record("<unknown>", "auth_recovery_viewed",
+                              detail={"outcome": "instructions shown"})
+        except Exception:  # noqa: BLE001 - showing help must not depend on audit
+            log.debug("audit write failed for recovery view", exc_info=True)
+        return {"auth_db": str(path),
+                "evidence_untouched": True}
+
     def create_first_owner(self, username: str, password: str) -> dict:
         """First run. Nothing ships with a known credential because nothing
         ships with an account at all — the first one is created here."""
