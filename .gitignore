@@ -121,3 +121,4 @@ tests/e2e/out/
 # detector, which is tracked deliberately.
 *.pt
 !models/weapon_best.pt
+!data/test_clips/fire_demo_01.mp4

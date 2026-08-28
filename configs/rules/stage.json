@@ -1,0 +1,42 @@
+{
+  "use_case_id": "stage_zones",
+  "rules": [
+    {
+      "name": "weapon_sighting",
+      "trigger": {
+        "detector": "weapons"
+      },
+      "priority": "critical"
+    },
+    {
+      "name": "violence",
+      "trigger": {
+        "detector": "violence"
+      },
+      "priority": "critical"
+    },
+    {
+      "name": "theft_depart",
+      "trigger": {
+        "detector": "theft",
+        "state": "DEPART"
+      },
+      "priority": "high"
+    },
+    {
+      "name": "shoplifting",
+      "trigger": {
+        "detector": "concealment"
+      },
+      "priority": "high"
+    },
+    {
+      "name": "loitering_demo_floor",
+      "trigger": {
+        "detector": "presence"
+      },
+      "context_filter": "zone == 'demo_floor' and dwell_seconds >= 999999",
+      "priority": "medium"
+    }
+  ]
+}

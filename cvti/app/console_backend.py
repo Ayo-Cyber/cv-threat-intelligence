@@ -243,6 +243,27 @@ class ConsoleBackend:
         """The whole permission table — for the UI, and for procurement."""
         return perms.describe()
 
+    def _writable_config(self, rel: str) -> Path:
+        """A per-user copy of a bundled config that the app needs to WRITE.
+
+        Feed switching regenerates live_camera.json; English rules and zones
+        edit the active site config. In dev those writes land in the repo —
+        fine. Installed, they would land inside the bundle: silently wrong on
+        macOS, PermissionError under Program Files on Windows (the installer
+        made this failure certain, not just likely). First use copies the
+        bundled file next to the user's site data and edits that copy.
+        """
+        if not getattr(sys, "frozen", False):
+            return resource_path(rel)
+        from cvti.utils import user_data_dir
+        dst = user_data_dir() / "feeds" / Path(rel).name
+        if not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            src = resource_path(rel)
+            if src.exists():
+                dst.write_text(src.read_text())
+        return dst
+
     @staticmethod
     def _locate_demo():
         """Self-contained playback demo (clips + recorded alerts) shipped in the
@@ -562,6 +583,11 @@ class ConsoleBackend:
                 "w": int(w), "h": int(h)}
 
     def _zones_file(self, camera_id: str) -> Path:
+        if getattr(sys, "frozen", False):
+            from cvti.utils import user_data_dir
+            d = user_data_dir() / "zones"
+            d.mkdir(parents=True, exist_ok=True)
+            return d / f"{camera_id}.json"
         return Path("configs/zones") / f"{camera_id}.json"
 
     def list_zones(self, camera_id: str) -> list[dict]:
@@ -1222,7 +1248,10 @@ class ConsoleBackend:
 
     # --- feed source switcher: flip between demo videos and live cameras ---
     def _feeds_registry(self) -> dict:
-        p = Path("configs/feeds.json")
+        # resource_path, NOT a bare relative Path: the installed app is
+        # launched with cwd anywhere, and a cwd-relative read here means the
+        # feed toggle simply never appears on customer machines.
+        p = resource_path("configs/feeds.json")
         if not p.exists():
             return {"sources": []}
         try:
@@ -1237,7 +1266,9 @@ class ConsoleBackend:
         active = None
         srcs = []
         for s in reg.get("sources", []):
-            is_active = str(Path(s.get("config", "")).resolve()) == str(Path(self.site_path).resolve())
+            cand = {str(Path(s.get("config", "")).resolve()),
+                    str(self._writable_config(s.get("config", "")).resolve())}
+            is_active = str(Path(self.site_path).resolve()) in cand
             if is_active:
                 active = s["key"]
             srcs.append({"key": s["key"], "label": s["label"], "kind": s.get("kind", "demo")})
@@ -1274,6 +1305,7 @@ class ConsoleBackend:
         try:
             if src.get("kind") == "live":
                 st["status"] = "resolving live streams…"
+                src = dict(src, config=str(self._writable_config(src["config"])))
                 res = self._resolve_live_config(src)
                 if not res.get("ok"):
                     st.update(busy=False, done=True, error=res.get("error", "resolve failed"))
@@ -1282,8 +1314,9 @@ class ConsoleBackend:
             if was_running:
                 st["status"] = "stopping engine…"
                 self.stop_monitoring()
-            self.site_path = src["config"]
-            self.db_path = self._db_for_feed(key, src["config"])
+            cfg = str(self._writable_config(src["config"]))
+            self.site_path = cfg
+            self.db_path = self._db_for_feed(key, cfg)
             restarted = False
             # The frozen guard predated EP-05: the installed bundle SHIPS an
             # engine now, so a feed switch there used to stop monitoring and

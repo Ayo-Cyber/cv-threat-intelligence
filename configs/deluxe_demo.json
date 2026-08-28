@@ -24,7 +24,7 @@
     },
     {
       "id": "Main Corridor",
-      "source": "data/hse_demo/Crowd-Activity-All.mp4",
+      "source": "data/test_clips/normal_street_01.mp4",
       "config": "configs/manufacturing_hse_v1.json",
       "environment_type": "manufacturing_floor",
       "scene_description": "Factory corridor where people normally walk calmly; running may indicate panic, an accident, or evacuation.",
@@ -41,7 +41,7 @@
     },
     {
       "id": "Production Floor",
-      "source": "data/hse_demo/fire_videos.1406/pos/posVideo1.868.mp4",
+      "source": "data/test_clips/fire_demo_01.mp4",
       "config": "configs/all_threats_v1.json",
       "environment_type": "manufacturing_floor",
       "scene_description": "Paint manufacturing/warehouse floor where visible flame, smoke or haze indicates a fire hazard.",

@@ -69,7 +69,7 @@ class PerFeedStoreTest(unittest.TestCase):
 
     def test_switch_updates_the_db_path(self):
         src = (ROOT / "cvti/app/console_backend.py").read_text()
-        self.assertIn('self.db_path = self._db_for_feed(key, src["config"])', src)
+        self.assertIn('self.db_path = self._db_for_feed(key, cfg)', src)
 
 
 class HealthHistoryTest(unittest.TestCase):
