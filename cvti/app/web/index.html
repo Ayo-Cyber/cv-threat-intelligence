@@ -2721,8 +2721,9 @@ document.addEventListener("click", function _unlock(){
 function boot(){
   call("authState",[],function(a){
     if(!a || a.error){ authScreen('<div class="pad mut">Could not read sign-in state: '+esc((a&&a.error)||"no response")+'</div>'); return; }
-    if(!a.configured){ renderFirstRun(); }
-    else if(!a.signed_in){ renderSignIn(""); }
+    state.authConfigured = !!a.configured;
+    if(!a.configured){ renderAuth("create",""); }
+    else if(!a.signed_in){ renderAuth("signin",""); }
     else { enterApp(a); }
   });
 }
@@ -2734,47 +2735,55 @@ function authField(id,label,type,help){
     +'<input class="field" id="'+id+'" type="'+type+'" autocomplete="off" spellcheck="false">'
     +(help?'<div class="sub" style="font-size:11px;margin-top:7px">'+help+'</div>':'');
 }
-function renderSignIn(err){
-  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:4px">Sign in to this site</div>'
-    +'<div class="panel" style="padding:20px;margin-top:22px">'
-    +  authField("authUser","Name","text","")
-    +  authField("authPass","Password","password","")
-    +  '<div class="ferr" id="authErr">'+esc(err||"")+'</div>'
-    +  '<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doSignIn()">Sign in</button>'
-    +'</div>'
-    /* A locked-out owner used to hit "invalid credentials" forever with no
-       hint that recovery exists (field report, 28 Aug). No dev account, no
-       reset email — accounts are local, so recovery is local too. */
-    +'<div class="sub" style="font-size:11.5px;margin-top:12px;text-align:center">'
-    +  '<a href="#" style="color:var(--c-accent);text-decoration:none" onclick="showAuthRecovery();return false">Can\'t sign in?</a>'
-    +'</div>'
-    +'<div id="authRecover" style="display:none"></div>');
-  wireAuthEnter("doSignIn"); $("authUser").focus();
+function authTabs(mode){
+  /* BOTH doors are always on the first screen ("it has to be both", 28 Aug).
+     What the create door does depends on the site: on a fresh site it creates
+     the first owner; on a configured site it explains that the owner adds
+     accounts — an unauthenticated create on a configured SECURITY console
+     would let anyone at the login screen join the site. */
+  function tab(key,label){
+    var on = mode===key;
+    return '<button class="tab'+(on?" on":"")+'" style="flex:1" '
+      +(on?'':'onclick="renderAuth(\''+key+'\',\'\')"')+'>'+label+'</button>';
+  }
+  return '<div style="display:flex;gap:6px;margin-top:18px">'+tab("signin","Sign in")+tab("create","Create account")+'</div>';
 }
-function showAuthRecovery(){
-  call("authRecovery",[],function(r){
-    var el=$("authRecover"); if(!el) return;
-    el.style.display="block";
-    el.innerHTML = '<div class="panel" style="padding:14px 16px;margin-top:10px;font-size:12.5px;line-height:1.6">'
-      +'<b>Accounts on this site are local</b> — there is no default login and no reset email.'
-      +'<div class="mut" style="margin-top:8px">If nobody knows the password, someone with access to <i>this machine\'s files</i> can reset accounts:</div>'
-      +'<ol class="mut" style="margin:8px 0 0 18px;padding:0">'
-      +'<li>Quit Argus</li>'
-      +'<li>Delete this file:<div class="mono" style="font-size:11px;margin:4px 0;word-break:break-all;user-select:all">'+esc((r&&r.auth_db)||"")+'</div></li>'
-      +'<li>Start Argus again — it will ask you to create a new owner account</li>'
-      +'</ol>'
-      +'<div class="mut" style="margin-top:8px">Recorded alerts, evidence and the audit trail are separate files and are not touched. This view was written to the audit log.</div>'
-      +'</div>';
-  });
-}
-function renderFirstRun(){
-  authScreen('<div class="brand-n">Argus</div><div class="mut" style="margin-top:4px">Set up this site</div>'
-    +'<div class="panel" style="padding:20px;margin-top:22px">'
+function renderAuth(mode, err){
+  var head='<div class="brand-n">Argus</div>'
+    +'<div class="mut" style="margin-top:4px">'+(state.authConfigured?"Sign in to this site":"Set up this site")+'</div>'
+    +authTabs(mode);
+  if(mode==="signin"){
+    var body;
+    if(state.authConfigured===false){
+      body='<p class="mut" style="font-size:12.5px;line-height:1.6;margin:6px 0 0">No accounts exist on this site yet — nothing ships with a password. Create the owner account to get started.</p>';
+    } else {
+      body=authField("authUser","Name","text","")
+        +authField("authPass","Password","password","")
+        +'<div class="ferr" id="authErr">'+esc(err||"")+'</div>'
+        +'<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doSignIn()">Sign in</button>';
+    }
+    authScreen(head+'<div class="panel" style="padding:20px;margin-top:10px">'+body+'</div>'
+      +'<div class="sub" style="font-size:11.5px;margin-top:12px;text-align:center">'
+      +  '<a href="#" style="color:var(--c-accent);text-decoration:none" onclick="showAuthRecovery();return false">Can\'t sign in?</a>'
+      +'</div>'
+      +'<div id="authRecover" style="display:none"></div>');
+    if(state.authConfigured!==false){ wireAuthEnter("doSignIn"); $("authUser").focus(); }
+    return;
+  }
+  // create
+  if(state.authConfigured){
+    authScreen(head+'<div class="panel" style="padding:20px;margin-top:10px">'
+      +'<p class="mut" style="font-size:12.5px;line-height:1.6;margin:0">This site already has accounts, so new ones are created by a signed-in <b>owner</b> under <b>Settings → People</b> — the login screen cannot mint accounts, or anyone standing here could join your site.</p>'
+      +'<p class="mut" style="font-size:12.5px;line-height:1.6;margin:10px 0 0">Locked out entirely? Use <a href="#" style="color:var(--c-accent);text-decoration:none" onclick="renderAuth(\'signin\',\'\');setTimeout(showAuthRecovery,50);return false">Can\'t sign in?</a></p>'
+      +'</div>');
+    return;
+  }
+  authScreen(head+'<div class="panel" style="padding:20px;margin-top:10px">'
     +  '<div style="font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--c-sub)">Step 1 of 5 · Owner account</div>'
     +  '<p class="mut" style="font-size:12.5px;margin:9px 0 3px;line-height:1.55">Nothing ships with a password, so there is nothing to change — you are creating the first account now. The owner can add operators and installers later.</p>'
     +  authField("authUser","Name","text","")
     +  authField("authPass","Password","password","At least 8 characters. Stored hashed — it cannot be recovered, only reset.")
-    +  '<div class="ferr" id="authErr"></div>'
+    +  '<div class="ferr" id="authErr">'+esc(err||"")+'</div>'
     +  '<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="doFirstRun()">Create account and continue</button>'
     +'</div>'
     +'<div class="authdots"><div class="on"></div><div></div><div></div><div></div><div></div></div>'

@@ -99,3 +99,26 @@ class FirstPaintIsAuthTest(unittest.TestCase):
     def test_a_missing_bridge_reports_into_the_gate(self):
         html = Path("cvti/app/web/index.html").read_text()
         self.assertNotIn('document.getElementById("screen").innerHTML=\'<div class="pad mut">Backend bridge', html)
+
+
+class BothDoorsOnTheFirstScreenTest(unittest.TestCase):
+    """'It has to be both' (28 Aug): Sign in AND Create account are always
+    visible tabs. On a configured site the create tab EXPLAINS rather than
+    mints — an unauthenticated create on a security console would let anyone
+    at the login screen join the site."""
+
+    def setUp(self):
+        self.html = Path("cvti/app/web/index.html").read_text()
+
+    def test_both_tabs_exist(self):
+        self.assertIn('tab("signin","Sign in")', self.html)
+        self.assertIn('tab("create","Create account")', self.html)
+
+    def test_a_configured_site_never_mints_from_the_login_screen(self):
+        self.assertIn("created by a signed-in <b>owner</b>", self.html)
+        # the create form (doFirstRun) is only reachable on an unconfigured site
+        self.assertIn("if(state.authConfigured){", self.html)
+
+    def test_the_old_single_track_screens_are_gone(self):
+        self.assertNotIn("function renderSignIn(", self.html)
+        self.assertNotIn("function renderFirstRun(", self.html)
