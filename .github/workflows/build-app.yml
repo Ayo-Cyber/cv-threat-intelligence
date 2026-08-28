@@ -250,13 +250,28 @@ jobs:
       - name: Package artifact (Windows)
         if: runner.os == 'Windows'
         run: Compress-Archive -Path dist/* -DestinationPath ${{ matrix.artifact }}.zip
+      # A real installer, not just a zip: Start Menu entry, uninstaller,
+      # upgrades over the top. Inno Setup is preinstalled on windows runners.
+      # PowerShell, NOT bash: git-bash rewrites /D... arguments into Windows
+      # paths (MSYS path conversion), so ISCC saw two script filenames and
+      # refused. Proven on the first dispatch of this step.
+      - name: Build the Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($version -eq $env:GITHUB_REF_NAME) { $version = '0.0.0' }   # not a tag
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DAppVersion=$version" scripts\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Move-Item dist\argus-windows-setup.exe argus-windows-setup.exe
+          Get-Item argus-windows-setup.exe | Format-List Name, Length
 
       # GitHub refuses release assets >= 2 GiB — fail HERE, loudly, not in the
       # release job after three successful builds (v1.0.0 post-mortem, 23 Aug).
       - name: Enforce the release-asset size cap
         shell: bash
         run: |
-          for f in ${{ matrix.artifact }}.dmg ${{ matrix.artifact }}.zip; do
+          for f in ${{ matrix.artifact }}.dmg ${{ matrix.artifact }}.zip argus-windows-setup.exe; do
             [ -f "$f" ] || continue
             size=$(wc -c < "$f")
             echo "$f = $((size / 1024 / 1024)) MB"
@@ -272,6 +287,7 @@ jobs:
           path: |
             ${{ matrix.artifact }}.dmg
             ${{ matrix.artifact }}.zip
+            argus-windows-setup.exe
           if-no-files-found: error
 
   # On a version tag, collect all three OS builds into ONE public GitHub Release,

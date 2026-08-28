@@ -4,6 +4,27 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.2.0 — 28 Aug 2026
+
+**Windows customers get a real installer.** `argus-windows-setup.exe` now sits
+next to the portable zip: Start Menu entry, desktop shortcut, an uninstaller,
+and new versions install over old ones instead of beside them. SmartScreen
+still warns once — that is the missing signing certificate, not the packaging.
+
+**Live streams no longer fast-forward.** Segmented sources (HLS and similar)
+deliver video in multi-second bursts; the wall used to freeze for a segment and
+then replay it at decode speed. Bursts now play out smoothly at content rate a
+few seconds behind live, catching up quietly when genuinely behind, with lag
+hard-capped at eight seconds. Measured on the same public feeds: 0.7-1.2 fps
+with five-second lurches before, ~11 fps steady after. Real RTSP cameras
+deliver continuously and ride the same path at near-zero lag.
+
+**Several plain-English rules on one camera now all fire.** The scanner used to
+ask the model for THE threat — singular — so whichever rule it found most
+salient answered every cycle and the rest never fired at all. Every rule is now
+checked independently, each with its own cooldown. Also, a threat the model
+invents no longer slips through by sharing one generic word with a real rule.
+
 ## v1.1.1 — 27 Aug 2026
 
 **Update if you are on v1.1.0.** One user-visible fix, and it is the kind that
