@@ -1,29 +1,44 @@
-; Inno Setup script — CV Threat Intelligence Windows installer
-; Run with: ISCC.exe scripts\installer.iss
+; Inno Setup script — the Argus Windows installer.
+;
+; Until 28 Aug this file described an app that no longer exists (CVTI.exe,
+; v0.1.0) and no build ever ran it — Windows customers got a bare zip while
+; macOS got a dmg: unzip somewhere, find Argus.exe in a folder of DLLs, no
+; Start Menu entry, no uninstaller. CI now compiles this on every release
+; (Inno Setup is preinstalled on GitHub's windows runners) and ships
+; argus-windows-setup.exe alongside the portable zip.
+;
+;   ISCC.exe /DAppVersion=1.2.3 scripts\installer.iss
+;
+; Being unsigned, the setup exe still triggers SmartScreen — an Authenticode
+; certificate fixes that (docs/SIGNING.md), not this script. What this script
+; fixes is everything after the warning.
 
-#define AppName "CV Threat Intelligence"
-#define AppExeName "CVTI.exe"
-#define AppVersion "0.1.0"
-#define AppPublisher "CVTI"
-#define AppURL "https://cvti.ai"
-#define BundleDir "..\dist\CVTI"
+#ifndef AppVersion
+  #define AppVersion "0.0.0"
+#endif
+#define AppName "Argus"
+#define AppExeName "Argus.exe"
+#define AppPublisher "Argus"
+#define BundleDir "..\dist\Argus"
 
 [Setup]
-AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
+; Stable AppId so upgrades install over the top instead of side-by-side.
+AppId={{7E3F2A91-4C58-4B7D-9A16-ARGUS0000001}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-AppPublisherURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=..\dist
-OutputBaseFilename=CVTI-{#AppVersion}-Setup
+OutputBaseFilename=argus-windows-setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 DisableProgramGroupPage=yes
 PrivilegesRequiredOverridesAllowed=commandline dialog
 UninstallDisplayIcon={app}\{#AppExeName}
+; The bundle is ~1.4 GB unpacked; make the disk math visible up front.
+ExtraDiskSpaceRequired=524288000
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -32,13 +47,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
 
 [Files]
-; Copy entire PyInstaller bundle
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#AppName}";      Filename: "{app}\{#AppExeName}"
-Name: "{group}\Uninstall CVTI";  Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{group}\{#AppName}";          Filename: "{app}\{#AppExeName}"
+Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
