@@ -2772,10 +2772,27 @@ function renderAuth(mode, err){
   }
   // create
   if(state.authConfigured){
-    authScreen(head+'<div class="panel" style="padding:20px;margin-top:10px">'
-      +'<p class="mut" style="font-size:12.5px;line-height:1.6;margin:0">This site already has accounts, so new ones are created by a signed-in <b>owner</b> under <b>Settings → People</b> — the login screen cannot mint accounts, or anyone standing here could join your site.</p>'
-      +'<p class="mut" style="font-size:12.5px;line-height:1.6;margin:10px 0 0">Locked out entirely? Use <a href="#" style="color:var(--c-accent);text-decoration:none" onclick="renderAuth(\'signin\',\'\');setTimeout(showAuthRecovery,50);return false">Can\'t sign in?</a></p>'
-      +'</div>');
+    /* Pilot-phase decision, reaffirmed 28 Aug ("for now when we do create
+       account just override it"): the create tab on a configured site shows
+       WHO already holds it and lets a new owner REPLACE those accounts,
+       confirmed and loudly audited. Signed-in owners still add people the
+       normal way under Settings → People. */
+    call("authAccounts",[],function(r){
+      var users=(r&&r.users)||[];
+      var who=users.length
+        ? '<div class="panel" style="padding:12px 16px;margin:0 0 12px;font-size:12.5px;line-height:1.7"><b>This site already has '+users.length+' account'+(users.length>1?"s":"")+':</b> '
+          +users.map(function(u){return esc(u.username)+' <span class="mut">('+esc(u.role)+')</span>';}).join(", ")+'</div>'
+        : '';
+      authScreen(head+'<div class="panel" style="padding:20px;margin-top:10px">'
+        +who
+        +'<p class="mut" style="font-size:12.5px;line-height:1.6;margin:0 0 6px">Creating an account here <b style="color:var(--sev-high)">replaces every account above</b> with a new owner. Alerts, evidence and the audit trail are kept — and this replacement is written to the audit log with the old names.</p>'
+        +authField("authUser","New owner name","text","")
+        +authField("authPass","Password","password","At least 8 characters.")
+        +'<div class="ferr" id="authErr"></div>'
+        +'<button class="btn" id="authBtn" style="width:100%;padding:11px;background:var(--sev-high);border-color:var(--sev-high);color:#04121f" onclick="doOwnerOverride()">Replace accounts and continue</button>'
+        +'</div>');
+      wireAuthEnter("doOwnerOverride"); $("authUser").focus();
+    });
     return;
   }
   authScreen(head+'<div class="panel" style="padding:20px;margin-top:10px">'
@@ -2820,6 +2837,16 @@ function doSignIn(){
     // The backend returns one message for a wrong password and an unknown
     // user, on purpose. Display it verbatim; never elaborate.
     else if($("authErr")) $("authErr").textContent = (r&&r.error)||"sign-in failed";
+  });
+}
+function doOwnerOverride(){
+  var n=$("authUser").value.trim();
+  if(!confirm("Replace ALL existing accounts with a new owner '"+n+"'?\n\nThis cannot be undone. Alerts, evidence and the audit log are kept.")) return;
+  authBusy(true);
+  call("createOwnerOverride",[n, $("authPass").value],function(r){
+    authBusy(false);
+    if(r && r.ok){ enterApp(r); }
+    else if($("authErr")) $("authErr").textContent = (r&&r.error)||"could not replace accounts";
   });
 }
 function doFirstRun(){

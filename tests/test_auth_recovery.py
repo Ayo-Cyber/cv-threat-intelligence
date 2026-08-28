@@ -114,11 +114,75 @@ class BothDoorsOnTheFirstScreenTest(unittest.TestCase):
         self.assertIn('tab("signin","Sign in")', self.html)
         self.assertIn('tab("create","Create account")', self.html)
 
-    def test_a_configured_site_never_mints_from_the_login_screen(self):
-        self.assertIn("created by a signed-in <b>owner</b>", self.html)
-        # the create form (doFirstRun) is only reachable on an unconfigured site
-        self.assertIn("if(state.authConfigured){", self.html)
+    def test_a_configured_site_overrides_loudly_never_quietly(self):
+        """Policy changed 28 Aug at the owner's reaffirmed decision: the create
+        tab REPLACES accounts (pilot-phase). The pinned invariants are the
+        controls, not the prohibition: the tab lists who will be replaced and
+        goes through the confirmed, audited override — never doFirstRun."""
+        self.assertIn('call("authAccounts"', self.html)
+        self.assertIn("replaces every account above", self.html)
+        create_branch = self.html.split("if(state.authConfigured){", 2)[-1][:2000]
+        self.assertIn("doOwnerOverride", create_branch)
+        self.assertNotIn("doFirstRun", create_branch,
+                         "a configured site reached the unaudited first-run create")
 
     def test_the_old_single_track_screens_are_gone(self):
         self.assertNotIn("function renderSignIn(", self.html)
         self.assertNotIn("function renderFirstRun(", self.html)
+
+
+class OwnerOverrideTest(unittest.TestCase):
+    """Pilot-phase decision, reaffirmed 28 Aug: the create tab on a configured
+    site REPLACES existing accounts. Compensating controls, each pinned here:
+    the screen can list who will be replaced, the replacement is audit-logged
+    with the old names, sessions die with the old accounts, and evidence and
+    audit survive."""
+
+    def test_accounts_are_listable_before_auth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = _backend(tmp)
+            cb.create_first_owner("martins", "pilot-pass-1")
+            cb.sign_out()
+            cb2 = _backend(tmp)                      # nobody signed in
+            names = [u["username"] for u in cb2.auth_accounts()["users"]]
+            self.assertEqual(names, ["martins"])
+
+    def test_override_replaces_and_signs_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = _backend(tmp)
+            cb.create_first_owner("old-owner", "forgotten-pw-1")
+            cb.sign_out()
+            r = cb.create_owner_override("ayo", "fresh-pass-99")
+            self.assertTrue(r["ok"])
+            self.assertEqual(r["username"], "ayo")
+            names = [u["username"] for u in cb.auth_accounts()["users"]]
+            self.assertEqual(names, ["ayo"], "the old account survived the override")
+
+    def test_the_replacement_is_loud_in_the_audit_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = _backend(tmp)
+            cb.create_first_owner("old-owner", "forgotten-pw-1")
+            cb.create_owner_override("ayo", "fresh-pass-99")
+            con = sqlite3.connect(Path(tmp) / "site" / "audit.db")
+            try:
+                row = con.execute("SELECT detail FROM audit WHERE action="
+                                  "'accounts_override_via_login'").fetchone()
+            finally:
+                con.close()
+            self.assertIsNotNone(row, "an account takeover left no audit trace")
+            self.assertIn("old-owner", row[0], "the audit row does not name who was replaced")
+
+    def test_old_sessions_die_with_the_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = _backend(tmp)
+            cb.create_first_owner("old-owner", "forgotten-pw-1")   # signs in
+            self.assertIsNotNone(cb.current_user)
+            cb.create_owner_override("ayo", "fresh-pass-99")
+            self.assertEqual(cb.current_user.username, "ayo",
+                             "the old session outlived its account")
+
+    def test_the_ui_confirms_before_replacing(self):
+        html = Path("cvti/app/web/index.html").read_text()
+        self.assertIn("doOwnerOverride", html)
+        self.assertIn("confirm(", html.split("function doOwnerOverride")[1][:400],
+                      "the override fires without a confirmation")
