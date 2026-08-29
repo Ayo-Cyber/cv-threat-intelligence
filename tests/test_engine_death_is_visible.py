@@ -1,0 +1,88 @@
+"""'It doesn't work on my machine' must arrive as an error, not a screenshot.
+
+A pilot's Windows machine spent a day dark (29 Aug field photos): the engine
+died at startup, the wall showed broken tiles, the Start button flipped to
+'Stop monitoring' over a footer saying 'engine not running', and nothing
+anywhere said WHY. Three fixes pinned here: feed data directories are
+writable on installs, a dead engine's status carries its exit code + the
+log's last telling line + the log path, and the UI reconciles its optimism
+with the polled truth.
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from cvti.app.console_backend import ConsoleBackend
+
+
+def _backend(tmp):
+    site = Path(tmp) / "site"
+    site.mkdir(exist_ok=True)
+    return ConsoleBackend(site_path=str(site / "site.json"),
+                          db_path=str(site / "events.db"), enable_demo=False)
+
+
+class DeadEngineSpeaksTest(unittest.TestCase):
+
+    def test_status_carries_exit_code_reason_and_log_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = _backend(tmp)
+            (Path(tmp) / "site" / "monitor.log").write_text(
+                "starting up\nPermissionError: [Errno 13] Permission denied: 'runs/feeds'\n")
+            cb._monitor = subprocess.Popen([sys.executable, "-c", "import sys; sys.exit(3)"])
+            cb._monitor.wait()
+            s = cb.monitoring_status()
+            self.assertFalse(s["running"])
+            self.assertEqual(s["exit_code"], 3)
+            self.assertIn("Permission denied", s["last_error"])
+            self.assertTrue(s["log_path"].endswith("monitor.log"))
+
+    def test_a_running_engine_reports_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = _backend(tmp)
+            cb._monitor = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+            try:
+                s = cb.monitoring_status()
+                self.assertTrue(s["running"])
+                self.assertNotIn("exit_code", s)
+            finally:
+                cb._monitor.kill()
+
+
+class FeedDirsAreWritableOnInstallsTest(unittest.TestCase):
+
+    def test_frozen_feed_dirs_live_in_the_user_data_dir(self):
+        """Path('runs/feeds') on an install is Program Files — the engine's
+        first mkdir was a PermissionError and it died before its first frame."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = _backend(tmp)
+            with mock.patch.object(sys, "frozen", create=True, new=True), \
+                 mock.patch("cvti.utils.user_data_dir", return_value=Path(tmp) / "userdata"):
+                p = cb._db_for_feed("demo", str(Path(tmp) / "elsewhere.json"))
+            self.assertTrue(p.startswith(str(Path(tmp) / "userdata")),
+                            f"feed store landed at {p} — inside the install dir on a real machine")
+
+
+class UiShowsTheReasonTest(unittest.TestCase):
+
+    def setUp(self):
+        self.html = Path("cvti/app/web/index.html").read_text()
+
+    def test_the_footer_and_wall_surface_the_failure(self):
+        self.assertIn("engine exited (code ", self.html)
+        self.assertIn("The engine failed to start", self.html)
+        self.assertIn("state.engineFail", self.html)
+
+    def test_the_start_button_reconciles_with_the_polled_truth(self):
+        start_branch = self.html.split('call("startMonitoring"')[1][:600]
+        self.assertIn("setTimeout(refreshMonitor", start_branch,
+                      "the optimistic flip is never checked against reality")
+
+
+if __name__ == "__main__":
+    unittest.main()

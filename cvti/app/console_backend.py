@@ -1300,8 +1300,33 @@ class ConsoleBackend:
         return {"running": False}
 
     def monitoring_status(self) -> dict:
+        """Running or not — and when not, WHY, on screen.
+
+        A pilot machine spent a day as a photo of a black wall because the
+        engine died at startup and nothing anywhere said so, let alone why
+        (29 Aug). If the engine exited, this now carries the exit code, the
+        log's last meaningful line, and the log path — so 'it doesn't work
+        on my machine' arrives as an error message instead of a screenshot.
+        """
         running = bool(self._monitor and self._monitor.poll() is None)
-        return {"running": running, "pid": (self._monitor.pid if running else None)}
+        out = {"running": running, "pid": (self._monitor.pid if running else None)}
+        if not running and self._monitor is not None:
+            out["exit_code"] = self._monitor.poll()
+            out["gave_up"] = not getattr(self, "_monitor_should_run", False)
+            log_path = Path(self.db_path).parent / "monitor.log"
+            out["log_path"] = str(log_path)
+            try:
+                lines = [l.strip() for l in
+                         log_path.read_text(errors="replace").splitlines()[-40:]
+                         if l.strip()]
+                telling = [l for l in lines
+                           if any(k in l for k in ("Error", "ERROR", "Traceback",
+                                                   "error:", "Exception", "denied",
+                                                   "Permission", "No such"))]
+                out["last_error"] = (telling or lines)[-1][:300] if (telling or lines) else ""
+            except OSError:
+                out["last_error"] = ""
+        return out
 
     # --- feed source switcher: flip between demo videos and live cameras ---
     def _feeds_registry(self) -> dict:
@@ -1482,7 +1507,16 @@ class ConsoleBackend:
                 return self._home_db
         except OSError:
             pass
-        d = Path("runs/feeds") / key
+        # Frozen apps live somewhere read-only (Program Files, /Applications).
+        # This used to be Path("runs/feeds") — the CURRENT DIRECTORY, which on
+        # a Start-Menu launch is the install dir, so the engine's first mkdir
+        # was a PermissionError and it died before its first frame. Same
+        # laptop-only-path disease, engine-side.
+        if getattr(sys, "frozen", False):
+            from cvti.utils import user_data_dir
+            d = user_data_dir() / "runs" / "feeds" / key
+        else:
+            d = Path("runs/feeds") / key
         d.mkdir(parents=True, exist_ok=True)
         return str(d / "events.db")
 
