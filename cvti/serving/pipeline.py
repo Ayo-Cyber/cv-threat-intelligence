@@ -292,6 +292,32 @@ class _LinkEvent:
     zone: Any = None
 
 
+def gate_reachable(stats: dict, now: float | None = None):
+    """True/False/None — with hysteresis, because one bad verdict is not an outage.
+
+    The old rule was 'whichever came last wins': a single timed-out verify
+    flipped the status to UNAVAILABLE until the next success — minutes later
+    on slow hardware. The pilot's laptop hit exactly this while screen-sharing
+    a Meet call over a 90s-median verify (29 Aug): the AI was fine, merely
+    busy, and the banner declared it dead and the English rules paused.
+
+    False now requires sustained evidence: failures more recent than the last
+    success AND no success within a patience window scaled to the machine's
+    own measured latency. A genuinely absent server still reads False fast,
+    because it has no last_success_at at all.
+    """
+    now = now or time.time()
+    if not stats.get("verified") and not stats.get("unverified") \
+            and not stats.get("errors"):
+        return None
+    last_ok = stats.get("last_success_at") or 0
+    last_bad = stats.get("last_unverified_at") or 0
+    if last_bad <= last_ok:
+        return True
+    patience = max(240.0, 4.0 * float(stats.get("median_latency_s") or 30.0))
+    return (now - last_ok) <= patience
+
+
 def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              target_fps: float = 5.0, imgsz: int = 640, conf: float = 0.4,
              device: str = "", half: bool = False, seconds: float = 90.0,
@@ -556,14 +582,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     heartbeat = None            # constructed below, iff the site opted in
 
     def _gate_reachable(stats: dict):
-        """True/False/None. False only on evidence: the most recent attempt
-        produced no verdict. None means no traffic yet — unknown, not fine."""
-        if not stats.get("verified") and not stats.get("unverified") \
-                and not stats.get("errors"):
-            return None
-        if (stats.get("last_unverified_at") or 0) > (stats.get("last_success_at") or 0):
-            return False
-        return True
+        return gate_reachable(stats)
 
     def _build_health() -> dict:
         """The /health document (EP-04-T1): six signal classes, one status.
