@@ -481,7 +481,11 @@ def call_openai_compatible(
             method="POST",
         )
         try:
-            with urlrequest.urlopen(req, timeout=90) as response:
+            # 180s, not 90: a pilot laptop measured verify median 90.2s — a
+            # timeout at the MEDIAN fails half of all calls, and the English
+            # rules (which ride this exact path) silently detected nothing on
+            # that machine while the gate, with its longer patience, worked.
+            with urlrequest.urlopen(req, timeout=180) as response:
                 parsed = json.loads(response.read().decode("utf-8"))
             # Free tiers sometimes return HTTP 200 with an empty/no-choices body under load —
             # treat that like a transient error and retry rather than failing the call.

@@ -340,11 +340,21 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     if any(c.get("weapons") for c in cams_cfg):
         try:
             from cvti.detector.core import load_detection_model
-            weapon_model = load_detection_model(weapon_weights, yolov5_repo, preferred_kind="yolov5")
+            repo = yolov5_repo
+            if not Path(repo).exists():                    # frozen app: resolve inside the bundle
+                from cvti.utils import resource_path
+                repo = str(resource_path(yolov5_repo))
+            weapon_model = load_detection_model(weapon_weights, repo, preferred_kind="yolov5")
             log.info(f"[site] shared weapon model loaded ({weapon_weights})")
         except Exception as exc:  # noqa: BLE001
             log.warning(f"[site] weapon model unavailable ({str(exc)[:80]}); weapons disabled", exc_info=True)
             model_failures.append(f"weapons detector configured but its model failed to load: {str(exc)[:90]}")
+            # Saying 'weapons disabled' must MAKE IT TRUE: cameras kept their
+            # weapons flag with a None model and threw on every frame — 509
+            # detector.cam1 errors in 28 minutes on the pilot's install while
+            # health claimed the detector was merely 'configured but failed'.
+            for c in cams_cfg:
+                c["weapons"] = False
     # Load ONE shared video-action model iff any camera enables it (best-effort).
     video_action_model = None
     if any(c.get("video_action") for c in cams_cfg):

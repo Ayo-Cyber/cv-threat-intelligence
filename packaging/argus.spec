@@ -78,6 +78,11 @@ if os.path.isdir(os.path.join(ROOT, "vendor", "ollama", _plat)):
 # (packaging/build_demo_data.py) — lets the app demo itself anywhere.
 if os.path.isdir(os.path.join(ROOT, "packaging", "demo_data")):
     datas += _tree("packaging/demo_data", "demo_data")
+# The weapon detector loads through torch.hub from this vendored repo; without
+# it every install failed with "No module named 'hubconf'" (pilot, 29 Aug) —
+# tracked in git all along, never bundled.
+if os.path.isdir(os.path.join(ROOT, "external", "yolov5")):
+    datas += _tree("external/yolov5", "external/yolov5")
 
 
 # ---------------------------------------------------------------------------
