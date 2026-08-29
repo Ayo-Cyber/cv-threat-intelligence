@@ -200,3 +200,25 @@ class WallSaysWhyItsDarkTest(unittest.TestCase):
         self.assertIn("if(!state.monitoring){", block)
         self.assertIn("Monitoring is off", block)
         self.assertIn("toggleMonitor()", block)
+
+
+class SubjectShotSurvivesTheCacheTest(unittest.TestCase):
+    """Mid-demo, 29 Aug: 'the bounding box should and used to be there.' First
+    view of an alert showed the boxed subject shot; every later view lost it —
+    each list refresh mints new row objects, and the clip cache stored only
+    frames, so a cache hit restored the cine loop and silently dropped the
+    box. The cache carries the whole evidence record now, in both consumers."""
+
+    def test_both_cache_writers_store_the_full_record(self):
+        html = Path("cvti/app/web/index.html").read_text()
+        import re
+        writes = re.findall(r"state\.clipCache\[key\]\s*=\s*(\{[^;]*\}|[a-zA-Z]+)", html)
+        self.assertTrue(writes)
+        for w in writes:
+            self.assertTrue(w.startswith("{") and "subject" in w,
+                            f"a cache writer stores a bare frames array: {w!r}")
+
+    def test_the_cache_hit_restores_the_subject(self):
+        html = Path("cvti/app/web/index.html").read_text()
+        block = html.split("function ensureFrames")[1][:900]
+        self.assertIn("cached.subject", block)
