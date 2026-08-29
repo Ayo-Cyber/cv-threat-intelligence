@@ -1248,6 +1248,7 @@ class ConsoleBackend:
             # The engine is a console-mode exe; from the windowed app that would
             # flash a terminal at the user. Same flag is a no-op run from a shell.
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        self._engine_started_at = time.time()
         return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, **kwargs)
 
     def start_monitoring(self) -> dict:
@@ -1288,6 +1289,8 @@ class ConsoleBackend:
                     # silently, on a monitoring product. (Audit 23 Aug, #1.)
                     if time.time() - started > 3600:
                         self._restarts = 0
+                    self._last_exit_code = self._monitor.poll()
+                    self._last_death_at = time.time()
                     started = time.time()
                     if self._restarts < max_restarts:
                         self._restarts += 1
@@ -1327,20 +1330,57 @@ class ConsoleBackend:
         if not running and self._monitor is not None:
             out["exit_code"] = self._monitor.poll()
             out["gave_up"] = not getattr(self, "_monitor_should_run", False)
-            log_path = Path(self.db_path).parent / "monitor.log"
-            out["log_path"] = str(log_path)
+            out["log_path"], out["last_error"] = self._engine_log_tail()
+        # A PID is not monitoring. The engine proves it is working by writing
+        # gate_health.json every few seconds; a process that exists but has
+        # stopped writing (hung model load, deadlock, zombie) used to look
+        # exactly like a healthy engine to this check — while the header,
+        # reading the stale heartbeat, said 'Engine not running'. Three status
+        # strings, three sources of truth ('Noo.. it's saying not monitoring',
+        # 29 Aug). The heartbeat decides now.
+        if running:
+            hb = Path(self.db_path).parent / "gate_health.json"
+            age = None
             try:
-                lines = [l.strip() for l in
-                         log_path.read_text(errors="replace").splitlines()[-40:]
-                         if l.strip()]
-                telling = [l for l in lines
-                           if any(k in l for k in ("Error", "ERROR", "Traceback",
-                                                   "error:", "Exception", "denied",
-                                                   "Permission", "No such"))]
-                out["last_error"] = (telling or lines)[-1][:300] if (telling or lines) else ""
-            except OSError:
-                out["last_error"] = ""
+                import json as _json
+                age = time.time() - float(_json.loads(hb.read_text()).get("generated_at") or 0)
+            except (OSError, ValueError):
+                pass
+            out["heartbeat_age_s"] = round(age, 1) if age is not None else None
+            warming = time.time() - getattr(self, "_engine_started_at", 0) < 120
+            if not warming and (age is None or age > 60):
+                out["stalled"] = True
+                lp, le = self._engine_log_tail()
+                out["log_path"], out["last_error"] = lp, le
+        # A crash LOOP hides from the check above: the watchdog respawns fast
+        # enough that nearly every poll lands on a just-born process that looks
+        # alive — so the UI said 'Stop monitoring' over an engine that had died
+        # four times, and the promised reason never appeared (pilot screenshot,
+        # 29 Aug). Restart churn is a first-class state now.
+        restarts = getattr(self, "_restarts", 0)
+        if restarts and time.time() - getattr(self, "_last_death_at", 0) < 900:
+            out["restarts"] = restarts
+            out["crash_looping"] = restarts >= 2
+            out["last_exit_code"] = getattr(self, "_last_exit_code", None)
+            lp, le = self._engine_log_tail()
+            out.setdefault("log_path", lp)
+            out.setdefault("last_error", le)
         return out
+
+    def _engine_log_tail(self) -> tuple:
+        log_path = Path(self.db_path).parent / "monitor.log"
+        try:
+            lines = [l.strip() for l in
+                     log_path.read_text(errors="replace").splitlines()[-40:]
+                     if l.strip()]
+            telling = [l for l in lines
+                       if any(k in l for k in ("Error", "ERROR", "Traceback",
+                                               "error:", "Exception", "denied",
+                                               "Permission", "No such"))]
+            last = (telling or lines)[-1][:300] if (telling or lines) else ""
+        except OSError:
+            last = ""
+        return str(log_path), last
 
     # --- feed source switcher: flip between demo videos and live cameras ---
     def _feeds_registry(self) -> dict:

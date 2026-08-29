@@ -523,8 +523,18 @@ function refreshMonitor(){ call("monitoringStatus",[],function(s){
   applyMonitor(s && s.running);
   state.engineFail = (s && !s.running && s.exit_code!=null)
     ? {code:s.exit_code, why:s.last_error||"", log:s.log_path||"", gaveUp:!!s.gave_up} : null;
+  /* A crash LOOP looks alive at almost every poll — the watchdog respawns
+     faster than the UI samples. Surfacing restarts is the only honest state
+     for it (pilot screenshot, 29 Aug: 'Stop monitoring' over an engine that
+     had died four times, no reason ever shown). */
+  state.engineLoop = (s && s.crash_looping)
+    ? {n:s.restarts, code:s.last_exit_code, why:s.last_error||"", log:s.log_path||""} : null;
   var g=$("monGate");
-  if(g && state.engineFail){
+  if(g && state.engineLoop){
+    g.textContent = "engine is crash-looping ("+state.engineLoop.n+" restarts)"
+      +(state.engineLoop.why ? " — "+state.engineLoop.why.slice(0,70) : "");
+    g.title = (state.engineLoop.why||"") + (state.engineLoop.log ? "\nlog: "+state.engineLoop.log : "");
+  } else if(g && state.engineFail){
     g.textContent = "engine exited (code "+state.engineFail.code+")"
       +(state.engineFail.why ? " — "+state.engineFail.why.slice(0,80) : "");
     g.title = (state.engineFail.why||"") + (state.engineFail.log ? "\nlog: "+state.engineFail.log : "");
@@ -875,6 +885,15 @@ function renderLive(){
     }
     state.liveCams = cams; state.livePort = port; state.frameTick = 0;
     state.frameToken = (res && res.token) || "";
+    var loopBanner = state.engineLoop
+      ? '<div class="panel" style="padding:10px 14px;margin-bottom:12px;font-size:12px;line-height:1.6;border-color:var(--sev-crit)">'
+        +(state.engineLoop.stalled
+          ? '<b>The detection engine is unresponsive</b> (no heartbeat'+(state.engineLoop.age!=null?' for '+esc(String(Math.round(state.engineLoop.age)))+'s':'')+') — this video is the fallback view; <b>nothing is being detected or recorded.</b>'
+          : '<b>The detection engine is crash-looping</b> ('+esc(String(state.engineLoop.n))+' restarts) — this video is the fallback view; <b>nothing is being detected or recorded.</b>')
+        +(state.engineLoop.why?'<div class="mono" style="margin-top:6px;word-break:break-all">'+esc(state.engineLoop.why)+'</div>':'')
+        +(state.engineLoop.log?'<div class="mut" style="margin-top:6px">Full log: <span class="mono" style="user-select:all;word-break:break-all">'+esc(state.engineLoop.log)+'</span></div>':'')
+        +'</div>'
+      : '';
     var tiles = cams.map(function(c){
       return '<div class="cell"><div class="tile" id="tile-'+esc(c.id)+'" style="cursor:pointer" onclick="openLiveModal(\''+esc(c.id)+'\')" title="click to expand">'
         +'<img id="live-'+esc(c.id)+'" alt="" src="'+streamUrl(c.id)+'">'
@@ -885,7 +904,7 @@ function renderLive(){
         +'<div class="linkrow" id="link-'+esc(c.id)+'"><span class="dot" style="background:var(--c-sub)"></span>'
         +'<span class="lid">'+esc(c.id)+'</span><span class="lst">checking…</span></div></div>';
     }).join("");
-    $("screen").innerHTML='<div class="pad"><div class="row" style="margin-bottom:12px"><h2 style="margin:0">Live wall</h2>'
+    $("screen").innerHTML='<div class="pad">'+loopBanner+'<div class="row" style="margin-bottom:12px"><h2 style="margin:0">Live wall</h2>'
       +'<span class="mut" style="font-size:12px">'+cams.length+' feeds</span></div>'
       +'<div class="wall">'+tiles+'</div><div id="offBanner"></div></div>';
     startLivePoll();
