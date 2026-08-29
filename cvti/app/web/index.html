@@ -2300,10 +2300,20 @@ function ensureFrames(a, cb){
   if(a.frames && a.frames.length){ cb(a.frames); return; }
   state.clipCache = state.clipCache || {};
   var key = a.evidence_dir || ("id"+a.id);
-  if(key in state.clipCache){ a.frames = state.clipCache[key] || []; cb(a.frames); return; }
+  /* Cache the WHOLE evidence record. It used to keep only the frames, so the
+     first view of an alert showed the boxed subject shot and every later view
+     lost it: each list refresh mints new row objects, the cache hit restored
+     frames alone, and the box quietly vanished ('it should and used to be
+     there', 29 Aug — mid-demo).  */
+  if(key in state.clipCache){
+    var cached = state.clipCache[key] || {};
+    a.frames = cached.frames || [];
+    if(cached.subject) a.subject = cached.subject;
+    cb(a.frames); return;
+  }
   call("eventClip",[a.evidence_dir||""],function(r){
     var frames = (r && r.frames) || [];
-    state.clipCache[key] = frames;
+    state.clipCache[key] = {frames: frames, subject: (r && r.subject) || null};
     a.frames = frames;
     if(r && r.subject) a.subject = r.subject;   // the WHO shot rides with it
     cb(frames);
@@ -2321,9 +2331,12 @@ function startClipMedia(){ stopClip(); var a=state.selected; if(!a) return;
     if(state.selected!==a) return;
     if(frames && frames.length>=2){ state.clipFrames=frames; startClip(); }
   }
-  if(key in state.clipCache){ useFrames(state.clipCache[key]); return; }
+  // Same cache as ensureFrames — same record shape, or the two poison each other.
+  if(key in state.clipCache){ useFrames((state.clipCache[key]||{}).frames); return; }
   call("eventClip",[a.evidence_dir||""],function(r){
-    var frames=(r&&r.frames)||null; state.clipCache[key]=frames; useFrames(frames); }); }
+    var frames=(r&&r.frames)||null;
+    state.clipCache[key]={frames: frames, subject: (r&&r.subject)||null};
+    useFrames(frames); }); }
 
 /* ---------- theme + boot ---------- */
 function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }
