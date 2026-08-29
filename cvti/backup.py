@@ -60,12 +60,31 @@ def backup_config(site_path: str | Path, dest_dir: str | Path | None = None) -> 
 
         if site_path.exists():
             put(site_path, "site.json")
-        for tree in _CONFIG_TREES:
-            for f in sorted(Path(tree).glob("*.json")) if Path(tree).is_dir() else []:
-                put(f, f"{tree}/{f.name}")
+        # Zones/rules live in the repo's configs/ during development and in the
+        # USER DATA DIR on installs (where the app has been writing them since
+        # the Program Files fixes). Collecting only the cwd-relative tree meant
+        # an installed app's backup captured ZERO files — '0 files · 0.3 KB' on
+        # the pilot's Settings page (29 Aug): a backup button that made empty
+        # zips of exactly the configuration it promised to protect.
+        from cvti.utils import user_data_dir
+        seen: set = set()
+        roots = [Path("."), user_data_dir()]
+        tree_names = {"configs/zones": "zones", "configs/rules": "rules"}
+        for tree, alias in tree_names.items():
+            for root in roots:
+                d = root / tree if root == Path(".") else root / alias
+                if not d.is_dir():
+                    continue
+                for f in sorted(d.glob("*.json")):
+                    arc = f"{tree}/{f.name}"
+                    if arc not in seen:
+                        seen.add(arc)
+                        put(f, arc)
         for rel in _CONFIG_FILES:
-            if Path(rel).exists():
-                put(Path(rel), rel)
+            for cand in (Path(rel), user_data_dir() / "feeds" / Path(rel).name):
+                if cand.exists():
+                    put(cand, rel)
+                    break
         zf.writestr(MANIFEST, json.dumps({
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "site_path": str(site_path),
