@@ -110,7 +110,9 @@ class MultiStreamPipeline:
 
     def start(self) -> None:
         from ultralytics import YOLO
-        self._model = YOLO(self.weights)
+
+        from cvti.detector.core import resolve_weights
+        self._model = YOLO(resolve_weights(self.weights))
         # For the per-camera detector path we also need core.py's Detection list
         # (weapons/violence/theft), built from the same shared-model result.
         self._names = self._model.names

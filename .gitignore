@@ -122,3 +122,8 @@ tests/e2e/out/
 *.pt
 !models/weapon_best.pt
 !data/test_clips/fire_demo_01.mp4
+# The engine cannot start without these two; leaving them untracked meant CI
+# bundles shipped WITHOUT them and every install depended on a silent
+# ultralytics download into a read-only directory (pilot crash loop, 29 Aug).
+!models/yolov8n.pt
+!models/yolov8n-pose.pt
