@@ -106,3 +106,33 @@ class HostileInstallTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BackupCollectsWhatExistsTest(unittest.TestCase):
+    """The pilot's Settings page showed 'Backup · 0 files · 0.3 KB' (29 Aug):
+    the collector globbed cwd-relative configs/zones + configs/rules — empty
+    or read-only on installs, and no longer where the app writes zones/rules
+    anyway. A backup button that archives nothing is worse than none: it
+    manufactures false safety."""
+
+    def test_user_dir_zones_and_rules_are_captured(self):
+        import json, zipfile
+        from unittest import mock
+        from cvti import backup as bk
+        with tempfile.TemporaryDirectory() as tmp:
+            ud = Path(tmp) / "userdata"
+            (ud / "zones").mkdir(parents=True)
+            (ud / "rules").mkdir(parents=True)
+            (ud / "zones" / "cam1.json").write_text('{"zones": []}')
+            (ud / "rules" / "cam1.json").write_text('{"rules": []}')
+            site = Path(tmp) / "site.json"
+            site.write_text('{"cameras": []}')
+            with mock.patch("cvti.utils.user_data_dir", return_value=ud):
+                out = bk.backup_config(site, dest_dir=Path(tmp) / "backups")
+            self.assertTrue(out["ok"])
+            self.assertGreaterEqual(out["entries"], 3,
+                                    f"backup captured {out['entries']} entries — "
+                                    "the pilot's zero-file zip again")
+            names = zipfile.ZipFile(out["path"]).namelist()
+            self.assertIn("configs/zones/cam1.json", names)
+            self.assertIn("configs/rules/cam1.json", names)
