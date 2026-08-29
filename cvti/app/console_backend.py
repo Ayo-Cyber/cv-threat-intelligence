@@ -661,8 +661,14 @@ class ConsoleBackend:
         per zone. Keeps the shared preset untouched."""
         base_cfg = cam.get("_base_config") or cam.get("config") or "configs/all_threats_v1.json"
         cam["_base_config"] = base_cfg
+        # A relative preset path resolves against the CWD — the repo when
+        # developing, anywhere at all on an install. The silent except below
+        # then produced a rules file with NO baseline rules and nothing said so.
+        base_path = Path(base_cfg)
+        if not base_path.exists():
+            base_path = resource_path(base_cfg)
         try:
-            rules = list(json.loads(Path(base_cfg).read_text()).get("rules", []))
+            rules = list(json.loads(base_path.read_text()).get("rules", []))
         except (ValueError, OSError):
             rules = []
         for z in zones:
@@ -676,7 +682,15 @@ class ConsoleBackend:
         # CustomRuleScanner is the single path — it reads cam["custom_rules"]
         # from the site file directly, scans every ~12s person-or-not, and
         # hot-picks-up new sentences within one cycle.
-        rdir = Path("configs/rules")
+        # Same rule as _zones_file: generated per-camera configs are USER data.
+        # Path('configs/rules') on an install is the bundle dir — saving a zone
+        # on the pilot's Windows machine died with [WinError 5] Access is
+        # denied: 'configs' (field screenshot, 29 Aug).
+        if getattr(sys, "frozen", False):
+            from cvti.utils import user_data_dir
+            rdir = user_data_dir() / "rules"
+        else:
+            rdir = Path("configs/rules")
         rdir.mkdir(parents=True, exist_ok=True)
         rfile = rdir / f"{camera_id}.json"
         rfile.write_text(json.dumps({"use_case_id": f"{camera_id}_zones", "rules": rules}, indent=2))
