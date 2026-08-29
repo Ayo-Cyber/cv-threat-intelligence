@@ -122,6 +122,11 @@ class FrameServer:
             def log_message(self, *a):  # silence request logging
                 pass
 
+            # Chromium refuses to progressively render multipart over
+            # HTTP/1.0 — the same lesson the ENGINE's publisher learned the
+            # hard way (blank-wall bug, 27 Aug).
+            protocol_version = "HTTP/1.1"
+
             def do_GET(self):
                 import hmac
                 import urllib.parse
@@ -133,6 +138,9 @@ class FrameServer:
                     self.end_headers()
                     return
                 cam = urllib.parse.unquote(parsed.path.rsplit("/", 1)[-1])
+                if parsed.path.startswith("/stream/"):
+                    self._mjpeg(cam)
+                    return
                 jpg = wall.jpeg(cam)
                 if not jpg:
                     self.send_response(404)
@@ -147,6 +155,36 @@ class FrameServer:
                     self.wfile.write(jpg)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
+
+            def _mjpeg(self, cam):
+                """Push frames until the client leaves — the UI's tiles and the
+                zoom modal use /stream/ URLs, and this server used to answer
+                them with ONE static JPEG: the fallback 'live' view froze on a
+                single frame ('shows for a while and cut off', field report
+                29 Aug — the moving part was the engine before it died; this
+                is the still part after). With a real stream here, Watch is
+                live even before monitoring starts."""
+                self.send_response(200)
+                self.send_header("Content-Type",
+                                 "multipart/x-mixed-replace; boundary=arguswall")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                import time as _t
+                last = None
+                try:
+                    while True:
+                        jpg = wall.jpeg(cam)
+                        if jpg is not None and jpg is not last:
+                            last = jpg
+                            self.wfile.write(b"--arguswall\r\n"
+                                             b"Content-Type: image/jpeg\r\n"
+                                             + f"Content-Length: {len(jpg)}\r\n\r\n".encode()
+                                             + jpg + b"\r\n")
+                            self.wfile.flush()
+                        _t.sleep(0.12)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass          # viewer navigated away — normal
 
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)   # port 0 = OS picks
         self.port = self._httpd.server_address[1]
