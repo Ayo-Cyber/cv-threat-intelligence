@@ -186,3 +186,17 @@ class OwnerOverrideTest(unittest.TestCase):
         self.assertIn("doOwnerOverride", html)
         self.assertIn("confirm(", html.split("function doOwnerOverride")[1][:400],
                       "the override fires without a confirmation")
+
+
+class WallSaysWhyItsDarkTest(unittest.TestCase):
+    """A Windows field photo (29 Aug) showed a broken-image tile on a machine
+    whose engine was simply not running — the wall looked broken instead of
+    OFF. With no engine there are no frames; the wall must say so and offer
+    the one button that fixes it."""
+
+    def test_the_wall_never_renders_tiles_without_the_engine(self):
+        html = Path("cvti/app/web/index.html").read_text()
+        block = html.split("function renderLive(){")[1].split("function ")[0]
+        self.assertIn("if(!state.monitoring){", block)
+        self.assertIn("Monitoring is off", block)
+        self.assertIn("toggleMonitor()", block)

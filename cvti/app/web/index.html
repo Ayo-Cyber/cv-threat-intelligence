@@ -828,6 +828,21 @@ function frameUrl(camId){
 function renderLive(){
   var tk = state.renderToken;
   $("screen").innerHTML='<div class="pad mut">Starting live view…</div>';
+  /* The wall's tiles are fed by the ENGINE's frame publisher. With the engine
+     off there is nothing to stream, and the wall used to render camera tiles
+     anyway — broken-image squares that read as "the product is broken"
+     rather than "monitoring is off" (Windows field photo, 29 Aug). Say why
+     it is dark, on the wall itself, with the one button that fixes it. */
+  if(!state.monitoring){
+    $("screen").innerHTML='<div class="pad"><h2>Live wall</h2>'
+      +'<div class="panel" style="max-width:520px;padding:26px;text-align:center;margin-top:14px">'
+      +'<div style="font-size:15px;font-weight:650">Monitoring is off</div>'
+      +'<p class="mut" style="font-size:12.5px;line-height:1.6;margin:10px 0 16px">The live wall shows what the detection engine sees, and the engine is not running. Nothing is being watched or recorded right now.</p>'
+      +'<button class="btn" style="padding:10px 22px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="toggleMonitor();setTimeout(render,2000)">▶ Start monitoring</button>'
+      +'<p class="sub" style="font-size:11px;margin:12px 0 0">First start loads the detection models — allow up to a minute.</p>'
+      +'</div></div>';
+    return;
+  }
   call("liveStart",[6],function(res){
     if(!fresh(tk)){ call("liveStop",[],function(){}); return; }   // navigated away mid-start
     var cams = res && res.cameras, port = res && res.port;
