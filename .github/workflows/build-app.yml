@@ -239,20 +239,24 @@ jobs:
       # The APP ITSELF must boot — engine checks below prove detection runs,
       # but Argus(.exe) had only ever been launched on developer laptops until
       # this step existed. Offscreen platform: no display on a runner.
+      # Boot FROM A FOREIGN DIRECTORY on purpose: three field bugs in two days
+      # were paths that only resolve when cwd is the repo/bundle. Booting from
+      # $RUNNER_TEMP makes CI's environment as hostile as a Start-Menu launch.
       - name: Boot the shipped app (macOS)
         if: runner.os == 'macOS'
         env: { QT_QPA_PLATFORM: offscreen }
-        run: dist/Argus.app/Contents/MacOS/Argus --smoke --db "$RUNNER_TEMP/smoke/events.db"
+        run: cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/dist/Argus.app/Contents/MacOS/Argus" --smoke --db "$RUNNER_TEMP/smoke/events.db"
       - name: Boot the shipped app (Linux)
         if: runner.os == 'Linux'
         env: { QT_QPA_PLATFORM: offscreen }
-        run: dist/Argus/Argus --smoke --db "$RUNNER_TEMP/smoke/events.db"
+        run: cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/dist/Argus/Argus" --smoke --db "$RUNNER_TEMP/smoke/events.db"
       - name: Boot the shipped app (Windows)
         if: runner.os == 'Windows'
         env: { QT_QPA_PLATFORM: offscreen }
         shell: pwsh
         run: |
-          & dist\Argus\Argus.exe --smoke --db "$env:RUNNER_TEMP\smoke\events.db"
+          Set-Location $env:RUNNER_TEMP
+          & "$env:GITHUB_WORKSPACE\dist\Argus\Argus.exe" --smoke --db "$env:RUNNER_TEMP\smoke\events.db"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Windows specifically: prove the AI runtime SHIPPED and is launchable.
