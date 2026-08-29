@@ -14,6 +14,9 @@ import os
 import threading
 import time
 
+from cvti.logging_setup import get_logger
+log = get_logger(__name__)
+
 import cv2
 
 
@@ -45,8 +48,11 @@ class LiveWall:
 
     def _decode(self, cam_id: str, source) -> None:
         cap = self._open(source)
-        is_file = not (isinstance(source, int) or (isinstance(source, str) and source.isdigit()))
+        src = str(source)
+        is_net = "://" in src                     # RTSP/HTTP camera, not a clip
+        is_file = not (isinstance(source, int) or src.isdigit() or is_net)
         n = 0
+        dead_since = 0.0
         while not self._stop.is_set():
             ok, frame = cap.read()
             if not ok:
@@ -54,9 +60,24 @@ class LiveWall:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     ok, frame = cap.read()
                 if not ok:
-                    self._set(cam_id, ok=False, error="stream ended")
+                    # A dropped network stream must be REOPENED — a VideoCapture
+                    # never revives on its own, so this loop used to hold a dead
+                    # handle forever and the pre-monitoring view stayed frozen
+                    # after any camera blip (proven against mediamtx, 29 Aug:
+                    # frame counter identical before/after the stream returned).
+                    # Same disease the rules scanner had on 23 Aug.
+                    self._set(cam_id, ok=False, error="stream dropped — reconnecting")
+                    dead_since = dead_since or time.time()
+                    if is_net and time.time() - dead_since >= 3.0:
+                        try:
+                            cap.release()
+                        except Exception:  # noqa: BLE001
+                            log.debug("releasing the dead capture failed", exc_info=True)
+                        cap = self._open(source)
+                        dead_since = time.time()
                     self._stop.wait(0.3)
                     continue
+            dead_since = 0.0
             n += 1
             frame = self._downscale(frame)
             ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])

@@ -81,3 +81,20 @@ class FallbackStreamTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NetworkStreamRecoversTest(unittest.TestCase):
+    """A camera blip must not freeze the fallback forever. Proven live against
+    mediamtx (29 Aug): kill the publisher, bring it back — the frame counter
+    stayed identical, because a dead VideoCapture never revives on its own and
+    nothing reopened it. Same disease the rules scanner had on 23 Aug. Pinned
+    at source level here; the live-RTSP proof ran against a real server
+    (frame counter 17 -> 58 after recovery)."""
+
+    def test_the_decode_loop_reopens_dropped_network_streams(self):
+        import inspect
+        from cvti.app.live_wall import LiveWall
+        src = inspect.getsource(LiveWall._decode)
+        self.assertIn('is_net = "://" in src', src)
+        self.assertIn("cap = self._open(source)", src.split("while not")[1],
+                      "no reopen inside the decode loop — a blip is forever")
