@@ -261,3 +261,33 @@ class TrueSightStatusIsRealTest(unittest.TestCase):
     def test_the_rules_panel_warns_in_place(self):
         self.assertIn("These rules are not running:", self.html)
         self.assertIn("state.gateDown", self.html)
+
+
+class SlowMachinesAndMissingModelsTest(unittest.TestCase):
+    """Pilot health panel, 29 Aug: verify median 90.2s, detector.cam1 failing
+    100% (509 errors/28min), 'weapons detector configured but its model failed
+    to load: No module named hubconf'. Three faults, pinned together."""
+
+    def test_the_local_vlm_call_outlives_a_slow_verify(self):
+        """A timeout at the measured MEDIAN fails half of all calls — the
+        English rules rode a 90s timeout on a 90.2s-median machine."""
+        src = Path("cvti/scene/agent_mapper.py").read_text()
+        import re
+        m = re.search(r"timeout=(\d+)\) as response:\n\s+parsed = json", src)
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(1)), 150)
+
+    def test_a_failed_weapon_model_disables_the_flag_it_serves(self):
+        src = Path("cvti/serving/pipeline.py").read_text()
+        block = src.split("weapons detector configured but its model failed")[1][:700]
+        self.assertIn('c["weapons"] = False', block,
+                      "cameras keep a weapons flag with a None model — one throw per frame")
+
+    def test_the_vendored_yolov5_ships(self):
+        spec = Path("packaging/argus.spec").read_text()
+        self.assertIn('_tree("external/yolov5"', spec,
+                      "the weapon detector's hub repo is not in the bundle")
+        import subprocess
+        r = subprocess.run(["git", "ls-files", "external/yolov5/hubconf.py"],
+                           capture_output=True, text=True)
+        self.assertIn("hubconf.py", r.stdout, "the repo the spec bundles is not tracked")
