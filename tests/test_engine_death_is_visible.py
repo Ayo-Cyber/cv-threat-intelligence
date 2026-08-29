@@ -10,6 +10,7 @@ with the polled truth.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -86,3 +87,43 @@ class UiShowsTheReasonTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZoneSavesWorkOnInstallsTest(unittest.TestCase):
+    """Saving a zone on the pilot's Windows install died with
+    [WinError 5] Access is denied: 'configs' (field screenshot, 29 Aug):
+    the regenerated per-camera rules file targeted the bundle directory, and
+    the base preset was READ relatively — silently yielding zero baseline
+    rules on any machine where the cwd is not this repo."""
+
+    def test_frozen_rule_files_land_in_the_user_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = _backend(tmp)
+            cam = {"id": "cam1"}
+            with mock.patch.object(sys, "frozen", create=True, new=True), \
+                 mock.patch("cvti.utils.user_data_dir", return_value=Path(tmp) / "userdata"):
+                cb._regen_zone_rules("cam1", cam, [{"name": "entrance",
+                                                    "dwell_alert_seconds": 16}])
+            self.assertTrue(cam["config"].startswith(str(Path(tmp) / "userdata")),
+                            f"rules file at {cam['config']} — the install dir on a real machine")
+            rules = json.loads(Path(cam["config"]).read_text())["rules"]
+            self.assertTrue(any(r["name"] == "loitering_entrance" for r in rules))
+
+    def test_the_base_preset_survives_a_foreign_cwd(self):
+        """The preset read must resolve via resource_path when the relative
+        path misses — otherwise the generated file silently loses every
+        baseline rule."""
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = _backend(tmp)
+            cam = {"id": "cam1", "config": "configs/all_threats_v1.json"}
+            cwd = os.getcwd()
+            os.chdir(tmp)                       # anywhere but the repo
+            try:
+                cb._regen_zone_rules("cam1", cam, [{"name": "entrance",
+                                                    "dwell_alert_seconds": 16}])
+                rules = json.loads(Path(cam["config"]).read_text())["rules"]
+            finally:
+                os.chdir(cwd)
+            base = [r for r in rules if not r["name"].startswith("loitering_")]
+            self.assertTrue(base, "the baseline preset vanished from the generated rules")
