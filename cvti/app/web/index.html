@@ -887,7 +887,9 @@ function renderLive(){
     state.frameToken = (res && res.token) || "";
     var loopBanner = state.engineLoop
       ? '<div class="panel" style="padding:10px 14px;margin-bottom:12px;font-size:12px;line-height:1.6;border-color:var(--sev-crit)">'
-        +'<b>The detection engine is crash-looping</b> ('+esc(String(state.engineLoop.n))+' restarts) — this video is the fallback view; <b>nothing is being detected or recorded.</b>'
+        +(state.engineLoop.stalled
+          ? '<b>The detection engine is unresponsive</b> (no heartbeat'+(state.engineLoop.age!=null?' for '+esc(String(Math.round(state.engineLoop.age)))+'s':'')+') — this video is the fallback view; <b>nothing is being detected or recorded.</b>'
+          : '<b>The detection engine is crash-looping</b> ('+esc(String(state.engineLoop.n))+' restarts) — this video is the fallback view; <b>nothing is being detected or recorded.</b>')
         +(state.engineLoop.why?'<div class="mono" style="margin-top:6px;word-break:break-all">'+esc(state.engineLoop.why)+'</div>':'')
         +(state.engineLoop.log?'<div class="mut" style="margin-top:6px">Full log: <span class="mono" style="user-select:all;word-break:break-all">'+esc(state.engineLoop.log)+'</span></div>':'')
         +'</div>'

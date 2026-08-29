@@ -172,3 +172,60 @@ class CrashLoopIsVisibleTest(unittest.TestCase):
         html = Path("cvti/app/web/index.html").read_text()
         self.assertIn("crash-looping", html)
         self.assertIn("nothing is being detected or recorded", html)
+
+
+class HeartbeatDecidesTest(unittest.TestCase):
+    """'Noo.. it's saying not monitoring' (29 Aug): three status strings from
+    three sources of truth — a PID, a heartbeat file, an optimistic button —
+    all allowed to disagree on one screen. The heartbeat decides now: a live
+    process that stopped writing gate_health.json is 'stalled', because a PID
+    is not monitoring."""
+
+    def _alive_backend(self, tmp):
+        cb = _backend(tmp)
+        cb._monitor = subprocess.Popen([sys.executable, "-c",
+                                        "import time; time.sleep(30)"])
+        return cb
+
+    def test_a_live_pid_with_no_heartbeat_is_stalled(self):
+        import time as _t
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = self._alive_backend(tmp)
+            try:
+                cb._engine_started_at = _t.time() - 300     # long past warm-up
+                s = cb.monitoring_status()
+                self.assertTrue(s["running"])
+                self.assertTrue(s.get("stalled"), "a hung engine passed as healthy")
+            finally:
+                cb._monitor.kill()
+
+    def test_a_fresh_heartbeat_is_healthy(self):
+        import json as _json
+        import time as _t
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = self._alive_backend(tmp)
+            try:
+                cb._engine_started_at = _t.time() - 300
+                (Path(tmp) / "site" / "gate_health.json").write_text(
+                    _json.dumps({"generated_at": _t.time()}))
+                s = cb.monitoring_status()
+                self.assertNotIn("stalled", s)
+                self.assertLess(s["heartbeat_age_s"], 5)
+            finally:
+                cb._monitor.kill()
+
+    def test_model_loading_gets_a_grace_period(self):
+        import time as _t
+        with tempfile.TemporaryDirectory() as tmp:
+            cb = self._alive_backend(tmp)
+            try:
+                cb._engine_started_at = _t.time() - 10      # just spawned
+                s = cb.monitoring_status()
+                self.assertNotIn("stalled", s, "flagged during model warm-up")
+            finally:
+                cb._monitor.kill()
+
+    def test_the_ui_names_the_stalled_state(self):
+        html = Path("cvti/app/web/index.html").read_text()
+        self.assertIn("unresponsive", html)
+        self.assertIn("no heartbeat", html)

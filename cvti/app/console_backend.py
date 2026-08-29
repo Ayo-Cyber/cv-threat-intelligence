@@ -1248,6 +1248,7 @@ class ConsoleBackend:
             # The engine is a console-mode exe; from the windowed app that would
             # flash a terminal at the user. Same flag is a no-op run from a shell.
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        self._engine_started_at = time.time()
         return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, **kwargs)
 
     def start_monitoring(self) -> dict:
@@ -1330,6 +1331,27 @@ class ConsoleBackend:
             out["exit_code"] = self._monitor.poll()
             out["gave_up"] = not getattr(self, "_monitor_should_run", False)
             out["log_path"], out["last_error"] = self._engine_log_tail()
+        # A PID is not monitoring. The engine proves it is working by writing
+        # gate_health.json every few seconds; a process that exists but has
+        # stopped writing (hung model load, deadlock, zombie) used to look
+        # exactly like a healthy engine to this check — while the header,
+        # reading the stale heartbeat, said 'Engine not running'. Three status
+        # strings, three sources of truth ('Noo.. it's saying not monitoring',
+        # 29 Aug). The heartbeat decides now.
+        if running:
+            hb = Path(self.db_path).parent / "gate_health.json"
+            age = None
+            try:
+                import json as _json
+                age = time.time() - float(_json.loads(hb.read_text()).get("generated_at") or 0)
+            except (OSError, ValueError):
+                pass
+            out["heartbeat_age_s"] = round(age, 1) if age is not None else None
+            warming = time.time() - getattr(self, "_engine_started_at", 0) < 120
+            if not warming and (age is None or age > 60):
+                out["stalled"] = True
+                lp, le = self._engine_log_tail()
+                out["log_path"], out["last_error"] = lp, le
         # A crash LOOP hides from the check above: the watchdog respawns fast
         # enough that nearly every poll lands on a just-born process that looks
         # alive — so the UI said 'Stop monitoring' over an engine that had died
