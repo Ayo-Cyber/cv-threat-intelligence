@@ -560,7 +560,10 @@ function toggleMonitor(){
     // while a first start is still believably warming up.
     setTimeout(refreshMonitor, 5000);
     setTimeout(refreshMonitor, 15000);
-    setTimeout(function(){ if(state.monitoring && $("monGate")) $("monGate").textContent="TrueSight · live"; }, 25000);
+    // NO timer-based liveness: the footer declared the AI live on a machine
+    // whose gate was stamping every alert UNVERIFIED (pilot, 29 Aug) — the
+    // string fired 25s after the click, model or no model. pollGateHealth
+    // owns this line now, from the gate's real health.
   }); }
 }
 
@@ -1732,8 +1735,17 @@ function customRules(c){
 }
 function customRuleRows(c){
   var rules = customRules(c);
-  if(!rules.length) return '<div class="mut" style="font-size:12px;margin-top:6px">Nothing described yet.</div>';
-  return rules.map(function(r){
+  /* English rules ARE the VLM. When the gate is down, every sentence here is
+     configured and scanning NOTHING — which read as 'the feature is broken'
+     on a machine whose model was never downloaded (pilot, 29 Aug). Say it
+     where the rules live, not only in the footer. */
+  var warn = state.gateDown
+    ? '<div class="panel" style="padding:8px 12px;margin:6px 0;font-size:11.5px;line-height:1.5;border-color:var(--sev-high)">'
+      +'<b>These rules are not running:</b> TrueSight (the local AI) is unavailable on this machine. '
+      +'Most often the 3.3&nbsp;GB model was never downloaded — open <b>Settings → Verification</b> to install it.</div>'
+    : '';
+  if(!rules.length) return warn+'<div class="mut" style="font-size:12px;margin-top:6px">Nothing described yet.</div>';
+  return warn + rules.map(function(r){
     return '<div class="row" style="gap:8px;padding:6px 0;border-bottom:1px solid var(--c-border)">'
       +'<span style="font-size:12.5px;flex:1">“'+esc(r.question)+'”</span>'
       +'<button class="btn ghost sm" onclick="dropCustomRule(\''+esc(c.id)+'\', this)" data-q="'+esc(r.question)+'">✕</button></div>'; }).join("");
@@ -2729,7 +2741,22 @@ function pollGateHealth(){
       b.hidden=true;
     }
     var mg=$("monGate");
-    if(mg && eng.errors){ mg.textContent="TrueSight · "+eng.errors+" gate error"+(eng.errors===1?"":"s"); }
+    if(mg && state.monitoring){
+      var gate = eng.gate || eng;         // health nests gate fields for some builds
+      var reachable = (gate.reachable!==undefined) ? gate.reachable : eng.reachable;
+      state.gateDown = (reachable===false);
+      if(reachable===false){
+        mg.textContent="TrueSight UNAVAILABLE — alerts arrive unverified; English rules are paused";
+        mg.style.color="var(--sev-high)";
+        mg.title="The local AI is not answering. Most often the 3.3 GB model was never downloaded — open Settings → Verification to install it.";
+      } else if(eng.errors){
+        mg.textContent="TrueSight · "+eng.errors+" gate error"+(eng.errors===1?"":"s");
+        mg.style.color="var(--sev-high)";
+      } else if(reachable===true){
+        mg.textContent="TrueSight · live"+((eng.verified||gate.verified)?" · "+(eng.verified||gate.verified)+" verified":"");
+        mg.style.color="";
+      }
+    }
   });
 }
 function pollAlertsGlobal(){

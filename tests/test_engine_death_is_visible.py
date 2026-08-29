@@ -229,3 +229,35 @@ class HeartbeatDecidesTest(unittest.TestCase):
         html = Path("cvti/app/web/index.html").read_text()
         self.assertIn("unresponsive", html)
         self.assertIn("no heartbeat", html)
+
+
+class TrueSightStatusIsRealTest(unittest.TestCase):
+    """'The custom english is not detecting anything' (pilot, 29 Aug) — while
+    the footer said 'TrueSight · live'. The string was set by a 25-second
+    TIMER after clicking Start, model or no model; meanwhile the gate stamped
+    every alert UNVERIFIED and the English rules (which ARE the VLM) scanned
+    nothing. The footer now derives from the gate's real health, and the
+    rules panel says in place when its rules are not running."""
+
+    def setUp(self):
+        self.html = Path("cvti/app/web/index.html").read_text()
+
+    def test_only_the_health_poller_declares_the_ai_alive(self):
+        """The 25s setTimeout that stamped 'TrueSight · live' regardless of
+        the model's existence is gone; the string may only be written from
+        pollGateHealth, where it derives from gate.reachable."""
+        poller = self.html.split("function pollGateHealth()")[1].split("function ")[0]
+        total = self.html.count("TrueSight · live")
+        in_poller = poller.count("TrueSight · live")
+        self.assertGreaterEqual(in_poller, 1, "the poller no longer reports live state")
+        self.assertEqual(total, in_poller,
+                         "something outside the health poller declares TrueSight live")
+        toggle = self.html.split("function toggleMonitor()")[1].split("function ")[0]
+        self.assertNotIn("TrueSight · live", toggle, "the start-button timer is back")
+
+    def test_unreachable_gate_names_the_consequences(self):
+        self.assertIn("alerts arrive unverified; English rules are paused", self.html)
+
+    def test_the_rules_panel_warns_in_place(self):
+        self.assertIn("These rules are not running:", self.html)
+        self.assertIn("state.gateDown", self.html)
