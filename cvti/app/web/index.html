@@ -519,7 +519,17 @@ function renderTabs(){
 }
 
 /* ---------- monitoring engine control ---------- */
-function refreshMonitor(){ call("monitoringStatus",[],function(s){ applyMonitor(s && s.running); }); }
+function refreshMonitor(){ call("monitoringStatus",[],function(s){
+  applyMonitor(s && s.running);
+  state.engineFail = (s && !s.running && s.exit_code!=null)
+    ? {code:s.exit_code, why:s.last_error||"", log:s.log_path||"", gaveUp:!!s.gave_up} : null;
+  var g=$("monGate");
+  if(g && state.engineFail){
+    g.textContent = "engine exited (code "+state.engineFail.code+")"
+      +(state.engineFail.why ? " — "+state.engineFail.why.slice(0,80) : "");
+    g.title = (state.engineFail.why||"") + (state.engineFail.log ? "\nlog: "+state.engineFail.log : "");
+  }
+}); }
 function applyMonitor(running){
   state.monitoring = !!running;
   var b=$("monBtn"); if(b){ b.textContent = running ? "■ Stop monitoring" : "▶ Start monitoring";
@@ -534,6 +544,12 @@ function toggleMonitor(){
   else { call("startMonitoring",[],function(r){ applyMonitor(true);
     // engine takes ~15-30s to load models; alerts start flowing after that
     if($("monGate")) $("monGate").textContent="TrueSight · loading models…";
+    // The optimistic flip lied on a machine whose engine died at startup:
+    // the button said "Stop monitoring" over a footer saying "engine not
+    // running" (field screenshot, 29 Aug). Reconcile with the polled truth
+    // while a first start is still believably warming up.
+    setTimeout(refreshMonitor, 5000);
+    setTimeout(refreshMonitor, 15000);
     setTimeout(function(){ if(state.monitoring && $("monGate")) $("monGate").textContent="TrueSight · live"; }, 25000);
   }); }
 }
@@ -838,6 +854,13 @@ function renderLive(){
       +'<div class="panel" style="max-width:520px;padding:26px;text-align:center;margin-top:14px">'
       +'<div style="font-size:15px;font-weight:650">Monitoring is off</div>'
       +'<p class="mut" style="font-size:12.5px;line-height:1.6;margin:10px 0 16px">The live wall shows what the detection engine sees, and the engine is not running. Nothing is being watched or recorded right now.</p>'
+      +(state.engineFail
+        ? '<div class="panel" style="padding:10px 14px;margin:0 0 14px;text-align:left;font-size:11.5px;line-height:1.6;border-color:var(--sev-high)">'
+          +'<b>The engine failed to start</b> (exit code '+esc(String(state.engineFail.code))+').'
+          +(state.engineFail.why?'<div class="mono" style="margin-top:6px;word-break:break-all">'+esc(state.engineFail.why)+'</div>':'')
+          +(state.engineFail.log?'<div class="mut" style="margin-top:6px">Full log: <span class="mono" style="user-select:all;word-break:break-all">'+esc(state.engineFail.log)+'</span></div>':'')
+          +'</div>'
+        : '')
       +'<button class="btn" style="padding:10px 22px;background:var(--c-accent);border-color:var(--c-accent);color:#04121f" onclick="toggleMonitor();setTimeout(render,2000)">▶ Start monitoring</button>'
       +'<p class="sub" style="font-size:11px;margin:12px 0 0">First start loads the detection models — allow up to a minute.</p>'
       +'</div></div>';
