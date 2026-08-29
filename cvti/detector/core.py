@@ -557,7 +557,36 @@ def get_label_map(names: Any) -> dict[int, str]:
     return {index: str(name) for index, name in enumerate(names)}
 
 
+def resolve_weights(weights: str) -> str:
+    """A weights path that survives being run from anywhere.
+
+    'models/yolov8n-pose.pt' is relative — meaningful in this repo, read-only
+    or nonexistent from an installed app's working directory. Worse, when the
+    file is missing ultralytics DOWNLOADS to that relative path, which on a
+    Program Files install is Permission denied x3 and a dead engine (pilot
+    crash loop, 29 Aug — six respawns in one monitor.log). Order: an existing
+    path wins; then the bundle's copy; else point the inevitable download at
+    the user's data dir, which is writable everywhere.
+    """
+    from pathlib import Path as _P
+    p = _P(weights)
+    if p.is_absolute() or p.exists():
+        return str(weights)
+    try:
+        from cvti.utils import resource_path, user_data_dir
+        bundled = resource_path(str(weights))
+        if bundled.exists():
+            return str(bundled)
+        d = user_data_dir() / "models"
+        d.mkdir(parents=True, exist_ok=True)
+        return str(d / p.name)
+    except Exception:  # noqa: BLE001 - never make loading worse than before
+        log.debug("weights resolution fell back to the raw path", exc_info=True)
+        return str(weights)
+
+
 def load_ultralytics_model(weights: str) -> LoadedModel:
+    weights = resolve_weights(weights)
     runner = YOLO(weights)
     return LoadedModel(
         runner=runner,

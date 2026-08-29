@@ -110,3 +110,35 @@ class FrozenModePathRulesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EveryDefaultModelShipsTest(unittest.TestCase):
+    """The engine could not start on the pilot's installed app (29 Aug):
+    models/yolov8n-pose.pt was never tracked, so CI bundles shipped without
+    it, and ultralytics' silent fallback download aimed at a read-only
+    directory — Permission denied x3, dead engine, crash loop. CI never
+    noticed because runner checkouts are writable, so the download quietly
+    succeeded there. Every weights path the pipeline defaults to must ship."""
+
+    def test_every_default_weights_path_is_tracked(self):
+        import re
+        src = (ROOT / "cvti/serving/pipeline.py").read_text()
+        weights = set(re.findall(r'"(models/[\w.\-]+\.pt)"', src))
+        self.assertTrue(weights, "no default weights found — did the signature move?")
+        for w in sorted(weights):
+            self.assertTrue(_tracked(w),
+                            f"{w} is a default the engine loads at startup, and it "
+                            f"is not in the repo — installs get a crash loop")
+
+    def test_missing_weights_resolve_to_a_writable_download_target(self):
+        import os
+        from cvti.detector.core import resolve_weights
+        cwd = os.getcwd()
+        os.chdir("/tmp")                        # nowhere near the repo
+        try:
+            target = resolve_weights("models/not-shipped-model.pt")
+        finally:
+            os.chdir(cwd)
+        self.assertFalse(target.startswith("models"),
+                         "a missing model still downloads into the cwd — "
+                         "read-only on installs")
