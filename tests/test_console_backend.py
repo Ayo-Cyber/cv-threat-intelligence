@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -76,6 +77,8 @@ class ConsoleBackendTests(unittest.TestCase):
         self.assertEqual(s1["site_name"], "Front Store")
         self.assertEqual(s1["notify"], "whatsapp")
         self.assertEqual(s1["cameras"], 1)
+        saved = json.loads(Path(self.site).read_text())
+        self.assertEqual(saved["scene_context_policy"], "require_reviewed")
 
     def test_detect_subnet_shape(self):
         r = self.be.detect_subnet()                      # network-dependent: None or a /24

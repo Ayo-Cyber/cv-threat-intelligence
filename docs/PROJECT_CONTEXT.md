@@ -1,5 +1,94 @@
 # Project Context
 
+## Current Authoritative Handoff - 2026-08-30
+
+This section supersedes older "current state" statements later in this
+chronological document. The implementation base is Ayo's production branch at
+`ayo/main@b32dbec`. Full Agent Mapper integration is being completed on the
+isolated branch `feat/full-agent-mapper-integration`; it is not merged into
+`ayo/main` yet.
+
+### Why this work exists
+
+A founder test produced a nonsensical category association: shoplifting in a
+car park. The agreed response is not to give the final VLM a longer prompt. The
+upstream Agent Mapper must describe each camera first, its output must be
+schema-bounded and reviewable, and deterministic compatibility must stop
+environment-incompatible built-in rules before they reach TrueSight.
+
+The product boundaries remain:
+
+```text
+Agent Mapper describes the place.
+The customer defines threat policy.
+Detectors propose events.
+Context compatibility rejects category mismatches.
+TrueSight verifies applicable candidates.
+The operator remains the final authority.
+```
+
+### Integrated implementation
+
+- `AgentMapper.map_result()` returns one complete mapping result: canonical
+  context, the exact representative frame, and optional raw response.
+- `SceneContextStore` validates the canonical schema and stores atomic,
+  site-scoped artifacts under `<output_dir>/context/<camera_id>/`.
+- Mapping lifecycle is explicit: `pending`, `ready_unreviewed`,
+  `ready_reviewed`, `stale`, or `failed`.
+- RTSP fingerprints are credential-redacted hashes. Source changes invalidate
+  stale context without exposing usernames or passwords.
+- The production serving pipeline performs mapping preflight before detector
+  state or model startup. A failed/review-blocked camera does not receive
+  generic context and does not block cameras that have usable context.
+- Supported policies are `require_reviewed`, `auto`, and `manual`. Missing
+  policy remains `auto` for legacy sites; newly completed first-run setup uses
+  `require_reviewed`.
+- Context precedence is human-authored site context, reviewed cache,
+  policy-allowed unreviewed cache, fresh mapping, then visible failure.
+- The customization engine now applies deterministic environment/zone
+  compatibility after a rule matches and before a candidate reaches the gate.
+- Built-in shoplifting/concealment rules are retail-restricted. Customer
+  English rules remain explicit overrides. Always-on critical safety rules
+  bypass contextual suppression.
+- Mapper-suggested zones are never activated automatically. An owner or
+  installer must accept one; accepted roles then become real context evidence.
+- TrueSight and English-rule scanning consume the same resolved canonical
+  context instead of repository-relative `runs/context` state.
+- Argus Rules now exposes the context, representative frame, lifecycle,
+  environment, actors, description, confidence, approval, remap, and suggested
+  zone actions. Operators can view; owners/installers can mutate.
+- Mapping failures, review blocks, stale state, and suppression counts are
+  represented in health output.
+
+### Compatibility and safety decisions
+
+- Existing site files without a policy keep automatic legacy behavior.
+- Existing human-authored `scene_description` fields count as reviewed manual
+  context and do not require a mapper call.
+- A mapper result is evidence, not truth. Expected actors mean actors that may
+  appear; they are not identity claims.
+- Mapper failures are fail-visible and camera-scoped, never silently replaced
+  by trusted generic context.
+- `mock` is plumbing-only. It cannot validate mapper quality, gate precision,
+  or hallucination reduction.
+
+### Verification state and immediate next action
+
+Focused automated tests for mapper result, storage, compatibility, preflight,
+pipeline wiring, console authorization, and web review are passing. The full
+repository regression is also green at `813 passed, 1 skipped`. A real local
+Ollama `gemma3:4b` smoke test mapped `theft_shop_01.mp4` as `retail_shop`
+(confidence 0.85) and `empty_warehouse.mp4` as `warehouse_floor` (confidence
+0.95). The file `data/anomaly/196.mp4` was checked and is a pastry-shop scene,
+not a parking clip, so it is invalid for the reported category-error test. Do
+not claim the car-park hallucination problem is empirically solved until a
+genuine held-out parking clip is run through the integrated path.
+
+Operational commands and artifact interpretation live in
+`docs/AGENT_MAPPER_OPERATIONS.md`. The design and implementation plan live in
+`docs/superpowers/specs/2026-08-30-full-agent-mapper-integration-design.md` and
+`docs/superpowers/plans/2026-08-30-full-agent-mapper-integration.md`.
+
 ## Project Name
 AI-Powered Threat Detection for Camera Systems
 

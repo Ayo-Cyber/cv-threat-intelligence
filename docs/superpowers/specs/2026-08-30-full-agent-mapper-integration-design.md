@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-30
 
-**Status:** Proposed for founder review
+**Status:** Implemented and regression-tested on `feat/full-agent-mapper-integration`; parking evaluation pending
 
 **Production base:** `ayo/main@b32dbec`
 

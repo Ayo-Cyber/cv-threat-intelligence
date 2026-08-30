@@ -125,7 +125,7 @@ def remove_camera(site_path: str | Path, camera_id: str) -> list[dict]:
 # The last three feed the Value screen. They are the site's own numbers, not
 # generic benchmarks — an ROI figure computed from someone else's assumptions is
 # worth nothing to the person signing the renewal.
-_META_KEYS = ("name", "notify", "gate", "configured",
+_META_KEYS = ("name", "notify", "gate", "configured", "scene_context_policy",
               "incident_value", "guard_hourly_cost", "review_minutes",
               "retention_days", "disk_warn_pct", "disk_critical_pct",
               "daily_normal",   # the daily "all systems normal" message; opt-OUT
@@ -176,4 +176,16 @@ def set_site_meta(site_path: str | Path, **fields: Any) -> dict:
     p = Path(site_path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, indent=2))
+    return get_site_meta(site_path)
+
+
+def complete_first_run(site_path: str | Path) -> dict:
+    """Finish setup without changing compatibility policy on existing sites."""
+    data = load_site(site_path)
+    if not bool(data.get("configured")) and "scene_context_policy" not in data:
+        data["scene_context_policy"] = "require_reviewed"
+    data["configured"] = True
+    path = Path(site_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2))
     return get_site_meta(site_path)

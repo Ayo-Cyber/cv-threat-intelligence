@@ -1075,7 +1075,7 @@ class ConsoleBackend:
         return onboarding.set_site_meta(self.site_path, name=name, notify=notify)
 
     def mark_configured(self) -> dict:
-        return onboarding.set_site_meta(self.site_path, configured=True)
+        return onboarding.complete_first_run(self.site_path)
 
     def send_test_notification(self) -> dict:
         """Fire a synthetic alert through the site's configured notifier so the

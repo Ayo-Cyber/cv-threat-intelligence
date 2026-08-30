@@ -1,5 +1,48 @@
 # CV Threat Intelligence Backend V1 Plan
 
+## Current Execution Status - 2026-08-30
+
+The immediate Agent Mapper workstream is implemented on
+`feat/full-agent-mapper-integration`, based on `ayo/main@b32dbec`, and awaits
+final regression/evaluation plus integration back into Ayo's production path.
+
+Completed in this workstream:
+
+- full canonical Agent Mapper replaces the lightweight background mapper;
+- site-scoped context cache, lifecycle, source invalidation, and safe atomic
+  artifacts;
+- mapping preflight before detection starts;
+- `require_reviewed`, `auto`, and `manual` policies with legacy compatibility;
+- deterministic context compatibility before TrueSight;
+- retail-only protection for built-in shoplifting/concealment candidates;
+- critical baseline and customer-explicit override behavior;
+- owner/installer review, correction, approval, remap, and suggested-zone
+  acceptance in the Argus console;
+- mapper state and context suppression in health diagnostics;
+- new first-run sites default to human-reviewed context.
+
+Acceptance still required:
+
+- acquire and run a genuine held-out parking clip; `data/anomaly/196.mp4` is a
+  pastry-shop scene and must not be used as the parking negative;
+- verify that parking context suppresses retail shoplifting while critical
+  safety candidates still flow;
+- measure the change on a held-out context-confusion set before claiming a
+  reduction in hallucinations;
+- merge or cherry-pick the reviewed branch into Ayo's production branch.
+
+Acceptance completed in this workstream:
+
+- full regression: `813 passed, 1 skipped`;
+- real local-Ollama scene separation: retail mapped to `retail_shop` at 0.85
+  confidence and the empty warehouse mapped to `warehouse_floor` at 0.95;
+- deterministic environment suppression and critical-baseline bypass are
+  covered by automated tests.
+
+This work strengthens semantic grounding but does not replace the broader V1
+quality gates: per-rule recall/FPR, hard-negative evaluation, reliable small
+weapon detection, temporal-action validation, and deployment performance.
+
 ## Overview
 
 This project is a context-aware AI security intelligence layer for existing CCTV, IP camera, RTSP, and video-file feeds. The product goal is not simply to detect one class like violence or shoplifting. The goal is to help customers define what a "threat" means in their own environment, run local computer vision continuously, verify candidate alerts with context, and notify stakeholders with evidence when a real threat is occurring.

@@ -44,6 +44,27 @@ class OnboardingTests(unittest.TestCase):
         onboarding.add_camera(self.site, {"source": "rtsp://a/1"})
         self.assertTrue(onboarding.list_cameras(self.site)[0]["id"].startswith("cam"))
 
+    def test_complete_first_run_requires_reviewed_scene_context_for_new_site(self):
+        onboarding.add_camera(self.site, {"id": "front", "source": "rtsp://a/1"})
+
+        result = onboarding.complete_first_run(self.site)
+
+        saved = json.loads(Path(self.site).read_text())
+        self.assertTrue(result["configured"])
+        self.assertEqual(saved["scene_context_policy"], "require_reviewed")
+
+    def test_reopened_wizard_does_not_rewrite_legacy_scene_context_policy(self):
+        Path(self.site).write_text(json.dumps({
+            "name": "Legacy Site",
+            "configured": True,
+            "cameras": [{"id": "front", "source": "rtsp://a/1"}],
+        }))
+
+        onboarding.complete_first_run(self.site)
+
+        saved = json.loads(Path(self.site).read_text())
+        self.assertNotIn("scene_context_policy", saved)
+
 
 if __name__ == "__main__":
     unittest.main()
