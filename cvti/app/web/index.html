@@ -2271,8 +2271,15 @@ function printReport(){ document.body.classList.add("printing-report");
    Slower, readable playback — each frame holds ~0.55s, with a longer pause on the
    last frame before looping so the threat doesn't flash past or snap back jarringly. */
 var CLIP_FRAME_MS = 550, CLIP_LOOP_PAUSE_MS = 1200;
-function clipPace(){ var n=(state.clipFrames||[]).length;
-  return n>10 ? 140 : (n>5 ? 300 : CLIP_FRAME_MS); }   // many frames -> play like video
+function clipPace(){
+  /* Reality speed. The old rule was 140ms/frame for any long clip, which
+     replayed 4fps loitering evidence at ~7fps — 1.75x fast-forward, and the
+     subject 'skips' across the window (field report, 30 Aug). The clip's own
+     capture rate wins whenever the evidence recorded it. */
+  var fps = state.selected && state.selected.clipFps;
+  if(fps && fps >= 0.5 && fps <= 60) return Math.round(1000/fps);
+  var n=(state.clipFrames||[]).length;
+  return n>10 ? 140 : (n>5 ? 300 : CLIP_FRAME_MS); }   // legacy clips: old guess
 function clipPaint(i){
   var n=state.clipFrames?state.clipFrames.length:0; if(!n) return;
   var counter=$("clipCounter"); if(counter) counter.textContent=(i+1)+" / "+n;
@@ -2325,13 +2332,16 @@ function ensureFrames(a, cb){
     var cached = state.clipCache[key] || {};
     a.frames = cached.frames || [];
     if(cached.subject) a.subject = cached.subject;
+    if(cached.fps) a.clipFps = cached.fps;
     cb(a.frames); return;
   }
   call("eventClip",[a.evidence_dir||""],function(r){
     var frames = (r && r.frames) || [];
-    state.clipCache[key] = {frames: frames, subject: (r && r.subject) || null};
+    state.clipCache[key] = {frames: frames, subject: (r && r.subject) || null,
+                            fps: (r && r.fps) || null};
     a.frames = frames;
     if(r && r.subject) a.subject = r.subject;   // the WHO shot rides with it
+    if(r && r.fps) a.clipFps = r.fps;
     cb(frames);
   });
 }

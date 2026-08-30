@@ -1665,7 +1665,12 @@ class ConsoleBackend:
         uri = None
         if clip.exists():
             uri = "data:video/mp4;base64," + base64.b64encode(clip.read_bytes()).decode()
-        return {"uri": uri, "frames": frames, "subject": subject}
+        fps = None
+        try:
+            fps = json.loads((d / "event.json").read_text()).get("clip_fps")
+        except (OSError, ValueError):
+            pass
+        return {"uri": uri, "frames": frames, "subject": subject, "fps": fps}
 
     def search_events(self, query: str, limit: int = 200) -> dict:
         """Ask-your-cameras: natural-language search over past events.
