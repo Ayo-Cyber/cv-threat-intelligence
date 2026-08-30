@@ -95,6 +95,20 @@ class FullAgentMapperService:
             resolution = result.resolution
             if resolution.usable and resolution.context is not None:
                 preflight.contexts[camera_id] = resolution.context
+            elif normalized_policy == "auto":
+                # FAIL VISIBLE, NEVER CLOSED. Under the default policy a
+                # mapper failure used to BLOCK the camera — the E2E harness
+                # caught the consequence before any customer did (30 Aug):
+                # one missing prompt file and the engine started with ZERO
+                # cameras watching. A security product must never trade
+                # 'monitoring without scene context' for 'no monitoring at
+                # all' by default. The camera runs generic; the failure
+                # stays loud in the mapping health rows. The strict policies
+                # (require_reviewed / manual) still block — there the
+                # operator explicitly chose certainty over coverage.
+                log.warning("[agent-map] %s has no usable scene context — "
+                            "starting WITHOUT it (policy=auto); reason: %s",
+                            camera_id, resolution.status.error or resolution.status.status)
             else:
                 preflight.blocked_camera_ids.add(camera_id)
             preflight.statuses[camera_id] = _status_document(

@@ -109,15 +109,31 @@ def test_manual_policy_blocks_without_calling_mapper(tmp_path) -> None:
     assert mapper.calls == []
 
 
-def test_mapper_failure_marks_camera_failed_without_generic_context(tmp_path) -> None:
+def test_mapper_failure_under_auto_runs_the_camera_and_stays_loud(tmp_path) -> None:
+    """Changed 30 Aug after the E2E harness proved the original semantics
+    fail-CLOSED: one missing prompt file and the engine started with zero
+    cameras watching. Under the default policy a mapper failure now runs the
+    camera WITHOUT scene context — no fabricated context, the failure stays
+    in the health rows — because 'monitoring without context' must never be
+    traded for 'no monitoring at all' by default."""
     service = FullAgentMapperService(tmp_path / "out", FailingMapper())
 
     result = service.prepare([_camera(tmp_path)], "auto")
 
-    assert result.blocked_camera_ids == {"cam_1"}
+    assert result.blocked_camera_ids == set(), "auto policy blocked a camera"
     assert result.statuses["cam_1"]["status"] == "failed"
     assert "ollama unavailable" in result.statuses["cam_1"]["error"]
-    assert "cam_1" not in result.contexts
+    assert "cam_1" not in result.contexts     # nothing fabricated
+
+
+def test_mapper_failure_under_strict_policies_still_blocks(tmp_path) -> None:
+    """require_reviewed keeps its teeth — there the operator explicitly chose
+    certainty over coverage."""
+    service = FullAgentMapperService(tmp_path / "out", FailingMapper())
+
+    result = service.prepare([_camera(tmp_path)], "require_reviewed")
+
+    assert result.blocked_camera_ids == {"cam_1"}
 
 
 def test_static_camera_context_is_reviewed_and_never_calls_mapper(tmp_path) -> None:
