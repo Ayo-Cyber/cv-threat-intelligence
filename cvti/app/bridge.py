@@ -132,6 +132,36 @@ class Backend(QObject):
     def sceneContext(self, camera_id: str) -> str:
         return self._safe(lambda: self._core.scene_context(camera_id))
 
+    @pyqtSlot(str, str, result=str)
+    def updateSceneContext(self, camera_id: str, context_json: str) -> str:
+        return self._safe(
+            lambda: self._core.update_scene_context(
+                camera_id, json.loads(context_json)
+            )
+        )
+
+    @pyqtSlot(str, str, result=str)
+    def approveSceneContext(self, camera_id: str, context_json: str) -> str:
+        return self._safe(
+            lambda: self._core.approve_scene_context(
+                camera_id, json.loads(context_json)
+            )
+        )
+
+    @pyqtSlot(str, result=str)
+    def requestSceneRemap(self, camera_id: str) -> str:
+        return self._safe(lambda: self._core.request_scene_remap(camera_id))
+
+    @pyqtSlot(str, str, float, result=str)
+    def acceptSuggestedZone(
+        self, camera_id: str, zone_id: str, dwell_seconds: float
+    ) -> str:
+        return self._safe(
+            lambda: self._core.accept_suggested_zone(
+                camera_id, zone_id, dwell_seconds
+            )
+        )
+
     # --- zones ---
     @pyqtSlot(str, result=str)
     def cameraSnapshot(self, camera_id: str) -> str:
