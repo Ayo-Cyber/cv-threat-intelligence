@@ -1744,11 +1744,27 @@ function customRuleRows(c){
       +'<b>These rules are not running:</b> TrueSight (the local AI) is unavailable on this machine. '
       +'Most often the 3.3&nbsp;GB model was never downloaded — open <b>Settings → Verification</b> to install it.</div>'
     : '';
-  if(!rules.length) return warn+'<div class="mut" style="font-size:12px;margin-top:6px">Nothing described yet.</div>';
-  return warn + rules.map(function(r){
+  var pulse = '<div class="mut mono" style="font-size:11px;margin-top:8px" id="erpulse-'+esc(c.id)+'">scanner status…</div>';
+  setTimeout(function(){ fillRulePulse(c.id); }, 60);
+  if(!rules.length) return warn+'<div class="mut" style="font-size:12px;margin-top:6px">Nothing described yet.</div>'+(rules.length?pulse:"");
+  return warn + pulse + rules.map(function(r){
     return '<div class="row" style="gap:8px;padding:6px 0;border-bottom:1px solid var(--c-border)">'
       +'<span style="font-size:12.5px;flex:1">“'+esc(r.question)+'”</span>'
       +'<button class="btn ghost sm" onclick="dropCustomRule(\''+esc(c.id)+'\', this)" data-q="'+esc(r.question)+'">✕</button></div>'; }).join("");
+}
+function fillRulePulse(camId){
+  call("englishRulesStatus",[],function(st){
+    var el=$("erpulse-"+camId); if(!el) return;
+    if(!st || !st.available){ el.textContent="scanner: no heartbeat yet — start monitoring to scan"; return; }
+    var cam=(st.cameras||{})[camId];
+    if(!cam){ el.textContent="scanner: this camera is not being scanned (engine restarts pick up new rules within ~12s)"; return; }
+    var age = Math.max(0, Math.round((Date.now()/1000) - (cam.last_scan_at||0)));
+    var line = "scanned "+age+"s ago · "+(cam.last_outcome||"—")
+      +" · "+cam.scans+" scans, "+cam.hits+" matches"+(cam.errors?(", "+cam.errors+" failed"):"");
+    el.textContent = line;
+    el.style.color = cam.last_error ? "var(--sev-high)" : "";
+    if(cam.last_error) el.title = cam.last_error;
+  });
 }
 function addCustomRule(camId, btn){
   var box=$("cr-"+camId), msg=$("crmsg-"+camId);

@@ -101,6 +101,21 @@ class ConsoleBackend:
             "permissions": sorted(perms.permissions_for(user.role)) if user else [],
         }
 
+    def english_rules_status(self) -> dict:
+        """The scanner's own account of itself — written every cycle by the
+        engine. Distinguishes the three silences that all looked identical
+        from the operator's chair ('the describe in english hasn't fired',
+        three reports in two days): the model answering none, the calls
+        failing, and nothing scanning at all."""
+        path = Path(self.db_path).parent / "english_rules_status.json"
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return {"available": False}
+        data["available"] = True
+        data["age_s"] = round(time.time() - float(data.get("generated_at") or 0), 1)
+        return data
+
     def auth_recovery(self) -> dict:
         """What the sign-in screen shows a locked-out owner (pre-auth, read-only).
 

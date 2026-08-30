@@ -266,6 +266,10 @@ class Backend(QObject):
         return self._safe(self._core.auth_recovery)
 
     @pyqtSlot(result=str)
+    def englishRulesStatus(self) -> str:
+        return self._safe(self._core.english_rules_status)
+
+    @pyqtSlot(result=str)
     def authAccounts(self) -> str:
         return self._safe(self._core.auth_accounts)
 

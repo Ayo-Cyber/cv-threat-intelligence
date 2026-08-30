@@ -70,6 +70,22 @@ class CustomRuleScanner:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_fire: dict[tuple, float] = {}   # (cam, rule) -> ts
+        # The heartbeat file. 'My English rule hasn't fired' arrived three
+        # times in two days (28-30 Aug) and the product offered no way to tell
+        # 'the model answers none every cycle' from 'every call fails' from
+        # 'nothing is scanning'. Every cycle now writes what actually happened
+        # per camera; the Rules panel shows it live.
+        self.status_path: Path | None = None
+        self._status: dict = {}
+        # Adaptive backoff. During the 29 Aug demo every scanner call timed
+        # out for minutes on end: four cameras' gate verifications and the
+        # scanner all contend for OLLAMA_NUM_PARALLEL=2 slots, so under load
+        # the scanner queues behind long verifies, times out, and immediately
+        # queues again — adding pressure to the exact resource it is starving
+        # on. On failure the effective interval doubles (cap 10x); one success
+        # resets it. Alert verification keeps priority; sentences catch up
+        # when the model has headroom.
+        self._backoff = 1.0
 
     def _refresh_cameras(self) -> None:
         """Re-read the site file so a sentence typed in the app starts scanning
@@ -130,8 +146,10 @@ class CustomRuleScanner:
                         continue
                     try:
                         hits = self._check(c, frame)
+                        self._record(c, hits)
                     except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
                         log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
+                        self._record(c, None, error=str(exc)[:200])
                         continue
                     for hit in hits:
                         if not self._cooling(c["id"], hit["name"]):
@@ -165,19 +183,57 @@ class CustomRuleScanner:
                 dead_since.pop(c["id"], None)
                 try:
                     hits = self._check(c, frame)
+                    self._record(c, hits)
                 except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
                     log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
+                    self._record(c, None, error=str(exc)[:200])
                     continue
                 for hit in hits:
                     if not self._cooling(c["id"], hit["name"]):
                         self._emit(c, frame, hit)
-            self._stop.wait(self.interval)
+            self._stop.wait(self.interval * self._backoff)
         for cap in caps.values():
             try:
                 cap.release()
             except Exception as exc:  # noqa: BLE001
                 log.debug("releasing a capture failed during teardown", exc_info=True)
                 pass
+
+    def _record(self, cam: dict, hits, error: str | None = None) -> None:
+        """One line of truth per camera per cycle, flushed to status_path."""
+        from cvti.health import component
+        comp = component(f"english_rules.{cam['id']}")
+        entry = self._status.setdefault(cam["id"], {"scans": 0, "hits": 0, "errors": 0})
+        entry["scans"] += 1
+        entry["rules"] = len(_rules_for(cam))
+        entry["last_scan_at"] = time.time()
+        if error is not None:
+            entry["errors"] += 1
+            entry["last_error"] = error
+            entry["last_outcome"] = "call failed"
+            comp.failed(RuntimeError(error))
+            self._backoff = min(self._backoff * 2.0, 10.0)
+            entry["backoff_s"] = round(self.interval * self._backoff)
+        else:
+            comp.ok()
+            self._backoff = 1.0
+            entry.pop("backoff_s", None)
+            entry.pop("last_error", None)
+            if hits:
+                entry["hits"] += len(hits)
+                entry["last_hit_at"] = time.time()
+                entry["last_outcome"] = "matched: " + ", ".join(h["name"] for h in hits)[:120]
+            else:
+                entry["last_outcome"] = "model answered none"
+        if self.status_path is not None:
+            try:
+                tmp = self.status_path.with_suffix(".tmp")
+                tmp.write_text(json.dumps({"generated_at": time.time(),
+                                           "interval_s": self.interval,
+                                           "cameras": self._status}))
+                tmp.replace(self.status_path)
+            except OSError:
+                log.debug("english-rules status write failed", exc_info=True)
 
     def _cooling(self, cam_id: str, name: str) -> bool:
         key = (cam_id, name)
