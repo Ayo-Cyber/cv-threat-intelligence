@@ -159,9 +159,12 @@ def test_accept_suggested_zone_converts_bbox_to_active_polygon(tmp_path) -> None
 
 
 def test_qt_bridge_exposes_all_scene_review_actions() -> None:
-    from cvti.app.bridge import Backend
-
-    source = inspect.getsource(Backend)
+    # Source-scan the FILE, not the imported class: importing cvti.app.bridge
+    # pulls in PyQt6, which CI's test job deliberately does not install — the
+    # required check failed on ModuleNotFoundError while the same test passed
+    # on any dev laptop with Qt. Every other bridge test reads the file for
+    # the same reason.
+    source = Path("cvti/app/bridge.py").read_text()
     for method in (
         "updateSceneContext",
         "approveSceneContext",
