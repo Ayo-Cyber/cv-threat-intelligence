@@ -74,6 +74,13 @@ class MappingPaths:
     raw_response_path: Path
 
 
+@dataclass
+class MappingResult:
+    context: dict[str, Any]
+    selected_frame: Any
+    raw_response: str
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Agent Mapper for scene context generation from webcam, RTSP, image, or video input."
@@ -759,10 +766,17 @@ class AgentMapper:
             self._prompt_path = prompt_path or DEFAULT_PROMPT_PATH
             self._schema_path = schema_path or DEFAULT_SCHEMA_PATH
 
-    def map(self, source_raw: str, camera_id: str = "", sample_count: int = 3) -> dict[str, Any]:
+    def map_result(
+        self,
+        source_raw: str,
+        camera_id: str = "",
+        sample_count: int = 3,
+        source_frame_path: str = "",
+    ) -> MappingResult:
         source = normalize_source(str(source_raw))
         source_type = detect_source_type(source)
         cam = build_camera_id(camera_id, source)
+        frame_path = source_frame_path or f"runs/context/{cam}/source_frame.jpg"
 
         samples = capture_sample_frames(source, source_type, max(1, sample_count), 2.0)
         selected = choose_representative_frame(samples)
@@ -772,7 +786,7 @@ class AgentMapper:
             template=load_text_file(Path(self._prompt_path)),
             camera_id=cam,
             source_type=source_type,
-            source_frame_path=f"runs/context/{cam}/source_frame.jpg",
+            source_frame_path=frame_path,
             max_zone_suggestions=self.max_zone_suggestions,
         )
 
@@ -801,13 +815,21 @@ class AgentMapper:
         else:
             raise RuntimeError(f"Unsupported provider: {self.provider}")
 
-        return parse_and_validate_scene_context(
+        context = parse_and_validate_scene_context(
             raw_response=raw,
             schema=load_schema(Path(self._schema_path)),
             camera_id=cam,
             source_type=source_type,
-            source_frame_path=f"runs/context/{cam}/source_frame.jpg",
+            source_frame_path=frame_path,
         )
+        return MappingResult(
+            context=context,
+            selected_frame=selected.image,
+            raw_response=raw,
+        )
+
+    def map(self, source_raw: str, camera_id: str = "", sample_count: int = 3) -> dict[str, Any]:
+        return self.map_result(source_raw, camera_id, sample_count).context
 
 
 def main() -> None:
