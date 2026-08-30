@@ -74,6 +74,18 @@ def test_scene_context_reads_db_parent_context_not_cwd(tmp_path, monkeypatch) ->
     assert result["source_frame_uri"].startswith("data:image/jpeg;base64,")
 
 
+def test_scene_context_returns_failure_status_before_context_exists(tmp_path) -> None:
+    backend, source = _backend(tmp_path)
+    store = SceneContextStore(tmp_path / "context", "cam_1")
+    store.mark_failed(source, "ollama unavailable")
+
+    result = backend.scene_context("cam_1")
+
+    assert result["mapping"]["status"] == "failed"
+    assert result["mapping"]["error"] == "ollama unavailable"
+    assert result["scene_description"] == ""
+
+
 def test_operator_cannot_edit_or_approve_scene_context(tmp_path) -> None:
     backend, source = _backend(tmp_path, role="operator")
     _seed_mapping(tmp_path, source)

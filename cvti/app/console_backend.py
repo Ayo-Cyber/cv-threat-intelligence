@@ -906,6 +906,20 @@ class ConsoleBackend:
                 },
                 "source_frame_uri": "",
             }
+        if store.status_path.exists():
+            return {
+                "camera_id": camera_id,
+                "environment_type": "unknown",
+                "scene_description": "",
+                "expected_actors": [],
+                "zones": [],
+                "confidence": 0.0,
+                "mapping": {
+                    **store.load_status().to_dict(),
+                    "provenance": "mapper",
+                },
+                "source_frame_uri": "",
+            }
         return None
 
     def update_scene_context(self, camera_id: str, context: dict) -> dict:
