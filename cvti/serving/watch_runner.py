@@ -76,7 +76,8 @@ class WatchRunner:
         state = self.states.get(cam["id"])
         ctx = getattr(state, "scene_context", None) or {}
         if isinstance(ctx, dict):
-            scene = str(ctx.get("scene_description", ""))[:200]
+            from cvti.scene.context_store import render_scene_context
+            scene = render_scene_context(ctx)[:400]
         raw = self._ask(build_prompt(watches, len(mapping), scene), buf.tobytes())
         opened = []
         box_by_track = {b[0]: tuple(b[1:]) for b in boxes}      # tid -> (x1,y1,x2,y2)

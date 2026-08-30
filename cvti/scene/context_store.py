@@ -234,6 +234,20 @@ def source_fingerprint(source: int | str | Path) -> str:
     return f"sha256:{digest}"
 
 
+def render_scene_context(context: dict[str, Any] | None) -> str:
+    """Render descriptive context without asserting an actor's identity."""
+    if not isinstance(context, dict):
+        return "A monitored area with no reviewed scene description."
+    description = str(context.get("scene_description", "")).strip()
+    environment = str(context.get("environment_type", "unknown")).replace("_", " ")
+    parts = [description or "A monitored area.", f"Environment: {environment}."]
+    actors = [str(actor).strip() for actor in context.get("expected_actors", [])]
+    actors = [actor for actor in actors if actor]
+    if actors:
+        parts.append(f"Expected actors may include {', '.join(actors)}.")
+    return " ".join(parts)
+
+
 def _atomic_bytes_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
