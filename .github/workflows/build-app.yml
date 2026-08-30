@@ -316,6 +316,12 @@ jobs:
             ${{ matrix.artifact }}.zip
             argus-windows-setup.exe
           if-no-files-found: error
+          # Scaffolding, not storage: the release job collects these minutes
+          # later and the Releases page keeps the real assets forever. At the
+          # default 90-day retention a week of builds hoarded 61.86 GB and
+          # maxed the account's Actions storage the moment the repo went
+          # private (30 Aug).
+          retention-days: 1
 
   # On a version tag, collect all three OS builds into ONE public GitHub Release,
   # so the .dmg / .exe zip are downloadable straight from the Releases page (no
