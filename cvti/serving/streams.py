@@ -44,6 +44,46 @@ DEFAULT_OFFLINE_GRACE = 60.0
 
 
 
+class PushGovernor:
+    """Thins playout pushes when the buffer is under SUSTAINED pressure.
+
+    A camera that reports no FPS metadata (the pilot's Tapo over RTSP on
+    Windows, 30 Aug) defeats stride sampling: every frame (~25/s) is pushed
+    into a playout that pops at 12/s, so the buffer lives near full and the
+    2x catch-up runs in a permanent lag-sprint-lag cycle — 'kinda slow and
+    moves fast forwarded some times'. Sustained fullness means input
+    structurally outruns output: skip every 2nd push, then every 3rd, until
+    pressure clears. An HLS burst never trips it — its spike-drain rhythm
+    keeps fullness intermittent, and intermittent pressure resets the clock.
+    """
+
+    def __init__(self, high_frac: float = 0.6, sustain_s: float = 8.0) -> None:
+        self.high_frac = high_frac
+        self.sustain_s = sustain_s
+        self.skip = 0          # push every (skip+1)th frame
+        self._over_since = 0.0
+        self._calm_since = 0.0
+        self._i = 0
+
+    def admit(self, fullness: float, now: float) -> bool:
+        """True if this frame may be pushed."""
+        if fullness >= self.high_frac:
+            self._calm_since = 0.0
+            self._over_since = self._over_since or now
+            if now - self._over_since >= self.sustain_s and self.skip < 3:
+                self.skip += 1
+                self._over_since = now
+        else:
+            self._over_since = 0.0
+            if self.skip:
+                self._calm_since = self._calm_since or now
+                if now - self._calm_since >= self.sustain_s:
+                    self.skip -= 1
+                    self._calm_since = now
+        self._i += 1
+        return self.skip == 0 or (self._i % (self.skip + 1)) == 0
+
+
 class PlayoutBuffer:
     """Paced playout for live URL sources: almost real-time, never fast-forward.
 
@@ -126,6 +166,7 @@ class StreamDecoder:
         # URL sources deliver in bursts; the wall plays them from here, paced.
         # Files pace themselves; a webcam is inherently real-time. Neither needs it.
         self.playout = PlayoutBuffer(rate=target_fps) if self._is_live() else None
+        self._governor = PushGovernor() if self.playout is not None else None
         self._latest: Frame | None = None
         self._seq = 0                      # bumps per decoded frame (peek dedup)
         self.stale_dropped = 0             # buffered frames skipped to stay live
@@ -282,8 +323,12 @@ class StreamDecoder:
                 # a burst we chew the backlog flat-out — sleeping through a
                 # burst is exactly how the source-side lag grew before. The
                 # deque's depth cap bounds how far behind the wall can fall.
-                if self.playout.push(image):
-                    self.stale_dropped += 1
+                fullness = len(self.playout) / max(1, self.playout._frames.maxlen)
+                if self._governor.admit(fullness, time.perf_counter()):
+                    if self.playout.push(image):
+                        self.stale_dropped += 1
+                else:
+                    self.stale_dropped += 1      # thinned under sustained pressure
                 if len(self.playout) <= (self.playout._frames.maxlen // 2) \
                         and self._min_period:
                     elapsed = time.perf_counter() - loop_start

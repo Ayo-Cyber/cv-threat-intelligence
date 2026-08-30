@@ -668,6 +668,11 @@ class AlertSink:
             "bbox": ",".join(str(int(v)) for v in payload["bbox"]) if payload.get("bbox") else None,
             "unverified": 1 if getattr(result, "errored", False) else 0,
             "gate_error": getattr(result, "error", "") or None,
+            # The capture rate of the evidence frames. Without it the viewer
+            # guessed — a hard-coded 140ms/frame that replayed 4fps loitering
+            # evidence at ~7fps: 1.75x fast-forward, and the person 'skips'
+            # across the window (field report, 30 Aug).
+            "clip_fps": float((alert.payload or {}).get("clip_fps") or 0.0) or None,
         }
         (ev_dir / "event.json").write_text(json.dumps(event, indent=2))
 
