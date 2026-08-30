@@ -1381,10 +1381,15 @@ function componentRows(h){
   var rows = comps.map(function(c){
     var pct = Math.round((c.error_rate||0)*100);
     var col = c.degraded ? "var(--sev-crit)" : (c.errors ? "var(--sev-high)" : "var(--c-mut)");
+    /* 480 errors at 100% with no WHAT sent the pilot a screenshot instead of
+       an answer (30 Aug). The failing component's own last error rides along. */
+    var why = (c.errors && c.last_error)
+      ? '<tr><td colspan="4" class="mono" style="padding:0 0 6px 12px;font-size:10.5px;color:'+col+';word-break:break-all">↳ '+esc(String(c.last_error).slice(0,160))+'</td></tr>'
+      : '';
     return '<tr><td class="mono" style="padding:3px 10px 3px 0">'+esc(c.name)+'</td>'
       +'<td style="text-align:right;padding-right:10px">'+(c.processed||0)+'</td>'
       +'<td style="text-align:right;padding-right:10px;color:'+col+'">'+(c.errors||0)+'</td>'
-      +'<td style="text-align:right;color:'+col+'">'+pct+'%</td></tr>';
+      +'<td style="text-align:right;color:'+col+'">'+pct+'%</td></tr>'+why;
   }).join("");
   var warn = deg.length
     ? '<div style="margin-top:9px;color:var(--sev-crit);font-weight:600;font-size:12.5px">'
@@ -2148,12 +2153,20 @@ function subjectHTML(a){
 function timelineHTML(a){
   var lat = a.latency_s;
   var latTxt = (lat!=null)? (Number(lat).toFixed(1)+'s') : '—';
+  /* The middle step used to hard-code a green 'Verified by TrueSight' dot —
+     the pilot's screen showed 'Verified · confidence 0.00' directly above a
+     banner saying verification never happened (30 Aug). The timeline now
+     tells the same story as the rest of the page. */
+  var unv = !!Number(a.unverified);
+  var verifyStep = unv
+    ? '<div class="tl-step"><span class="tl-dot" style="border-style:dashed;border-color:var(--sev-high)"></span><div><div class="tl-t" style="color:var(--sev-high)">Verification unavailable</div><div class="tl-s">'+esc(a.gate_error||"the AI could not reach a verdict")+'</div></div></div>'
+    : '<div class="tl-step"><span class="tl-dot on"></span><div><div class="tl-t">Verified by TrueSight</div><div class="tl-s">confidence '+(Number(a.confidence)||0).toFixed(2)+'</div></div></div>';
   return '<div class="timeline">'
     +'<div class="tl-step"><span class="tl-dot"></span><div><div class="tl-t">Detected</div><div class="tl-s">'+esc(a.rule)+' on '+esc(a.camera_id)+'</div></div></div>'
     +'<div class="tl-line"><span class="tl-lat">'+latTxt+'</span></div>'
-    +'<div class="tl-step"><span class="tl-dot on"></span><div><div class="tl-t">Verified by TrueSight</div><div class="tl-s">confidence '+(Number(a.confidence)||0).toFixed(2)+'</div></div></div>'
+    +verifyStep
     +'<div class="tl-line"></div>'
-    +'<div class="tl-step"><span class="tl-dot on"></span><div><div class="tl-t">You were notified</div><div class="tl-s">'+esc((a.iso||"").replace("T"," "))+'</div></div></div>'
+    +'<div class="tl-step"><span class="tl-dot on"></span><div><div class="tl-t">You were notified</div><div class="tl-s">'+esc((a.iso||"").replace("T"," "))+(unv?' · <b>UNVERIFIED</b>':'')+'</div></div></div>'
     +'</div>';
 }
 /* Ownership + note (EP-06-T1). Claiming shows your name to every operator;

@@ -101,6 +101,12 @@ app_a = Analysis(
         # statically. Without it, Live EarthCams exists as a button and fails
         # as a feature on every install.
         "yt_dlp",
+        # Stdlib, but only imported dynamically (the yolov5 weapon-model
+        # loader) — the frozen engine failed with "No module named
+        # 'logging.config'" and the weapons detector was dead on every
+        # install, cascading per-frame errors on any camera with weapons
+        # enabled (pilot health panel, 30 Aug: detector.cam1 480 errors).
+        "logging.config", "logging.handlers",
     ],
     excludes=["torch", "torchvision", "ultralytics", "transformers", "pytorchvideo",
               "matplotlib", "scipy", "pandas", "tkinter", "polars",
