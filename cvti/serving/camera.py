@@ -149,6 +149,13 @@ class PerCameraState:
     _tamper_det: Any = field(default=None, init=False, repr=False)
     _fall_det: Any = field(default=None, init=False, repr=False)
     _fire_det: Any = field(default=None, init=False, repr=False)
+    _first_seen_ts: float = field(default=-1.0, init=False, repr=False)
+    # Cameras auto-adjust exposure/IR for the first seconds after a stream
+    # opens; the fire detector's hot-area heuristic reads that white-out as
+    # flame, so EVERY engine start opened with a critical fire alert on the
+    # pilot's night camera ('anytime the software starts i get this alert of
+    # fire', 30 Aug). Situational detectors sit out the settle window.
+    settle_seconds: float = 8.0
     _running_det: Any = field(default=None, init=False, repr=False)
     _crowd_det: Any = field(default=None, init=False, repr=False)
     # Rolling recent frames (~2s at 5 FPS) so the gate gets per-rule evidence
@@ -293,8 +300,12 @@ class PerCameraState:
                     title=f"CAMERA BLOCKED ({t['kind']})", level="high",
                     timestamp=timestamp, extra=t))
 
+        if self._first_seen_ts < 0:
+            self._first_seen_ts = timestamp
+        settled = (timestamp - self._first_seen_ts) >= self.settle_seconds
+
         # Fire + smoke — pure CV pre-filter on the raw frame (no person needed).
-        if self.fire_smoke:
+        if self.fire_smoke and settled:
             if self._fire_det is None:
                 from cvti.detector.situational import FireSmokeCandidateDetector
                 self._fire_det = FireSmokeCandidateDetector(
@@ -334,7 +345,7 @@ class PerCameraState:
                         detector="person_fall", active=True, title="PERSON COLLAPSED",
                         person_id=fl.get("track_id"), level="critical",
                         timestamp=timestamp, extra=fl))
-            if self.running:
+            if self.running and settled:
                 if self._running_det is None:
                     from cvti.detector.situational import RunningPanicDetector
                     self._running_det = RunningPanicDetector(
@@ -346,7 +357,7 @@ class PerCameraState:
                         raw_events.append(RawEvent(
                             detector="running", active=True, title="PANIC RUNNING DETECTED",
                             person_id=p["track_id"], level="high", timestamp=timestamp, extra=r))
-            if self.crowd_formation:
+            if self.crowd_formation and settled:
                 # Count from the RAW detections, not the tracked ones: ByteTrack
                 # exists to give people stable identities, and it drops
                 # low-confidence boxes to do that. In a packed scene those dropped
