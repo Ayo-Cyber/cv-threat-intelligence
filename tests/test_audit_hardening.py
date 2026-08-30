@@ -149,31 +149,45 @@ class DbErrorHonestyTest(unittest.TestCase):
 
 
 class SceneContextPersistenceTest(unittest.TestCase):
-    """#7: live agent-mapping writes the file the UI and rule scanner read."""
+    """#7: mapping writes the site-scoped file the UI and engine share."""
 
     def test_mapping_writes_scene_context_json(self):
-        import os
-        import time
-        from cvti.serving import scene_map
-        real = scene_map.infer_scene
-        scene_map.infer_scene = lambda *a, **k: {
-            "environment_type": "retail", "scene_description": "A test shop."}
-        cwd = os.getcwd()
+        import numpy as np
+        from cvti.scene.agent_mapper import MappingResult
+        from cvti.serving.scene_map import FullAgentMapperService
+
+        class Mapper:
+            def map_result(self, source, camera_id, sample_count=3,
+                           source_frame_path=""):
+                return MappingResult({
+                    "camera_id": camera_id,
+                    "source_type": "video_file",
+                    "environment_type": "retail_shop",
+                    "scene_description": "A test shop.",
+                    "expected_actors": ["customers"],
+                    "zones": [],
+                    "confidence": 0.8,
+                    "generated_at": "2026-08-30T10:00:00Z",
+                    "source_frame_path": source_frame_path,
+                    "notes": "",
+                }, np.zeros((20, 20, 3), dtype=np.uint8), "{}")
+
         with tempfile.TemporaryDirectory() as tmp:
-            os.chdir(tmp)
-            try:
-                state = type("S", (), {"scene_context": None})()
-                t = scene_map.map_cameras_async(
-                    [{"id": "cam1", "source": "x.mp4"}], {"cam1": state},
-                    model="m")
-                t.join(timeout=5)
-                f = Path(tmp) / "runs/context/cam1/scene_context.json"
-                self.assertTrue(f.exists(), "mapping still never persists the scene")
-                self.assertEqual(json.loads(f.read_text())["environment_type"], "retail")
-                self.assertEqual(state.scene_context["scene_description"], "A test shop.")
-            finally:
-                os.chdir(cwd)
-                scene_map.infer_scene = real
+            root = Path(tmp)
+            source = root / "x.mp4"
+            source.write_bytes(b"clip")
+            output = root / "site-output"
+            result = FullAgentMapperService(output, Mapper()).prepare(
+                [{"id": "cam1", "source": str(source)}], "auto")
+            context_file = output / "context/cam1/scene_context.json"
+            self.assertTrue(context_file.exists())
+            self.assertEqual(
+                json.loads(context_file.read_text())["environment_type"],
+                "retail_shop",
+            )
+            self.assertEqual(
+                result.contexts["cam1"]["scene_description"], "A test shop."
+            )
 
 
 if __name__ == "__main__":

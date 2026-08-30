@@ -101,6 +101,7 @@ class PerCameraState:
     engine: CustomizationEngine
     zone_monitor: Any = None          # RetailZoneMonitor | None
     scene_context: dict | None = None
+    active_zone_roles: set[str] = field(default_factory=set)
     person_filter: bool = True
     # Shared (stateless) models, injected by the pipeline.
     pose_model: Any = None            # LoadedModel | None — needed by concealment/violence/theft
@@ -151,6 +152,8 @@ class PerCameraState:
     _fire_det: Any = field(default=None, init=False, repr=False)
     _running_det: Any = field(default=None, init=False, repr=False)
     _crowd_det: Any = field(default=None, init=False, repr=False)
+    context_decisions: list[dict] = field(default_factory=list, init=False)
+    context_suppression_count: int = field(default=0, init=False)
     # Rolling recent frames (~2s at 5 FPS) so the gate gets per-rule evidence
     # (motion-peak span for violence, sharpest single frame for weapons).
     _frame_buffer: deque = field(default_factory=lambda: deque(maxlen=10), init=False, repr=False)
@@ -400,7 +403,16 @@ class PerCameraState:
         if not raw_events:
             return []
 
-        alerts = self.engine.evaluate(raw_events, scene_context=self.scene_context)
+        alerts = self.engine.evaluate(
+            raw_events,
+            scene_context=self.scene_context,
+            active_zone_roles=self.active_zone_roles,
+        )
+        self.context_decisions = list(self.engine.context_decisions)
+        self.context_suppression_count += sum(
+            decision.get("decision") == "context_incompatible"
+            for decision in self.context_decisions
+        )
         if not alerts:
             return []
         from cvti.verification.frame_select import select_evidence_frames
@@ -441,7 +453,8 @@ class PerCameraState:
 
 def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_model: Any = None,
                         video_action_model: Any = None,
-                        baseline_config: str | None = None) -> dict[str, dict]:
+                        baseline_config: str | None = None,
+                        scene_contexts: dict[str, dict] | None = None) -> dict[str, dict]:
     """Parse a site config into {camera_id: {"source": ..., "state": PerCameraState}}.
 
     Site config per-camera keys: id, source, config, plus optional zones,
@@ -459,14 +472,26 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
         zone_monitor = None
         if cam.get("zones"):
             zone_monitor = RetailZoneMonitor(load_zone_config(cam["zones"]))
-        scene = None
-        if cam.get("scene_description"):
+        scene = (scene_contexts or {}).get(cam_id)
+        if scene is None and cam.get("scene_description"):
             scene = {"environment_type": cam.get("environment_type", "unknown"),
                      "scene_description": cam["scene_description"]}
+        active_zone_roles = set(cam.get("accepted_zone_roles") or [])
+        if cam.get("zones"):
+            try:
+                zone_data = json.loads(Path(cam["zones"]).read_text())
+                kind_roles = {"shelf": "merchandise", "checkout": "checkout"}
+                for zone in zone_data.get("zones", []):
+                    role = zone.get("context_role") or kind_roles.get(zone.get("kind"))
+                    if role:
+                        active_zone_roles.add(str(role))
+            except (OSError, ValueError, TypeError):
+                log.warning("unable to read accepted zone roles for %s", cam_id)
         out[cam_id] = {
             "source": cam["source"],
             "state": PerCameraState(
                 cam_id, engine, zone_monitor=zone_monitor, scene_context=scene,
+                active_zone_roles=active_zone_roles,
                 pose_model=pose_model, weapon_model=weapon_model,
                 video_action_model=video_action_model,
                 concealment=bool(cam.get("concealment")), violence=bool(cam.get("violence")),
