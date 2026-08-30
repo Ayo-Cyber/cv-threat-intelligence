@@ -85,6 +85,36 @@ class StatusRulesTest(unittest.TestCase):
                           "person_id", "track_id", "object_label", "base64"):
             self.assertNotIn(forbidden, blob, f"health doc carries {forbidden!r}")
 
+    def test_failed_scene_mapping_degrades_health_with_camera_reason(self):
+        doc = build_health_doc(
+            started_at=time.time(),
+            scene_mapping=[{
+                "camera_id": "carpark",
+                "status": "failed",
+                "error": "ollama unavailable",
+            }],
+            **GOOD,
+        )
+        self.assertEqual(doc["status"], DEGRADED)
+        self.assertTrue(any(
+            "carpark" in reason and "mapping failed" in reason
+            for reason in doc["reasons"]
+        ))
+
+    def test_review_required_is_not_reported_as_camera_offline(self):
+        doc = build_health_doc(
+            started_at=time.time(),
+            scene_mapping=[{
+                "camera_id": "entrance",
+                "status": "ready_unreviewed",
+                "review_required": True,
+                "error": "",
+            }],
+            **GOOD,
+        )
+        self.assertEqual(doc["status"], DEGRADED)
+        self.assertFalse(any("offline" in reason for reason in doc["reasons"]))
+
 
 class HealthEndpointTest(unittest.TestCase):
     """The /health route on the publisher's authenticated server."""

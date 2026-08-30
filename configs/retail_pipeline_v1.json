@@ -5,7 +5,12 @@
     {
       "name": "shoplifting",
       "trigger": {"detector": "concealment"},
-      "priority": "high"
+      "priority": "high",
+      "context_requirements": {
+        "environment_types": ["retail_shop", "mall_corridor"],
+        "zone_roles_any": ["merchandise", "checkout"],
+        "mode": "enforce"
+      }
     },
     {
       "name": "shelf_loitering",

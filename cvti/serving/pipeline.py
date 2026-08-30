@@ -60,6 +60,102 @@ def _auto_device() -> str:
     return "cpu"
 
 
+def resolve_mapper_settings(
+    *,
+    gate_provider: str,
+    gate_model: str,
+    gate_base_url: str,
+    mapper_provider: str,
+    mapper_model: str,
+    mapper_base_url: str,
+) -> tuple[str, str, str]:
+    supported = {"mock", "ollama", "local", "anthropic", "openai_compatible"}
+    provider = mapper_provider.strip() if mapper_provider else ""
+    if not provider:
+        provider = gate_provider if gate_provider in supported else "ollama"
+    model = mapper_model or (gate_model if provider == gate_provider else "")
+    base_url = mapper_base_url or (
+        gate_base_url if provider == gate_provider else ""
+    )
+    if provider in {"ollama", "local"} and not base_url:
+        base_url = "http://localhost:11434/v1"
+    return provider, model, base_url
+
+
+def prepare_scene_mapping(
+    site: dict,
+    *,
+    output_dir: str,
+    gate_provider: str,
+    gate_model: str,
+    gate_base_url: str,
+    mapper_provider: str = "",
+    mapper_model: str = "",
+    mapper_base_url: str = "",
+):
+    from cvti.scene.agent_mapper import AgentMapper
+    from cvti.serving.scene_map import FullAgentMapperService
+
+    provider, model, base_url = resolve_mapper_settings(
+        gate_provider=gate_provider,
+        gate_model=gate_model,
+        gate_base_url=gate_base_url,
+        mapper_provider=mapper_provider,
+        mapper_model=mapper_model,
+        mapper_base_url=mapper_base_url,
+    )
+    mapper = AgentMapper(provider=provider, model=model, base_url=base_url)
+    service = FullAgentMapperService(output_dir, mapper)
+    return service.prepare(
+        list(site.get("cameras") or []),
+        site.get("scene_context_policy", "auto"),
+    )
+
+
+def active_cameras_after_preflight(cameras: list[dict], preflight) -> list[dict]:
+    return [
+        dict(camera)
+        for camera in cameras
+        if camera.get("id") not in preflight.blocked_camera_ids
+    ]
+
+
+def _mapping_health_rows(preflight) -> list[dict]:
+    return [
+        {"camera_id": camera_id, **status}
+        for camera_id, status in sorted(preflight.statuses.items())
+    ]
+
+
+def _write_mapping_only_health(
+    output_dir: str,
+    preflight,
+    *,
+    gate_provider: str,
+    gate_model: str,
+) -> None:
+    from pathlib import Path
+
+    from cvti.serving.health_doc import build_health_doc
+
+    rows = _mapping_health_rows(preflight)
+    doc = build_health_doc(
+        started_at=time.time(),
+        cameras=[],
+        gate={"provider": gate_provider, "model": gate_model, "reachable": None},
+        disk={},
+        memory={},
+        components={"degraded": []},
+        engine={"frames_processed": 0, "alerts_queued": 0, "cameras": 0},
+        scene_mapping=rows,
+    )
+    target = Path(output_dir) / "gate_health.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(doc))
+    temporary.replace(target)
+
+
 class MultiStreamPipeline:
     def __init__(self, sources: dict[str, int | str], *, weights: str = "models/yolov8n.pt",
                  target_fps: float = 5.0, tick_seconds: float = 0.15, imgsz: int = 640,
@@ -322,6 +418,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              target_fps: float = 5.0, imgsz: int = 640, conf: float = 0.4,
              device: str = "", half: bool = False, seconds: float = 90.0,
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
+             mapper_provider: str = "", mapper_model: str = "", mapper_base_url: str = "",
              gate_sensitivity: str = "balanced", publish_frames: bool = True,
              publish_fps: float = 12.0, security_dir: str | None = None,
              memory_guard: bool = True, memory_warn_gb: float = 2.0,
@@ -350,7 +447,30 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         log.info(f"[site] *** {MOCK_GATE_BANNER} *** every alert will be confirmed WITHOUT verification.")
 
     site = load_site_config(site_config_path)
-    cams_cfg = site["cameras"]
+    mapping_preflight = prepare_scene_mapping(
+        site,
+        output_dir=output_dir,
+        gate_provider=gate_provider,
+        gate_model=gate_model,
+        gate_base_url=gate_base_url,
+        mapper_provider=mapper_provider,
+        mapper_model=mapper_model,
+        mapper_base_url=mapper_base_url,
+    )
+    cams_cfg = active_cameras_after_preflight(
+        list(site.get("cameras") or []), mapping_preflight
+    )
+    mapping_health = _mapping_health_rows(mapping_preflight)
+    if not cams_cfg:
+        _write_mapping_only_health(
+            output_dir,
+            mapping_preflight,
+            gate_provider=gate_provider,
+            gate_model=gate_model,
+        )
+        log.warning("[site] no camera can start until scene context is ready")
+        return
+    site = {**site, "cameras": cams_cfg}
     # Load ONE shared pose model iff any camera enables a pose-based signal.
     pose_model = None
     if any(c.get(k) for c in cams_cfg for k in ("concealment", "violence", "theft")):
@@ -392,7 +512,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             log.warning(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled", exc_info=True)
             model_failures.append(f"video-action detector configured but its model failed to load: {str(exc)[:90]}")
     cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
-                               video_action_model=video_action_model, baseline_config=baseline_config)
+                               video_action_model=video_action_model,
+                               baseline_config=baseline_config,
+                               scene_contexts=mapping_preflight.contexts)
     sources = {cid: c["source"] for cid, c in cams.items()}
     states = {cid: c["state"] for cid, c in cams.items()}
     queue = AlertQueue()
@@ -484,15 +606,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
     pipe.on_queued = _fast_path
     pipe.start()
-    # Live agent mapping: infer each camera's scene (reusing the local VLM) so the
-    # gate reasons with real context. Background, non-blocking; only for a local
-    # VLM gate (ollama/local). Cameras run generic until their scene lands.
     custom_scanner = None
     watch_runner = None      # defined here: teardown references it on every path
     if gate_provider in ("ollama", "local"):
-        from cvti.serving.scene_map import map_cameras_async
-        map_cameras_async(cams_cfg, states, model=gate_model or "gemma3:4b",
-                          base_url=gate_base_url or "http://localhost:11434/v1")
         # Watches: plain-English subjects to FOLLOW. Binds a description to a
         # tracked person (via numbered boxes) and keeps a case open for them.
         if any(c.get("watches") for c in cams_cfg):
@@ -530,7 +646,10 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             cams_cfg, sink, model=gate_model or "gemma3:4b",
             base_url=gate_base_url or "http://localhost:11434/v1",
             site_config_path=site_config_path,
-            frame_source=_scanner_frame)
+            frame_source=_scanner_frame,
+            context_provider=lambda camera_id: getattr(
+                states.get(camera_id), "scene_context", None
+            ))
         custom_scanner.status_path = Path(output_dir) / "english_rules_status.json"
         custom_scanner.start()
     # Retention. Storage limitation is not optional, and an edge box with no
@@ -614,8 +733,12 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             components=components,
             engine={"frames_processed": pipe.frames_processed,
                     "alerts_queued": pipe.alerts_queued,
-                    "target_fps": target_fps, "cameras": len(pipe._decoders)},
-            self_test=(assurance.last_result if assurance else {}))
+                    "target_fps": target_fps, "cameras": len(pipe._decoders),
+                    "context_suppressions": sum(
+                        state.context_suppression_count for state in states.values()
+                    )},
+            self_test=(assurance.last_result if assurance else {}),
+            scene_mapping=mapping_health)
         if model_failures:
             # Configured coverage that is NOT running is at least degraded,
             # and the reason is named — never inferred from silence.
@@ -925,6 +1048,12 @@ def main() -> None:
     p.add_argument("--gate-provider", default="mock")
     p.add_argument("--gate-model", default="")
     p.add_argument("--gate-base-url", default="")
+    p.add_argument("--mapper-provider", default="",
+                   help="Scene mapper provider; empty inherits the local gate provider.")
+    p.add_argument("--mapper-model", default="",
+                   help="Scene mapper model; empty inherits the gate model when compatible.")
+    p.add_argument("--mapper-base-url", default="",
+                   help="Scene mapper API base URL; empty inherits the local gate URL.")
     p.add_argument("--no-memory-guard", action="store_true",
                    help="Do not shed load under memory pressure (may swap).")
     p.add_argument("--memory-warn-gb", type=float, default=2.0)
@@ -979,6 +1108,9 @@ def main() -> None:
                  mobile_port=args.mobile_port,
                  security_dir=args.security_dir or None,
                  gate_model=args.gate_model, gate_base_url=args.gate_base_url,
+                 mapper_provider=args.mapper_provider,
+                 mapper_model=args.mapper_model,
+                 mapper_base_url=args.mapper_base_url,
                  notify=args.notify, output_dir=args.output_dir,
                  gate_workers=args.gate_workers, gate_drain=args.gate_drain)
         return

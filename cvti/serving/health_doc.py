@@ -24,7 +24,7 @@ CRITICAL = "critical"
 
 
 def derive_status(*, cameras: list, gate: dict, disk: dict, memory: dict,
-                  components: dict) -> tuple:
+                  components: dict, scene_mapping: list | None = None) -> tuple:
     """(status, reasons). The reasons are the point — a bare 'degraded' with no
     'why' just moves the 3am question one hop along."""
     reasons = []
@@ -56,6 +56,20 @@ def derive_status(*, cameras: list, gate: dict, disk: dict, memory: dict,
     for name in (components or {}).get("degraded", []):
         reasons.append((DEGRADED, f"component {name} failing >10% of attempts"))
 
+    for mapping in scene_mapping or []:
+        camera_id = mapping.get("camera_id", "unknown")
+        mapping_status = mapping.get("status")
+        if mapping_status == "failed":
+            detail = str(mapping.get("error") or "unknown error")
+            reasons.append((DEGRADED, f"camera {camera_id} scene mapping failed: {detail}"))
+        elif mapping_status == "stale":
+            reasons.append((DEGRADED, f"camera {camera_id} scene context is stale"))
+        elif mapping_status == "pending":
+            reasons.append((DEGRADED, f"camera {camera_id} scene mapping is pending"))
+        elif (mapping_status == "ready_unreviewed"
+              and mapping.get("review_required")):
+            reasons.append((DEGRADED, f"camera {camera_id} scene context awaits review"))
+
     if any(level == CRITICAL for level, _ in reasons):
         status = CRITICAL
     elif reasons:
@@ -67,10 +81,13 @@ def derive_status(*, cameras: list, gate: dict, disk: dict, memory: dict,
 
 def build_health_doc(*, started_at: float, cameras: list, gate: dict, disk: dict,
                      memory: dict, components: dict, engine: dict | None = None,
-                     self_test: dict | None = None, now: float | None = None) -> dict:
+                     self_test: dict | None = None,
+                     scene_mapping: list | None = None,
+                     now: float | None = None) -> dict:
     now = now if now is not None else time.time()
     status, reasons = derive_status(cameras=cameras, gate=gate, disk=disk,
-                                    memory=memory, components=components)
+                                    memory=memory, components=components,
+                                    scene_mapping=scene_mapping)
     return {
         "status": status,
         "reasons": reasons,                    # empty when ok, by design
@@ -83,4 +100,5 @@ def build_health_doc(*, started_at: float, cameras: list, gate: dict, disk: dict
         "components": components,
         "engine": engine or {},
         "self_test": self_test or {},
+        "scene_mapping": scene_mapping or [],
     }

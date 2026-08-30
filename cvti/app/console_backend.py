@@ -831,20 +831,204 @@ class ConsoleBackend:
         return {"ok": True, "zones": data["zones"]}
 
     # --- scene context + custom (customer-defined) threats ---
+    _SCENE_CONTEXT_FIELDS = {
+        "camera_id",
+        "source_type",
+        "environment_type",
+        "scene_description",
+        "expected_actors",
+        "zones",
+        "confidence",
+        "generated_at",
+        "source_frame_path",
+        "notes",
+    }
+
+    def _scene_camera(self, camera_id: str) -> dict | None:
+        return next(
+            (camera for camera in self.list_cameras() if camera.get("id") == camera_id),
+            None,
+        )
+
+    def _scene_store(self, camera_id: str):
+        from cvti.scene.context_store import SceneContextStore
+
+        return SceneContextStore(Path(self.db_path).parent / "context", camera_id)
+
+    def _scene_context_payload(self, context: dict) -> dict:
+        return {
+            key: value
+            for key, value in dict(context or {}).items()
+            if key in self._SCENE_CONTEXT_FIELDS
+        }
+
+    def _scene_context_response(self, camera_id: str, context: dict) -> dict:
+        store = self._scene_store(camera_id)
+        response = dict(context)
+        status = store.load_status()
+        response["mapping"] = {
+            **status.to_dict(),
+            "provenance": "cache",
+        }
+        try:
+            frame_bytes = store.frame_path.read_bytes()
+        except OSError:
+            frame_bytes = b""
+        response["source_frame_uri"] = (
+            "data:image/jpeg;base64," + base64.b64encode(frame_bytes).decode()
+            if frame_bytes
+            else ""
+        )
+        return response
+
     def scene_context(self, camera_id: str) -> dict | None:
-        """What this camera watches — the 'place'. From live agent-mapping output
-        (runs/context/<cam>/scene_context.json) or static config fields."""
-        p = Path("runs/context") / camera_id / "scene_context.json"
-        if p.exists():
-            try:
-                return json.loads(p.read_text())
-            except (ValueError, OSError):
-                pass
-        cam = next((c for c in self.list_cameras() if c.get("id") == camera_id), None)
+        """Return site-scoped canonical context plus lifecycle and frame preview."""
+        store = self._scene_store(camera_id)
+        try:
+            context = json.loads(store.context_path.read_text())
+        except (ValueError, OSError):
+            context = None
+        if isinstance(context, dict):
+            return self._scene_context_response(camera_id, context)
+        cam = self._scene_camera(camera_id)
         if cam and cam.get("scene_description"):
-            return {"environment_type": cam.get("environment_type", "unknown"),
-                    "scene_description": cam["scene_description"]}
+            return {
+                "camera_id": camera_id,
+                "environment_type": cam.get("environment_type", "unknown"),
+                "scene_description": cam["scene_description"],
+                "expected_actors": list(cam.get("expected_actors") or []),
+                "zones": [],
+                "confidence": 1.0,
+                "mapping": {
+                    "status": "ready_reviewed",
+                    "provenance": "manual",
+                    "reviewed_by": "site_config",
+                },
+                "source_frame_uri": "",
+            }
+        if store.status_path.exists():
+            return {
+                "camera_id": camera_id,
+                "environment_type": "unknown",
+                "scene_description": "",
+                "expected_actors": [],
+                "zones": [],
+                "confidence": 0.0,
+                "mapping": {
+                    **store.load_status().to_dict(),
+                    "provenance": "mapper",
+                },
+                "source_frame_uri": "",
+            }
         return None
+
+    def update_scene_context(self, camera_id: str, context: dict) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        camera = self._scene_camera(camera_id)
+        if camera is None:
+            return {"error": f"camera '{camera_id}' not found"}
+        resolution = self._scene_store(camera_id).save_unreviewed(
+            self._scene_context_payload(context),
+            camera["source"],
+            provenance="manual_edit",
+        )
+        self.audit.record(
+            self.current_user.username,
+            "config_change",
+            f"camera:{camera_id}",
+            detail={"scene_context": "edited"},
+        )
+        return {
+            "ok": True,
+            "context": self._scene_context_response(camera_id, resolution.context),
+        }
+
+    def approve_scene_context(self, camera_id: str, context: dict) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        camera = self._scene_camera(camera_id)
+        if camera is None:
+            return {"error": f"camera '{camera_id}' not found"}
+        resolution = self._scene_store(camera_id).approve(
+            self._scene_context_payload(context),
+            self.current_user.username,
+            camera["source"],
+        )
+        self.audit.record(
+            self.current_user.username,
+            "config_change",
+            f"camera:{camera_id}",
+            detail={"scene_context": "approved"},
+        )
+        return {
+            "ok": True,
+            "context": self._scene_context_response(camera_id, resolution.context),
+        }
+
+    def request_scene_remap(self, camera_id: str) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        camera = self._scene_camera(camera_id)
+        if camera is None:
+            return {"error": f"camera '{camera_id}' not found"}
+        status = self._scene_store(camera_id).mark_stale(camera["source"])
+        self.audit.record(
+            self.current_user.username,
+            "config_change",
+            f"camera:{camera_id}",
+            detail={"scene_context": "remap_requested"},
+        )
+        return {"ok": True, "mapping": status.to_dict()}
+
+    def accept_suggested_zone(
+        self, camera_id: str, zone_id: str, dwell_seconds: float = 5.0
+    ) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        camera = self._scene_camera(camera_id)
+        context = self.scene_context(camera_id)
+        if camera is None or not context:
+            return {"error": "camera scene context not found"}
+        suggestion = next(
+            (zone for zone in context.get("zones", []) if zone.get("id") == zone_id),
+            None,
+        )
+        if suggestion is None:
+            return {"error": f"suggested zone '{zone_id}' not found"}
+        import cv2
+
+        frame = cv2.imread(str(self._scene_store(camera_id).frame_path))
+        if frame is None:
+            return {"error": "representative scene frame is unavailable"}
+        height, width = frame.shape[:2]
+        x1, y1, x2, y2 = (int(value) for value in suggestion["bbox"])
+        x1, x2 = sorted((max(0, min(width - 1, x1)), max(0, min(width - 1, x2))))
+        y1, y2 = sorted((max(0, min(height - 1, y1)), max(0, min(height - 1, y2))))
+        polygon = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+        result = self.add_zone(camera_id, zone_id, polygon, dwell_seconds)
+        if result.get("error"):
+            return result
+
+        role = str(suggestion.get("role", "unknown"))
+        zone_file = self._zones_file(camera_id)
+        zone_data = json.loads(zone_file.read_text())
+        accepted = next(
+            zone for zone in zone_data.get("zones", []) if zone.get("name") == zone_id
+        )
+        accepted["kind"] = role
+        accepted["context_role"] = role
+        zone_file.write_text(json.dumps(zone_data, indent=2))
+
+        cameras = onboarding.list_cameras(self.site_path)
+        camera = self._cam(cameras, camera_id)
+        roles = set(camera.get("accepted_zone_roles") or [])
+        roles.add(role)
+        camera["accepted_zone_roles"] = sorted(roles)
+        onboarding.add_camera(self.site_path, camera)
+        self.audit.record(
+            self.current_user.username,
+            "config_change",
+            f"camera:{camera_id}",
+            detail={"scene_zone_accepted": zone_id, "role": role},
+        )
+        return {"ok": True, "zone": accepted, "zones": zone_data["zones"]}
 
     def _cam(self, cams: list, camera_id: str):
         return next((c for c in cams if c.get("id") == camera_id), None)
@@ -891,7 +1075,7 @@ class ConsoleBackend:
         return onboarding.set_site_meta(self.site_path, name=name, notify=notify)
 
     def mark_configured(self) -> dict:
-        return onboarding.set_site_meta(self.site_path, configured=True)
+        return onboarding.complete_first_run(self.site_path)
 
     def send_test_notification(self) -> dict:
         """Fire a synthetic alert through the site's configured notifier so the

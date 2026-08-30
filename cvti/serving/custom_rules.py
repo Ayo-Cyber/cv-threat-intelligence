@@ -53,12 +53,13 @@ class CustomRuleScanner:
                  base_url: str = "http://localhost:11434/v1",
                  interval: float = 12.0, cooldown: float = 90.0,
                  site_config_path: str | None = None,
-                 frame_source=None) -> None:
+                 frame_source=None, context_provider=None) -> None:
         # frame_source(camera_id) -> frame|None: when the engine provides it,
         # the scanner PEEKS the frames the engine already decoded instead of
         # opening its own VideoCapture per camera — which doubled network
         # bandwidth and decode CPU for every RTSP camera with English rules.
         self.frame_source = frame_source
+        self.context_provider = context_provider
         self.site_config_path = site_config_path
         self.cameras = [c for c in cameras if _rules_for(c)]
         self._all_cameras = list(cameras)
@@ -244,13 +245,9 @@ class CustomRuleScanner:
         return False
 
     def _scene(self, cam_id: str) -> str:
-        p = Path("runs/context") / cam_id / "scene_context.json"
-        if p.exists():
-            try:
-                return json.loads(p.read_text()).get("scene_description", "a monitored area")
-            except (ValueError, OSError):
-                pass
-        return "a monitored area"
+        from cvti.scene.context_store import render_scene_context
+        context = self.context_provider(cam_id) if self.context_provider else None
+        return render_scene_context(context)
 
     def _check(self, cam: dict, frame) -> list[dict]:
         import cv2

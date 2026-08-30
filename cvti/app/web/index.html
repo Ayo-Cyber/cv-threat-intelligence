@@ -350,6 +350,22 @@
     border-radius:8px;border:1px solid var(--c-border);line-height:1.45}
   .envtag{display:inline-block;font-family:var(--ff-mono);font-size:10px;font-weight:700;color:var(--c-accent);
     background:var(--c-accent-soft);padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.05em;margin-right:8px}
+  .scenemap{margin-top:12px;padding:12px 0;border-top:1px solid var(--c-border);border-bottom:1px solid var(--c-border)}
+  .scenemap-head{display:flex;align-items:center;gap:9px;min-height:28px}
+  .mapping-status{font-family:var(--ff-mono);font-size:10px;font-weight:700;text-transform:uppercase;
+    color:var(--c-sub);border:1px solid var(--c-border2);border-radius:5px;padding:2px 7px}
+  .mapping-status.reviewed{color:var(--c-live);border-color:rgba(70,190,120,.45)}
+  .mapping-status.failed,.mapping-status.stale{color:var(--sev-high);border-color:rgba(255,160,40,.5)}
+  .scenemap-grid{display:grid;grid-template-columns:minmax(140px,190px) minmax(0,1fr);gap:12px;margin-top:10px;align-items:start}
+  .scene-frame{width:100%;aspect-ratio:16/10;object-fit:contain;background:#000;border:1px solid var(--c-border);border-radius:6px}
+  .scene-fields{display:grid;grid-template-columns:minmax(150px,.7fr) minmax(220px,1.3fr);gap:8px}
+  .scene-fields label{display:flex;flex-direction:column;gap:4px;font-size:10.5px;color:var(--c-mut)}
+  .scene-fields .wide{grid-column:1/-1}
+  .scene-fields textarea{min-height:58px;resize:vertical}
+  .scene-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:9px}
+  .scene-suggestions{margin-top:9px;display:grid;gap:5px}
+  .scene-suggestion{display:flex;align-items:center;gap:8px;min-height:32px;padding:5px 0;border-top:1px solid var(--c-border)}
+  @media(max-width:760px){.scenemap-grid{grid-template-columns:1fr}.scene-frame{max-width:240px}.scene-fields{grid-template-columns:1fr}}
   .customthreat{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;
     border:1px solid var(--c-border);border-radius:8px;margin-top:6px;font-size:12.5px}
   .customthreat b{font-weight:700}
@@ -455,7 +471,7 @@
 
 <script>
 "use strict";
-var backend = null, state = {route:"watch", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[]};
+var backend = null, state = {route:"watch", cameras:[], events:[], selected:null, presets:{}, test:null, scanHosts:[], sceneContexts:{}};
 /* Three surfaces (UI_SPEC §1): Watch / Triage / Configure. Value sits in an
    owner section; Settings hides behind a gear. Every old screen survives as a
    tab inside one of these — LEGACY_ROUTES maps old names so nothing 404s. */
@@ -1557,7 +1573,7 @@ function renderRules(){
         +'<div class="row" style="gap:8px"><span class="dot" style="background:var(--c-live)"></span><b class="mono" style="font-size:14px">'+esc(c.id)+'</b>'
         +'<span class="mono mut" style="font-size:11px">'+esc((c.source||"").split("/").pop().split("@").pop())+'</span></div>'
         +'<span class="mut rcount" style="font-size:12px">'+(native+customs.length)+' threat'+((native+customs.length)===1?"":"s")+' watched</span></div>'
-        +'<div class="scenehint" id="scene-'+esc(c.id)+'"><span class="mut">reading scene…</span></div>'
+        +'<div class="scenemap" id="scene-'+esc(c.id)+'"><span class="mut">reading scene…</span></div>'
         +'<div class="syslabel" style="margin-top:12px">Built-in detectors</div>'
         +dets
         +'<div class="row" style="margin-top:10px;gap:8px"><span class="mut" style="font-size:12px">rule set</span>'
@@ -1655,16 +1671,90 @@ function zoneSave(){
   });
 }
 function closeZoneEditor(){ state.zone=null; var m=$("zoneModal"); if(m) m.remove(); }
+var SCENE_ENVIRONMENTS=["estate_gate","estate_street","perimeter_fence","retail_shop","mall_corridor",
+  "office_lobby","office_floor","parking_lot","banking_hall","atm_area","warehouse_floor",
+  "generator_area","residential_interior","residential_exterior","unknown"];
+function sceneCanEdit(){
+  if(!state.auth || !state.auth.permissions) return true;
+  return state.auth.permissions.indexOf("configure_cameras")>=0;
+}
+function sceneStatusText(mapping){
+  var status=(mapping&&mapping.status)||"pending";
+  return ({ready_reviewed:"reviewed",ready_unreviewed:"needs review",pending:"mapping pending",
+    stale:"remap requested",failed:"mapping failed"})[status]||status.replace(/_/g," ");
+}
+function renderSceneMapper(camId, s){
+  var mapping=(s&&s.mapping)||{status:"pending"}, status=mapping.status||"pending";
+  var statusClass=status==="ready_reviewed"?" reviewed":((status==="failed"||status==="stale")?" "+status:"");
+  var canEdit=sceneCanEdit(), disabled=canEdit?"":" disabled";
+  var head='<div class="scenemap-head"><b style="font-size:12px">Scene context</b>'
+    +'<span class="mapping-status'+statusClass+'">'+esc(sceneStatusText(mapping))+'</span>'
+    +'<span class="mut" style="font-size:10.5px">'+esc(mapping.provenance||"")+'</span></div>';
+  if(!s || s.error || !s.scene_description){
+    var error=(s&&s.error)||(mapping&&mapping.error)||"No mapped scene is available.";
+    return head+'<div class="row" style="margin-top:9px;gap:9px"><span class="mut" style="font-size:12px">'+esc(error)+'</span>'
+      +(canEdit?'<button class="btn ghost sm" onclick="remapScene(\''+esc(camId)+'\')">Remap</button>':"")+'</div>';
+  }
+  var envOptions=SCENE_ENVIRONMENTS.map(function(env){return '<option value="'+env+'"'+(env===s.environment_type?' selected':'')+'>'+esc(env.replace(/_/g," "))+'</option>';}).join("");
+  var actors=(s.expected_actors||[]).join(", ");
+  var frame=s.source_frame_uri?'<img class="scene-frame" src="'+s.source_frame_uri+'" alt="Representative scene frame">':'<div class="scene-frame row" style="justify-content:center"><span class="mut">no frame</span></div>';
+  var suggestions=(s.zones||[]).map(function(zone){
+    var actions=canEdit?'<span style="margin-left:auto"></span><button class="btn ghost sm" onclick="acceptSceneZone(\''+esc(camId)+'\',\''+esc(zone.id)+'\',this)">Accept</button>'
+      +'<button class="chip" onclick="ignoreSceneZone(this)">Ignore</button>':"";
+    return '<div class="scene-suggestion"><span class="envtag">'+esc(zone.role||"zone")+'</span><b>'+esc(zone.label||zone.id)+'</b>'+actions+'</div>';
+  }).join("");
+  return head+'<div class="scenemap-grid">'+frame+'<div><div class="scene-fields">'
+    +'<label>Environment<select id="scene-env-'+esc(camId)+'"'+disabled+'>'+envOptions+'</select></label>'
+    +'<label>Expected actors<input id="scene-actors-'+esc(camId)+'" value="'+esc(actors)+'"'+disabled+'></label>'
+    +'<label class="wide">Description<textarea id="scene-desc-'+esc(camId)+'"'+disabled+'>'+esc(s.scene_description)+'</textarea></label>'
+    +'</div><div class="row" style="margin-top:7px;gap:8px"><span class="mut" style="font-size:10.5px">confidence</span><span class="mono" style="font-size:11px">'+esc(Number(s.confidence||0).toFixed(2))+'</span></div>'
+    +(suggestions?'<div class="scene-suggestions">'+suggestions+'</div>':"")
+    +(canEdit?'<div class="scene-actions"><button class="btn ghost sm" onclick="saveSceneContext(\''+esc(camId)+'\',false)">Save</button>'
+      +'<button class="btn sm" onclick="saveSceneContext(\''+esc(camId)+'\',true)">Approve</button>'
+      +'<button class="btn ghost sm" onclick="remapScene(\''+esc(camId)+'\')">Remap</button>'
+      +'<span id="scene-msg-'+esc(camId)+'" class="mut" style="font-size:11px"></span></div>':"")
+    +'</div></div>';
+}
 function fillScene(camId){
   call("sceneContext",[camId],function(s){
     var el=$("scene-"+camId); if(!el) return;
-    if(s && !s.error && s.scene_description){
-      el.innerHTML='<span class="envtag">'+esc((s.environment_type||"scene").replace(/_/g," "))+'</span>'+esc(s.scene_description);
-    } else {
-      el.innerHTML='<span class="mut">Scene not mapped yet — the AI reads this camera on the next Start monitoring, then your rules get its context.</span>';
-    }
+    state.sceneContexts[camId]=(s&&!s.error)?s:null;
+    el.innerHTML=renderSceneMapper(camId,s);
   });
 }
+function scenePayload(camId){
+  var source=state.sceneContexts[camId]||{}, payload={};
+  ["camera_id","source_type","environment_type","scene_description","expected_actors","zones","confidence","generated_at","source_frame_path","notes"].forEach(function(k){if(k in source) payload[k]=source[k];});
+  payload.environment_type=($("scene-env-"+camId)||{}).value||source.environment_type||"unknown";
+  payload.scene_description=($("scene-desc-"+camId)||{}).value||source.scene_description||"";
+  payload.expected_actors=(($("scene-actors-"+camId)||{}).value||"").split(",").map(function(v){return v.trim();}).filter(Boolean);
+  return payload;
+}
+function saveSceneContext(camId, approve){
+  var method=approve?"approveSceneContext":"updateSceneContext", msg=$("scene-msg-"+camId);
+  if(msg) msg.textContent=approve?"approving…":"saving…";
+  call(method,[camId,JSON.stringify(scenePayload(camId))],function(r){
+    if(r&&r.error){if(msg) msg.textContent=r.error;return;}
+    state.sceneContexts[camId]=r.context; var el=$("scene-"+camId);
+    if(el) el.innerHTML=renderSceneMapper(camId,r.context);
+  });
+}
+function remapScene(camId){
+  call("requestSceneRemap",[camId],function(r){
+    var current=state.sceneContexts[camId]||{};
+    if(r&&r.error){var msg=$("scene-msg-"+camId);if(msg)msg.textContent=r.error;return;}
+    current.mapping=r.mapping||{status:"stale"}; state.sceneContexts[camId]=current;
+    var el=$("scene-"+camId); if(el) el.innerHTML=renderSceneMapper(camId,current);
+  });
+}
+function acceptSceneZone(camId, zoneId, button){
+  if(button) button.disabled=true;
+  call("acceptSuggestedZone",[camId,zoneId,5],function(r){
+    if(r&&r.error){if(button){button.disabled=false;button.textContent=r.error;}return;}
+    var row=button&&button.closest(".scene-suggestion"); if(row) row.remove(); fillZones(camId);
+  });
+}
+function ignoreSceneZone(button){var row=button&&button.closest(".scene-suggestion");if(row)row.remove();}
 function addCustom(camId){
   var n=($("ctn-"+camId)||{}).value||"", d=($("ctd-"+camId)||{}).value||"";
   if(!d.trim()) return;

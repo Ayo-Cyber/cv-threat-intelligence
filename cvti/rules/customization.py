@@ -10,6 +10,10 @@ from typing import Any
 
 from cvti.contracts import CandidateAlert, RawEvent
 from cvti.logging_setup import get_logger
+from cvti.rules.context_compatibility import (
+    CompatibilityDecision,
+    evaluate_context_compatibility,
+)
 
 log = get_logger(__name__)
 
@@ -26,6 +30,7 @@ class CustomizationEngine:
         # Merged into every evaluation and NOT disableable via the customer config,
         # so a narrow user policy can never hide a universal critical threat.
         self.baseline_rules: list[dict] = []
+        self.context_decisions: list[dict[str, str]] = []
         self.use_case_id: str = "default"
         if baseline_path:
             self.load_baseline(baseline_path)
@@ -58,11 +63,13 @@ class CustomizationEngine:
         events: list[RawEvent],
         scene_context: dict | None = None,
         now: datetime | None = None,
+        active_zone_roles: set[str] | None = None,
     ) -> list[CandidateAlert]:
         """Return all rules that match the current events, sorted highest priority first."""
         now = now or datetime.now()
         context = scene_context or {}
         alerts: list[CandidateAlert] = []
+        self.context_decisions = []
 
         # The baseline is a SAFETY NET, not a second opinion: if the customer's own
         # config already handles a detector, its rule wins and the baseline stays
@@ -76,12 +83,19 @@ class CustomizationEngine:
 
         # Baseline first so critical safety rules are always evaluated, whatever
         # the customer config says.
-        for rule in baseline + self.rules:
+        ordered_rules = [(rule, True) for rule in baseline]
+        ordered_rules.extend((rule, False) for rule in self.rules)
+        for rule, is_baseline in ordered_rules:
             # Compound recipe (Phase 3): several signals combined by a logic op.
             if "signals" in rule:
                 compound = _eval_compound(rule, events, now)
                 if compound is not None:
-                    alerts.append(compound)
+                    decision = self._context_decision(
+                        rule, context, is_baseline, active_zone_roles
+                    )
+                    self._record_context_decision(rule, context, decision)
+                    if decision.allowed:
+                        alerts.append(compound)
                 continue
             trigger = rule.get("trigger", {})
             for event in events:
@@ -93,6 +107,18 @@ class CustomizationEngine:
                     continue
                 if not _match_context_filter(rule.get("context_filter"), event, context):
                     continue
+                decision = self._context_decision(
+                    rule, context, is_baseline, active_zone_roles
+                )
+                self._record_context_decision(rule, context, decision)
+                if not decision.allowed:
+                    log.debug(
+                        "context suppressed rule=%s environment=%s reason=%s",
+                        rule.get("name"),
+                        context.get("environment_type", "unknown"),
+                        decision.reason,
+                    )
+                    break
                 alerts.append(
                     CandidateAlert(
                         rule_name=rule["name"],
@@ -114,13 +140,46 @@ class CustomizationEngine:
         alerts.sort(key=lambda a: PRIORITY_ORDER.get(a.priority, 0), reverse=True)
         return alerts
 
+    @staticmethod
+    def _context_decision(
+        rule: dict,
+        context: dict,
+        is_baseline: bool,
+        active_zone_roles: set[str] | None,
+    ) -> CompatibilityDecision:
+        if rule.get("gate_question") and "context_requirements" not in rule:
+            return CompatibilityDecision(
+                True,
+                "explicit_override",
+                "customer-authored plain-English threat is explicit policy",
+            )
+        return evaluate_context_compatibility(
+            rule,
+            context,
+            baseline=is_baseline,
+            active_zone_roles=active_zone_roles,
+        )
+
+    def _record_context_decision(
+        self, rule: dict, context: dict, decision: CompatibilityDecision
+    ) -> None:
+        self.context_decisions.append(
+            {
+                "rule": str(rule.get("name", "")),
+                "environment": str(context.get("environment_type", "unknown")),
+                "decision": decision.mode,
+                "reason": decision.reason,
+            }
+        )
+
     def top_alert(
         self,
         events: list[RawEvent],
         scene_context: dict | None = None,
         now: datetime | None = None,
+        active_zone_roles: set[str] | None = None,
     ) -> CandidateAlert | None:
-        alerts = self.evaluate(events, scene_context, now)
+        alerts = self.evaluate(events, scene_context, now, active_zone_roles)
         return alerts[0] if alerts else None
 
 

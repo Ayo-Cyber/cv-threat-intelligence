@@ -1,104 +1,174 @@
-"""Live agent mapping — infer each camera's scene once, so the VLM gate reasons
-with real context ("retail counter, overhead CCTV") instead of "unknown".
+"""Production serving adapter for canonical per-camera scene mapping."""
 
-Runs in the background at monitoring startup and reuses the SAME local VLM as the
-gate (Ollama Gemma), so there's no extra model / RAM — just one call per camera.
-Cameras start with whatever static scene_context they have (usually none) and get
-upgraded the moment their inference returns; it never blocks detection.
-"""
 from __future__ import annotations
 
-import json
-import os
-import re
-import threading
-
-import cv2
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 from cvti.logging_setup import get_logger
+from cvti.scene.agent_mapper import AgentMapper
+from cvti.scene.context_store import (
+    ContextResolution,
+    SceneContextStore,
+    normalize_scene_context_policy,
+)
 
 log = get_logger(__name__)
 
-SCENE_PROMPT = (
-    "You are configuring a security camera. Look at this frame and reply with ONLY "
-    "compact JSON, no prose:\n"
-    '{"environment_type": "<one word: retail, warehouse, street, office, parking, '
-    'entrance, home, or other>", "scene_description": "<one sentence: what this '
-    'camera watches and what normal activity looks like>"}'
-)
+
+@dataclass(frozen=True)
+class CameraMappingResult:
+    camera_id: str
+    resolution: ContextResolution
+    mapped: bool
 
 
-def _sample_frame(source, at: float = 0.15, width: int = 512) -> bytes | None:
-    cap = cv2.VideoCapture(int(source) if str(source).isdigit() else source)
-    try:
-        n = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-        if n > 1:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(n * at))
-        ok, fr = cap.read()
-    finally:
-        cap.release()
-    if not ok:
+@dataclass
+class SceneMappingPreflight:
+    contexts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    statuses: dict[str, dict[str, Any]] = field(default_factory=dict)
+    blocked_camera_ids: set[str] = field(default_factory=set)
+
+
+def _manual_context(camera: dict[str, Any]) -> dict[str, Any] | None:
+    description = str(camera.get("scene_description", "")).strip()
+    if not description:
         return None
-    h, w = fr.shape[:2]
-    if w > width:
-        fr = cv2.resize(fr, (width, int(h * width / w)))
-    ok2, buf = cv2.imencode(".jpg", fr, [cv2.IMWRITE_JPEG_QUALITY, 80])
-    return buf.tobytes() if ok2 else None
+    return {
+        "camera_id": str(camera["id"]),
+        "source_type": "video_file",
+        "environment_type": camera.get("environment_type", "unknown"),
+        "scene_description": description,
+        "expected_actors": list(camera.get("expected_actors") or []),
+        "zones": [],
+        "confidence": 1.0,
+        "generated_at": str(
+            camera.get("scene_context_updated_at") or "2026-01-01T00:00:00Z"
+        ),
+        "source_frame_path": "site-config",
+        "notes": "Human-authored site configuration.",
+    }
 
 
-def _parse(raw: str | None) -> dict:
-    m = re.search(r"\{.*\}", raw or "", re.S)
-    if m:
+def _status_document(
+    resolution: ContextResolution, policy: str
+) -> dict[str, Any]:
+    document: dict[str, Any] = resolution.status.to_dict()
+    document.update(
+        {
+            "provenance": resolution.provenance,
+            "usable": resolution.usable,
+            "review_required": policy == "require_reviewed",
+            "environment_type": (
+                resolution.context.get("environment_type", "unknown")
+                if resolution.context
+                else "unknown"
+            ),
+        }
+    )
+    return document
+
+
+class FullAgentMapperService:
+    def __init__(
+        self,
+        output_dir: str | Path,
+        mapper: AgentMapper,
+        dump_raw_response: bool = False,
+        legacy_root: str | Path = Path("runs/context"),
+    ) -> None:
+        self.output_dir = Path(output_dir)
+        self.context_root = self.output_dir / "context"
+        self.mapper = mapper
+        self.dump_raw_response = dump_raw_response
+        self.legacy_root = Path(legacy_root)
+
+    def prepare(
+        self, cameras: list[dict[str, Any]], policy: str = "auto"
+    ) -> SceneMappingPreflight:
+        normalized_policy = normalize_scene_context_policy(policy)
+        preflight = SceneMappingPreflight()
+        for camera in cameras:
+            result = self._prepare_camera(camera, normalized_policy)
+            camera_id = result.camera_id
+            resolution = result.resolution
+            if resolution.usable and resolution.context is not None:
+                preflight.contexts[camera_id] = resolution.context
+            elif normalized_policy == "auto":
+                # FAIL VISIBLE, NEVER CLOSED. Under the default policy a
+                # mapper failure used to BLOCK the camera — the E2E harness
+                # caught the consequence before any customer did (30 Aug):
+                # one missing prompt file and the engine started with ZERO
+                # cameras watching. A security product must never trade
+                # 'monitoring without scene context' for 'no monitoring at
+                # all' by default. The camera runs generic; the failure
+                # stays loud in the mapping health rows. The strict policies
+                # (require_reviewed / manual) still block — there the
+                # operator explicitly chose certainty over coverage.
+                log.warning("[agent-map] %s has no usable scene context — "
+                            "starting WITHOUT it (policy=auto); reason: %s",
+                            camera_id, resolution.status.error or resolution.status.status)
+            else:
+                preflight.blocked_camera_ids.add(camera_id)
+            preflight.statuses[camera_id] = _status_document(
+                resolution, normalized_policy
+            )
+        return preflight
+
+    def _prepare_camera(
+        self, camera: dict[str, Any], policy: str
+    ) -> CameraMappingResult:
+        camera_id = str(camera["id"])
+        source = camera["source"]
+        store = SceneContextStore(self.context_root, camera_id)
+        manual = _manual_context(camera)
+        legacy_path = self.legacy_root / camera_id / "scene_context.json"
+        resolution = store.resolve(
+            source,
+            policy,
+            manual_context=manual,
+            legacy_context_path=legacy_path,
+        )
+
+        if manual is not None and resolution.context is not None:
+            persisted = store.approve(resolution.context, "site_config", source)
+            return CameraMappingResult(camera_id, persisted, False)
+        if resolution.usable:
+            return CameraMappingResult(camera_id, resolution, False)
+        if resolution.status.status == "ready_unreviewed":
+            return CameraMappingResult(camera_id, resolution, False)
+        if policy == "manual":
+            status = store.mark_failed(source, "explicit scene context is required")
+            blocked = ContextResolution(None, status, "none", False)
+            return CameraMappingResult(camera_id, blocked, False)
+
         try:
-            d = json.loads(m.group(0))
-            return {"environment_type": str(d.get("environment_type", "unknown"))[:40],
-                    "scene_description": str(d.get("scene_description", ""))[:240]}
-        except (ValueError, TypeError):
-            pass
-    return {"environment_type": "unknown", "scene_description": (raw or "")[:160]}
-
-
-def infer_scene(source, *, model: str,
-                base_url: str = "http://localhost:11434/v1",
-                api_key_env: str = "OLLAMA_API_KEY") -> dict | None:
-    jb = _sample_frame(source)
-    if jb is None:
-        return None
-    os.environ.setdefault(api_key_env, "ollama")
-    from cvti.scene.agent_mapper import call_openai_compatible
-    raw = call_openai_compatible(prompt=SCENE_PROMPT, frame_bytes=jb, model=model,
-                                 api_key_env=api_key_env, api_base_url=base_url,
-                                 require_key=False)
-    return _parse(raw)
-
-
-def map_cameras_async(cams_cfg: list[dict], states: dict, *, model: str,
-                      base_url: str = "http://localhost:11434/v1") -> threading.Thread:
-    """Background: infer + attach scene_context for each camera. Non-blocking."""
-    def worker():
-        for c in cams_cfg:
-            cid = c.get("id")
-            try:
-                scene = infer_scene(c["source"], model=model, base_url=base_url)
-                if scene and cid in states:
-                    states[cid].scene_context = scene
-                    log.info("[agent-map] %s: %s — %s", cid, scene["environment_type"],
-                             scene["scene_description"][:90])
-                    # Persist what the mapper learned: the UI's scene panel and
-                    # the custom-rule scanner both read this file, and it was
-                    # never written by the live path — they showed "a monitored
-                    # area" forever after a successful mapping.
-                    # (Audit 23 Aug, #7.)
-                    try:
-                        import json as _json
-                        from pathlib import Path as _P
-                        d = _P("runs/context") / str(cid)
-                        d.mkdir(parents=True, exist_ok=True)
-                        (d / "scene_context.json").write_text(_json.dumps(scene, indent=2))
-                    except OSError:
-                        log.warning("[agent-map] %s: scene file write failed", cid, exc_info=True)
-            except Exception as exc:  # noqa: BLE001 - mapping must never break monitoring
-                log.warning("[agent-map] %s failed: %s", cid, str(exc)[:100], exc_info=True)
-    t = threading.Thread(target=worker, name="agent-map", daemon=True)
-    t.start()
-    return t
+            store.mark_pending(source)
+            mapped = self.mapper.map_result(
+                source,
+                camera_id,
+                sample_count=3,
+                source_frame_path=str(store.frame_path),
+            )
+            saved = store.save_mapping(
+                mapped, source, dump_raw_response=self.dump_raw_response
+            )
+            if policy == "require_reviewed":
+                saved = ContextResolution(
+                    saved.context, saved.status, saved.provenance, False
+                )
+            log.info(
+                "[agent-map] %s: %s (%s)",
+                camera_id,
+                saved.context.get("environment_type", "unknown")
+                if saved.context
+                else "unknown",
+                saved.status.status,
+            )
+            return CameraMappingResult(camera_id, saved, True)
+        except Exception as exc:  # noqa: BLE001 - one camera must not block the site
+            status = store.mark_failed(source, str(exc))
+            log.warning("[agent-map] %s failed: %s", camera_id, str(exc)[:120])
+            failed = ContextResolution(None, status, "mapper", False)
+            return CameraMappingResult(camera_id, failed, True)
