@@ -4,8 +4,8 @@
   "rules": [
     {"name": "weapon_sighting", "trigger": {"detector": "weapons"}, "priority": "critical"},
     {"name": "violence", "trigger": {"detector": "violence"}, "priority": "critical"},
-    {"name": "theft_depart", "trigger": {"detector": "theft", "state": "DEPART"}, "priority": "high"},
-    {"name": "shoplifting", "trigger": {"detector": "concealment"}, "priority": "high"},
+    {"name": "theft_depart", "trigger": {"detector": "theft", "state": "DEPART"}, "priority": "high", "context_requirements": {"environment_types": ["retail_shop", "mall_corridor"], "zone_roles_any": ["merchandise", "checkout"], "mode": "enforce"}},
+    {"name": "shoplifting", "trigger": {"detector": "concealment"}, "priority": "high", "context_requirements": {"environment_types": ["retail_shop", "mall_corridor"], "zone_roles_any": ["merchandise", "checkout"], "mode": "enforce"}},
     {"name": "video_theft_candidate", "trigger": {"detector": "video_action"}, "context_filter": "signal_type == 'theft_candidate'", "priority": "high"}
   ]
 }

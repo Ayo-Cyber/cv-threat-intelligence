@@ -4,7 +4,12 @@
     {
       "name": "shoplifting",
       "trigger": {"detector": "theft", "state": "DEPART"},
-      "priority": "high"
+      "priority": "high",
+      "context_requirements": {
+        "environment_types": ["retail_shop", "mall_corridor"],
+        "zone_roles_any": ["merchandise", "checkout"],
+        "mode": "enforce"
+      }
     },
     {
       "name": "violence_in_store",

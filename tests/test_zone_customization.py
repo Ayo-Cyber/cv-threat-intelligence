@@ -68,10 +68,18 @@ def test_concealment_event_fires_shoplifting_rule() -> None:
     non-candidate produces an inactive event the engine ignores."""
     engine = CustomizationEngine(PIPE_CFG)
     fired = concealment_to_events([ConcealmentAssessment(track_id=1, score=0.8, candidate=True, destination="waist")])
-    alerts = engine.evaluate(fired, now=DAY)
+    alerts = engine.evaluate(
+        fired,
+        now=DAY,
+        scene_context={"environment_type": "retail_shop"},
+    )
     assert any(a.rule_name == "shoplifting" and a.priority == "high" for a in alerts), alerts
     quiet = concealment_to_events([ConcealmentAssessment(track_id=2, score=0.2, candidate=False)])
-    assert engine.evaluate(quiet, now=DAY) == [], "a non-candidate must not fire"
+    assert engine.evaluate(
+        quiet,
+        now=DAY,
+        scene_context={"environment_type": "retail_shop"},
+    ) == [], "a non-candidate must not fire"
     print("PASS concealment candidate fires the shoplifting rule; non-candidate stays silent")
 
 

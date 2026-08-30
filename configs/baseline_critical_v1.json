@@ -7,49 +7,56 @@
       "trigger": {
         "detector": "weapons"
       },
-      "priority": "critical"
+      "priority": "critical",
+      "critical_baseline": true
     },
     {
       "name": "baseline_violence",
       "trigger": {
         "detector": "violence"
       },
-      "priority": "critical"
+      "priority": "critical",
+      "critical_baseline": true
     },
     {
       "name": "baseline_camera_tampering",
       "trigger": {
         "detector": "camera_tampering"
       },
-      "priority": "high"
+      "priority": "high",
+      "critical_baseline": true
     },
     {
       "name": "baseline_fire_smoke",
       "trigger": {
         "detector": "fire"
       },
-      "priority": "critical"
+      "priority": "critical",
+      "critical_baseline": true
     },
     {
       "name": "baseline_person_fall",
       "trigger": {
         "detector": "person_fall"
       },
-      "priority": "critical"
+      "priority": "critical",
+      "critical_baseline": true
     },
     {
       "name": "baseline_crowd_formation",
       "trigger": {
         "detector": "crowd_formation"
       },
-      "priority": "medium"
+      "priority": "medium",
+      "critical_baseline": true
     },
     {
       "name": "baseline_panic_running",
       "trigger": {
         "detector": "running"
       },
-      "priority": "high"
+      "priority": "high",
+      "critical_baseline": true
     }
   ]
 }
