@@ -78,3 +78,44 @@ class HeartbeatTest(unittest.TestCase):
         html = Path("cvti/app/web/index.html").read_text()
         self.assertIn("fillRulePulse", html)
         self.assertIn('call("englishRulesStatus"', html)
+
+
+class ScannerBacksOffUnderLoadTest(unittest.TestCase):
+    """Every scanner call timed out during the 29 Aug demo: the scanner and
+    the gate contend for two Ollama slots, and a starving scanner that
+    retries at full cadence adds pressure to the resource it is starving on.
+    Failures now double the effective interval (cap 10x); one success resets."""
+
+    def test_failures_stretch_the_interval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s = _scanner(tmp)
+            self.assertEqual(s._backoff, 1.0)
+            s._record(CAM, None, error="timed out")
+            s._record(CAM, None, error="timed out")
+            self.assertEqual(s._backoff, 4.0)
+            self.assertEqual(self_status(s)["backoff_s"], round(s.interval * 4))
+
+    def test_one_success_resets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s = _scanner(tmp)
+            for _ in range(5):
+                s._record(CAM, None, error="timed out")
+            s._record(CAM, [])
+            self.assertEqual(s._backoff, 1.0)
+            self.assertNotIn("backoff_s", self_status(s))
+
+    def test_the_backoff_is_capped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s = _scanner(tmp)
+            for _ in range(20):
+                s._record(CAM, None, error="timed out")
+            self.assertEqual(s._backoff, 10.0)
+
+    def test_the_wait_uses_the_backoff(self):
+        import inspect
+        src = inspect.getsource(CustomRuleScanner._loop)
+        self.assertIn("self.interval * self._backoff", src)
+
+
+def self_status(s):
+    return json.loads(s.status_path.read_text())["cameras"]["cam1"]

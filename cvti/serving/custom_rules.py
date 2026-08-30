@@ -77,6 +77,15 @@ class CustomRuleScanner:
         # per camera; the Rules panel shows it live.
         self.status_path: Path | None = None
         self._status: dict = {}
+        # Adaptive backoff. During the 29 Aug demo every scanner call timed
+        # out for minutes on end: four cameras' gate verifications and the
+        # scanner all contend for OLLAMA_NUM_PARALLEL=2 slots, so under load
+        # the scanner queues behind long verifies, times out, and immediately
+        # queues again — adding pressure to the exact resource it is starving
+        # on. On failure the effective interval doubles (cap 10x); one success
+        # resets it. Alert verification keeps priority; sentences catch up
+        # when the model has headroom.
+        self._backoff = 1.0
 
     def _refresh_cameras(self) -> None:
         """Re-read the site file so a sentence typed in the app starts scanning
@@ -182,7 +191,7 @@ class CustomRuleScanner:
                 for hit in hits:
                     if not self._cooling(c["id"], hit["name"]):
                         self._emit(c, frame, hit)
-            self._stop.wait(self.interval)
+            self._stop.wait(self.interval * self._backoff)
         for cap in caps.values():
             try:
                 cap.release()
@@ -203,8 +212,12 @@ class CustomRuleScanner:
             entry["last_error"] = error
             entry["last_outcome"] = "call failed"
             comp.failed(RuntimeError(error))
+            self._backoff = min(self._backoff * 2.0, 10.0)
+            entry["backoff_s"] = round(self.interval * self._backoff)
         else:
             comp.ok()
+            self._backoff = 1.0
+            entry.pop("backoff_s", None)
             entry.pop("last_error", None)
             if hits:
                 entry["hits"] += len(hits)
