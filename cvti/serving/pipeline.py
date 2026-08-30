@@ -530,7 +530,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             cams_cfg, sink, model=gate_model or "gemma3:4b",
             base_url=gate_base_url or "http://localhost:11434/v1",
             site_config_path=site_config_path,
-            frame_source=_scanner_frame).start()
+            frame_source=_scanner_frame)
+        custom_scanner.status_path = Path(output_dir) / "english_rules_status.json"
+        custom_scanner.start()
     # Retention. Storage limitation is not optional, and an edge box with no
     # purge fills its disk and stops recording evidence exactly when it matters.
     from cvti.serving.onboarding import get_site_meta
