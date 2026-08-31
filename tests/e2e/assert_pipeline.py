@@ -12,6 +12,7 @@ import sqlite3
 import sys
 import time
 import urllib.request
+from urllib.parse import quote
 from pathlib import Path
 
 DEADLINE_S = 180
@@ -77,7 +78,7 @@ def main(out: str) -> int:
         cams = json.loads(urllib.request.urlopen(req, timeout=5).read())["cameras"]
         if not cams:
             return False
-        url = f"http://127.0.0.1:{port}/frame/{cams[0]}?token={token}"
+        url = f"http://127.0.0.1:{port}/frame/{quote(cams[0])}?token={token}"
         data = urllib.request.urlopen(url, timeout=5).read()
         return data[:2] == b"\xff\xd8"        # a real JPEG, not an error page
     _wait(frame_ok, "an authenticated JPEG comes off the frame publisher")

@@ -218,3 +218,15 @@ class BackendIntegrationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_needs_attention_on_a_db_the_engine_never_wrote(tmp_path):
+    """A fresh install polls triage before the engine has created any schema.
+    That is an empty queue, not an error — v1.5.0 stack-traced every 3s
+    ('no such table: events') until the first alert ever fired."""
+    con = sqlite3.connect(tmp_path / "events.db")
+    try:
+        out = triage.needs_attention(con)
+    finally:
+        con.close()
+    assert out == {"now": None, "then": [], "waiting": 0, "held": []}

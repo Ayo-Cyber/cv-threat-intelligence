@@ -5,7 +5,7 @@
   "retention_days": 30,
   "cameras": [
     {
-      "id": "cam1",
+      "id": "Front Gate",
       "source": "rtsp://rtsp:8554/cam1",
       "config": "configs/all_threats_v1.json",
       "crowd_formation": true,

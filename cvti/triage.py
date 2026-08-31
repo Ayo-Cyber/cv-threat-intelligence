@@ -138,6 +138,12 @@ def needs_attention(con: sqlite3.Connection, *, min_priority: str = "medium",
     second guard on shift can see the first one working.
     """
     con.row_factory = sqlite3.Row
+    # A db with no events table is an engine that has not written its first
+    # event yet — an empty queue, not an error. Without this the console
+    # stack-traced every 3 seconds on a fresh install (31 Aug).
+    if con.execute("SELECT name FROM sqlite_master "
+                   "WHERE type='table' AND name='events'").fetchone() is None:
+        return {"now": None, "then": [], "waiting": 0, "held": []}
     threshold = _PRIORITY_RANK.get(min_priority, 1)
     ranked = " ".join(f"WHEN '{p}' THEN {r}" for p, r in _PRIORITY_RANK.items())
     rows = con.execute(
