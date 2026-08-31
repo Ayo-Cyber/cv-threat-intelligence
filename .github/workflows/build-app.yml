@@ -246,6 +246,15 @@ jobs:
         if: runner.os == 'macOS'
         env: { QT_QPA_PLATFORM: offscreen }
         run: cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/dist/Argus.app/Contents/MacOS/Argus" --smoke --db "$RUNNER_TEMP/smoke/events.db"
+      # A background-only app can never take keyboard focus — v1.5.0 shipped
+      # that way (PyInstaller stamps it when any bundled EXE is console=True)
+      # and every keystroke fell through to the window behind Argus.
+      - name: The app may take keyboard focus (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          v=$(/usr/libexec/PlistBuddy -c "Print :LSBackgroundOnly" "$GITHUB_WORKSPACE/dist/Argus.app/Contents/Info.plist" 2>/dev/null || echo "absent")
+          echo "LSBackgroundOnly: $v"
+          [ "$v" = "absent" ] || [ "$v" = "false" ] || { echo "::error::Argus.app is background-only — it can never accept typing"; exit 1; }
       - name: Boot the shipped app (Linux)
         if: runner.os == 'Linux'
         env: { QT_QPA_PLATFORM: offscreen }
