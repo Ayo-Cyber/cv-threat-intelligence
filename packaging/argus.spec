@@ -207,6 +207,12 @@ if sys.platform == "darwin":
         icon=None,
         bundle_identifier="com.argus.desktop",
         info_plist={
+            # PyInstaller stamps LSBackgroundOnly=true because the bundled
+            # engine EXE is console=True — and a background-only app can NEVER
+            # take keyboard focus, so every keystroke fell through to whatever
+            # window was behind Argus (field report, 31 Aug: "I am typing into
+            # the app but it's typing here"). Force it off.
+            "LSBackgroundOnly": False,
             "NSHighResolutionCapable": True,
             "CFBundleShortVersionString": APP_VERSION,
             "CFBundleVersion": APP_VERSION,

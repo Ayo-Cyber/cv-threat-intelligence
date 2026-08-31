@@ -142,3 +142,16 @@ class EveryDefaultModelShipsTest(unittest.TestCase):
         self.assertFalse(target.startswith("models"),
                          "a missing model still downloads into the cwd — "
                          "read-only on installs")
+
+
+class MacBundleTakesKeyboardFocusTest(unittest.TestCase):
+    """v1.5.0 shipped with LSBackgroundOnly=true — PyInstaller stamps it when
+    any bundled EXE is console=True (the engine is) — and a background-only
+    app can NEVER become the key window: every keystroke fell through to the
+    window behind Argus (field report, 31 Aug). The spec must pin it False."""
+
+    def test_the_spec_pins_lsbackgroundonly_off(self):
+        spec = (ROOT / "packaging/argus.spec").read_text()
+        self.assertIn('"LSBackgroundOnly": False', spec,
+                      "argus.spec must force LSBackgroundOnly off, or the "
+                      "console=True engine EXE makes the whole .app untypeable")
