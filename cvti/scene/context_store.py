@@ -261,12 +261,29 @@ def _atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
+def _directory_name_for(camera_id: str) -> str:
+    """A safe directory name for ANY camera id, not a gate on which ids exist.
+
+    Real sites name cameras for humans — 'Dublin Street', 'Forecourt ATM' —
+    and rejecting those crashed the engine at startup on every feed that had
+    one (field report, 31 Aug: crash-loop before the first frame). The id is
+    the site's business; only the DIRECTORY must be filesystem-safe, so
+    unsafe ids are slugged, with a short digest so 'Aisle 4' and 'Aisle_4'
+    can never share a directory."""
+    raw = str(camera_id)
+    if _SAFE_CAMERA_ID.fullmatch(raw):
+        return raw
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", raw).strip("_")
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+    return f"{slug}-{digest}" if slug else f"camera-{digest}"
+
+
 class SceneContextStore:
     def __init__(self, context_root: str | Path, camera_id: str) -> None:
-        if not _SAFE_CAMERA_ID.fullmatch(str(camera_id)):
-            raise ValueError("camera_id contains unsafe path characters")
+        if not str(camera_id).strip():
+            raise ValueError("camera_id is empty")
         self.camera_id = str(camera_id)
-        self.directory = Path(context_root) / self.camera_id
+        self.directory = Path(context_root) / _directory_name_for(camera_id)
         self.context_path = self.directory / "scene_context.json"
         self.status_path = self.directory / "mapping_status.json"
         self.frame_path = self.directory / "source_frame.jpg"

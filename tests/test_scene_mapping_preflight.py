@@ -179,3 +179,45 @@ def test_build_camera_states_uses_pre_resolved_context_and_accepted_roles(
 
     assert state.scene_context["expected_actors"] == ["staff"]
     assert state.active_zone_roles == {"checkout"}
+
+
+def test_human_named_cameras_map_instead_of_killing_the_engine(tmp_path) -> None:
+    """v1.5.0 crash-looped at startup on EVERY feed with a human-named camera
+    ('Dublin Street', 'Forecourt ATM' — i.e. the live and demo feeds): the
+    store rejected the id, the ValueError escaped prepare(), and the engine
+    died before its first frame. The id is the site's business; only the
+    directory must be filesystem-safe."""
+    mapper = RecordingMapper()
+    # explicit legacy_root: the default is cwd-relative, and this repo's own
+    # runs/context/ still holds 'Dublin Street' contexts from the pre-mapper
+    # era — which is itself proof these ids were always legitimate.
+    service = FullAgentMapperService(tmp_path / "out", mapper,
+                                     legacy_root=tmp_path / "legacy")
+
+    result = service.prepare(
+        [_camera(tmp_path, id="Dublin Street"),
+         _camera(tmp_path, id="Forecourt ATM")], "auto")
+
+    assert result.blocked_camera_ids == set()
+    assert set(result.contexts) == {"Dublin Street", "Forecourt ATM"}
+    assert len(mapper.calls) == 2
+
+
+def test_a_preflight_exception_degrades_to_failed_never_raises(tmp_path) -> None:
+    """No exception from the mapper preflight may take down monitoring: it
+    degrades to a failed mapping status — auto runs the camera generic and
+    loud, the strict policies block that camera only."""
+    class ExplodingService(FullAgentMapperService):
+        def _prepare_camera(self, camera, policy):
+            raise RuntimeError("boom from deep inside the preflight")
+
+    service = ExplodingService(tmp_path / "out", RecordingMapper())
+
+    result = service.prepare([_camera(tmp_path)], "auto")
+    assert result.blocked_camera_ids == set()
+    assert result.statuses["cam_1"]["status"] == "failed"
+    assert "boom" in result.statuses["cam_1"]["error"]
+
+    strict = ExplodingService(tmp_path / "out2", RecordingMapper())
+    blocked = strict.prepare([_camera(tmp_path)], "require_reviewed")
+    assert blocked.blocked_camera_ids == {"cam_1"}

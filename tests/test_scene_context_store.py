@@ -59,9 +59,14 @@ def test_scene_package_exports_context_store() -> None:
     assert PublicSceneContextStore is SceneContextStore
 
 
-def test_store_rejects_camera_path_traversal(tmp_path) -> None:
+def test_store_contains_camera_path_traversal(tmp_path) -> None:
+    """Repinned 31 Aug: rejecting ids crashed the engine on every feed with a
+    human-named camera. Hostile ids are now CONTAINED — slugged into a
+    directory that cannot leave the context root — instead of rejected."""
+    store = SceneContextStore(tmp_path, "../outside")
+    assert tmp_path in store.directory.parents
     with pytest.raises(ValueError, match="camera_id"):
-        SceneContextStore(tmp_path, "../outside")
+        SceneContextStore(tmp_path, "   ")
 
 
 @pytest.mark.parametrize(
@@ -208,3 +213,21 @@ def test_manual_policy_does_not_use_unreviewed_cache(tmp_path) -> None:
 
     assert result.usable is False
     assert result.status.status == "ready_unreviewed"
+
+
+def test_unsafe_ids_get_safe_distinct_directories(tmp_path):
+    """'Dublin Street' must work (v1.5.0 refused it and the engine died), a
+    slug collision must not share state, and a hostile id must stay inside
+    the context root."""
+    from cvti.scene.context_store import SceneContextStore
+
+    spaced = SceneContextStore(tmp_path, "Dublin Street")
+    assert spaced.camera_id == "Dublin Street"
+    assert spaced.directory.parent == tmp_path
+
+    a = SceneContextStore(tmp_path, "Aisle 4")
+    b = SceneContextStore(tmp_path, "Aisle_4")
+    assert a.directory != b.directory
+
+    hostile = SceneContextStore(tmp_path, "../../etc/passwd")
+    assert tmp_path in hostile.directory.parents

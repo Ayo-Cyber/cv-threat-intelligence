@@ -10,6 +10,7 @@ from cvti.logging_setup import get_logger
 from cvti.scene.agent_mapper import AgentMapper
 from cvti.scene.context_store import (
     ContextResolution,
+    MappingStatus,
     SceneContextStore,
     normalize_scene_context_policy,
 )
@@ -90,7 +91,25 @@ class FullAgentMapperService:
         normalized_policy = normalize_scene_context_policy(policy)
         preflight = SceneMappingPreflight()
         for camera in cameras:
-            result = self._prepare_camera(camera, normalized_policy)
+            try:
+                result = self._prepare_camera(camera, normalized_policy)
+            except Exception as exc:  # noqa: BLE001 — the mapper must never
+                # take down monitoring. The store's id validation raised here
+                # and killed the WHOLE engine before the first frame (field
+                # report, 31 Aug: crash-loop on every feed with a
+                # human-named camera). Any preflight failure degrades to a
+                # failed mapping status: policy auto runs the camera generic
+                # and loud, the strict policies block that camera only.
+                camera_id = str(camera.get("id", "?"))
+                log.exception("[agent-map] preflight failed for %s", camera_id)
+                failed = MappingStatus(status="failed", error=str(exc))
+                result = CameraMappingResult(
+                    camera_id=camera_id,
+                    resolution=ContextResolution(
+                        context=None, status=failed,
+                        provenance="preflight_error", usable=False),
+                    mapped=False,
+                )
             camera_id = result.camera_id
             resolution = result.resolution
             if resolution.usable and resolution.context is not None:
