@@ -101,6 +101,15 @@ class ConsoleBackend:
             "permissions": sorted(perms.permissions_for(user.role)) if user else [],
         }
 
+    def app_version(self) -> str:
+        """Which build this actually is — from the version file the release
+        build bakes into the bundle. The sidebar said 'v0.9' from a hardcoded
+        string while three releases shipped in two days."""
+        try:
+            return resource_path("VERSION").read_text().strip() or "dev"
+        except OSError:
+            return "dev"
+
     def english_rules_status(self) -> dict:
         """The scanner's own account of itself — written every cycle by the
         engine. Distinguishes the three silences that all looked identical

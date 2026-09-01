@@ -27,6 +27,10 @@ AppId={{7E3F2A91-4C58-4B7D-9A16-ARGUS0000001}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
+; 64-bit app, 64-bit install: without these Windows filed a 1.4 GB
+; PyInstaller bundle under 'Program Files (x86)' (pilot log, 1 Sep).
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=..\dist

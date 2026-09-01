@@ -435,7 +435,7 @@
       <div class="netbadge" id="netBadge" title="Argus runs entirely on this machine — it needs no internet, and nothing leaves your network">🔒 Local-only</div>
       <div class="mono" id="whoami" style="margin-top:8px;color:var(--c-mut);font-size:11px;display:none">
         <span id="whoamiName"></span> <a href="#" onclick="doSignOut();return false" style="color:var(--c-sub);margin-left:6px">sign out</a></div>
-      <div style="margin-top:4px;color:#3d4a66">Argus Edge v0.9</div>
+      <div style="margin-top:4px;color:#3d4a66" id="appVer">Argus</div>
     </div>
   </nav>
   <main>
@@ -1248,7 +1248,7 @@ function renderSystem(){
         +  '<div id="secBody" class="mut" style="font-size:12px;margin-top:8px">Loading…</div></div>'
         +'<div class="panel" style="padding:16px 18px"><div class="syslabel">Edge</div>'
         +  '<div class="row" style="gap:22px;margin-top:9px;font-size:13px"><span class="mut">runs fully offline <b style="color:var(--c-live)">✓</b></span>'
-        +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">Argus Edge <b class="mono">v0.9</b></span></div></div>'
+        +    '<span class="mut">nothing leaves this machine <b style="color:var(--c-live)">✓</b></span><span class="mut">Argus <b class="mono">'+esc(state.appVersion||"")+'</b></span></div></div>'
         +'<div class="row" style="margin-top:16px"><button class="btn ghost" onclick="openWizard()">Re-run setup wizard</button></div></div>';
       paintUsersPanel(); paintAuditPanel(); paintSecurityPanel(); paintBackupPanel();
     });
@@ -2995,6 +2995,11 @@ document.addEventListener("click", function _unlock(){
    The backend enforces every consequential call, so the app must not boot its
    pollers until there is a session — they would just drum denied errors. */
 function boot(){
+  call("appVersion",[],function(v){
+    if(typeof v!=="string" || !v || v.error) return;
+    state.appVersion="v"+v.replace(/^v/,"");
+    var el=$("appVer"); if(el) el.textContent="Argus "+state.appVersion;
+  });
   call("authState",[],function(a){
     if(!a || a.error){ authScreen('<div class="pad mut">Could not read sign-in state: '+esc((a&&a.error)||"no response")+'</div>'); return; }
     state.authConfigured = !!a.configured;
