@@ -1542,7 +1542,16 @@ class ConsoleBackend:
             age = None
             try:
                 import json as _json
-                age = time.time() - float(_json.loads(hb.read_text()).get("generated_at") or 0)
+                doc = _json.loads(hb.read_text())
+                age = time.time() - float(doc.get("generated_at") or 0)
+                # The engine's first heartbeat lands BEFORE the slow parts
+                # (scene preflight, cold model loads) and names its phase —
+                # so a long warm-up reads 'Starting…', never 'engine not
+                # running' under a green dot (field screenshot, 1 Sep).
+                phase = str((doc.get("engine") or {}).get("phase") or "")
+                if phase.startswith("starting") and age < 90:
+                    out["starting"] = True
+                    out["phase"] = phase
             except (OSError, ValueError):
                 pass
             out["heartbeat_age_s"] = round(age, 1) if age is not None else None

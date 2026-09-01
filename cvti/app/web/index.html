@@ -537,6 +537,15 @@ function renderTabs(){
 /* ---------- monitoring engine control ---------- */
 function refreshMonitor(){ call("monitoringStatus",[],function(s){
   applyMonitor(s && s.running);
+  /* Warm-up is its own state now: the engine's first heartbeat names its
+     phase, so a slow first start reads "Starting…" — never "engine not
+     running" under a green Monitoring dot (field screenshot, 1 Sep). */
+  if(s && s.running && s.starting){
+    var sdot=$("monDot"), slab=$("monLabel"), sg=$("monGate");
+    if(sdot) sdot.style.background="var(--sev-high)";
+    if(slab) slab.textContent="Starting…";
+    if(sg) sg.textContent=s.phase||"engine starting…";
+  }
   state.engineFail = (s && !s.running && s.exit_code!=null)
     ? {code:s.exit_code, why:s.last_error||"", log:s.log_path||"", gaveUp:!!s.gave_up} : null;
   /* A crash LOOP looks alive at almost every poll — the watchdog respawns
@@ -2873,6 +2882,10 @@ function refreshLiveness(){
     var el=$("liveLine"); if(!el) return;
     if(!Array.isArray(links) || !links.length){ el.textContent="○ no cameras configured"; return; }
     var states=links.map(function(l){return l.state;});
+    if(states.every(function(st){return st==="starting";})){
+      el.textContent="◐ engine starting — this can take a few minutes on first run";
+      el.style.color="var(--sev-high)"; return;
+    }
     if(states.every(function(st){return st==="unknown";})){
       el.textContent="○ not monitoring — engine not running";   // never shown as healthy
       el.style.color="var(--c-mut)"; return;
