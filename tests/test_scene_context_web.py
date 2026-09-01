@@ -57,3 +57,29 @@ def test_onboarding_collects_scene_hints_and_sends_them_with_the_camera() -> Non
     assert "scene_hint" in html
     # while mapping is pending the panel shows the operator's own notes
     assert "sceneHintSummary" in html
+
+
+def test_wizard_assigns_camera_to_selected_area() -> None:
+    html = HTML.read_text()
+    body = _function_body(html, "wizAdd")
+
+    assert "area_id" in body
+    assert "wzArea" in body
+
+
+def test_finishing_setup_starts_monitoring_then_opens_scene_review() -> None:
+    body = _function_body(HTML.read_text(), "wizFinish")
+
+    assert body.index('call("startMonitoring"') < body.index("openSceneReview")
+
+
+def test_scene_review_is_one_grouped_workspace() -> None:
+    html = HTML.read_text()
+    assert 'id="sceneReview"' in html
+    body = _function_body(html, "renderSceneReview")
+    assert "summary.areas" in body
+    assert "camera_ids" in body
+    assert "site_type" in body
+    assert "approveSiteContext" in body
+    for label in ("Confirm area", "Edit and confirm", "Reject and remap", "Keep paused"):
+        assert label in html

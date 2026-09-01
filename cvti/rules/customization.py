@@ -64,6 +64,7 @@ class CustomizationEngine:
         scene_context: dict | None = None,
         now: datetime | None = None,
         active_zone_roles: set[str] | None = None,
+        monitoring_scope: str = "full",
     ) -> list[CandidateAlert]:
         """Return all rules that match the current events, sorted highest priority first."""
         now = now or datetime.now()
@@ -86,6 +87,16 @@ class CustomizationEngine:
         ordered_rules = [(rule, True) for rule in baseline]
         ordered_rules.extend((rule, False) for rule in self.rules)
         for rule, is_baseline in ordered_rules:
+            if monitoring_scope == "critical_only" and not rule.get(
+                "critical_baseline", False
+            ):
+                self.context_decisions.append({
+                    "rule": str(rule.get("name", "")),
+                    "environment": str(context.get("environment_type", "unknown")),
+                    "decision": "awaiting_review",
+                    "reason": "scene context must be reviewed before this rule is active",
+                })
+                continue
             # Compound recipe (Phase 3): several signals combined by a logic op.
             if "signals" in rule:
                 compound = _eval_compound(rule, events, now)
@@ -178,8 +189,11 @@ class CustomizationEngine:
         scene_context: dict | None = None,
         now: datetime | None = None,
         active_zone_roles: set[str] | None = None,
+        monitoring_scope: str = "full",
     ) -> CandidateAlert | None:
-        alerts = self.evaluate(events, scene_context, now, active_zone_roles)
+        alerts = self.evaluate(
+            events, scene_context, now, active_zone_roles, monitoring_scope
+        )
         return alerts[0] if alerts else None
 
 

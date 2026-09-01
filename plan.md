@@ -776,3 +776,15 @@ The detection brain works; these phases add the plumbing that makes it a product
 - Feedback loop (review → label → periodic retrain) + model registry.
 - Onboarding: ONVIF camera discovery, zone-drawing UI, Agent-Mapper preset suggestions.
 - Secrets management, health/metrics, resource scheduling, ByteTrack migration, more eval data.
+## 2026-09-01 Hierarchical Scene Mapping
+
+- [x] Independent site/area/view inference for every camera.
+- [x] Migration-safe physical area grouping for legacy and new sites.
+- [x] Deterministic conflict-aware area and site proposals.
+- [x] Persistent bounded local mapping queue tested at 100 cameras.
+- [x] Critical-only monitoring while semantic context awaits review.
+- [x] Live activation of full rules after approval without model restart.
+- [x] Permission-checked and audited hierarchy review APIs.
+- [x] Area-aware onboarding and grouped Scene Review workspace.
+- [ ] Validate inference quality with real multi-camera Ollama footage at the
+  first target site; automated tests prove behavior and scale, not visual truth.

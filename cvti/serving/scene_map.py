@@ -66,6 +66,15 @@ def _operator_hints(camera: dict[str, Any]) -> dict[str, Any] | None:
     actors = [a for a in actors if a]
     note = str(camera.get("scene_hint") or "").strip()
     hints: dict[str, Any] = {}
+    site_type = str(camera.get("site_type") or "").strip()
+    area_id = str(camera.get("area_id") or "").strip()
+    area_type = str(camera.get("area_type") or "").strip()
+    if site_type and site_type != "unknown":
+        hints["site_type"] = site_type
+    if area_id:
+        hints["area_id"] = area_id
+    if area_type and area_type != "unknown":
+        hints["area_type"] = area_type
     if environment and environment != "unknown":
         hints["environment_type"] = environment
     if actors:
@@ -107,6 +116,36 @@ class FullAgentMapperService:
         self.mapper = mapper
         self.dump_raw_response = dump_raw_response
         self.legacy_root = Path(legacy_root)
+
+    def inspect(
+        self, cameras: list[dict[str, Any]], policy: str = "auto"
+    ) -> SceneMappingPreflight:
+        """Resolve existing/manual context without performing VLM inference."""
+        normalized_policy = normalize_scene_context_policy(policy)
+        preflight = SceneMappingPreflight()
+        for camera in cameras:
+            camera_id = str(camera["id"])
+            source = camera["source"]
+            store = SceneContextStore(self.context_root, camera_id)
+            manual = _manual_context(camera)
+            resolution = store.resolve(
+                source,
+                normalized_policy,
+                manual_context=manual,
+                legacy_context_path=self.legacy_root / camera_id / "scene_context.json",
+            )
+            if manual is not None and resolution.context is not None:
+                resolution = store.approve(
+                    resolution.context, "site_config", source
+                )
+            if resolution.context is not None:
+                preflight.contexts[camera_id] = resolution.context
+            if not resolution.usable:
+                preflight.blocked_camera_ids.add(camera_id)
+            preflight.statuses[camera_id] = _status_document(
+                resolution, normalized_policy
+            )
+        return preflight
 
     def prepare(
         self, cameras: list[dict[str, Any]], policy: str = "auto"
