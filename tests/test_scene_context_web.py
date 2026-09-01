@@ -44,3 +44,16 @@ def test_scene_mutation_controls_follow_camera_configuration_permission() -> Non
 
     assert 'sceneCanEdit()' in html
     assert 'configure_cameras' in _function_body(html, "sceneCanEdit")
+
+
+def test_onboarding_collects_scene_hints_and_sends_them_with_the_camera() -> None:
+    """Both add-camera flows (Configure form and the first-run wizard) must
+    collect the operator's scene knowledge and ship it on the camera payload —
+    the frontend half of the onboarding→mapper bridge."""
+    html = HTML.read_text()
+    assert "sceneHintFields(\"ch\")" in html, "Configure add-camera form lost its scene hint fields"
+    assert "sceneHintFields(\"wz\")" in html, "wizard lost its scene hint fields"
+    assert html.count("sceneHintValues(") >= 3, "hints are not merged into addCamera payloads"
+    assert "scene_hint" in html
+    # while mapping is pending the panel shows the operator's own notes
+    assert "sceneHintSummary" in html

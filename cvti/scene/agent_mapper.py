@@ -322,6 +322,7 @@ def build_prompt(
     source_type: str,
     source_frame_path: str,
     max_zone_suggestions: int,
+    operator_hints: dict[str, Any] | None = None,
 ) -> str:
     dynamic_suffix = (
         f"\n\nCaller-provided metadata:\n"
@@ -332,6 +333,26 @@ def build_prompt(
         "Use the provided camera_id, source_type, and source_frame_path exactly in the JSON output.\n"
         f"Suggest no more than {max_zone_suggestions} zones."
     )
+    # The operator's onboarding answers are PRIORS, not a bypass: one frame
+    # can lie (empty forecourt at 3am reads as "parking lot"), but the person
+    # who mounted the camera knows what it watches. Anchoring the model to
+    # their answers is the hallucination reduction this mapper exists for.
+    if operator_hints:
+        lines = ["\n\nThe site operator described this camera during onboarding.",
+                 "Treat these answers as reliable prior knowledge: prefer them",
+                 "unless the frame clearly contradicts them."]
+        environment = str(operator_hints.get("environment_type") or "").strip()
+        if environment and environment != "unknown":
+            lines.append(f'- environment: "{environment}"')
+        actors = [str(a).strip() for a in operator_hints.get("expected_actors") or []]
+        actors = [a for a in actors if a]
+        if actors:
+            lines.append(f"- people and vehicles that belong here: {', '.join(actors)}")
+        note = str(operator_hints.get("note") or "").strip()
+        if note:
+            lines.append(f'- operator note: "{note}"')
+        if len(lines) > 3:
+            dynamic_suffix += "\n".join(lines)
     return template + dynamic_suffix
 
 
@@ -772,6 +793,7 @@ class AgentMapper:
         camera_id: str = "",
         sample_count: int = 3,
         source_frame_path: str = "",
+        operator_hints: dict[str, Any] | None = None,
     ) -> MappingResult:
         source = normalize_source(str(source_raw))
         source_type = detect_source_type(source)
@@ -788,6 +810,7 @@ class AgentMapper:
             source_type=source_type,
             source_frame_path=frame_path,
             max_zone_suggestions=self.max_zone_suggestions,
+            operator_hints=operator_hints,
         )
 
         if self.provider == "mock":

@@ -35,8 +35,10 @@ class RecordingMapper:
         camera_id: str,
         sample_count: int = 3,
         source_frame_path: str = "",
+        operator_hints: dict | None = None,
     ) -> MappingResult:
         self.calls.append((source, camera_id, sample_count, source_frame_path))
+        self.hints_seen = getattr(self, "hints_seen", []) + [operator_hints]
         context = _context(camera_id)
         context["source_frame_path"] = source_frame_path
         return MappingResult(
@@ -221,3 +223,43 @@ def test_a_preflight_exception_degrades_to_failed_never_raises(tmp_path) -> None
     strict = ExplodingService(tmp_path / "out2", RecordingMapper())
     blocked = strict.prepare([_camera(tmp_path)], "require_reviewed")
     assert blocked.blocked_camera_ids == {"cam_1"}
+
+
+def test_onboarding_hints_reach_the_mapper_as_priors(tmp_path) -> None:
+    """The discord this heals (co-engineer, 1 Sep): onboarding collected
+    knowledge the mapper never saw. Hints are PRIORS — the mapper still runs
+    (unlike a full scene_description, which is human-authored and skips it)
+    but anchored to what the operator said."""
+    mapper = RecordingMapper()
+    service = FullAgentMapperService(tmp_path / "out", mapper,
+                                     legacy_root=tmp_path / "legacy")
+
+    service.prepare([_camera(
+        tmp_path,
+        environment_type="parking_lot",
+        expected_actors=["staff", "drivers"],
+        scene_hint="cars park along the left fence",
+    )], "auto")
+
+    assert len(mapper.calls) == 1, "hints must not bypass the mapper"
+    assert mapper.hints_seen == [{
+        "environment_type": "parking_lot",
+        "expected_actors": ["staff", "drivers"],
+        "note": "cars park along the left fence",
+    }]
+
+
+def test_no_hints_means_no_priors_and_manual_still_bypasses(tmp_path) -> None:
+    mapper = RecordingMapper()
+    service = FullAgentMapperService(tmp_path / "out", mapper,
+                                     legacy_root=tmp_path / "legacy")
+    service.prepare([_camera(tmp_path)], "auto")
+    assert mapper.hints_seen == [None]
+
+    authored = FullAgentMapperService(tmp_path / "out2", mapper,
+                                      legacy_root=tmp_path / "legacy")
+    result = authored.prepare([_camera(
+        tmp_path, id="cam_2", scene_description="A watched forecourt.",
+    )], "auto")
+    assert len(mapper.calls) == 1, "a full description is authored, not a hint"
+    assert result.contexts["cam_2"]["scene_description"] == "A watched forecourt."
