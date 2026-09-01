@@ -10,10 +10,10 @@ threat and it does not activate suggested zones automatically.
 The production flow is:
 
 ```text
-camera source
-  -> Agent Mapper preflight
-  -> schema validation and site-scoped cache
-  -> optional operator review
+camera source (every camera maps independently)
+  -> persistent one-worker mapping queue
+  -> camera context + deterministic area/site proposals
+  -> grouped operator review
   -> detector and customer rules
   -> deterministic context compatibility
   -> TrueSight VLM verification
@@ -29,8 +29,8 @@ down, and camera tampering are never blocked by scene compatibility.
 
 Set `scene_context_policy` at the top level of a site JSON:
 
-- `require_reviewed`: map missing/stale cameras, but do not start those cameras
-  until an owner or installer approves the result.
+- `require_reviewed`: map missing/stale cameras and run them in
+  `critical_only` mode until an owner or installer approves the result.
 - `auto`: use a valid unreviewed mapping immediately and show its review state.
   This is the compatibility default when an old site has no policy field.
 - `manual`: never invoke the mapper; every camera must have a human-authored
@@ -82,8 +82,9 @@ MPLCONFIGDIR=/private/tmp OLLAMA_API_KEY=ollama ./.venv/bin/python -m cvti.servi
   --gate-drain 30
 ```
 
-On the first run, both newly mapped cameras should be `ready_unreviewed` and
-blocked from detection. This is expected under `require_reviewed`.
+On the first run, newly mapped cameras should be `ready_unreviewed`. They remain
+live for critical baselines (fire, weapon, serious violence, person down and
+tampering), while context-sensitive customer rules remain paused.
 
 Open the Argus console against the same site and output directory:
 
@@ -93,12 +94,15 @@ Open the Argus console against the same site and output directory:
   --db runs/agent_mapper_review/events.db
 ```
 
-Sign in as an owner or installer, open **Rules**, inspect each camera's Scene
-context, correct it if needed, and select **Approve context**. Suggested zones
+Sign in as an owner or installer. The grouped **Scene review** opens after
+onboarding and presents one physical area at a time, with every independent
+camera view. Confirm, edit and confirm, reject/remap, or keep an area paused.
+The Rules screen remains the camera-specific maintenance path. Suggested zones
 remain inert until **Accept zone** is selected explicitly.
 
-Rerun the pipeline command. Reviewed cameras should now load from cache and
-start detection without another mapper call.
+Approval is picked up by the running detector process within its health cycle;
+the affected camera switches to full rules without rebuilding models or
+restarting unrelated cameras.
 
 ## Automatic Compatibility Test
 
@@ -129,6 +133,13 @@ runs/<run>/context/<camera_id>/
   mapping_status.json
   source_frame.jpg
   raw_response.txt       # only when debug persistence is enabled
+runs/<run>/context/_areas/<area_id>/
+  area_context.proposal.json
+  area_context.json      # after approval
+runs/<run>/context/_site/
+  site_context.proposal.json
+  site_context.json      # after approval
+runs/<run>/context/mapping_queue.json
 ```
 
 `mapping_status.json` uses these states:
@@ -151,8 +162,17 @@ review block affects only that camera; other usable cameras continue.
   the current artifact stale; it does not erase the evidence immediately.
 - **Changed source:** rerun the pipeline. A changed credential-redacted source
   fingerprint invalidates the old cache.
-- **Camera blocked after mapping:** approve it in Rules when policy is
-  `require_reviewed`, then restart the pipeline.
+- **Camera limited after mapping:** approve its area or camera context. It will
+  leave `critical_only` mode without a pipeline restart.
 - **RTSP privacy:** fingerprints are hashes of credential-redacted source
   identity. Passwords must never appear in context, health, logs, or UI.
 
+## Large Sites
+
+Every camera still makes an independent visual inference, even when several
+cameras are assigned to the same physical area. Area assignment is a prior,
+never a copied visual label. Camera observations are reconciled
+deterministically; high-confidence disagreement becomes a visible conflict and
+disables bulk confirmation. The persistent queue defaults to one local Ollama
+request at a time, survives restarts, and was integration-tested with 100
+cameras grouped into 20 areas.

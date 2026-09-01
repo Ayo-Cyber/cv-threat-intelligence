@@ -1570,3 +1570,32 @@ VideoMAE local model cache is about 330 MB. X3D-S is about 30 MB, but X3D is not
 - The system still needs multi-alert queue semantics. The live detector still uses a top-alert pattern in the config/gate path.
 - VideoMAE should stay optional and off by default until we validate runtime latency and false-positive behavior on a larger eval set.
 - For shoplifting, the pose/concealment heuristic remains more relevant until we fine-tune a video model on concealment clips.
+## Checkpoint 2026-09-01: Hierarchical Agent Mapper Integration
+
+Argus now models scene context at three separate levels: site, physical area,
+and individual camera view. Every camera maps its own image; cameras may share
+an `area_id`, but operator hints are fallible priors and never replace visual
+inference. Camera evidence is reconciled into area/site proposals by
+deterministic code, not another VLM call. High-confidence disagreement remains
+visible and prevents bulk approval.
+
+Mapping work is stored in a credential-free persistent queue and defaults to
+one local Ollama request at a time, making 100-camera onboarding bounded and
+resumable. Existing camera context paths remain compatible. New artifacts live
+under `context/_areas`, `context/_site`, and `context/mapping_queue.json`.
+
+New sites can create/select areas while adding cameras. After onboarding,
+Argus starts monitoring and opens one grouped Scene Review workspace. Owners or
+installers can confirm an area, edit and confirm, reject/remap its cameras, or
+keep it paused. Operators may view context but cannot mutate it. All approvals
+and assignments remain permission-checked and audited.
+
+`require_reviewed` no longer removes unreviewed cameras from monitoring.
+Instead, those cameras run `critical_only`: always-on critical baselines remain
+active while context-sensitive rules such as shoplifting are suppressed with
+an `awaiting_review` diagnostic. Approval is detected by the running pipeline
+and upgrades only that camera to full rules without restarting shared models.
+
+The detailed design and implementation plan are in
+`docs/superpowers/specs/2026-09-01-hierarchical-scene-mapping-design.md` and
+`docs/superpowers/plans/2026-09-01-hierarchical-scene-mapping.md`.

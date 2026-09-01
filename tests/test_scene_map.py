@@ -49,3 +49,26 @@ def test_prompt_carries_operator_hints_as_priors() -> None:
     bare = build_prompt(template="MAP.", camera_id="c", source_type="rtsp",
                         source_frame_path="f.jpg", max_zone_suggestions=3)
     assert "site operator" not in bare
+
+
+def test_prompt_requests_independent_hierarchy_evidence() -> None:
+    from cvti.scene.agent_mapper import build_prompt
+
+    prompt = build_prompt(
+        template="MAP.",
+        camera_id="cam1",
+        source_type="rtsp",
+        source_frame_path="frame.jpg",
+        max_zone_suggestions=3,
+        operator_hints={
+            "site_type": "manufacturing_plant",
+            "area_id": "loading",
+            "area_type": "loading_bay",
+        },
+    )
+
+    assert "independent visual observation" in prompt
+    assert 'site type prior: "manufacturing_plant"' in prompt
+    assert 'area type prior: "loading_bay"' in prompt
+    assert "site_type_candidate" in prompt
+    assert "area_type_candidate" in prompt

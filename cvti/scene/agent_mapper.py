@@ -339,8 +339,19 @@ def build_prompt(
     # their answers is the hallucination reduction this mapper exists for.
     if operator_hints:
         lines = ["\n\nThe site operator described this camera during onboarding.",
-                 "Treat these answers as reliable prior knowledge: prefer them",
-                 "unless the frame clearly contradicts them."]
+                 "Treat these answers as fallible priors, not visual facts.",
+                 "Make an independent visual observation for this camera; prefer",
+                 "the prior unless the frame clearly contradicts it, and return",
+                 "unknown when the image is insufficient."]
+        site_type = str(operator_hints.get("site_type") or "").strip()
+        if site_type and site_type != "unknown":
+            lines.append(f'- site type prior: "{site_type}"')
+        area_id = str(operator_hints.get("area_id") or "").strip()
+        if area_id:
+            lines.append(f'- operator area id: "{area_id}"')
+        area_type = str(operator_hints.get("area_type") or "").strip()
+        if area_type and area_type != "unknown":
+            lines.append(f'- area type prior: "{area_type}"')
         environment = str(operator_hints.get("environment_type") or "").strip()
         if environment and environment != "unknown":
             lines.append(f'- environment: "{environment}"')
@@ -353,6 +364,10 @@ def build_prompt(
             lines.append(f'- operator note: "{note}"')
         if len(lines) > 3:
             dynamic_suffix += "\n".join(lines)
+    dynamic_suffix += (
+        "\nReturn site_type_candidate, area_type_candidate, and view_description "
+        "as independent visual observations in addition to the existing fields."
+    )
     return template + dynamic_suffix
 
 
@@ -658,6 +673,18 @@ def parse_and_validate_scene_context(
     payload["confidence"] = normalize_confidence(payload.get("confidence"))
     payload["notes"] = str(payload.get("notes", "")).strip()
 
+    from cvti.scene.hierarchy import normalize_area_type, normalize_site_type
+
+    payload["site_type_candidate"] = normalize_site_type(
+        payload.get("site_type_candidate")
+    )
+    payload["area_type_candidate"] = normalize_area_type(
+        payload.get("area_type_candidate")
+    )
+    payload["view_description"] = str(
+        payload.get("view_description", "")
+    ).strip()
+
     payload.pop("risk_hints", None)
     payload.pop("suggested_preset", None)
 
@@ -846,6 +873,9 @@ class AgentMapper:
             source_type=source_type,
             source_frame_path=frame_path,
         )
+        area_id = str((operator_hints or {}).get("area_id") or "").strip()
+        if area_id:
+            context["area_id"] = area_id
         return MappingResult(
             context=context,
             selected_frame=selected.image,

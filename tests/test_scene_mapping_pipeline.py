@@ -9,10 +9,11 @@ from cvti.serving.custom_rules import CustomRuleScanner
 from cvti.serving.scene_map import SceneMappingPreflight
 
 
-def test_run_site_prepares_context_before_building_camera_states() -> None:
+def test_run_site_inspects_context_before_states_then_maps_in_background() -> None:
     source = inspect.getsource(pipeline.run_site)
 
-    assert source.index("prepare_scene_mapping(") < source.index("build_camera_states(")
+    assert source.index("mapping_service.inspect(") < source.index("build_camera_states(")
+    assert source.index("build_camera_states(") < source.index("SceneMappingCoordinator(")
     assert source.index("build_camera_states(") < source.index("pipe.start()")
 
 
@@ -56,13 +57,27 @@ def test_explicit_mapper_settings_override_gate() -> None:
     )
 
 
-def test_blocked_camera_is_excluded_but_ready_camera_remains() -> None:
+def test_unreviewed_camera_remains_active_for_critical_only_monitoring() -> None:
     cameras = [{"id": "cam_1"}, {"id": "cam_2"}]
     preflight = SceneMappingPreflight(blocked_camera_ids={"cam_2"})
 
-    assert pipeline.active_cameras_after_preflight(cameras, preflight) == [
-        {"id": "cam_1"}
-    ]
+    assert pipeline.active_cameras_after_preflight(cameras, preflight) == cameras
+
+
+def test_preflight_statuses_select_monitoring_scope() -> None:
+    preflight = SceneMappingPreflight(
+        statuses={
+            "reviewed": {"status": "ready_reviewed"},
+            "pending": {"status": "ready_unreviewed"},
+            "failed": {"status": "failed"},
+        }
+    )
+
+    assert pipeline.monitoring_scopes_from_preflight(preflight) == {
+        "reviewed": "full",
+        "pending": "critical_only",
+        "failed": "critical_only",
+    }
 
 
 def test_rendered_expected_actors_are_possibilities_not_identities() -> None:

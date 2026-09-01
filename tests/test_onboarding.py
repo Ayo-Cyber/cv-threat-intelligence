@@ -44,6 +44,16 @@ class OnboardingTests(unittest.TestCase):
         onboarding.add_camera(self.site, {"source": "rtsp://a/1"})
         self.assertTrue(onboarding.list_cameras(self.site)[0]["id"].startswith("cam"))
 
+    def test_add_camera_rejects_unknown_explicit_area(self):
+        onboarding.upsert_area(self.site, {"id": "floor", "name": "Factory floor"})
+
+        with self.assertRaisesRegex(ValueError, "unknown area: warehouse"):
+            onboarding.add_camera(self.site, {
+                "id": "front",
+                "source": "rtsp://a/1",
+                "area_id": "warehouse",
+            })
+
     def test_complete_first_run_never_stamps_a_strict_scene_policy(self):
         """Repinned 1 Sep: stamping fresh sites 'require_reviewed' turned a
         pilot's first run into a two-day watchdog loop — mapping timed out on

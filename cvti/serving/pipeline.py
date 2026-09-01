@@ -22,6 +22,7 @@ import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from cvti.serving.alert_queue import QueuedAlert
@@ -163,11 +164,36 @@ def retry_failed_scene_mappings(service, cams_cfg: list, policy: str,
 
 
 def active_cameras_after_preflight(cameras: list[dict], preflight) -> list[dict]:
-    return [
-        dict(camera)
-        for camera in cameras
-        if camera.get("id") not in preflight.blocked_camera_ids
-    ]
+    _ = preflight
+    return [dict(camera) for camera in cameras]
+
+
+def monitoring_scopes_from_preflight(preflight) -> dict[str, str]:
+    return {
+        str(camera_id): (
+            "full" if status.get("status") == "ready_reviewed" else "critical_only"
+        )
+        for camera_id, status in preflight.statuses.items()
+    }
+
+
+def activate_reviewed_scene_contexts(states: dict, output_dir: str | Path) -> list[str]:
+    """Hot-apply approvals written by the console's separate process."""
+    from cvti.scene.context_store import SceneContextStore
+
+    changed: list[str] = []
+    context_root = Path(output_dir) / "context"
+    for camera_id, state in states.items():
+        if getattr(state, "monitoring_scope", "full") == "full":
+            continue
+        store = SceneContextStore(context_root, camera_id)
+        if store.load_status().status != "ready_reviewed":
+            continue
+        context = store._load_context()
+        if context is not None:
+            state.activate_scene_context(context)
+            changed.append(camera_id)
+    return changed
 
 
 def _mapping_health_rows(preflight) -> list[dict]:
@@ -557,16 +583,23 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                           gate_provider=gate_provider, gate_model=gate_model)
     threading.Thread(target=_starting_beat, name="starting-beat",
                      daemon=True).start()
+    mapping_service = build_mapper_service(
+        output_dir=output_dir,
+        gate_provider=gate_provider,
+        gate_model=gate_model,
+        gate_base_url=gate_base_url,
+        mapper_provider=mapper_provider,
+        mapper_model=mapper_model,
+        mapper_base_url=mapper_base_url,
+    )
+
     def _preflight():
-        return prepare_scene_mapping(
-            site,
-            output_dir=output_dir,
-            gate_provider=gate_provider,
-            gate_model=gate_model,
-            gate_base_url=gate_base_url,
-            mapper_provider=mapper_provider,
-            mapper_model=mapper_model,
-            mapper_base_url=mapper_base_url,
+        # inspect() reads caches and hierarchy only — no VLM inference — so
+        # startup is fast and the wait-loop below can re-check cheaply. The
+        # actual mapping happens in the background coordinator once running.
+        return mapping_service.inspect(
+            list(site.get("cameras") or []),
+            site.get("scene_context_policy", "auto"),
         )
 
     mapping_preflight = _preflight()
@@ -582,12 +615,18 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # the moment a human approves a context in the app (or a remap succeeds),
     # cameras start without anyone restarting anything.
     while not cams_cfg:
-        _starting["phase"] = ("waiting — this site's policy requires reviewed "
-                              "scene context before cameras may start")
+        _starting["phase"] = (
+            "waiting — add a camera to begin monitoring"
+            if not site.get("cameras") else
+            "waiting — this site's policy requires reviewed "
+            "scene context before cameras may start")
         _starting["scene"] = mapping_health
         log.warning("[site] no camera can start until scene context is ready — "
                     "retrying the preflight in 60s (approve or remap in the app)")
         time.sleep(60.0)
+        # Reload the config: a camera added (or a context approved) from the
+        # app while we wait must start cameras WITHOUT an engine restart.
+        site = load_site_config(site_config_path)
         mapping_preflight = _preflight()
         cams_cfg = active_cameras_after_preflight(
             list(site.get("cameras") or []), mapping_preflight
@@ -639,7 +678,10 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
                                video_action_model=video_action_model,
                                baseline_config=baseline_config,
-                               scene_contexts=mapping_preflight.contexts)
+                               scene_contexts=mapping_preflight.contexts,
+                               monitoring_scopes=monitoring_scopes_from_preflight(
+                                   mapping_preflight
+                               ))
     sources = {cid: c["source"] for cid, c in cams.items()}
     states = {cid: c["state"] for cid, c in cams.items()}
     queue = AlertQueue()
@@ -731,6 +773,80 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
     pipe.on_queued = _fast_path
     pipe.start()
+
+    # Cameras start immediately in critical-only mode while one persistent,
+    # bounded worker maps missing/stale scenes in the background. This keeps a
+    # 100-camera commissioning run from becoming 100 blocking Ollama calls.
+    from cvti.scene.coordinator import SceneMappingCoordinator
+    from cvti.scene.context_store import SceneContextStore
+
+    mapping_coordinator = SceneMappingCoordinator(
+        mapping_service, site_config_path, output_dir, max_workers=1,
+        policy=site.get("scene_context_policy", "auto"),
+    )
+    initial_mapping_ids = [
+        camera_id for camera_id, status in mapping_preflight.statuses.items()
+        if status.get("status") in {"pending", "stale", "failed"}
+    ]
+    if initial_mapping_ids:
+        mapping_coordinator.enqueue(initial_mapping_ids)
+    _mapping_stop = threading.Event()
+
+    def _mapping_worker() -> None:
+        retry_due: dict[str, float] = {}
+        retry_delays = (120.0, 300.0, 600.0)
+        while not _mapping_stop.wait(0.25):
+            if not mapping_coordinator.run_next():
+                now = time.monotonic()
+                due = []
+                for job in mapping_coordinator.jobs:
+                    if job.state != "failed" or job.attempts >= 4:
+                        retry_due.pop(job.camera_id, None)
+                        continue
+                    deadline = retry_due.setdefault(
+                        job.camera_id,
+                        now + retry_delays[min(job.attempts - 1, len(retry_delays) - 1)],
+                    )
+                    if now >= deadline:
+                        due.append(job.camera_id)
+                if due:
+                    mapping_coordinator.requeue_failed(due, max_attempts=4)
+                    for camera_id in due:
+                        retry_due.pop(camera_id, None)
+                    continue
+                if _mapping_stop.wait(2.0):
+                    return
+                stale_ids = []
+                for camera_id in states:
+                    status = SceneContextStore(
+                        Path(output_dir) / "context", camera_id
+                    ).load_status()
+                    if status.status == "stale":
+                        stale_ids.append(camera_id)
+                if stale_ids:
+                    mapping_coordinator.enqueue(stale_ids, force=True)
+                continue
+            for camera_id, state in states.items():
+                store = SceneContextStore(Path(output_dir) / "context", camera_id)
+                status = store.load_status()
+                context = store._load_context()
+                if context is not None:
+                    state.scene_context = context
+                for index, row in enumerate(mapping_health):
+                    if str(row.get("camera_id")) == str(camera_id):
+                        mapping_health[index] = {
+                            "camera_id": camera_id,
+                            **status.to_dict(),
+                            "usable": status.status == "ready_reviewed",
+                            "review_required": status.status != "ready_reviewed",
+                            "environment_type": (
+                                context or {}
+                            ).get("environment_type", "unknown"),
+                        }
+
+    threading.Thread(
+        target=_mapping_worker, name="scene-mapping", daemon=True
+    ).start()
     custom_scanner = None
     watch_runner = None      # defined here: teardown references it on every path
     if gate_provider in ("ollama", "local"):
@@ -907,48 +1023,16 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
     def _health_loop() -> None:
         while not _esc_stop.wait(3.0):
+            activated = activate_reviewed_scene_contexts(states, output_dir)
+            if activated:
+                log.info("[agent-map] full monitoring activated for: %s",
+                         ", ".join(activated))
             _write_health()
 
     _starting_stop.set()          # the real heartbeat owns the file from here
     _write_health()
     _threading.Thread(target=_health_loop, name="gate-health", daemon=True).start()
 
-    if any(row.get("status") == "failed" for row in mapping_health):
-        def _scene_retry_loop() -> None:
-            # The preflight raced the model download and lost. Give the failed
-            # mappings three more chances at escalating delays — enough time
-            # for a 3.3GB first-run pull — pausing only while the gate is
-            # PROVABLY down (None means merely untested: a quiet site with no
-            # alerts must still heal). mapping_health is mutated in place, so
-            # the health doc and the app's scene panels heal without restart.
-            for delay in (120.0, 300.0, 600.0):
-                if _esc_stop.wait(delay):
-                    return
-                while _gate_reachable(gate_pool.stats()) is False:
-                    if _esc_stop.wait(30.0):
-                        return
-                try:
-                    service = build_mapper_service(
-                        output_dir=output_dir,
-                        gate_provider=gate_provider, gate_model=gate_model,
-                        gate_base_url=gate_base_url,
-                        mapper_provider=mapper_provider,
-                        mapper_model=mapper_model,
-                        mapper_base_url=mapper_base_url)
-                    still = retry_failed_scene_mappings(
-                        service, cams_cfg,
-                        site.get("scene_context_policy", "auto"),
-                        mapping_health, states)
-                except Exception as exc:  # noqa: BLE001 - retry must never hurt monitoring
-                    log.warning("[agent-map] retry pass failed: %s", str(exc)[:120])
-                    still = {"?"}
-                if not still:
-                    log.info("[agent-map] all failed scene mappings recovered")
-                    return
-            log.warning("[agent-map] %d camera(s) still unmapped after retries "
-                        "— Remap from the app to try again", len(still))
-        _threading.Thread(target=_scene_retry_loop, name="scene-remap",
-                          daemon=True).start()
     if publisher is not None:
         # /health on the publisher's authenticated server (EP-04-T1).
         publisher.health_provider = _build_health
@@ -1152,6 +1236,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     try:
         pipe.run(max_seconds=seconds)
     finally:
+        _mapping_stop.set()
         _esc_stop.set()
         pipe.stop()
         if custom_scanner is not None:

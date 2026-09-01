@@ -14,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from cvti.scene.context_store import _directory_name_for
+
 # Common vendor sub-stream (low-res) URL patterns — offered as suggestions.
 VENDOR_PATHS = {
     "Hikvision": "/Streaming/Channels/102",
@@ -94,19 +96,123 @@ def list_cameras(site_path: str | Path) -> list[dict]:
     return load_site(site_path).get("cameras", [])
 
 
+_AREA_KEYS = {"id", "name", "site_type", "area_type", "expected_actors", "note"}
+
+
+def _write_site(site_path: str | Path, data: dict) -> None:
+    path = Path(site_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(data, indent=2))
+    temporary.replace(path)
+
+
+def _validated_area(area: dict) -> dict:
+    if not isinstance(area, dict):
+        raise ValueError("area must be an object")
+    extras = sorted(set(area) - _AREA_KEYS)
+    if extras:
+        raise ValueError(f"area contains unsupported field(s): {', '.join(extras)}")
+    area_id = str(area.get("id", "")).strip()
+    name = str(area.get("name", "")).strip()
+    if not area_id or not name:
+        raise ValueError("area id and name must not be empty")
+    result = {"id": area_id, "name": name}
+    for key in ("site_type", "area_type", "note"):
+        if key in area:
+            result[key] = str(area[key]).strip()
+    if "expected_actors" in area:
+        actors = area["expected_actors"]
+        if not isinstance(actors, list):
+            raise ValueError("expected_actors must be an array")
+        result["expected_actors"] = list(dict.fromkeys(
+            text for value in actors if (text := str(value).strip())
+        ))
+    return result
+
+
+def camera_area_id(camera: dict) -> str:
+    explicit = str(camera.get("area_id", "")).strip()
+    if explicit:
+        return explicit
+    camera_id = str(camera.get("id", "camera")).strip() or "camera"
+    return f"camera--{_directory_name_for(camera_id)}"
+
+
+def normalized_areas(site_path: str | Path) -> list[dict]:
+    """Return explicit and derived single-camera areas without mutating config."""
+    data = load_site(site_path)
+    explicit = [_validated_area(area) for area in data.get("areas", [])]
+    by_id = {area["id"]: {**area, "implicit": False, "camera_ids": []}
+             for area in explicit}
+    for camera in data.get("cameras", []):
+        area_id = camera_area_id(camera)
+        if area_id not in by_id:
+            by_id[area_id] = {
+                "id": area_id,
+                "name": str(camera.get("id", "Camera")),
+                "implicit": True,
+                "camera_ids": [],
+            }
+        by_id[area_id]["camera_ids"].append(str(camera.get("id", "")))
+    return list(by_id.values())
+
+
+def upsert_area(site_path: str | Path, area: dict) -> list[dict]:
+    data = load_site(site_path)
+    prepared = _validated_area(area)
+    areas = [item for item in data.get("areas", [])
+             if str(item.get("id", "")) != prepared["id"]]
+    areas.append(prepared)
+    data["areas"] = areas
+    _write_site(site_path, data)
+    return normalized_areas(site_path)
+
+
+def remove_area(site_path: str | Path, area_id: str) -> list[dict]:
+    area_id = str(area_id).strip()
+    data = load_site(site_path)
+    data["areas"] = [area for area in data.get("areas", [])
+                     if str(area.get("id", "")) != area_id]
+    for camera in data.get("cameras", []):
+        if str(camera.get("area_id", "")) == area_id:
+            camera.pop("area_id", None)
+    _write_site(site_path, data)
+    return normalized_areas(site_path)
+
+
+def assign_camera_area(
+    site_path: str | Path, camera_id: str, area_id: str
+) -> dict:
+    data = load_site(site_path)
+    area_id = str(area_id).strip()
+    known = {str(area.get("id", "")) for area in data.get("areas", [])}
+    if area_id not in known:
+        raise ValueError(f"unknown area: {area_id}")
+    for camera in data.get("cameras", []):
+        if str(camera.get("id", "")) == str(camera_id):
+            camera["area_id"] = area_id
+            _write_site(site_path, data)
+            return dict(camera)
+    raise ValueError(f"unknown camera: {camera_id}")
+
+
 def add_camera(site_path: str | Path, camera: dict) -> list[dict]:
     """Upsert a camera (by id) into the site config and persist. Returns cameras."""
     if not camera.get("source"):
         raise ValueError("camera needs a source (RTSP/HTTP URL, webcam index, or file)")
     data = load_site(site_path)
+    area_id = str(camera.get("area_id", "")).strip()
+    if area_id:
+        known = {str(area.get("id", "")) for area in data.get("areas", [])}
+        if area_id not in known:
+            raise ValueError(f"unknown area: {area_id}")
     cam_id = camera.get("id") or f"cam{len(data.get('cameras', [])) + 1}"
     camera = {**camera, "id": cam_id}
     cams = [c for c in data.get("cameras", []) if c.get("id") != cam_id]
     cams.append(camera)
     data["cameras"] = cams
-    p = Path(site_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2))
+    _write_site(site_path, data)
     return cams
 
 
@@ -114,7 +220,7 @@ def remove_camera(site_path: str | Path, camera_id: str) -> list[dict]:
     data = load_site(site_path)
     cams = [c for c in data.get("cameras", []) if c.get("id") != camera_id]
     data["cameras"] = cams
-    Path(site_path).write_text(json.dumps(data, indent=2))
+    _write_site(site_path, data)
     return cams
 
 

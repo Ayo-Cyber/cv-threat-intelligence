@@ -101,6 +101,7 @@ class PerCameraState:
     engine: CustomizationEngine
     zone_monitor: Any = None          # RetailZoneMonitor | None
     scene_context: dict | None = None
+    monitoring_scope: str = "full"
     active_zone_roles: set[str] = field(default_factory=set)
     person_filter: bool = True
     # Shared (stateless) models, injected by the pipeline.
@@ -168,6 +169,11 @@ class PerCameraState:
     # alert can be replayed as a real video of the event lead-up, not a slideshow.
     # ~48 frames ≈ 8-12s at typical pipeline fps. Holds (timestamp, jpeg_bytes).
     _clip_buffer: deque = field(default_factory=lambda: deque(maxlen=48), init=False, repr=False)
+
+    def activate_scene_context(self, context: dict) -> None:
+        """Apply reviewed semantic context without rebuilding detector state."""
+        self.scene_context = dict(context)
+        self.monitoring_scope = "full"
 
     def __post_init__(self) -> None:
         import warnings
@@ -418,6 +424,7 @@ class PerCameraState:
             raw_events,
             scene_context=self.scene_context,
             active_zone_roles=self.active_zone_roles,
+            monitoring_scope=self.monitoring_scope,
         )
         self.context_decisions = list(self.engine.context_decisions)
         self.context_suppression_count += sum(
@@ -465,7 +472,8 @@ class PerCameraState:
 def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_model: Any = None,
                         video_action_model: Any = None,
                         baseline_config: str | None = None,
-                        scene_contexts: dict[str, dict] | None = None) -> dict[str, dict]:
+                        scene_contexts: dict[str, dict] | None = None,
+                        monitoring_scopes: dict[str, str] | None = None) -> dict[str, dict]:
     """Parse a site config into {camera_id: {"source": ..., "state": PerCameraState}}.
 
     Site config per-camera keys: id, source, config, plus optional zones,
@@ -502,6 +510,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
             "source": cam["source"],
             "state": PerCameraState(
                 cam_id, engine, zone_monitor=zone_monitor, scene_context=scene,
+                monitoring_scope=(monitoring_scopes or {}).get(cam_id, "full"),
                 active_zone_roles=active_zone_roles,
                 pose_model=pose_model, weapon_model=weapon_model,
                 video_action_model=video_action_model,

@@ -35,7 +35,7 @@ class StartingHeartbeatTest(unittest.TestCase):
     def test_first_words_land_before_the_preflight(self):
         src = inspect.getsource(pipeline.run_site)
         self.assertLess(src.index("write_starting_health("),
-                        src.index("prepare_scene_mapping("),
+                        src.index("mapping_service.inspect("),
                         "the starting heartbeat must be written before the "
                         "slow scene preflight, or a fresh install reads as a "
                         "dead engine for minutes")

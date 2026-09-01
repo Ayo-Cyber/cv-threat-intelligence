@@ -53,7 +53,13 @@ _REQUIRED_CONTEXT_KEYS = {
     "generated_at",
     "source_frame_path",
 }
-_OPTIONAL_CONTEXT_KEYS = {"notes"}
+_OPTIONAL_CONTEXT_KEYS = {
+    "notes",
+    "area_id",
+    "site_type_candidate",
+    "area_type_candidate",
+    "view_description",
+}
 _SAFE_CAMERA_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
@@ -206,6 +212,22 @@ def validate_scene_context(context: dict[str, Any]) -> dict[str, Any]:
     result["source_frame_path"] = source_frame_path
     if "notes" in result:
         result["notes"] = str(result["notes"])
+    if "area_id" in result:
+        result["area_id"] = str(result["area_id"]).strip()
+    if "site_type_candidate" in result:
+        from cvti.scene.hierarchy import normalize_site_type
+
+        result["site_type_candidate"] = normalize_site_type(
+            result["site_type_candidate"]
+        )
+    if "area_type_candidate" in result:
+        from cvti.scene.hierarchy import normalize_area_type
+
+        result["area_type_candidate"] = normalize_area_type(
+            result["area_type_candidate"]
+        )
+    if "view_description" in result:
+        result["view_description"] = str(result["view_description"]).strip()
     return result
 
 

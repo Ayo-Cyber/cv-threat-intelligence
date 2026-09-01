@@ -239,6 +239,17 @@
   /* first-run wizard */
   #wizard{position:fixed;inset:0;z-index:50;background:var(--c-bg);display:none;flex-direction:column}
   #wizard.on{display:flex}
+  #sceneReview{position:fixed;inset:0;z-index:65;background:var(--c-bg);display:none;grid-template-columns:260px minmax(0,1fr)}
+  #sceneReview.on{display:grid}
+  .srside{border-right:1px solid var(--c-border);padding:22px 14px;overflow:auto}
+  .srmain{padding:24px;overflow:auto;min-width:0}
+  .srarea{width:100%;text-align:left;padding:10px;border:0;border-radius:6px;background:transparent;color:var(--c-text);cursor:pointer}
+  .srarea.on{background:var(--c-panel2);color:var(--c-accent)}
+  .srcams{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:16px 0}
+  .srcam{border:1px solid var(--c-border);border-radius:6px;overflow:hidden;min-width:0}
+  .srcam img,.srcam .srblank{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#000}
+  .srcam .srblank{display:grid;place-items:center;color:var(--c-mut)}
+  @media(max-width:700px){#sceneReview.on{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}.srside{border-right:0;border-bottom:1px solid var(--c-border);max-height:180px}.srmain{padding:16px}}
   .wizhead{flex:none;padding:20px 40px 0}
   .wizbrand{font-size:22px;font-weight:700;color:var(--c-text);letter-spacing:.02em}
   .steps{display:flex;gap:8px;margin-top:16px;align-items:center}
@@ -458,6 +469,7 @@
 </div>
 <div id="modalRoot"></div>
 <div id="wizard"></div>
+<div id="sceneReview"></div>
 <!-- Pre-opened ON PURPOSE: the console shell paints instantly, but the
      bridge + authState round-trip decides whether this user may see it. The
      gate used to start hidden, so every launch flashed the full app before
@@ -2511,10 +2523,44 @@ function startClipMedia(){ stopClip(); var a=state.selected; if(!a) return;
     state.clipCache[key]={frames: frames, subject: (r&&r.subject)||null};
     useFrames(frames); }); }
 
+/* ---------- grouped scene review ---------- */
+var sceneReviewState={summary:null,areaId:"",timer:null};
+function openSceneReview(){ var el=$("sceneReview"); if(!el)return; el.classList.add("on"); pollSceneReview(); }
+function closeSceneReview(){ var el=$("sceneReview"); if(el)el.classList.remove("on"); if(sceneReviewState.timer){clearTimeout(sceneReviewState.timer);sceneReviewState.timer=null;} }
+function pollSceneReview(){ call("sceneReviewSummary",[],function(summary){
+  if(!summary||summary.error)return; sceneReviewState.summary=summary;
+  if(!sceneReviewState.areaId&&summary.areas&&summary.areas.length)sceneReviewState.areaId=summary.areas[0].id;
+  renderSceneReview(summary);
+  if($("sceneReview")&&$("sceneReview").classList.contains("on"))sceneReviewState.timer=setTimeout(pollSceneReview,2000);
+}); }
+function selectSceneArea(id){sceneReviewState.areaId=id;renderSceneReview(sceneReviewState.summary);}
+function renderSceneReview(summary){
+  var root=$("sceneReview"); if(!root||!summary)return;
+  var areas=summary.areas||[], selected=areas.find(function(a){return a.id===sceneReviewState.areaId;})||areas[0];
+  var site=summary.site||{};
+  var side='<div class="srside"><div class="row" style="justify-content:space-between"><b>Scene review</b><button class="themebtn" onclick="closeSceneReview()" title="Close">✕</button></div>'
+    +'<div class="mut" style="font-size:12px;margin:8px 0 14px">'+summary.counts.reviewed+' of '+summary.counts.total_cameras+' cameras reviewed</div>'
+    +'<label class="fld" style="margin-bottom:12px">Site type<input id="srSiteType" value="'+esc(site.site_type||"unknown")+'"></label>'
+    +'<button class="btn ghost sm" data-api="approveSiteContext"'+(summary.site?'':' disabled')+' onclick="confirmSiteContext()">Confirm site</button><div style="height:12px"></div>'
+    +areas.map(function(a){return '<button class="srarea'+(selected&&selected.id===a.id?' on':'')+'" onclick="selectSceneArea(\''+esc(a.id)+'\')"><b>'+esc(a.name)+'</b><div class="mut" style="font-size:11px">'+a.camera_ids.length+' camera'+(a.camera_ids.length===1?'':'s')+'</div></button>';}).join("")+'</div>';
+  if(!selected){root.innerHTML=side+'<div class="srmain"><h2>No cameras to map</h2></div>';return;}
+  var ctx=selected.context||{}, cams=(selected.cameras||[]).map(function(c){return '<div class="srcam">'+(c.source_frame_uri?'<img src="'+c.source_frame_uri+'" alt="'+esc(c.camera_id)+' scene">':'<div class="srblank">mapping '+esc(c.camera_id)+'</div>')+'<div style="padding:9px"><b class="mono">'+esc(c.camera_id)+'</b><div class="mut" style="font-size:11px">'+esc((c.mapping||{}).status||"pending")+'</div></div></div>';}).join("");
+  var disabled=selected.bulk_reviewable&&selected.context?'':' disabled';
+  var main='<div class="srmain"><div class="row"><div><h2 style="margin:0">'+esc(selected.name)+'</h2><div class="mut">'+esc(ctx.area_type||"Mapping camera views independently")+'</div></div><span style="flex:1"></span><button class="btn ghost" onclick="keepAreaPaused()">Keep paused</button></div>'
+    +'<div class="srcams">'+cams+'</div><div style="max-width:760px"><label class="fld">Area type<input id="srAreaType" value="'+esc(ctx.area_type||"unknown")+'"></label><label class="fld" style="margin-top:8px">Description<textarea id="srAreaDesc">'+esc(ctx.area_description||"")+'</textarea></label></div>'
+    +((ctx.conflicts||[]).length?'<div class="offbanner"><b>Camera views disagree.</b><span>Review them individually before confirming this area.</span></div>':'')
+    +'<div class="row" style="gap:8px;margin-top:18px;flex-wrap:wrap"><button class="btn"'+disabled+' onclick="confirmArea()">Confirm area</button><button class="btn ghost"'+disabled+' onclick="editAndConfirmArea()">Edit and confirm</button><button class="btn ghost" onclick="rejectAndRemapCameras()">Reject and remap</button><button class="btn ghost" onclick="keepAreaPaused()">Keep paused</button></div></div>';
+  root.innerHTML=side+main;
+}
+function confirmSiteContext(){var s=sceneReviewState.summary;if(!s||!s.site)return;var c=Object.assign({},s.site);c.site_type=($("srSiteType")||{}).value||c.site_type;call("approveSiteContext",[JSON.stringify(c)],pollSceneReview);}
+function confirmArea(){ var s=sceneReviewState.summary, a=(s.areas||[]).find(function(x){return x.id===sceneReviewState.areaId;}); if(!a||!a.context)return; call("approveAreaContext",[a.id,JSON.stringify(a.context)],pollSceneReview); }
+function editAndConfirmArea(){ var s=sceneReviewState.summary, a=(s.areas||[]).find(function(x){return x.id===sceneReviewState.areaId;}); if(!a||!a.context)return; var c=Object.assign({},a.context);c.area_type=($("srAreaType")||{}).value||c.area_type;c.area_description=($("srAreaDesc")||{}).value||c.area_description;call("approveAreaContext",[a.id,JSON.stringify(c)],pollSceneReview); }
+function rejectAndRemapCameras(){ var s=sceneReviewState.summary, a=(s.areas||[]).find(function(x){return x.id===sceneReviewState.areaId;});(a&&a.camera_ids||[]).forEach(function(id){call("requestSceneRemap",[id],function(){});});setTimeout(pollSceneReview,250); }
+function keepAreaPaused(){closeSceneReview();}
 /* ---------- theme + boot ---------- */
 function toggleTheme(){ var el=document.documentElement; el.setAttribute("data-mode", el.getAttribute("data-mode")==="dark"?"light":"dark"); }
 /* ---------- first-run setup wizard ---------- */
-var wiz = {step:0, hosts:[], test:null, added:[], site:{name:"My Site",notify:"console",preset:""}, gate:null, pull:null, cidr:"", scanning:false, scanned:false};
+var wiz = {step:0, hosts:[], test:null, added:[], areas:[], site:{name:"My Site",notify:"console",preset:""}, gate:null, pull:null, cidr:"", scanning:false, scanned:false};
 var STEPS = ["welcome","cameras","zones","site","detectors","vlm","alert","done"];
 var VENDORS = [["Hikvision","/Streaming/Channels/102"],
                ["Dahua / Amcrest","/cam/realmonitor?channel=1&subtype=1"],
@@ -2528,6 +2574,7 @@ function openWizard(){
   call("useCaseTemplates",[],function(t){ state.templates=(t&&!t.error)?t:{}; if(!wiz.template) wiz.template="retail"; });
   call("getSite",[],function(s){ if(s&&!s.error){ wiz.site.name=s.name||"My Site"; wiz.site.notify=s.notify||"console"; } });
   call("listCameras",[],function(c){ wiz.added=Array.isArray(c)?c:[]; });
+  call("listAreas",[],function(a){ wiz.areas=Array.isArray(a)?a:[]; });
   wiz.step=0; $("wizard").classList.add("on"); renderWizard();
   prepareVerifier();          // 3.3 GB downloads WHILE they set up, not after
 }
@@ -2632,7 +2679,7 @@ function wizWelcome(){
 function wizCameras(){
   var venOpts=VENDORS.map(function(v){return '<option value="'+esc(v[1])+'">'+esc(v[0])+'</option>';}).join("");
   var added = wiz.added.length ? ('<div class="addedlist">'+wiz.added.map(function(c){
-      return '<div class="addedcam"><span class="dot" style="background:var(--c-live)"></span><b class="mono">'+esc(c.id)+'</b><span class="mono mut" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((c.source||"").split("@").pop())+'</span><button class="chip" onclick="wizRemove(\''+esc(c.id)+'\')">remove</button></div>';
+      return '<div class="addedcam"><span class="dot" style="background:var(--c-live)"></span><b class="mono">'+esc(c.id)+'</b><span class="mono mut" style="flex:1">'+esc(c.area_id||"ungrouped")+'</span><button class="chip" onclick="wizRemove(\''+esc(c.id)+'\')">remove</button></div>';
     }).join("")+'</div>') : '<p class="mut" style="margin-top:12px">No cameras added yet.</p>';
   return '<h2>Connect your cameras</h2><p class="lead">Argus scans your network automatically to find cameras. Tap one and add it with its login — the password stays on this machine.</p>'
     +'<div class="panel" style="padding:16px">'
@@ -2645,6 +2692,7 @@ function wizCameras(){
     +  '<div class="grid2"><input id="wzHost" placeholder="camera IP e.g. 10.0.2.5"><select id="wzVendor">'+venOpts+'</select></div>'
     +  '<div class="grid2" style="margin-top:10px"><input id="wzUser" placeholder="username"><input id="wzPass" type="password" placeholder="password"></div>'
     +  '<div class="row" style="margin-top:10px"><input id="wzName" placeholder="name (optional) e.g. entrance" style="flex:1"><button class="btn ghost sm" onclick="wizTest()">Test</button><button class="btn sm" onclick="wizAdd()">Add camera</button></div>'
+    +  '<div class="row" style="margin-top:10px"><select id="wzArea" style="flex:1"><option value="">New/ungrouped camera area</option>'+wiz.areas.filter(function(a){return !a.implicit;}).map(function(a){return '<option value="'+esc(a.id)+'">'+esc(a.name)+'</option>';}).join("")+'</select><input id="wzNewArea" placeholder="new area name" style="flex:1"><button class="btn ghost sm" onclick="wizCreateArea()">Create area</button></div>'
     +  sceneHintFields("wz")
     +  '<div id="wzTest" style="margin-top:12px;max-width:420px">'+wizTestBox()+'</div>'
     +'</div>'+added;
@@ -2694,9 +2742,13 @@ function wizTest(){ var u=wizBuildUrl(); if(!u){wiz.test={error:"Enter the camer
 function wizAdd(){ var u=wizBuildUrl(); if(!u){wiz.test={error:"Enter the camera IP first"};$("wzTest").innerHTML=wizTestBox();return;}
   var cam={source:u, config:wiz.site.preset||undefined, concealment:true, video_action:true};
   var nm=($("wzName").value||"").trim(); if(nm) cam.id=nm;
+  var area_id=($("wzArea")||{}).value||""; if(area_id) cam.area_id=area_id;
   Object.assign(cam, sceneHintValues("wz"));
   call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} wiz.added=Array.isArray(r)?r:wiz.added; wiz.test=null; renderWizard(); }); }
 function wizRemove(id){ call("removeCamera",[id],function(r){ wiz.added=Array.isArray(r)?r:wiz.added; renderWizard(); }); }
+function wizCreateArea(){ var name=(($("wzNewArea")||{}).value||"").trim(); if(!name)return;
+  var id=name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")||"area";
+  call("createArea",[JSON.stringify({id:id,name:name})],function(r){if(r&&r.error){alert(r.error);return;}wiz.areas=(r&&r.areas)||wiz.areas;renderWizard();}); }
 
 function wizVlm(){
   var g=wiz.gate, prep=wiz.prep||{};
@@ -2836,7 +2888,7 @@ function wizDone(){
 }
 function wizFinish(){ wizSaveSite();
   call("setSite",[wiz.site.name, wiz.site.notify],function(){
-    call("markConfigured",[],function(){ closeWizard(); startApp(); }); }); }
+    call("markConfigured",[],function(){ call("startMonitoring",[],function(){ closeWizard(); startApp(); openSceneReview(); }); }); }); }
 
 function sendTestAlert(btn){
   var msg=$("testNotifyMsg"); if(btn){ btn.disabled=true; btn.textContent="Sending…"; }
