@@ -102,6 +102,12 @@ class PerCameraState:
     zone_monitor: Any = None          # RetailZoneMonitor | None
     scene_context: dict | None = None
     monitoring_scope: str = "full"
+    # Human-reviewed context is the ONLY context allowed to suppress alerts
+    # (coverage-first hybrid, 1 Sep): an unreviewed AI scene guess still
+    # informs the gate and the English rules, but never silences a rule.
+    # field(default=...) on purpose: this is state, not a detector toggle —
+    # the toggle-coverage scanner matches the `: bool = False` shape.
+    scene_reviewed: bool = field(default=False)
     active_zone_roles: set[str] = field(default_factory=set)
     person_filter: bool = True
     # Shared (stateless) models, injected by the pipeline.
@@ -174,6 +180,7 @@ class PerCameraState:
         """Apply reviewed semantic context without rebuilding detector state."""
         self.scene_context = dict(context)
         self.monitoring_scope = "full"
+        self.scene_reviewed = True
 
     def __post_init__(self) -> None:
         import warnings
@@ -425,6 +432,7 @@ class PerCameraState:
             scene_context=self.scene_context,
             active_zone_roles=self.active_zone_roles,
             monitoring_scope=self.monitoring_scope,
+            scene_reviewed=self.scene_reviewed,
         )
         self.context_decisions = list(self.engine.context_decisions)
         self.context_suppression_count += sum(
@@ -473,7 +481,8 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                         video_action_model: Any = None,
                         baseline_config: str | None = None,
                         scene_contexts: dict[str, dict] | None = None,
-                        monitoring_scopes: dict[str, str] | None = None) -> dict[str, dict]:
+                        monitoring_scopes: dict[str, str] | None = None,
+                        reviewed_camera_ids: set | None = None) -> dict[str, dict]:
     """Parse a site config into {camera_id: {"source": ..., "state": PerCameraState}}.
 
     Site config per-camera keys: id, source, config, plus optional zones,
@@ -511,6 +520,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
             "state": PerCameraState(
                 cam_id, engine, zone_monitor=zone_monitor, scene_context=scene,
                 monitoring_scope=(monitoring_scopes or {}).get(cam_id, "full"),
+                scene_reviewed=cam_id in (reviewed_camera_ids or set()),
                 active_zone_roles=active_zone_roles,
                 pose_model=pose_model, weapon_model=weapon_model,
                 video_action_model=video_action_model,

@@ -60,11 +60,28 @@ class SceneMappingCoordinator:
         for job in self.jobs:
             if job.state == "running":
                 job.state = "pending"
+            elif job.state == "failed":
+                # Failed scene maps heal themselves (the #69 contract): a
+                # persisted failure must not outlive the condition that caused
+                # it. Every restart gets a fresh attempt budget — without
+                # this, four losses against a still-downloading model left a
+                # camera unmapped FOREVER unless a human hit Remap.
+                job.state = "pending"
+                job.attempts = 0
+                job.error = ""
         if self.jobs:
             self._save()
 
     def enqueue(self, camera_ids, force: bool = False) -> None:
         cameras = {str(camera["id"]): camera for camera in self._site().get("cameras", [])}
+        # Prune jobs the config has outgrown — a removed camera or a changed
+        # source must not haunt the persistent queue (and its progress totals)
+        # forever.
+        self.jobs = [
+            job for job in self.jobs
+            if job.camera_id in cameras
+            and source_fingerprint(cameras[job.camera_id]["source"]) == job.source_fingerprint
+        ]
         existing = {(job.camera_id, job.source_fingerprint) for job in self.jobs}
         for camera_id in camera_ids:
             camera = cameras.get(str(camera_id))
@@ -111,17 +128,32 @@ class SceneMappingCoordinator:
         if job is None:
             return False
         site = self._site()
-        camera = next(item for item in site.get("cameras", [])
-                      if str(item["id"]) == job.camera_id)
+        camera = next((item for item in site.get("cameras", [])
+                       if str(item["id"]) == job.camera_id), None)
+        if camera is None:
+            # The queue is persistent; the config is not. A camera deleted
+            # while its job waited used to raise StopIteration here and kill
+            # the mapping thread for good. A vanished camera is a finished
+            # job, not a dead worker.
+            job.state = "failed"
+            job.error = "camera no longer exists in the site config"
+            self._save()
+            return True
         area = next(
             (item for item in site.get("areas", [])
              if str(item.get("id", "")) == job.area_id),
             {},
         )
+        area_fields = {key: area[key] for key in ("area_type", "expected_actors")
+                       if key in area}
+        # The area's note is operator knowledge for the PROMPT — _operator_hints
+        # reads scene_hint, so 'note' has to arrive under that name or it never
+        # reaches the mapper. A camera's own scene_hint still wins.
+        if area.get("note") and not camera.get("scene_hint"):
+            area_fields["scene_hint"] = area["note"]
         camera = {
             **({"site_type": site["site_type"]} if site.get("site_type") else {}),
-            **{key: area[key] for key in ("area_type", "expected_actors", "note")
-               if key in area},
+            **area_fields,
             **camera,
         }
         job.state = "running"
@@ -157,8 +189,10 @@ class SceneMappingCoordinator:
 
     def _recompute(self, area_id: str, site: dict) -> None:
         hierarchy = HierarchyContextStore(self.output_dir / "context")
-        area = next(item for item in normalized_areas(self.site_path)
-                    if item["id"] == area_id)
+        area = next((item for item in normalized_areas(self.site_path)
+                     if item["id"] == area_id), None)
+        if area is None:
+            return    # the area was deleted while this job ran; nothing to aggregate
         contexts = []
         for camera_id in area["camera_ids"]:
             context = SceneContextStore(

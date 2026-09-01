@@ -124,20 +124,32 @@ class FullAgentMapperService:
         normalized_policy = normalize_scene_context_policy(policy)
         preflight = SceneMappingPreflight()
         for camera in cameras:
-            camera_id = str(camera["id"])
-            source = camera["source"]
-            store = SceneContextStore(self.context_root, camera_id)
-            manual = _manual_context(camera)
-            resolution = store.resolve(
-                source,
-                normalized_policy,
-                manual_context=manual,
-                legacy_context_path=self.legacy_root / camera_id / "scene_context.json",
-            )
-            if manual is not None and resolution.context is not None:
-                resolution = store.approve(
-                    resolution.context, "site_config", source
+            camera_id = str(camera.get("id", "?"))
+            try:
+                source = camera["source"]
+                store = SceneContextStore(self.context_root, camera_id)
+                manual = _manual_context(camera)
+                resolution = store.resolve(
+                    source,
+                    normalized_policy,
+                    manual_context=manual,
+                    legacy_context_path=(
+                        self.legacy_root / camera_id / "scene_context.json"),
                 )
+                if manual is not None and resolution.context is not None:
+                    resolution = store.approve(
+                        resolution.context, "site_config", source
+                    )
+            except Exception as exc:  # noqa: BLE001 — same guarantee as
+                # prepare(): inspect() runs at engine startup, and a malformed
+                # hand-edited scene_context in site.json used to raise out of
+                # approve() and kill the engine — the exact #67 bug class,
+                # reopened through a different door. Degrade to failed, loud.
+                log.exception("[agent-map] inspect failed for %s", camera_id)
+                resolution = ContextResolution(
+                    context=None,
+                    status=MappingStatus(status="failed", error=str(exc)),
+                    provenance="inspect_error", usable=False)
             if resolution.context is not None:
                 preflight.contexts[camera_id] = resolution.context
             if not resolution.usable:
