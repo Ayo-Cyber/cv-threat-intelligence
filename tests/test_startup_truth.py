@@ -159,3 +159,34 @@ class SceneRetryTest(unittest.TestCase):
             "auto", [{"camera_id": "Front Gate", "status": "failed"}],
             {})   # not in states: it never started
         self.assertEqual(service.retried, [])
+
+
+class PolicyBlockIsAWaitNotADeathTest(unittest.TestCase):
+    """'No camera can start until scene context is ready' used to be the
+    engine's last words — then the watchdog respawned it forever (pilot,
+    1 Sep: two days of 'the engine never starts'). A policy block is a
+    waiting state: stay alive, say why, retry the preflight."""
+
+    def test_the_blocked_branch_retries_instead_of_returning(self):
+        src = inspect.getsource(pipeline.run_site)
+        blocked = src.index("no camera can start")
+        window = src[src.rindex("while not cams_cfg", 0, blocked):blocked + 400]
+        self.assertIn("while not cams_cfg", window)
+        self.assertNotIn("return", window,
+                         "a policy block must wait and retry, never exit")
+        self.assertIn("retrying the preflight", window)
+
+    def test_the_wait_names_itself_in_the_heartbeat_phase(self):
+        src = inspect.getsource(pipeline.run_site)
+        self.assertIn("waiting — this site's policy requires reviewed", src)
+
+    def test_starting_health_carries_scene_rows_when_given(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = [{"camera_id": "cam1", "status": "failed", "error": "timed out"}]
+            pipeline.write_starting_health(
+                tmp, {"cameras": [{"id": "cam1", "source": "x"}]},
+                gate_provider="local", gate_model="m",
+                phase="waiting — policy", scene_mapping=rows)
+            doc = json.loads((Path(tmp) / "gate_health.json").read_text())
+            self.assertEqual(doc["scene_mapping"], rows)
+            self.assertTrue(doc["engine"]["phase"].startswith("waiting"))

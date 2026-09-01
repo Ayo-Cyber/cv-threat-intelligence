@@ -179,7 +179,8 @@ def _mapping_health_rows(preflight) -> list[dict]:
 
 def write_starting_health(output_dir: str, site: dict, *,
                           gate_provider: str, gate_model: str,
-                          phase: str = "starting — mapping camera scenes") -> None:
+                          phase: str = "starting — mapping camera scenes",
+                          scene_mapping: list | None = None) -> None:
     """The engine's first words, written BEFORE anything slow.
 
     The scene preflight and cold model loads run before the first real
@@ -205,7 +206,7 @@ def write_starting_health(output_dir: str, site: dict, *,
         components={"degraded": []},
         engine={"phase": phase, "frames_processed": 0, "alerts_queued": 0,
                 "cameras": len(cameras)},
-        scene_mapping=[],
+        scene_mapping=scene_mapping or [],
     )
     target = Path(output_dir) / "gate_health.json"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -547,7 +548,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                 write_starting_health(output_dir, site,
                                       gate_provider=gate_provider,
                                       gate_model=gate_model,
-                                      phase=_starting["phase"])
+                                      phase=_starting["phase"],
+                                      scene_mapping=_starting.get("scene"))
             except Exception:  # noqa: BLE001 - the warm-up beat must never kill startup
                 log.debug("starting heartbeat write failed", exc_info=True)
 
@@ -555,31 +557,44 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                           gate_provider=gate_provider, gate_model=gate_model)
     threading.Thread(target=_starting_beat, name="starting-beat",
                      daemon=True).start()
-    mapping_preflight = prepare_scene_mapping(
-        site,
-        output_dir=output_dir,
-        gate_provider=gate_provider,
-        gate_model=gate_model,
-        gate_base_url=gate_base_url,
-        mapper_provider=mapper_provider,
-        mapper_model=mapper_model,
-        mapper_base_url=mapper_base_url,
-    )
+    def _preflight():
+        return prepare_scene_mapping(
+            site,
+            output_dir=output_dir,
+            gate_provider=gate_provider,
+            gate_model=gate_model,
+            gate_base_url=gate_base_url,
+            mapper_provider=mapper_provider,
+            mapper_model=mapper_model,
+            mapper_base_url=mapper_base_url,
+        )
+
+    mapping_preflight = _preflight()
     cams_cfg = active_cameras_after_preflight(
         list(site.get("cameras") or []), mapping_preflight
     )
     mapping_health = _mapping_health_rows(mapping_preflight)
-    _starting["phase"] = "starting — loading detection models"
-    if not cams_cfg:
-        _starting_stop.set()
-        _write_mapping_only_health(
-            output_dir,
-            mapping_preflight,
-            gate_provider=gate_provider,
-            gate_model=gate_model,
+    # A strict policy with nothing approved used to EXIT here — and the
+    # console's watchdog dutifully respawned the corpse forever. A pilot's
+    # fresh install spent two days in that loop reading as 'the engine never
+    # starts' (1 Sep). A policy block is a WAITING state, not a death: stay
+    # alive, keep the heartbeat honest about why, and re-run the preflight —
+    # the moment a human approves a context in the app (or a remap succeeds),
+    # cameras start without anyone restarting anything.
+    while not cams_cfg:
+        _starting["phase"] = ("waiting — this site's policy requires reviewed "
+                              "scene context before cameras may start")
+        _starting["scene"] = mapping_health
+        log.warning("[site] no camera can start until scene context is ready — "
+                    "retrying the preflight in 60s (approve or remap in the app)")
+        time.sleep(60.0)
+        mapping_preflight = _preflight()
+        cams_cfg = active_cameras_after_preflight(
+            list(site.get("cameras") or []), mapping_preflight
         )
-        log.warning("[site] no camera can start until scene context is ready")
-        return
+        mapping_health = _mapping_health_rows(mapping_preflight)
+    _starting["phase"] = "starting — loading detection models"
+    _starting["scene"] = mapping_health
     site = {**site, "cameras": cams_cfg}
     # Load ONE shared pose model iff any camera enables a pose-based signal.
     pose_model = None

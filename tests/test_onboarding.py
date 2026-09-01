@@ -44,14 +44,19 @@ class OnboardingTests(unittest.TestCase):
         onboarding.add_camera(self.site, {"source": "rtsp://a/1"})
         self.assertTrue(onboarding.list_cameras(self.site)[0]["id"].startswith("cam"))
 
-    def test_complete_first_run_requires_reviewed_scene_context_for_new_site(self):
+    def test_complete_first_run_never_stamps_a_strict_scene_policy(self):
+        """Repinned 1 Sep: stamping fresh sites 'require_reviewed' turned a
+        pilot's first run into a two-day watchdog loop — mapping timed out on
+        his hardware, the strict policy blocked every camera, the engine
+        exited, repeat. New sites keep the 'auto' default; strict policies
+        are an explicit operator choice, never a wizard side effect."""
         onboarding.add_camera(self.site, {"id": "front", "source": "rtsp://a/1"})
 
         result = onboarding.complete_first_run(self.site)
 
         saved = json.loads(Path(self.site).read_text())
         self.assertTrue(result["configured"])
-        self.assertEqual(saved["scene_context_policy"], "require_reviewed")
+        self.assertNotIn("scene_context_policy", saved)
 
     def test_reopened_wizard_does_not_rewrite_legacy_scene_context_policy(self):
         Path(self.site).write_text(json.dumps({

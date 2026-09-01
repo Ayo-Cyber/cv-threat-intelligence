@@ -78,7 +78,8 @@ class ConsoleBackendTests(unittest.TestCase):
         self.assertEqual(s1["notify"], "whatsapp")
         self.assertEqual(s1["cameras"], 1)
         saved = json.loads(Path(self.site).read_text())
-        self.assertEqual(saved["scene_context_policy"], "require_reviewed")
+        self.assertNotIn("scene_context_policy", saved,
+                         "the wizard must never stamp a strict policy (1 Sep)")
 
     def test_detect_subnet_shape(self):
         r = self.be.detect_subnet()                      # network-dependent: None or a /24
