@@ -82,8 +82,7 @@ def resolve_mapper_settings(
     return provider, model, base_url
 
 
-def prepare_scene_mapping(
-    site: dict,
+def build_mapper_service(
     *,
     output_dir: str,
     gate_provider: str,
@@ -105,11 +104,62 @@ def prepare_scene_mapping(
         mapper_base_url=mapper_base_url,
     )
     mapper = AgentMapper(provider=provider, model=model, base_url=base_url)
-    service = FullAgentMapperService(output_dir, mapper)
+    return FullAgentMapperService(output_dir, mapper)
+
+
+def prepare_scene_mapping(
+    site: dict,
+    *,
+    output_dir: str,
+    gate_provider: str,
+    gate_model: str,
+    gate_base_url: str,
+    mapper_provider: str = "",
+    mapper_model: str = "",
+    mapper_base_url: str = "",
+):
+    service = build_mapper_service(
+        output_dir=output_dir,
+        gate_provider=gate_provider,
+        gate_model=gate_model,
+        gate_base_url=gate_base_url,
+        mapper_provider=mapper_provider,
+        mapper_model=mapper_model,
+        mapper_base_url=mapper_base_url,
+    )
     return service.prepare(
         list(site.get("cameras") or []),
         site.get("scene_context_policy", "auto"),
     )
+
+
+def retry_failed_scene_mappings(service, cams_cfg: list, policy: str,
+                                mapping_health: list, states: dict) -> set:
+    """One retry pass over cameras whose scene mapping FAILED at startup.
+
+    On a fresh install the preflight races the TrueSight model download and
+    loses: every mapping call fails, cameras run generic, and — before this —
+    nothing ever re-mapped once the model landed. The context stayed 'failed'
+    until a human noticed (field screenshot, 1 Sep). Retried contexts are
+    injected into the running camera states, so the site gets its scene
+    intelligence without a restart. Returns the camera ids still failed."""
+    failed = {str(row.get("camera_id")) for row in mapping_health
+              if row.get("status") == "failed"}
+    retry = [c for c in cams_cfg
+             if str(c.get("id")) in failed and str(c.get("id")) in states]
+    if not retry:
+        return set()
+    result = service.prepare(retry, policy)
+    for camera_id, context in result.contexts.items():
+        state = states.get(camera_id)
+        if state is not None:
+            state.scene_context = context
+    for camera_id, status_doc in result.statuses.items():
+        for i, row in enumerate(mapping_health):
+            if str(row.get("camera_id")) == str(camera_id):
+                mapping_health[i] = {"camera_id": camera_id, **status_doc}
+    return {str(row.get("camera_id")) for row in mapping_health
+            if row.get("status") == "failed"}
 
 
 def active_cameras_after_preflight(cameras: list[dict], preflight) -> list[dict]:
@@ -125,6 +175,43 @@ def _mapping_health_rows(preflight) -> list[dict]:
         {"camera_id": camera_id, **status}
         for camera_id, status in sorted(preflight.statuses.items())
     ]
+
+
+def write_starting_health(output_dir: str, site: dict, *,
+                          gate_provider: str, gate_model: str,
+                          phase: str = "starting — mapping camera scenes") -> None:
+    """The engine's first words, written BEFORE anything slow.
+
+    The scene preflight and cold model loads run before the first real
+    heartbeat — minutes on a fresh Windows install (Defender scanning the
+    bundle, torch loading, the mapper timing out against a model still
+    downloading). For all of it the console said 'engine not running' under
+    a green Monitoring dot (field screenshot, 1 Sep). This heartbeat makes
+    the warm-up visible: every camera reports 'starting', and engine.phase
+    says what the engine is actually doing."""
+    from pathlib import Path
+
+    from cvti.serving.health_doc import build_health_doc
+
+    cameras = [{"camera_id": str(c.get("id")), "state": "starting",
+                "time_in_state": 0, "reconnects": 0}
+               for c in site.get("cameras") or []]
+    doc = build_health_doc(
+        started_at=time.time(),
+        cameras=cameras,
+        gate={"provider": gate_provider, "model": gate_model, "reachable": None},
+        disk={},
+        memory={},
+        components={"degraded": []},
+        engine={"phase": phase, "frames_processed": 0, "alerts_queued": 0,
+                "cameras": len(cameras)},
+        scene_mapping=[],
+    )
+    target = Path(output_dir) / "gate_health.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(doc))
+    temporary.replace(target)
 
 
 def _write_mapping_only_health(
@@ -447,6 +534,27 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         log.info(f"[site] *** {MOCK_GATE_BANNER} *** every alert will be confirmed WITHOUT verification.")
 
     site = load_site_config(site_config_path)
+    # Heartbeat THROUGH the slow parts, not just before them: the preflight
+    # alone can run minutes on a fresh install (mapper timing out against a
+    # model still downloading), and a single stale write would read as a
+    # stalled engine. Ticks until the real health loop takes over.
+    _starting = {"phase": "starting — mapping camera scenes"}
+    _starting_stop = threading.Event()
+
+    def _starting_beat() -> None:
+        while not _starting_stop.wait(10.0):
+            try:
+                write_starting_health(output_dir, site,
+                                      gate_provider=gate_provider,
+                                      gate_model=gate_model,
+                                      phase=_starting["phase"])
+            except Exception:  # noqa: BLE001 - the warm-up beat must never kill startup
+                log.debug("starting heartbeat write failed", exc_info=True)
+
+    write_starting_health(output_dir, site,
+                          gate_provider=gate_provider, gate_model=gate_model)
+    threading.Thread(target=_starting_beat, name="starting-beat",
+                     daemon=True).start()
     mapping_preflight = prepare_scene_mapping(
         site,
         output_dir=output_dir,
@@ -461,7 +569,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         list(site.get("cameras") or []), mapping_preflight
     )
     mapping_health = _mapping_health_rows(mapping_preflight)
+    _starting["phase"] = "starting — loading detection models"
     if not cams_cfg:
+        _starting_stop.set()
         _write_mapping_only_health(
             output_dir,
             mapping_preflight,
@@ -784,8 +894,46 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         while not _esc_stop.wait(3.0):
             _write_health()
 
+    _starting_stop.set()          # the real heartbeat owns the file from here
     _write_health()
     _threading.Thread(target=_health_loop, name="gate-health", daemon=True).start()
+
+    if any(row.get("status") == "failed" for row in mapping_health):
+        def _scene_retry_loop() -> None:
+            # The preflight raced the model download and lost. Give the failed
+            # mappings three more chances at escalating delays — enough time
+            # for a 3.3GB first-run pull — pausing only while the gate is
+            # PROVABLY down (None means merely untested: a quiet site with no
+            # alerts must still heal). mapping_health is mutated in place, so
+            # the health doc and the app's scene panels heal without restart.
+            for delay in (120.0, 300.0, 600.0):
+                if _esc_stop.wait(delay):
+                    return
+                while _gate_reachable(gate_pool.stats()) is False:
+                    if _esc_stop.wait(30.0):
+                        return
+                try:
+                    service = build_mapper_service(
+                        output_dir=output_dir,
+                        gate_provider=gate_provider, gate_model=gate_model,
+                        gate_base_url=gate_base_url,
+                        mapper_provider=mapper_provider,
+                        mapper_model=mapper_model,
+                        mapper_base_url=mapper_base_url)
+                    still = retry_failed_scene_mappings(
+                        service, cams_cfg,
+                        site.get("scene_context_policy", "auto"),
+                        mapping_health, states)
+                except Exception as exc:  # noqa: BLE001 - retry must never hurt monitoring
+                    log.warning("[agent-map] retry pass failed: %s", str(exc)[:120])
+                    still = {"?"}
+                if not still:
+                    log.info("[agent-map] all failed scene mappings recovered")
+                    return
+            log.warning("[agent-map] %d camera(s) still unmapped after retries "
+                        "— Remap from the app to try again", len(still))
+        _threading.Thread(target=_scene_retry_loop, name="scene-remap",
+                          daemon=True).start()
     if publisher is not None:
         # /health on the publisher's authenticated server (EP-04-T1).
         publisher.health_provider = _build_health
