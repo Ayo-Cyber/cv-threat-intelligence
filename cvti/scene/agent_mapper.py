@@ -509,11 +509,12 @@ def call_openai_compatible(
             method="POST",
         )
         try:
-            # 180s, not 90: a pilot laptop measured verify median 90.2s — a
-            # timeout at the MEDIAN fails half of all calls, and the English
-            # rules (which ride this exact path) silently detected nothing on
-            # that machine while the gate, with its longer patience, worked.
-            with urlrequest.urlopen(req, timeout=180) as response:
+            # 360s, not 180: the same pilot laptop that measured 90s median
+            # verify latency produces ~180s VLM answers under load — and a
+            # timeout AT the slowest machine's typical latency failed every
+            # scene mapping on it ('cam1 failed: timed out', 1 Sep). Mapping
+            # runs once per camera at startup; patience here is nearly free.
+            with urlrequest.urlopen(req, timeout=360) as response:
                 parsed = json.loads(response.read().decode("utf-8"))
             # Free tiers sometimes return HTTP 200 with an empty/no-choices body under load —
             # treat that like a transient error and retry rather than failing the call.

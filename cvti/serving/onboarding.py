@@ -180,10 +180,17 @@ def set_site_meta(site_path: str | Path, **fields: Any) -> dict:
 
 
 def complete_first_run(site_path: str | Path) -> dict:
-    """Finish setup without changing compatibility policy on existing sites."""
+    """Finish setup. Never stamps a scene-context policy.
+
+    This used to stamp fresh sites 'require_reviewed' — which blocked every
+    camera until a human approved its scene context, and a pilot's first-run
+    install spent two days as 'the engine never starts' (watchdog restart
+    loop, 1 Sep): mapping timed out on his hardware, the strict policy
+    blocked all cameras, the engine exited, repeat. New sites run the 'auto'
+    default — mapping failure means the camera runs generic AND LOUD, never
+    that monitoring silently refuses to exist. Strict policies remain an
+    explicit operator choice (scene_context_policy in the site config)."""
     data = load_site(site_path)
-    if not bool(data.get("configured")) and "scene_context_policy" not in data:
-        data["scene_context_policy"] = "require_reviewed"
     data["configured"] = True
     path = Path(site_path)
     path.parent.mkdir(parents=True, exist_ok=True)
