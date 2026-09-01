@@ -52,6 +52,29 @@ def _manual_context(camera: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _operator_hints(camera: dict[str, Any]) -> dict[str, Any] | None:
+    """The operator's onboarding answers, when they gave any.
+
+    Distinct from _manual_context on purpose: a full scene_description is
+    human-AUTHORED context (mapper skipped, auto-approved), while these are
+    human HINTS — priors the mapper refines instead of guessing from one
+    frame. Collected by the connect-your-cameras wizard; the discord this
+    heals (co-engineer, 1 Sep) was onboarding knowledge the backend never
+    saw."""
+    environment = str(camera.get("environment_type") or "").strip()
+    actors = [str(a).strip() for a in camera.get("expected_actors") or []]
+    actors = [a for a in actors if a]
+    note = str(camera.get("scene_hint") or "").strip()
+    hints: dict[str, Any] = {}
+    if environment and environment != "unknown":
+        hints["environment_type"] = environment
+    if actors:
+        hints["expected_actors"] = actors
+    if note:
+        hints["note"] = note
+    return hints or None
+
+
 def _status_document(
     resolution: ContextResolution, policy: str
 ) -> dict[str, Any]:
@@ -169,6 +192,7 @@ class FullAgentMapperService:
                 camera_id,
                 sample_count=3,
                 source_frame_path=str(store.frame_path),
+                operator_hints=_operator_hints(camera),
             )
             saved = store.save_mapping(
                 mapped, source, dump_raw_response=self.dump_raw_response

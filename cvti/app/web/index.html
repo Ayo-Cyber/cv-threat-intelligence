@@ -823,6 +823,7 @@ function renderCameras(){
       +     '<label class="row" style="gap:6px;font-weight:600"><input type="checkbox" id="cConceal" checked> concealment</label>'
       +     '<label class="row" style="gap:6px;font-weight:600"><input type="checkbox" id="cVideo" checked> video</label>'
       +     '<button class="btn ghost sm" onclick="doTest()">Test</button><button class="btn sm" onclick="doAdd()">Add camera</button></div>'
+      +   sceneHintFields("ch")
       +   '<div id="testBox" style="margin-top:12px;max-width:420px">'+testHtml+'</div>'
       + '</div>'
       + table + '</div>';
@@ -852,6 +853,7 @@ function doAdd(){ var u=$("url").value.trim(); if(!u){state.test={error:"Enter a
   var cam={id:$("cname").value.trim()||null, source:u, config:$("preset").value,
     concealment:$("cConceal").checked, video_action:$("cVideo").checked};
   Object.keys(cam).forEach(function(k){if(cam[k]===null)delete cam[k];});
+  Object.assign(cam, sceneHintValues("ch"));
   call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} state.test=null; refreshCounts(); renderCameras(); }); }
 
 /* ---------- Live wall ---------- */
@@ -1569,6 +1571,7 @@ function renderRules(){
         return '<div class="customthreat"><div style="min-width:0"><b>'+esc(t.name)+'</b> <span class="mut">'+esc(t.description)+'</span></div>'
           +'<button class="chip" onclick="removeCustom(\''+esc(c.id)+'\','+i+')">remove</button></div>';
       }).join("") : '<div class="mut" style="font-size:12px">None yet — add what matters for this place.</div>';
+      (state.camConfigs=state.camConfigs||{})[c.id]=c;
       return '<div class="panel rulecard"><div class="row" style="justify-content:space-between">'
         +'<div class="row" style="gap:8px"><span class="dot" style="background:var(--c-live)"></span><b class="mono" style="font-size:14px">'+esc(c.id)+'</b>'
         +'<span class="mono mut" style="font-size:11px">'+esc((c.source||"").split("/").pop().split("@").pop())+'</span></div>'
@@ -1674,6 +1677,33 @@ function closeZoneEditor(){ state.zone=null; var m=$("zoneModal"); if(m) m.remov
 var SCENE_ENVIRONMENTS=["estate_gate","estate_street","perimeter_fence","retail_shop","mall_corridor",
   "office_lobby","office_floor","parking_lot","banking_hall","atm_area","warehouse_floor",
   "generator_area","residential_interior","residential_exterior","unknown"];
+/* Scene hints at onboarding: the person adding the camera knows what it
+   watches — the AI mapper uses their answers as priors instead of guessing
+   from one frame. Optional on purpose; empty fields add nothing. */
+function sceneHintFields(prefix){
+  var envOpts='<option value="">environment (optional)</option>'+SCENE_ENVIRONMENTS.filter(function(e){return e!=="unknown";})
+    .map(function(e){return '<option value="'+e+'">'+esc(e.replace(/_/g," "))+'</option>';}).join("");
+  return '<div class="row" style="margin-top:10px;gap:8px" title="Optional — helps the AI understand this camera\'s scene">'
+    +'<select id="'+prefix+'SceneEnv" style="width:180px">'+envOpts+'</select>'
+    +'<input id="'+prefix+'SceneActors" placeholder="who belongs here e.g. staff, customers" style="flex:1;min-width:160px">'
+    +'<input id="'+prefix+'SceneNote" placeholder="anything else e.g. cars park along the left" style="flex:1;min-width:160px"></div>';
+}
+function sceneHintValues(prefix){
+  var out={};
+  var env=($(prefix+"SceneEnv")||{}).value||""; if(env) out.environment_type=env;
+  var actors=(($(prefix+"SceneActors")||{}).value||"").split(",").map(function(v){return v.trim();}).filter(Boolean);
+  if(actors.length) out.expected_actors=actors;
+  var note=(($(prefix+"SceneNote")||{}).value||"").trim(); if(note) out.scene_hint=note;
+  return out;
+}
+function sceneHintSummary(cam){
+  if(!cam) return "";
+  var bits=[];
+  if(cam.environment_type && cam.environment_type!=="unknown") bits.push(cam.environment_type.replace(/_/g," "));
+  if(cam.expected_actors && cam.expected_actors.length) bits.push("expects "+cam.expected_actors.join(", "));
+  if(cam.scene_hint) bits.push(cam.scene_hint);
+  return bits.join(" · ");
+}
 function sceneCanEdit(){
   if(!state.auth || !state.auth.permissions) return true;
   return state.auth.permissions.indexOf("configure_cameras")>=0;
@@ -1692,8 +1722,13 @@ function renderSceneMapper(camId, s){
     +'<span class="mut" style="font-size:10.5px">'+esc(mapping.provenance||"")+'</span></div>';
   if(!s || s.error || !s.scene_description){
     var error=(s&&s.error)||(mapping&&mapping.error)||"No mapped scene is available.";
+    // Not dead air: while mapping is pending, show what the operator already
+    // told us at onboarding — the AI refines these on the first start.
+    var hints=sceneHintSummary((state.camConfigs||{})[camId]);
+    var hintRow=hints?'<div class="mut" style="margin-top:7px;font-size:12px">Your notes: '+esc(hints)
+      +' <span style="font-size:11px">— the AI maps the scene from these on the first monitoring start.</span></div>':"";
     return head+'<div class="row" style="margin-top:9px;gap:9px"><span class="mut" style="font-size:12px">'+esc(error)+'</span>'
-      +(canEdit?'<button class="btn ghost sm" onclick="remapScene(\''+esc(camId)+'\')">Remap</button>':"")+'</div>';
+      +(canEdit?'<button class="btn ghost sm" onclick="remapScene(\''+esc(camId)+'\')">Remap</button>':"")+'</div>'+hintRow;
   }
   var envOptions=SCENE_ENVIRONMENTS.map(function(env){return '<option value="'+env+'"'+(env===s.environment_type?' selected':'')+'>'+esc(env.replace(/_/g," "))+'</option>';}).join("");
   var actors=(s.expected_actors||[]).join(", ");
@@ -2601,6 +2636,7 @@ function wizCameras(){
     +  '<div class="grid2"><input id="wzHost" placeholder="camera IP e.g. 10.0.2.5"><select id="wzVendor">'+venOpts+'</select></div>'
     +  '<div class="grid2" style="margin-top:10px"><input id="wzUser" placeholder="username"><input id="wzPass" type="password" placeholder="password"></div>'
     +  '<div class="row" style="margin-top:10px"><input id="wzName" placeholder="name (optional) e.g. entrance" style="flex:1"><button class="btn ghost sm" onclick="wizTest()">Test</button><button class="btn sm" onclick="wizAdd()">Add camera</button></div>'
+    +  sceneHintFields("wz")
     +  '<div id="wzTest" style="margin-top:12px;max-width:420px">'+wizTestBox()+'</div>'
     +'</div>'+added;
 }
@@ -2649,6 +2685,7 @@ function wizTest(){ var u=wizBuildUrl(); if(!u){wiz.test={error:"Enter the camer
 function wizAdd(){ var u=wizBuildUrl(); if(!u){wiz.test={error:"Enter the camera IP first"};$("wzTest").innerHTML=wizTestBox();return;}
   var cam={source:u, config:wiz.site.preset||undefined, concealment:true, video_action:true};
   var nm=($("wzName").value||"").trim(); if(nm) cam.id=nm;
+  Object.assign(cam, sceneHintValues("wz"));
   call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} wiz.added=Array.isArray(r)?r:wiz.added; wiz.test=null; renderWizard(); }); }
 function wizRemove(id){ call("removeCamera",[id],function(r){ wiz.added=Array.isArray(r)?r:wiz.added; renderWizard(); }); }
 

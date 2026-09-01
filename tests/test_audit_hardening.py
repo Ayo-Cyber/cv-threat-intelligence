@@ -158,7 +158,7 @@ class SceneContextPersistenceTest(unittest.TestCase):
 
         class Mapper:
             def map_result(self, source, camera_id, sample_count=3,
-                           source_frame_path=""):
+                           source_frame_path="", operator_hints=None):
                 return MappingResult({
                     "camera_id": camera_id,
                     "source_type": "video_file",
