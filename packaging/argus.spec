@@ -34,7 +34,12 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 
-APP_VERSION = "1.0.0"
+# The real version comes from the release tag (Actions sets GITHUB_REF_NAME);
+# a hardcoded "1.0.0" shipped in every bundle's plist while the product was on
+# v1.6.x (pilot log, 1 Sep). Local builds say dev, loudly.
+_ref = os.environ.get("GITHUB_REF_NAME", "")
+APP_VERSION = _ref[1:] if _ref.startswith("v") else \
+    os.environ.get("ARGUS_VERSION", "0.0.0-dev")
 
 
 def _tree(src_rel, dest_rel):
@@ -54,6 +59,14 @@ def _tree(src_rel, dest_rel):
 # Shared data files — bundled once, visible to both executables.
 # ---------------------------------------------------------------------------
 datas = [(os.path.join(ROOT, "cvti", "app", "web"), "cvti/app/web")]
+
+# Bake the version into the bundle so the app can SAY which build it is —
+# the sidebar claimed 'v0.9' from a hardcoded string forever.
+_version_file = os.path.join(ROOT, "build", "VERSION")
+os.makedirs(os.path.dirname(_version_file), exist_ok=True)
+with open(_version_file, "w") as _vf:
+    _vf.write(APP_VERSION)
+datas.append((_version_file, "."))
 
 for pattern, dest in (("models/*.pt", "models"), ("configs/*.json", "configs"),
                       ("configs/*.yaml", "configs"), ("prompts/*.txt", "prompts"),

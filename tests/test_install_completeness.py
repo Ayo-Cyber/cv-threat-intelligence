@@ -155,3 +155,32 @@ class MacBundleTakesKeyboardFocusTest(unittest.TestCase):
         self.assertIn('"LSBackgroundOnly": False', spec,
                       "argus.spec must force LSBackgroundOnly off, or the "
                       "console=True engine EXE makes the whole .app untypeable")
+
+
+class BuildIdentityTest(unittest.TestCase):
+    """The build must say which build it is. The plist said 1.0.0 and the
+    sidebar said v0.9 while v1.6.x shipped; the installer filed a 64-bit app
+    under Program Files (x86) (pilot log, 1 Sep)."""
+
+    def test_the_spec_takes_the_version_from_the_release_tag(self):
+        spec = (ROOT / "packaging/argus.spec").read_text()
+        self.assertNotIn('APP_VERSION = "1', spec,
+                         "version must come from the tag, not a hardcode")
+        self.assertIn("GITHUB_REF_NAME", spec)
+        self.assertIn('datas.append((_version_file', spec,
+                      "the bundle must carry a VERSION file for the app to read")
+
+    def test_the_installer_installs_64bit(self):
+        iss = (ROOT / "scripts/installer.iss").read_text()
+        self.assertIn("ArchitecturesInstallIn64BitMode", iss)
+
+    def test_the_sidebar_version_is_live_not_hardcoded(self):
+        html = (ROOT / "cvti/app/web/index.html").read_text()
+        self.assertNotIn("v0.9", html)
+        self.assertIn('call("appVersion"', html)
+
+    def test_backend_reports_a_version_string(self):
+        from cvti.app.console_backend import ConsoleBackend
+        v = ConsoleBackend.app_version(object.__new__(ConsoleBackend))
+        self.assertIsInstance(v, str)
+        self.assertTrue(v)
