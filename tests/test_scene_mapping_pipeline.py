@@ -9,10 +9,11 @@ from cvti.serving.custom_rules import CustomRuleScanner
 from cvti.serving.scene_map import SceneMappingPreflight
 
 
-def test_run_site_prepares_context_before_building_camera_states() -> None:
+def test_run_site_inspects_context_before_states_then_maps_in_background() -> None:
     source = inspect.getsource(pipeline.run_site)
 
-    assert source.index("prepare_scene_mapping(") < source.index("build_camera_states(")
+    assert source.index("mapping_service.inspect(") < source.index("build_camera_states(")
+    assert source.index("build_camera_states(") < source.index("SceneMappingCoordinator(")
     assert source.index("build_camera_states(") < source.index("pipe.start()")
 
 
@@ -56,13 +57,70 @@ def test_explicit_mapper_settings_override_gate() -> None:
     )
 
 
-def test_blocked_camera_is_excluded_but_ready_camera_remains() -> None:
+def test_unreviewed_camera_remains_active_for_critical_only_monitoring() -> None:
     cameras = [{"id": "cam_1"}, {"id": "cam_2"}]
     preflight = SceneMappingPreflight(blocked_camera_ids={"cam_2"})
 
-    assert pipeline.active_cameras_after_preflight(cameras, preflight) == [
-        {"id": "cam_1"}
-    ]
+    assert pipeline.active_cameras_after_preflight(cameras, preflight) == cameras
+
+
+def test_preflight_statuses_select_monitoring_scope() -> None:
+    """Repinned 1 Sep (coverage-first hybrid): under the default auto policy
+    EVERY camera runs the full rule set immediately — review-gating full
+    monitoring is exactly what left a pilot dark for two days. What review
+    unlocks under auto is context-driven suppression (scene_reviewed), not
+    detection. Sites that explicitly choose require_reviewed keep the
+    certainty-first critical-only ramp."""
+    preflight = SceneMappingPreflight(
+        statuses={
+            "reviewed": {"status": "ready_reviewed"},
+            "pending": {"status": "ready_unreviewed"},
+            "failed": {"status": "failed"},
+        }
+    )
+
+    assert pipeline.monitoring_scopes_from_preflight(preflight, "auto") == {
+        "reviewed": "full",
+        "pending": "full",
+        "failed": "full",
+    }
+    assert pipeline.monitoring_scopes_from_preflight(
+        preflight, "require_reviewed") == {
+        "reviewed": "full",
+        "pending": "critical_only",
+        "failed": "critical_only",
+    }
+
+
+def test_unreviewed_context_may_inform_but_never_suppress() -> None:
+    """The hybrid's other half: a context-driven suppression only fires when
+    a human has reviewed the context. Until then the would-be suppression
+    alerts anyway and says so in the decision ledger."""
+    from datetime import datetime
+
+    from cvti.contracts import RawEvent
+    from cvti.rules.customization import CustomizationEngine
+
+    engine = CustomizationEngine()
+    engine.rules = [{
+        "name": "person_near_cars",
+        "priority": "high",
+        "trigger": {"detector": "loitering"},
+        "context_requirements": {"environment_type": ["retail_shop"]},
+    }]
+    context = {"environment_type": "estate_street"}   # incompatible on purpose
+    event = RawEvent(detector="loitering", title="Loitering", active=True,
+                     level="high", timestamp=datetime.now().timestamp())
+
+    suppressed = engine.evaluate([event], scene_context=context,
+                                 scene_reviewed=True)
+    kept = engine.evaluate([event], scene_context=context,
+                           scene_reviewed=False)
+
+    assert suppressed == []
+    assert [a.rule_name for a in kept] == ["person_near_cars"]
+    assert any(d["decision"] == "unreviewed_context_kept"
+               for d in engine.context_decisions)
 
 
 def test_rendered_expected_actors_are_possibilities_not_identities() -> None:

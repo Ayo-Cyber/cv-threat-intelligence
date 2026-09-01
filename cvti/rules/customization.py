@@ -64,6 +64,8 @@ class CustomizationEngine:
         scene_context: dict | None = None,
         now: datetime | None = None,
         active_zone_roles: set[str] | None = None,
+        monitoring_scope: str = "full",
+        scene_reviewed: bool = True,
     ) -> list[CandidateAlert]:
         """Return all rules that match the current events, sorted highest priority first."""
         now = now or datetime.now()
@@ -86,12 +88,23 @@ class CustomizationEngine:
         ordered_rules = [(rule, True) for rule in baseline]
         ordered_rules.extend((rule, False) for rule in self.rules)
         for rule, is_baseline in ordered_rules:
+            if monitoring_scope == "critical_only" and not rule.get(
+                "critical_baseline", False
+            ):
+                self.context_decisions.append({
+                    "rule": str(rule.get("name", "")),
+                    "environment": str(context.get("environment_type", "unknown")),
+                    "decision": "awaiting_review",
+                    "reason": "scene context must be reviewed before this rule is active",
+                })
+                continue
             # Compound recipe (Phase 3): several signals combined by a logic op.
             if "signals" in rule:
                 compound = _eval_compound(rule, events, now)
                 if compound is not None:
                     decision = self._context_decision(
-                        rule, context, is_baseline, active_zone_roles
+                        rule, context, is_baseline, active_zone_roles,
+                        scene_reviewed,
                     )
                     self._record_context_decision(rule, context, decision)
                     if decision.allowed:
@@ -108,7 +121,8 @@ class CustomizationEngine:
                 if not _match_context_filter(rule.get("context_filter"), event, context):
                     continue
                 decision = self._context_decision(
-                    rule, context, is_baseline, active_zone_roles
+                    rule, context, is_baseline, active_zone_roles,
+                    scene_reviewed,
                 )
                 self._record_context_decision(rule, context, decision)
                 if not decision.allowed:
@@ -146,6 +160,7 @@ class CustomizationEngine:
         context: dict,
         is_baseline: bool,
         active_zone_roles: set[str] | None,
+        scene_reviewed: bool = True,
     ) -> CompatibilityDecision:
         if rule.get("gate_question") and "context_requirements" not in rule:
             return CompatibilityDecision(
@@ -153,12 +168,24 @@ class CustomizationEngine:
                 "explicit_override",
                 "customer-authored plain-English threat is explicit policy",
             )
-        return evaluate_context_compatibility(
+        decision = evaluate_context_compatibility(
             rule,
             context,
             baseline=is_baseline,
             active_zone_roles=active_zone_roles,
         )
+        # Coverage-first hybrid (1 Sep): the one power a WRONG scene guess
+        # must never have is silencing a real alert. An unreviewed context may
+        # inform, but only a human-reviewed one may suppress — until review,
+        # a would-be suppression alerts anyway and says so in the ledger.
+        if not decision.allowed and not scene_reviewed:
+            return CompatibilityDecision(
+                True,
+                "unreviewed_context_kept",
+                f"unreviewed scene context suggested suppression "
+                f"({decision.reason}) — alerting until a human reviews it",
+            )
+        return decision
 
     def _record_context_decision(
         self, rule: dict, context: dict, decision: CompatibilityDecision
@@ -178,8 +205,13 @@ class CustomizationEngine:
         scene_context: dict | None = None,
         now: datetime | None = None,
         active_zone_roles: set[str] | None = None,
+        monitoring_scope: str = "full",
+        scene_reviewed: bool = True,
     ) -> CandidateAlert | None:
-        alerts = self.evaluate(events, scene_context, now, active_zone_roles)
+        alerts = self.evaluate(
+            events, scene_context, now, active_zone_roles, monitoring_scope,
+            scene_reviewed,
+        )
         return alerts[0] if alerts else None
 
 

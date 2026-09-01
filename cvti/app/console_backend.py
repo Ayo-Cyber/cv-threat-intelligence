@@ -851,6 +851,10 @@ class ConsoleBackend:
         "generated_at",
         "source_frame_path",
         "notes",
+        "area_id",
+        "site_type_candidate",
+        "area_type_candidate",
+        "view_description",
     }
 
     def _scene_camera(self, camera_id: str) -> dict | None:
@@ -930,6 +934,126 @@ class ConsoleBackend:
                 "source_frame_uri": "",
             }
         return None
+
+    def _hierarchy_store(self):
+        from cvti.scene.hierarchy import HierarchyContextStore
+
+        return HierarchyContextStore(Path(self.db_path).parent / "context")
+
+    def list_areas(self) -> list[dict]:
+        self._require(perms.VIEW_LIVE)
+        return onboarding.normalized_areas(self.site_path)
+
+    def create_area(self, area: dict) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        areas = onboarding.upsert_area(self.site_path, area)
+        self.audit.record(self.current_user.username, "config_change",
+                          f"area:{area.get('id', '')}", detail={"area": "created"})
+        return {"ok": True, "areas": areas}
+
+    def assign_camera_area(self, camera_id: str, area_id: str) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        camera = onboarding.assign_camera_area(self.site_path, camera_id, area_id)
+        self.audit.record(self.current_user.username, "config_change",
+                          f"camera:{camera_id}", detail={"area_id": area_id})
+        return {"ok": True, "camera": camera}
+
+    def area_context(self, area_id: str) -> dict | None:
+        self._require(perms.VIEW_LIVE)
+        return self._hierarchy_store().load_area(area_id)
+
+    def approve_area_context(self, area_id: str, context: dict) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        payload = dict(context)
+        payload["area_id"] = area_id
+        saved = self._hierarchy_store().approve_area(
+            payload, self.current_user.username
+        )
+        approved_cameras: list[str] = []
+        area = next(
+            (item for item in onboarding.normalized_areas(self.site_path)
+             if item["id"] == area_id),
+            None,
+        )
+        cameras = {str(camera["id"]): camera for camera in self.list_cameras()}
+        for camera_id in (area or {}).get("camera_ids", []):
+            camera = cameras.get(camera_id)
+            store = self._scene_store(camera_id)
+            camera_context = store._load_context()
+            if camera is None or camera_context is None:
+                continue
+            camera_context["area_id"] = area_id
+            store.approve(
+                camera_context, self.current_user.username, camera["source"]
+            )
+            approved_cameras.append(camera_id)
+        self.audit.record(self.current_user.username, "config_change",
+                          f"area:{area_id}", detail={
+                              "scene_context": "approved",
+                              "camera_ids": approved_cameras,
+                          })
+        return {"ok": True, "context": saved, "camera_ids": approved_cameras}
+
+    def update_site_context(self, context: dict) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        saved = self._hierarchy_store().save_site_proposal(context)
+        return {"ok": True, "context": saved}
+
+    def approve_site_context(self, context: dict) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        saved = self._hierarchy_store().approve_site(
+            context, self.current_user.username
+        )
+        self.audit.record(self.current_user.username, "config_change", "site:scene",
+                          detail={"scene_context": "approved"})
+        return {"ok": True, "context": saved}
+
+    def scene_mapping_progress(self) -> dict:
+        self._require(perms.VIEW_LIVE)
+        path = Path(self.db_path).parent / "context/mapping_queue.json"
+        try:
+            jobs = json.loads(path.read_text()).get("jobs", [])
+        except (OSError, TypeError, ValueError):
+            jobs = []
+        states = ("pending", "running", "ready", "failed")
+        return {"total": len(jobs), **{
+            state: sum(job.get("state") == state for job in jobs) for state in states
+        }}
+
+    def enqueue_scene_mapping(self, camera_ids: list[str]) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        results = [self.request_scene_remap(str(camera_id)) for camera_id in camera_ids]
+        return {"ok": all(result.get("ok") for result in results),
+                "camera_ids": [str(value) for value in camera_ids]}
+
+    def scene_review_summary(self) -> dict:
+        self._require(perms.VIEW_LIVE)
+        areas = []
+        for area in onboarding.normalized_areas(self.site_path):
+            context = self._hierarchy_store().load_area(area["id"])
+            cameras = []
+            for camera_id in area["camera_ids"]:
+                camera_context = self.scene_context(camera_id)
+                cameras.append({
+                    "camera_id": camera_id,
+                    "mapping": (camera_context or {}).get("mapping", {"status": "pending"}),
+                    "source_frame_uri": (camera_context or {}).get("source_frame_uri", ""),
+                })
+            areas.append({**area, "context": context, "cameras": cameras,
+                          "bulk_reviewable": bool(context and not context.get("conflicts"))})
+        statuses = [camera["mapping"].get("status")
+                    for area in areas for camera in area["cameras"]]
+        return {
+            "site": self._hierarchy_store().load_site(),
+            "areas": areas,
+            "counts": {
+                "total_cameras": len(statuses),
+                "reviewed": sum(status == "ready_reviewed" for status in statuses),
+                "ready": sum(status == "ready_unreviewed" for status in statuses),
+                "failed": sum(status == "failed" for status in statuses),
+            },
+            "mapping": self.scene_mapping_progress(),
+        }
 
     def update_scene_context(self, camera_id: str, context: dict) -> dict:
         self._require(perms.CONFIGURE_CAMERAS)

@@ -132,12 +132,59 @@ class Backend(QObject):
     def sceneContext(self, camera_id: str) -> str:
         return self._safe(lambda: self._core.scene_context(camera_id))
 
+    @pyqtSlot(result=str)
+    def sceneReviewSummary(self) -> str:
+        return self._safe(self._core.scene_review_summary)
+
+    @pyqtSlot(result=str)
+    def listAreas(self) -> str:
+        return self._safe(self._core.list_areas)
+
+    @pyqtSlot(str, result=str)
+    def createArea(self, area_json: str) -> str:
+        return self._safe(lambda: self._core.create_area(json.loads(area_json)))
+
+    @pyqtSlot(str, str, result=str)
+    def assignCameraArea(self, camera_id: str, area_id: str) -> str:
+        return self._safe(lambda: self._core.assign_camera_area(camera_id, area_id))
+
+    @pyqtSlot(str, result=str)
+    def areaContext(self, area_id: str) -> str:
+        return self._safe(lambda: self._core.area_context(area_id))
+
+    @pyqtSlot(str, str, result=str)
+    def approveAreaContext(self, area_id: str, context_json: str) -> str:
+        return self._safe(lambda: self._core.approve_area_context(
+            area_id, json.loads(context_json)))
+
+    @pyqtSlot(result=str)
+    def sceneMappingProgress(self) -> str:
+        return self._safe(self._core.scene_mapping_progress)
+
     @pyqtSlot(str, str, result=str)
     def updateSceneContext(self, camera_id: str, context_json: str) -> str:
         return self._safe(
             lambda: self._core.update_scene_context(
                 camera_id, json.loads(context_json)
             )
+        )
+
+    @pyqtSlot(str, result=str)
+    def updateSiteContext(self, context_json: str) -> str:
+        return self._safe(
+            lambda: self._core.update_site_context(json.loads(context_json))
+        )
+
+    @pyqtSlot(str, result=str)
+    def approveSiteContext(self, context_json: str) -> str:
+        return self._safe(
+            lambda: self._core.approve_site_context(json.loads(context_json))
+        )
+
+    @pyqtSlot(str, result=str)
+    def enqueueSceneMapping(self, camera_ids_json: str) -> str:
+        return self._safe(
+            lambda: self._core.enqueue_scene_mapping(json.loads(camera_ids_json))
         )
 
     @pyqtSlot(str, str, result=str)

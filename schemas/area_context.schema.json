@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "area_context.schema.json",
+  "title": "AreaContext",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["area_id", "name", "site_type", "area_type", "area_description", "expected_actors", "confidence", "evidence_camera_ids", "conflicts", "generated_at"],
+  "properties": {
+    "area_id": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "site_type": {"type": "string"},
+    "area_type": {"type": "string", "enum": ["production_floor", "assembly_line", "loading_bay", "storage_aisle", "chemical_store", "machine_room", "reception", "retail_floor", "checkout", "banking_hall", "vault_approach", "office_floor", "parking_lot", "perimeter", "entrance", "walkway", "estate_gate", "estate_street", "perimeter_fence", "retail_shop", "mall_corridor", "office_lobby", "atm_area", "warehouse_floor", "generator_area", "residential_interior", "residential_exterior", "unknown"]},
+    "area_description": {"type": "string", "minLength": 1},
+    "expected_actors": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "evidence_camera_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "conflicts": {"type": "array", "items": {"type": "object"}},
+    "generated_at": {"type": "string", "format": "date-time"}
+  }
+}

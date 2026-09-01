@@ -114,6 +114,20 @@
     },
     "notes": {
       "type": "string"
+    },
+    "area_id": {
+      "type": "string"
+    },
+    "site_type_candidate": {
+      "type": "string",
+      "enum": ["manufacturing_plant", "supermarket", "retail_store", "bank", "warehouse", "office_building", "residential_estate", "shopping_mall", "school", "hospital", "hotel", "transport_hub", "mixed_use", "unknown"]
+    },
+    "area_type_candidate": {
+      "type": "string",
+      "enum": ["production_floor", "assembly_line", "loading_bay", "storage_aisle", "chemical_store", "machine_room", "reception", "retail_floor", "checkout", "banking_hall", "vault_approach", "office_floor", "parking_lot", "perimeter", "entrance", "walkway", "estate_gate", "estate_street", "perimeter_fence", "retail_shop", "mall_corridor", "office_lobby", "atm_area", "warehouse_floor", "generator_area", "residential_interior", "residential_exterior", "unknown"]
+    },
+    "view_description": {
+      "type": "string"
     }
   }
 }

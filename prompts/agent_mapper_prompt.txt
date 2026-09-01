@@ -11,6 +11,10 @@ Do not infer, guess, or list any threats, risks, suspicious behaviors, or threat
 
 Classify the scene using only the allowed values below.
 
+Treat any operator-provided site or area details as fallible priors. Inspect
+this camera independently. Do not copy a shared area label when this image does
+not support it; use unknown when visual evidence is insufficient.
+
 Allowed environment_type values:
 - estate_gate
 - estate_street
@@ -68,7 +72,10 @@ Return JSON in exactly this shape:
   "confidence": 0.0,
   "generated_at": "<ISO-8601 timestamp if caller requests it, otherwise use a best-effort ISO timestamp>",
   "source_frame_path": "<placeholder string if unknown>",
-  "notes": "<short operational note>"
+  "notes": "<short operational note>",
+  "site_type_candidate": "<allowed site type or unknown>",
+  "area_type_candidate": "<allowed area type or unknown>",
+  "view_description": "<what this camera angle specifically shows>"
 }
 
 If uncertain, set:

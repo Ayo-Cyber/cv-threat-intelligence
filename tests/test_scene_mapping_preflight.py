@@ -263,3 +263,48 @@ def test_no_hints_means_no_priors_and_manual_still_bypasses(tmp_path) -> None:
     )], "auto")
     assert len(mapper.calls) == 1, "a full description is authored, not a hint"
     assert result.contexts["cam_2"]["scene_description"] == "A watched forecourt."
+
+
+def test_shared_area_is_a_prior_and_each_camera_still_maps(tmp_path) -> None:
+    mapper = RecordingMapper()
+    service = FullAgentMapperService(
+        tmp_path / "out", mapper, legacy_root=tmp_path / "legacy"
+    )
+
+    service.prepare([
+        _camera(
+            tmp_path, id="north", area_id="loading", area_type="loading_bay",
+            site_type="manufacturing_plant",
+        ),
+        _camera(
+            tmp_path, id="south", area_id="loading", area_type="loading_bay",
+            site_type="manufacturing_plant",
+        ),
+    ], "auto")
+
+    assert [call[1] for call in mapper.calls] == ["north", "south"]
+    assert mapper.hints_seen == [
+        {
+            "site_type": "manufacturing_plant",
+            "area_id": "loading",
+            "area_type": "loading_bay",
+        },
+        {
+            "site_type": "manufacturing_plant",
+            "area_id": "loading",
+            "area_type": "loading_bay",
+        },
+    ]
+
+
+def test_inspect_existing_context_never_calls_mapper(tmp_path) -> None:
+    mapper = RecordingMapper()
+    service = FullAgentMapperService(
+        tmp_path / "out", mapper, legacy_root=tmp_path / "legacy"
+    )
+
+    result = service.inspect([_camera(tmp_path)], "require_reviewed")
+
+    assert mapper.calls == []
+    assert result.statuses["cam_1"]["status"] == "pending"
+    assert result.blocked_camera_ids == {"cam_1"}

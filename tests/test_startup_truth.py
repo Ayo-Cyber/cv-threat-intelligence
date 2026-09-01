@@ -35,7 +35,7 @@ class StartingHeartbeatTest(unittest.TestCase):
     def test_first_words_land_before_the_preflight(self):
         src = inspect.getsource(pipeline.run_site)
         self.assertLess(src.index("write_starting_health("),
-                        src.index("prepare_scene_mapping("),
+                        src.index("mapping_service.inspect("),
                         "the starting heartbeat must be written before the "
                         "slow scene preflight, or a fresh install reads as a "
                         "dead engine for minutes")
@@ -91,102 +91,91 @@ class StartingHeartbeatTest(unittest.TestCase):
         self.assertIn('"Starting…"', html.replace("'", '"'))
 
 
-class _RetryService:
-    """Heals 'Front Gate', leaves 'cam2' failed."""
-    def __init__(self):
-        self.retried: list = []
+class CoordinatorSelfHealTest(unittest.TestCase):
+    """The background coordinator now owns 'failed scene maps heal
+    themselves' (it replaced the #69 retry loop). Pinned: a restart resets
+    the attempt budget, a deleted camera finishes its job instead of killing
+    the worker, and a changed source prunes the stale job."""
 
-    def prepare(self, cameras, policy):
-        from cvti.serving.scene_map import SceneMappingPreflight
-        self.retried = [str(c["id"]) for c in cameras]
-        out = SceneMappingPreflight()
-        for camera in cameras:
-            cid = str(camera["id"])
-            if cid == "Front Gate":
-                out.contexts[cid] = {"camera_id": cid,
-                                     "scene_description": "A gate.",
-                                     "environment_type": "estate_gate"}
-                out.statuses[cid] = {"status": "ready_unreviewed", "error": ""}
-            else:
-                out.statuses[cid] = {"status": "failed", "error": "still down"}
-        return out
+    def _coordinator(self, tmp, cameras):
+        from cvti.scene.coordinator import SceneMappingCoordinator
+        site = Path(tmp) / "site.json"
+        site.write_text(json.dumps({"cameras": cameras}))
 
+        class NeverRuns:
+            def prepare(self, cams, policy):  # pragma: no cover - not reached
+                raise AssertionError("mapper must not run in this test")
+        return SceneMappingCoordinator(NeverRuns(), site, Path(tmp) / "out"), site
 
-class _CamState:
-    def __init__(self):
-        self.scene_context = None
-
-
-class SceneRetryTest(unittest.TestCase):
-
-    def test_retry_heals_states_and_health_rows_in_place(self):
-        cams_cfg = [{"id": "Front Gate", "source": "a"}, {"id": "cam2", "source": "b"},
-                    {"id": "cam3", "source": "c"}]
-        mapping_health = [
-            {"camera_id": "Front Gate", "status": "failed", "error": "connection refused"},
-            {"camera_id": "cam2", "status": "failed", "error": "connection refused"},
-            {"camera_id": "cam3", "status": "ready_reviewed", "error": ""},
-        ]
-        states = {"Front Gate": _CamState(), "cam2": _CamState(), "cam3": _CamState()}
-        service = _RetryService()
-
-        still = pipeline.retry_failed_scene_mappings(
-            service, cams_cfg, "auto", mapping_health, states)
-
-        self.assertEqual(sorted(service.retried), ["Front Gate", "cam2"],
-                         "only FAILED cameras are retried")
-        self.assertEqual(states["Front Gate"].scene_context["environment_type"],
-                         "estate_gate")
-        self.assertIsNone(states["cam3"].scene_context)
-        rows = {r["camera_id"]: r["status"] for r in mapping_health}
-        self.assertEqual(rows["Front Gate"], "ready_unreviewed")
-        self.assertEqual(rows["cam2"], "failed")
-        self.assertEqual(still, {"cam2"})
-
-    def test_nothing_failed_means_no_mapper_calls(self):
-        service = _RetryService()
-        still = pipeline.retry_failed_scene_mappings(
-            service, [{"id": "c1", "source": "a"}],
-            "auto", [{"camera_id": "c1", "status": "ready_reviewed"}],
-            {"c1": _CamState()})
-        self.assertEqual(service.retried, [])
-        self.assertEqual(still, set())
-
-    def test_a_blocked_camera_not_running_is_not_retried(self):
-        service = _RetryService()
-        pipeline.retry_failed_scene_mappings(
-            service, [{"id": "Front Gate", "source": "a"}],
-            "auto", [{"camera_id": "Front Gate", "status": "failed"}],
-            {})   # not in states: it never started
-        self.assertEqual(service.retried, [])
-
-
-class PolicyBlockIsAWaitNotADeathTest(unittest.TestCase):
-    """'No camera can start until scene context is ready' used to be the
-    engine's last words — then the watchdog respawned it forever (pilot,
-    1 Sep: two days of 'the engine never starts'). A policy block is a
-    waiting state: stay alive, say why, retry the preflight."""
-
-    def test_the_blocked_branch_retries_instead_of_returning(self):
-        src = inspect.getsource(pipeline.run_site)
-        blocked = src.index("no camera can start")
-        window = src[src.rindex("while not cams_cfg", 0, blocked):blocked + 400]
-        self.assertIn("while not cams_cfg", window)
-        self.assertNotIn("return", window,
-                         "a policy block must wait and retry, never exit")
-        self.assertIn("retrying the preflight", window)
-
-    def test_the_wait_names_itself_in_the_heartbeat_phase(self):
-        src = inspect.getsource(pipeline.run_site)
-        self.assertIn("waiting — this site's policy requires reviewed", src)
-
-    def test_starting_health_carries_scene_rows_when_given(self):
+    def test_restart_resets_the_attempt_budget_of_failed_jobs(self):
         with tempfile.TemporaryDirectory() as tmp:
-            rows = [{"camera_id": "cam1", "status": "failed", "error": "timed out"}]
-            pipeline.write_starting_health(
-                tmp, {"cameras": [{"id": "cam1", "source": "x"}]},
-                gate_provider="local", gate_model="m",
-                phase="waiting — policy", scene_mapping=rows)
-            doc = json.loads((Path(tmp) / "gate_health.json").read_text())
-            self.assertEqual(doc["scene_mapping"], rows)
-            self.assertTrue(doc["engine"]["phase"].startswith("waiting"))
+            coord, site = self._coordinator(
+                tmp, [{"id": "cam1", "source": "a.mp4"}])
+            coord.enqueue(["cam1"])
+            coord.jobs[0].state = "failed"
+            coord.jobs[0].attempts = 4
+            coord._save()
+
+            coord.resume()
+
+            self.assertEqual(coord.jobs[0].state, "pending")
+            self.assertEqual(coord.jobs[0].attempts, 0,
+                             "a persisted failure must not outlive the restart")
+
+    def test_a_deleted_camera_fails_its_job_instead_of_killing_the_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            coord, site = self._coordinator(
+                tmp, [{"id": "cam1", "source": "a.mp4"}])
+            coord.enqueue(["cam1"])
+            site.write_text(json.dumps({"cameras": []}))   # camera removed
+
+            ran = coord.run_next()      # used to raise StopIteration
+
+            self.assertTrue(ran)
+            self.assertEqual(coord.jobs[0].state, "failed")
+            self.assertIn("no longer exists", coord.jobs[0].error)
+
+    def test_enqueue_prunes_jobs_for_removed_or_changed_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            coord, site = self._coordinator(
+                tmp, [{"id": "cam1", "source": "a.mp4"},
+                      {"id": "cam2", "source": "b.mp4"}])
+            coord.enqueue(["cam1", "cam2"])
+            site.write_text(json.dumps({"cameras": [
+                {"id": "cam1", "source": "MOVED.mp4"}]}))  # cam2 gone, cam1 moved
+
+            coord.enqueue(["cam1"])
+
+            self.assertEqual(
+                [(j.camera_id, j.state) for j in coord.jobs],
+                [("cam1", "pending")],
+                "stale-fingerprint and deleted-camera jobs must be pruned")
+
+    def test_area_note_reaches_the_mapper_as_a_scene_hint(self):
+        from cvti.scene.coordinator import SceneMappingCoordinator
+        with tempfile.TemporaryDirectory() as tmp:
+            site = Path(tmp) / "site.json"
+            site.write_text(json.dumps({
+                "areas": [{"id": "yard", "name": "Yard",
+                           "note": "cars park along the left fence"}],
+                "cameras": [{"id": "cam1", "source": "a.mp4",
+                             "area_id": "yard"}],
+            }))
+            seen = {}
+
+            class Recording:
+                def prepare(self, cams, policy):
+                    seen.update(cams[0])
+                    from cvti.serving.scene_map import SceneMappingPreflight
+                    out = SceneMappingPreflight()
+                    out.statuses["cam1"] = {"status": "failed", "error": "x"}
+                    return out
+
+            coord = SceneMappingCoordinator(Recording(), site, Path(tmp) / "out")
+            coord.enqueue(["cam1"])
+            coord.run_next()
+
+            self.assertEqual(seen.get("scene_hint"),
+                             "cars park along the left fence",
+                             "the area note must arrive under the key "
+                             "_operator_hints actually reads")
