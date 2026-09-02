@@ -10,6 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+# The ONE local VLM tag the product runs on. Until 2 Sep this was two tags:
+# the engine, the first-run pull, and the evals used "gemma3:4b" while the
+# mapper's and the `local` provider's defaults said "gemma3:4b-it-qat" — so a
+# default-configured mapper asked the server for a model nobody had pulled
+# (a second ~3 GB download, or a failed mapping, depending on the machine).
+# Every measured number in this repo (SENSITIVITY_MEASURED, runs/eval/*) is
+# gemma3:4b; anything else here is a lie about what was measured.
+LOCAL_VLM_MODEL = "gemma3:4b"
+
 
 @dataclass
 class RawEvent:

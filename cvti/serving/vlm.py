@@ -12,8 +12,10 @@ import threading
 import urllib.error
 import urllib.request
 
+from cvti.contracts import LOCAL_VLM_MODEL
+
 DEFAULT_HOST = "http://localhost:11434"
-DEFAULT_MODEL = "gemma3:4b"
+DEFAULT_MODEL = LOCAL_VLM_MODEL
 
 # model -> {"state": "pulling"|"done"|"error", "percent": int, "detail": str}
 _pulls: dict[str, dict] = {}

@@ -20,6 +20,7 @@ import sys
 import time
 from pathlib import Path
 
+from cvti.contracts import LOCAL_VLM_MODEL
 from cvti.logging_setup import get_logger
 from cvti.security import permissions as perms
 from cvti.security.accounts import AccountStore, AuthError
@@ -1571,7 +1572,7 @@ class ConsoleBackend:
                # mobile view would otherwise build an EMPTY account store and
                # nobody could sign in from a phone.
                "--security-dir", str(Path(self._home_db).parent),
-               "--gate-provider", "ollama", "--gate-model", "gemma3:4b",
+               "--gate-provider", "ollama", "--gate-model", LOCAL_VLM_MODEL,
                "--notify", notify, "--output-dir", str(out_dir),
                "--target-fps", "4", "--imgsz", "512",
                "--seconds", "100000", "--gate-drain", "60"]
@@ -2040,7 +2041,10 @@ class ConsoleBackend:
             "Respond with a single JSON object and nothing else:\n"
             '{"ids": [matching ids as integers], "answer": "one short sentence summarising what you found"}\n\n'
             f"EVENTS:\n{catalogue}\n\nQUERY: {query}\n")
-        payload = {"model": "gemma3:4b", "temperature": 0,
+        payload = {"model": LOCAL_VLM_MODEL, "temperature": 0,
+                   # The answer is a JSON of ids + one sentence; cap it so a
+                   # search can't monopolise an Ollama slot for a minute.
+                   "max_tokens": 256,
                    "messages": [{"role": "user", "content": prompt}]}
         try:
             req = urllib.request.Request(

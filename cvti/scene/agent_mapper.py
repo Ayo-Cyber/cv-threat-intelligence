@@ -17,10 +17,25 @@ from urllib import request as urlrequest
 
 import cv2
 import numpy as np
+from cvti.contracts import LOCAL_VLM_MODEL
 from cvti.logging_setup import get_logger
 
 log = get_logger(__name__)
 
+
+# --- The VLM request budget (latency audit 1 Sep, V4a) ----------------------
+# gemma3's vision tower works on 896x896 tiles: a 1080p or 4K frame sent whole
+# is downscaled server-side anyway, after we paid to base64 and ship megabytes
+# per call — and on multi-frame verifies that cost repeats per frame. Shrink
+# on OUR side of the wire: long edge <=896, JPEG q80. Detection never sees
+# these frames; only what travels to the model does.
+VLM_MAX_SIDE = 896
+VLM_JPEG_QUALITY = 80
+# Output-side budget for the mapper's own scene-context JSON: the largest
+# valid answer (description + zones + candidates) fits in well under 1024
+# tokens; without a cap a rambling model generates until the context runs out
+# at ~10 tok/s on pilot CPUs.
+MAPPER_MAX_TOKENS = 1024
 
 DEFAULT_OUTPUT_ROOT = Path("runs/context")
 DEFAULT_PROMPT_PATH = Path("prompts/agent_mapper_prompt.txt")
@@ -371,8 +386,28 @@ def build_prompt(
     return template + dynamic_suffix
 
 
-def encode_frame_as_jpeg_bytes(frame: Any) -> bytes:
-    ok, encoded = cv2.imencode(".jpg", frame)
+def downscale_for_vlm(frame: Any, max_side: int = VLM_MAX_SIDE) -> Any:
+    """The frame as the VLM should receive it: long edge capped at `max_side`.
+
+    Shrink-only (a small frame passes through untouched), aspect preserved,
+    INTER_AREA — the correct filter for downscaling. Callers keep using the
+    original frame for detection and evidence; this copy exists to travel.
+    """
+    height, width = frame.shape[:2]
+    long_side = max(height, width)
+    if long_side <= max_side:
+        return frame
+    scale = max_side / float(long_side)
+    new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    return cv2.resize(frame, new_size, interpolation=cv2.INTER_AREA)
+
+
+def encode_frame_as_jpeg_bytes(frame: Any, max_side: int = VLM_MAX_SIDE,
+                               quality: int = VLM_JPEG_QUALITY) -> bytes:
+    ok, encoded = cv2.imencode(
+        ".jpg", downscale_for_vlm(frame, max_side),
+        [cv2.IMWRITE_JPEG_QUALITY, int(quality)],
+    )
     if not ok:
         raise RuntimeError("Failed to encode selected frame as JPEG.")
     return encoded.tobytes()
@@ -489,6 +524,7 @@ def call_openai_compatible(
     api_base_url: str,
     max_retries: int = 3,
     require_key: bool = True,
+    max_tokens: int | None = None,
 ) -> str:
     api_key = os.environ.get(api_key_env, "").strip() if api_key_env else ""
     if require_key and not api_key:
@@ -505,6 +541,13 @@ def call_openai_compatible(
         "messages": [{"role": "user", "content": content}],
         "temperature": 0,
     }
+    # Output budget (latency audit 1 Sep, V1). Every caller knows the shape of
+    # the answer it needs — a verdict JSON, a threat list, a scene context —
+    # and none of them needs an unbounded one. On a CPU box generating ~10
+    # tok/s, an uncapped answer that rambles for 800 tokens IS the missing 80
+    # seconds of gate latency. Ollama's /v1 endpoint maps this to num_predict.
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
     base = api_base_url.rstrip("/")
     headers = {
         "content-type": "application/json",
@@ -783,8 +826,8 @@ class AgentMapper:
 
     _DEFAULT_MODELS = {
         "anthropic": "claude-sonnet-4-6",
-        "local": "gemma3:4b-it-qat",
-        "ollama": "gemma3:4b-it-qat",
+        "local": LOCAL_VLM_MODEL,
+        "ollama": LOCAL_VLM_MODEL,
         "openai_compatible": "gpt-4.1-mini",
     }
 
@@ -852,9 +895,10 @@ class AgentMapper:
         elif self.provider in ("local", "ollama"):
             raw = call_openai_compatible(
                 prompt=prompt, frame_bytes=frame_bytes,
-                model=self.model or "gemma3:4b-it-qat",
+                model=self.model or LOCAL_VLM_MODEL,
                 api_key_env="", api_base_url=self.base_url,
                 require_key=False,
+                max_tokens=MAPPER_MAX_TOKENS,
             )
         elif self.provider == "openai_compatible":
             raw = call_openai_compatible(
@@ -862,6 +906,7 @@ class AgentMapper:
                 model=self.model or "gpt-4.1-mini",
                 api_key_env=self.api_key_env or "OPENAI_API_KEY",
                 api_base_url=self.base_url or "https://api.openai.com/v1",
+                max_tokens=MAPPER_MAX_TOKENS,
             )
         else:
             raise RuntimeError(f"Unsupported provider: {self.provider}")
