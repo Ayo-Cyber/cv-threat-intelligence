@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -330,6 +331,16 @@ class VerificationGate:
     # as a dropped alert. The non-CoT prompt asks for the JSON object alone: 96.
     MAX_TOKENS_COT = 256
     MAX_TOKENS_JSON = 96
+    # Transport budget for LOCAL verifies (audit 1 Sep, V2/V4b). One retry,
+    # not three: by the second failure of a live verdict the scene is long
+    # gone, and fail-visible UNVERIFIED in front of a human beats an 18-minute
+    # (3 x 360s) silent retry storm holding an Ollama slot. The timeout is
+    # derived from THIS machine's observed verify latency (EMA x5, clamped) —
+    # the first call keeps the full ceiling because it may pay a cold model
+    # load. Scene mapping keeps its own patient 360s; this is the live path.
+    LOCAL_MAX_RETRIES = 1
+    TIMEOUT_FLOOR_S = 90.0
+    TIMEOUT_CEIL_S = 360.0
     # Conventional API-key env var per provider.
     DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY",
                        "ollama": "OLLAMA_API_KEY"}
@@ -367,6 +378,7 @@ class VerificationGate:
         self.base_url = base_url or ("http://localhost:11434/v1" if provider == "local" else "")
         self.save_dir = Path(save_dir) if save_dir else None
         self._call_count = 0
+        self._latency_ema: float | None = None   # seconds; successful verifies only
 
     @property
     def prompt_version(self) -> str:
@@ -459,12 +471,26 @@ class VerificationGate:
 
         return result
 
+    def transport_timeout(self) -> float:
+        """This verify's wall-clock budget, from observed latency on THIS box.
+
+        5x the running average of successful verifies, clamped to
+        [TIMEOUT_FLOOR_S, TIMEOUT_CEIL_S]. No history yet (first call, maybe
+        a cold model load) keeps the full ceiling.
+        """
+        if self._latency_ema is None:
+            return self.TIMEOUT_CEIL_S
+        return min(self.TIMEOUT_CEIL_S, max(self.TIMEOUT_FLOOR_S, self._latency_ema * 5.0))
+
+    def _observe_latency(self, elapsed: float) -> None:
+        self._latency_ema = (elapsed if self._latency_ema is None
+                             else 0.3 * elapsed + 0.7 * self._latency_ema)
+
     def _call_provider(self, prompt: str, frames_bytes: list[bytes], alert: Any) -> str:
         max_tokens = self.MAX_TOKENS_COT if self.cot else self.MAX_TOKENS_JSON
+        started = time.monotonic()
         if self.provider == "mock":
             raw_response = _mock_response(alert)
-        elif self.provider == "anthropic":
-            raw_response = _call_anthropic(prompt, frames_bytes, self.model, self.api_key_env)
         elif self.provider in ("local", "openai_compatible"):
             raw_response = _call_openai_compatible(
                 prompt=prompt,
@@ -474,16 +500,22 @@ class VerificationGate:
                 # Local Ollama needs no key; OpenAI-compatible clouds do.
                 api_key_env="" if self.provider == "local" else self.api_key_env,
                 max_tokens=max_tokens,
+                timeout=self.transport_timeout(),
             )
+        elif self.provider == "anthropic":
+            raw_response = _call_anthropic(prompt, frames_bytes, self.model, self.api_key_env)
         elif self.provider == "openrouter":
             raw_response = _call_openrouter(prompt, frames_bytes, self.model, self.api_key_env,
                                             max_tokens=max_tokens)
         elif self.provider == "ollama":
             raw_response = _call_ollama(prompt, frames_bytes, self.model, self.api_key_env,
-                                        base_url=self.base_url, max_tokens=max_tokens)
+                                        base_url=self.base_url, max_tokens=max_tokens,
+                                        max_retries=self.LOCAL_MAX_RETRIES,
+                                        timeout=self.transport_timeout())
         else:
             raise UnsupportedProvider(f"Unsupported provider: {self.provider}")
 
+        self._observe_latency(time.monotonic() - started)
         return raw_response
 
 
@@ -510,7 +542,8 @@ def _mock_response(alert: CandidateAlert) -> str:
 
 
 def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str,
-                 base_url: str = "", max_tokens: int | None = None) -> str:
+                 base_url: str = "", max_tokens: int | None = None,
+                 max_retries: int = 3, timeout: float = 360.0) -> str:
     """Verify via a LOCAL Ollama server — offline, on-device (the edge gate path).
 
     Ollama exposes an OpenAI-compatible API at localhost:11434 and ignores auth, so we
@@ -529,6 +562,8 @@ def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env
         # saying the flag never took. (Audit 23 Aug, #4.)
         api_base_url=base_url or "http://localhost:11434/v1",
         max_tokens=max_tokens,
+        max_retries=max_retries,
+        timeout=timeout,
     )
 
 
@@ -601,6 +636,7 @@ def _call_openai_compatible(
     base_url: str,
     api_key_env: str = "",
     max_tokens: int | None = None,
+    timeout: float = 120.0,
 ) -> str:
     """Call any OpenAI-compatible chat/vision endpoint.
 
@@ -636,7 +672,7 @@ def _call_openai_compatible(
         method="POST",
     )
     try:
-        with urlrequest.urlopen(req, timeout=120) as response:
+        with urlrequest.urlopen(req, timeout=timeout) as response:
             body = json.loads(response.read().decode("utf-8"))
     except urlerror.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:300]

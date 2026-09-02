@@ -278,9 +278,14 @@ class CustomRuleScanner:
         os.environ.setdefault("OLLAMA_API_KEY", "ollama")
         # 256 output tokens: a compact JSON list of a handful of threats with
         # one-sentence reasons — never a CoT ramble queueing behind verifies.
+        # No retries and a 120s budget (audit 1 Sep, V2): the scanner reruns
+        # every ~12s anyway, and alert verifies must never find every Ollama
+        # slot held by a scan that is being patient. A failed cycle is what
+        # the adaptive backoff and the heartbeat file are for.
         raw = call_openai_compatible(prompt=prompt, frame_bytes=buf.tobytes(), model=self.model,
                                      api_key_env="OLLAMA_API_KEY", api_base_url=self.base_url,
-                                     require_key=False, max_tokens=256)
+                                     require_key=False, max_tokens=256,
+                                     max_retries=0, timeout=120.0)
         m = re.search(r"\{.*\}", raw or "", re.S)
         if not m:
             return []

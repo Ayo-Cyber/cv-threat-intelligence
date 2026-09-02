@@ -37,17 +37,33 @@ log = get_logger(__name__)
 ResultHandler = Callable[[Frame, Any], None]
 
 
-def _gate_workers_for(requested: int, n_cameras: int) -> int:
-    """How many VLM workers to run. 0 = derive from camera count.
+def _gate_workers_for(requested: int, n_cameras: int, *, provider: str = "",
+                      device: str = "", slots: int | None = None) -> int:
+    """How many VLM workers to run. 0 = derive; an explicit request always wins.
 
     A verdict takes seconds, so on a multi-camera site alerts queue behind a
-    single worker: measured on a 5-camera run, median detection->verified latency
-    was 46.5s with one worker and 28.0s with two, for no extra memory. Capped at 3
-    because they contend for the same local model.
+    single worker: measured on a 5-camera run, median detection->verified
+    latency was 46.5s with one worker and 28.0s with two, for no extra memory.
+
+    For LOCAL providers the ceiling is the server's real parallelism (audit
+    1 Sep, V2): the old camera-derived cap of 3 put three workers on a server
+    running OLLAMA_NUM_PARALLEL=2 — the third worker queued server-side and
+    read as gate latency. Workers now never exceed the configured slots, and
+    a CPU-only box runs exactly one: concurrent CPU inference makes every
+    verdict slower than a queue would. Cloud gates keep the camera-derived
+    sizing — their parallelism is not ours to budget.
     """
     if requested > 0:
         return requested
-    return max(1, min(3, n_cameras // 2))
+    derived = max(1, min(3, n_cameras // 2))
+    if provider not in ("ollama", "local"):
+        return derived
+    if (device or _auto_device()) == "cpu":
+        return 1
+    if slots is None:
+        from cvti.verification.ollama import configured_parallel_slots
+        slots = configured_parallel_slots()
+    return max(1, min(derived, slots))
 
 
 def _auto_device() -> str:
@@ -755,7 +771,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
                                               base_url=gate_base_url, save_dir=save_dir,
                                               sensitivity=gate_sensitivity),
-        workers=_gate_workers_for(gate_workers, len(cams_cfg)),
+        workers=_gate_workers_for(gate_workers, len(cams_cfg),
+                                  provider=gate_provider, device=device),
         on_verdict=sink.handle,
         examples_provider=_examples_provider,
     ).start()
