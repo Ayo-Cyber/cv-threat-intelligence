@@ -149,6 +149,14 @@ def start_server(models_dir: str | None = None) -> bool:
     env.setdefault("OLLAMA_FLASH_ATTENTION", "1")
     env.setdefault("OLLAMA_KV_CACHE_TYPE", "q8_0")
     env.setdefault("OLLAMA_MAX_LOADED_MODELS", "1")
+    # Keep the model resident (latency audit 1 Sep, V3). Ollama's default
+    # unloads after 5 idle minutes, so on a quiet site every alert that
+    # arrives after a lull paid a full cold load — tens of seconds ON TOP of
+    # inference — and read as "verification is randomly slow". A monitoring
+    # gate is not a chat app: it must answer NOW precisely because nothing
+    # has happened for a while. -1 = never unload; the RAM it pins is the
+    # RAM the 24 Aug memory policy above already budgets for.
+    env.setdefault("OLLAMA_KEEP_ALIVE", "-1")
     if models_dir:
         Path(models_dir).mkdir(parents=True, exist_ok=True)
         env["OLLAMA_MODELS"] = str(models_dir)
@@ -162,6 +170,46 @@ def start_server(models_dir: str | None = None) -> bool:
         return True
     except OSError:
         return False
+
+
+def host_from_base_url(base_url: str) -> str:
+    """The native Ollama host for an OpenAI-compatible base URL.
+
+    The gate is configured with e.g. http://localhost:11434/v1; the native
+    endpoints (/api/generate, /api/tags) live one level up.
+    """
+    base = (base_url or DEFAULT_HOST).rstrip("/")
+    return base[:-3] if base.endswith("/v1") else base
+
+
+def warmup_model(model: str = DEFAULT_MODEL, host: str = DEFAULT_HOST,
+                 timeout: float = 600.0) -> bool:
+    """Load `model` into memory now, so the first verdict doesn't pay for it.
+
+    POST /api/generate with a model and NO prompt is Ollama's documented
+    preload: the server loads the weights and returns without generating.
+    keep_alive -1 pins the load; on our own spawned server the env var says
+    the same thing, and on an operator-run server this at least holds until
+    a later request's own keep_alive overrides it. The generous timeout is
+    the pilot reality — a 3.3 GB model on a cold spinning disk. Best-effort:
+    False means the first real call pays the load, exactly as before.
+    """
+    req = urlrequest.Request(
+        f"{host.rstrip('/')}/api/generate",
+        data=json.dumps({"model": model, "keep_alive": -1}).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlrequest.urlopen(req, timeout=timeout) as resp:
+            ok = resp.status == 200
+    except (urlerror.URLError, OSError) as exc:
+        log.warning("VLM warmup failed — first verdict will pay the model load: %s",
+                    str(exc)[:160])
+        return False
+    if ok:
+        log.info("VLM model %s is loaded and pinned in memory", model)
+    return ok
 
 
 def default_models_dir() -> str:

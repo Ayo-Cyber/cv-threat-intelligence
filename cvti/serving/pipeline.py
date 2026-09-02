@@ -516,6 +516,37 @@ def gate_reachable(stats: dict, now: float | None = None):
     return (now - last_ok) <= patience
 
 
+def warm_gate_model_async(gate_provider: str, gate_model: str,
+                          gate_base_url: str = "") -> "threading.Thread | None":
+    """Start loading the local VLM into memory while the rest of startup runs.
+
+    Cold-start reality on pilot hardware (audit 1 Sep, V3): the first alert
+    after engine start paid the full ~3 GB model load INSIDE its verify call
+    — tens of seconds billed to "the gate is slow". Scene mapping hits the
+    same wall. So the moment the engine knows it will need the local model,
+    a background thread brings the server up (best-effort, same as the
+    console does before spawning us) and issues Ollama's documented preload.
+    Local providers only; cloud gates have nothing to warm. Never blocks and
+    never fails startup — a warmup that loses just means the old behaviour.
+    """
+    if gate_provider not in ("ollama", "local"):
+        return None
+
+    def _warm() -> None:
+        try:
+            from cvti.verification import ollama as _ollama
+            host = _ollama.host_from_base_url(gate_base_url)
+            if _ollama.ensure_server(host):
+                _ollama.warmup_model(gate_model or LOCAL_VLM_MODEL, host)
+        except Exception:  # noqa: BLE001 - warmup is an optimisation, never a failure
+            log.warning("VLM warmup thread failed; first verdict pays the load",
+                        exc_info=True)
+
+    thread = threading.Thread(target=_warm, name="vlm-warmup", daemon=True)
+    thread.start()
+    return thread
+
+
 def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              target_fps: float = 5.0, imgsz: int = 640, conf: float = 0.4,
              device: str = "", half: bool = False, seconds: float = 90.0,
@@ -571,6 +602,10 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                           gate_provider=gate_provider, gate_model=gate_model)
     threading.Thread(target=_starting_beat, name="starting-beat",
                      daemon=True).start()
+    # Start the model load NOW, in parallel with the preflight and the torch
+    # loads below — by the time the first candidate alert needs a verdict the
+    # weights are resident instead of cold on disk.
+    warm_gate_model_async(gate_provider, gate_model, gate_base_url)
     mapping_service = build_mapper_service(
         output_dir=output_dir,
         gate_provider=gate_provider,
