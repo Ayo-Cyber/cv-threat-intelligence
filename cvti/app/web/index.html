@@ -70,7 +70,7 @@
     color:var(--c-mut);background:transparent;user-select:none}
   .chip.on{border-color:var(--c-accent);color:#fff;background:var(--c-accent-soft)}
   /* cameras table */
-  .thead,.trow{display:grid;grid-template-columns:150px 1fr 130px 200px 90px;gap:12px;padding:11px 16px;align-items:center}
+  .thead,.trow{display:grid;grid-template-columns:150px 1fr 130px 200px 90px 70px;gap:12px;padding:11px 16px;align-items:center}
   .thead{border-bottom:1px solid var(--c-border);font-size:10.5px;font-weight:700;letter-spacing:.07em;
     text-transform:uppercase;color:var(--c-sub)}
   .trow{border-bottom:1px solid var(--c-border)}
@@ -826,10 +826,11 @@ function renderCameras(){
         +'<span class="mono mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((c.source||"").split("@").pop())+'</span>'
         + linkCell(linkBy[c.id])
         +'<span class="mut">'+esc((c.config||"").split("/").pop())+'</span>'
-        +'<span class="mono sub">'+esc(sig)+'</span></div>';
+        +'<span class="mono sub">'+esc(sig)+'</span>'
+        +'<button class="chip" onclick="uiRemoveCamera(\''+esc(c.id)+'\')">remove</button></div>';
     }).join("");
     var table = state.cameras.length ?
-      ('<div class="panel" style="overflow:hidden;margin-top:8px"><div class="thead"><span>Camera</span><span>Source</span><span>Status</span><span>Rule preset</span><span>Signals</span></div>'+rows+'</div>')
+      ('<div class="panel" style="overflow:hidden;margin-top:8px"><div class="thead"><span>Camera</span><span>Source</span><span>Status</span><span>Rule preset</span><span>Signals</span><span></span></div>'+rows+'</div>')
       : '<div class="empty"><div style="font-size:22px;font-weight:600">Connect your first camera</div><p class="mut" style="line-height:1.5">Argus works with the cameras you already have. Paste a stream address or scan your network. Nothing leaves this PC.</p></div>';
     var testHtml = renderTestBox();
     $("screen").innerHTML =
@@ -876,6 +877,14 @@ function doAdd(){ var u=$("url").value.trim(); if(!u){state.test={error:"Enter a
   Object.keys(cam).forEach(function(k){if(cam[k]===null)delete cam[k];});
   Object.assign(cam, sceneHintValues("ch"));
   call("addCamera",[JSON.stringify(cam)],function(r){ if(r&&r.error){alert(r.error);return;} state.test=null; refreshCounts(); renderCameras(); }); }
+/* Until 2 Sep removing a camera existed only inside the onboarding wizard —
+   a typo'd RTSP address on the Cameras screen was permanent without editing
+   site.json by hand. Alerts and evidence are events.db rows keyed by id, not
+   by the camera entry, so removal never touches them. */
+function uiRemoveCamera(id){
+  if(!confirm("Remove camera '"+id+"'?\n\nIts recorded alerts and evidence are kept."))return;
+  call("removeCamera",[id],function(r){ if(r&&r.error){alert(r.error);return;} refreshCounts(); renderCameras(); });
+}
 
 /* ---------- Live wall ---------- */
 function streamUrl(camId){
