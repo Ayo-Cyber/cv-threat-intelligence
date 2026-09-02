@@ -95,6 +95,28 @@ def _to_queued(camera_id: str, alert: Any, timestamp: float, zone: str | None,
     )
 
 
+# Replay clips are context, not forensic evidence — the gate's frames and the
+# saved evidence bundle stay full-resolution elsewhere. 640w is plenty to see
+# what led up to an alert, and it is the difference between the per-camera
+# replay buffer costing ~7 MB + a full-1080p JPEG encode EVERY frame, and
+# ~1.5 MB + an encode a fraction of that size (audit 1 Sep, D4).
+CLIP_BUFFER_WIDTH = 640
+
+
+def encode_clip_frame(image: Any, max_width: int = CLIP_BUFFER_WIDTH) -> bytes | None:
+    """One replay-buffer frame: downscaled to <=max_width, JPEG q80.
+
+    Returns None when encoding fails — the replay window simply misses that
+    frame, which is the old behaviour for a failed encode."""
+    height, width = image.shape[:2]
+    if width > max_width:
+        scale = max_width / float(width)
+        image = cv2.resize(image, (max_width, max(1, round(height * scale))),
+                           interpolation=cv2.INTER_AREA)
+    ok, enc = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    return enc.tobytes() if ok else None
+
+
 @dataclass
 class PerCameraState:
     camera_id: str
@@ -300,11 +322,11 @@ class PerCameraState:
 
         frame_hw = image.shape[:2]
         self._frame_buffer.append(image)
-        # Continuous replay buffer: encode this frame to JPEG (cheap, ~1ms) and keep
-        # a rolling window with timestamps so a confirmed alert replays as real video.
-        ok_enc, enc = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-        if ok_enc:
-            self._clip_buffer.append((timestamp, enc.tobytes()))
+        # Continuous replay buffer: a rolling JPEG window with timestamps so a
+        # confirmed alert replays as real video of the lead-up.
+        clip_jpeg = encode_clip_frame(image)
+        if clip_jpeg is not None:
+            self._clip_buffer.append((timestamp, clip_jpeg))
 
         # Camera tamper/block runs on the raw frame — independent of any person,
         # since a covered camera shows nothing. Cheap CV, every frame.
