@@ -15,7 +15,7 @@ after ~5 minutes, so RAM is only used in short bursts during verification.
 
 1. Install Ollama: https://ollama.com/download (or `brew install ollama` on macOS).
 2. Start the server (the app also tries to start it for you): `ollama serve`
-3. Pull a model (the app offers to do this on first Start): `ollama pull gemma3:4b-it-qat`
+3. Pull a model (the app offers to do this on first Start): `ollama pull gemma3:4b`
 
 ## Choosing a model
 
@@ -25,19 +25,18 @@ top of the ~1.5–2.5 GB the YOLO + Qt + Python stack uses):
 
 | Model (Ollama tag)      | Params | Loaded RAM | Notes |
 |-------------------------|--------|-----------|-------|
-| `gemma3:4b-it-qat`      | 4B     | ~3.3 GB   | **Default.** Quantization-aware Gemma 3 — BF16-level quality at int4. ~6 GB peak. |
-| `gemma3:4b`             | 4B     | ~3.3 GB   | Plain Q4 Gemma 3. Same size, slightly lower quality than QAT. |
+| `gemma3:4b`             | 4B     | ~3.3 GB   | **Default.** Q4 Gemma 3 — what every measured number in this repo was measured on. ~6 GB peak. |
+| `gemma3:4b-it-qat`      | 4B     | ~3.3 GB   | Quantization-aware build; marginal quality gain, but a second ~3 GB pull nothing ships with. |
 | `moondream`             | 1.9B   | ~1.6–2 GB | Low-RAM fallback (~4 GB total) — weaker on complex scenes, higher error rate. |
 | `qwen2.5vl:7b`          | 7B     | ~6 GB     | Strongest small VLM; heavier. |
 | `llama3.2-vision`       | 11B    | ~8 GB     | Highest quality; tight alongside everything else. |
 
 > **Gemma vision floor:** `gemma3:270m` and `gemma3:1b` are **text-only** — they cannot
 > read frames. `gemma3:4b` is the *smallest* Gemma 3 with vision, so there is no way to
-> run a Gemma vision model under a true ~4 GB total budget. Use the QAT build
-> (`gemma3:4b-it-qat`) for the best quality at that ~3.3 GB footprint.
+> run a Gemma vision model under a true ~4 GB total budget.
 
-On an 18 GB Apple Silicon machine running YOLO + the Qt app, **`gemma3:4b-it-qat`** is
-the default (~6 GB peak, well within budget). `moondream` is only a last-resort fallback
+On an 18 GB Apple Silicon machine running YOLO + the Qt app, **`gemma3:4b`** is the
+default (~6 GB peak, well within budget). `moondream` is only a last-resort fallback
 if you must stay near ~4 GB total — expect lower verification accuracy.
 
 ## Using it

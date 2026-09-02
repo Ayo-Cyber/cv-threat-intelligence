@@ -57,9 +57,11 @@ class WatchRunner:
     def _ask(self, prompt: str, frame_bytes: bytes) -> str:
         os.environ.setdefault("OLLAMA_API_KEY", "ollama")
         from cvti.scene.agent_mapper import call_openai_compatible
+        # 256 output tokens: the answer is a short JSON list of watch matches.
         return call_openai_compatible(prompt=prompt, frame_bytes=frame_bytes,
                                       model=self.model, api_key_env="OLLAMA_API_KEY",
-                                      api_base_url=self.base_url, require_key=False)
+                                      api_base_url=self.base_url, require_key=False,
+                                      max_tokens=256)
 
     def scan_camera(self, cam: dict, frame: Any, now: float | None = None) -> list[dict]:
         """Bind watches to tracked people for one camera. Returns newly opened cases."""
@@ -69,7 +71,12 @@ class WatchRunner:
         if not watches or not boxes:
             return []                       # nothing to describe, or nobody to bind to
         annotated, mapping = annotate_candidates(frame, boxes)
-        ok, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        # Downscale AFTER annotating so the numbered boxes travel with the
+        # frame; 896 long-edge is the model's native tile size, the numbers
+        # stay legible.
+        from cvti.scene.agent_mapper import downscale_for_vlm
+        ok, buf = cv2.imencode(".jpg", downscale_for_vlm(annotated),
+                               [cv2.IMWRITE_JPEG_QUALITY, 80])
         if not ok:
             return []
         scene = ""

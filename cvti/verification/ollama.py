@@ -22,12 +22,13 @@ from typing import Callable, Iterator
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
+from cvti.contracts import LOCAL_VLM_MODEL
 from cvti.logging_setup import get_logger
 
 log = get_logger(__name__)
 
 DEFAULT_HOST = "http://localhost:11434"
-DEFAULT_MODEL = "gemma3:4b-it-qat"
+DEFAULT_MODEL = LOCAL_VLM_MODEL
 
 
 def server_up(host: str = DEFAULT_HOST, timeout: float = 2.0) -> bool:

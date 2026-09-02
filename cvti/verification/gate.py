@@ -20,7 +20,7 @@ from urllib import request as urlrequest
 
 import cv2
 
-from cvti.contracts import CandidateAlert, VerificationResult
+from cvti.contracts import LOCAL_VLM_MODEL, CandidateAlert, VerificationResult
 
 from cvti.logging_setup import get_logger
 
@@ -316,11 +316,20 @@ class VerificationGate:
     # Sensible per-provider default models.
     _DEFAULT_MODELS = {
         "anthropic": "claude-sonnet-4-6",
-        "local": "gemma3:4b-it-qat",
+        "local": LOCAL_VLM_MODEL,
         "openai_compatible": "gpt-4.1-mini",
         "openrouter": "google/gemma-4-26b-a4b-it:free",
-        "ollama": "gemma3:4b",
+        "ollama": LOCAL_VLM_MODEL,
     }
+    # Output budget per verdict (latency audit 1 Sep, V1). The CoT prompt asks
+    # for three short observations plus one final JSON line — 256 tokens holds
+    # the longest legitimate answer with room to spare; what the cap cuts off
+    # is a model narrating past its answer at ~10 tok/s on a pilot CPU. In CoT
+    # mode the JSON comes LAST, so an answer that somehow hits the cap loses
+    # its verdict — that parse failure lands fail-visible as UNVERIFIED, never
+    # as a dropped alert. The non-CoT prompt asks for the JSON object alone: 96.
+    MAX_TOKENS_COT = 256
+    MAX_TOKENS_JSON = 96
     # Conventional API-key env var per provider.
     DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY",
                        "ollama": "OLLAMA_API_KEY"}
@@ -451,6 +460,7 @@ class VerificationGate:
         return result
 
     def _call_provider(self, prompt: str, frames_bytes: list[bytes], alert: Any) -> str:
+        max_tokens = self.MAX_TOKENS_COT if self.cot else self.MAX_TOKENS_JSON
         if self.provider == "mock":
             raw_response = _mock_response(alert)
         elif self.provider == "anthropic":
@@ -463,12 +473,14 @@ class VerificationGate:
                 base_url=self.base_url or "https://api.openai.com/v1",
                 # Local Ollama needs no key; OpenAI-compatible clouds do.
                 api_key_env="" if self.provider == "local" else self.api_key_env,
+                max_tokens=max_tokens,
             )
         elif self.provider == "openrouter":
-            raw_response = _call_openrouter(prompt, frames_bytes, self.model, self.api_key_env)
+            raw_response = _call_openrouter(prompt, frames_bytes, self.model, self.api_key_env,
+                                            max_tokens=max_tokens)
         elif self.provider == "ollama":
             raw_response = _call_ollama(prompt, frames_bytes, self.model, self.api_key_env,
-                                        base_url=self.base_url)
+                                        base_url=self.base_url, max_tokens=max_tokens)
         else:
             raise UnsupportedProvider(f"Unsupported provider: {self.provider}")
 
@@ -480,10 +492,11 @@ class VerificationGate:
 # ---------------------------------------------------------------------------
 
 def _encode_frame(frame: Any) -> bytes:
-    ok, encoded = cv2.imencode(".jpg", frame)
-    if not ok:
-        raise RuntimeError("Failed to encode frame as JPEG.")
-    return encoded.tobytes()
+    # Downscaled + q80 (latency audit 1 Sep, V4a): multi-frame verifies were
+    # shipping full-resolution JPEGs the model's vision tower shrinks anyway.
+    # Evidence saving uses the original frames; only the wire copy shrinks.
+    from cvti.scene.agent_mapper import encode_frame_as_jpeg_bytes  # local import: shared budget
+    return encode_frame_as_jpeg_bytes(frame)
 
 
 def _mock_response(alert: CandidateAlert) -> str:
@@ -497,7 +510,7 @@ def _mock_response(alert: CandidateAlert) -> str:
 
 
 def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str,
-                 base_url: str = "") -> str:
+                 base_url: str = "", max_tokens: int | None = None) -> str:
     """Verify via a LOCAL Ollama server — offline, on-device (the edge gate path).
 
     Ollama exposes an OpenAI-compatible API at localhost:11434 and ignores auth, so we
@@ -515,10 +528,12 @@ def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env
         # a nonstandard Ollama host made every alert UNVERIFIED with nothing
         # saying the flag never took. (Audit 23 Aug, #4.)
         api_base_url=base_url or "http://localhost:11434/v1",
+        max_tokens=max_tokens,
     )
 
 
-def _call_openrouter(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str) -> str:
+def _call_openrouter(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str,
+                     max_tokens: int | None = None) -> str:
     """Verify via an OpenAI-compatible endpoint (OpenRouter / Gemma 4 etc.), one or many frames.
 
     Reuses agent_mapper.call_openai_compatible — the same retry/backoff path already
@@ -531,6 +546,7 @@ def _call_openrouter(prompt: str, frames_bytes: list[bytes], model: str, api_key
         model=model,
         api_key_env=api_key_env,
         api_base_url="https://openrouter.ai/api/v1",
+        max_tokens=max_tokens,
     )
 
 
@@ -584,6 +600,7 @@ def _call_openai_compatible(
     model: str,
     base_url: str,
     api_key_env: str = "",
+    max_tokens: int | None = None,
 ) -> str:
     """Call any OpenAI-compatible chat/vision endpoint.
 
@@ -606,6 +623,8 @@ def _call_openai_compatible(
             }
         ],
     }
+    if max_tokens is not None:      # output budget — see VerificationGate.MAX_TOKENS_COT
+        payload["max_tokens"] = int(max_tokens)
     headers = {"content-type": "application/json"}
     if api_key:
         headers["authorization"] = f"Bearer {api_key}"

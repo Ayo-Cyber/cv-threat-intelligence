@@ -16,6 +16,7 @@ import argparse
 import json
 from pathlib import Path
 
+from cvti.contracts import LOCAL_VLM_MODEL
 from cvti.eval.dataset import describe, load_dataset
 from cvti.eval.harness import EvalHarness, GateUnavailable
 from cvti.eval.metrics import compare_stages, render_report
@@ -61,7 +62,7 @@ def main() -> None:
     p.add_argument("--kind", default="", help="measure one threat only: fire|crowd|theft|violence")
     p.add_argument("--gate", choices=("ollama", "mock", "none"), default="mock",
                    help="ollama = real measurement; mock = wiring check; none = Stage 1 only.")
-    p.add_argument("--gate-model", default="gemma3:4b")
+    p.add_argument("--gate-model", default=LOCAL_VLM_MODEL)
     p.add_argument("--sensitivity", choices=("sensitive", "balanced", "strict"),
                    default="balanced", help="verification strictness to measure")
     p.add_argument("--detectors", default=None,

@@ -270,14 +270,17 @@ class CustomRuleScanner:
             'Reply ONLY compact JSON: {"threats": [{"name": "<exact name from the list>", '
             '"reason": "<one short sentence of what you see>"}]} — an empty list if none.'
         )
-        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        from cvti.scene.agent_mapper import call_openai_compatible, downscale_for_vlm
+        ok, buf = cv2.imencode(".jpg", downscale_for_vlm(frame),
+                               [cv2.IMWRITE_JPEG_QUALITY, 80])
         if not ok:
             return []
         os.environ.setdefault("OLLAMA_API_KEY", "ollama")
-        from cvti.scene.agent_mapper import call_openai_compatible
+        # 256 output tokens: a compact JSON list of a handful of threats with
+        # one-sentence reasons — never a CoT ramble queueing behind verifies.
         raw = call_openai_compatible(prompt=prompt, frame_bytes=buf.tobytes(), model=self.model,
                                      api_key_env="OLLAMA_API_KEY", api_base_url=self.base_url,
-                                     require_key=False)
+                                     require_key=False, max_tokens=256)
         m = re.search(r"\{.*\}", raw or "", re.S)
         if not m:
             return []

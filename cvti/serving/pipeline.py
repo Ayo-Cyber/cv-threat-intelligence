@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from cvti.contracts import LOCAL_VLM_MODEL
 from cvti.serving.alert_queue import QueuedAlert
 from cvti.serving.batcher import collect_batch
 from cvti.serving.streams import Frame, StreamDecoder
@@ -900,7 +901,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                 return f.image if f is not None else None
 
             watch_runner = WatchRunner(
-                cams_cfg, states, sink, model=gate_model or "gemma3:4b",
+                cams_cfg, states, sink, model=gate_model or LOCAL_VLM_MODEL,
                 base_url=gate_base_url or "http://localhost:11434/v1",
                 frame_source=_latest_frame).start()
 
@@ -918,7 +919,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             return f.image if f is not None else None
 
         custom_scanner = CustomRuleScanner(
-            cams_cfg, sink, model=gate_model or "gemma3:4b",
+            cams_cfg, sink, model=gate_model or LOCAL_VLM_MODEL,
             base_url=gate_base_url or "http://localhost:11434/v1",
             site_config_path=site_config_path,
             frame_source=_scanner_frame,

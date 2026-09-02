@@ -16,16 +16,17 @@ from cvti.app.widgets.config import ConfigPanel
 from cvti.app.widgets.feed import FeedWidget
 from cvti.app.widgets.mapper import MapperPanel
 from cvti.app.worker import DetectionWorker
+from cvti.contracts import LOCAL_VLM_MODEL
 from cvti.verification import ollama
 
 from cvti.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# Local VLM models offered for the offline gate. Gemma 3 first (client default);
-# the QAT build keeps BF16-level quality at the same ~3.3 GB as plain Q4, so it leads.
-# moondream is the low-RAM fallback (~2 GB, weaker quality); the rest are heavier.
-LOCAL_MODELS = ["gemma3:4b-it-qat", "gemma3:4b", "moondream", "qwen2.5vl:7b", "llama3.2-vision"]
+# Local VLM models offered for the offline gate: the shipped default first,
+# then operator alternates. moondream is the low-RAM fallback (~2 GB, weaker
+# quality); the rest are heavier.
+LOCAL_MODELS = [LOCAL_VLM_MODEL, "moondream", "qwen2.5vl:7b", "llama3.2-vision"]
 
 
 class ModelPullWorker(QThread):

@@ -18,12 +18,12 @@ machine — no cloud account or API key required for the local mode.
 
 ## 2. First run — one-time model download
 
-The app confirms alerts with a local vision model (**Gemma 3**, `gemma3:4b-it-qat`).
+The app confirms alerts with a local vision model (**Gemma 3**, `gemma3:4b`).
 The AI *engine* (Ollama) is already inside the app; the **model file (~3.3 GB) downloads
 once** on first use.
 
 1. In the top toolbar set **Gate** to **`local`**.
-2. Leave **Model** on **`gemma3:4b-it-qat`** (the default).
+2. Leave **Model** on **`gemma3:4b`** (the default).
 3. Press **▶ Start**. The app will:
    - start its built-in AI engine, and
    - ask to download the model — click **Yes**.
@@ -97,7 +97,7 @@ python -m cvti.app.main            # desktop app
 python -m cvti.pipelines.retail_pipeline \
   --source data/test_clips/theft_shop_01.mp4 \
   --config configs/retail_pipeline_v1.json \
-  --gate-provider local --gate-model gemma3:4b-it-qat
+  --gate-provider local --gate-model gemma3:4b
 ```
 
 Build the installer: `bash scripts/fetch_ollama.sh` once, then

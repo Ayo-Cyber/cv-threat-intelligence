@@ -251,7 +251,7 @@ per frame). Supported providers in `VerificationGate`:
 | `anthropic` | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` | Claude Vision |
 | `openrouter` | `google/gemma-4-26b-a4b-it:free` | `OPENROUTER_API_KEY` | Gemma / other vision models |
 | `ollama` | `gemma3:4b` | `OLLAMA_API_KEY` | Local Ollama server |
-| `local` | `gemma3:4b-it-qat` | — | On-device OpenAI-compatible endpoint (`http://localhost:11434/v1`) |
+| `local` | `gemma3:4b` | — | On-device OpenAI-compatible endpoint (`http://localhost:11434/v1`) |
 | `openai_compatible` | `gpt-4.1-mini` | `ANTHROPIC_API_KEY`→override | Any OpenAI-compatible cloud, via `base_url` |
 
 Features: multi-frame verification (send the N clearest frames), optional
