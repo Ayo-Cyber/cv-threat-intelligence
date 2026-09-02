@@ -270,12 +270,14 @@ class SlowMachinesAndMissingModelsTest(unittest.TestCase):
 
     def test_the_local_vlm_call_outlives_a_slow_verify(self):
         """A timeout at the measured MEDIAN fails half of all calls — the
-        English rules rode a 90s timeout on a 90.2s-median machine."""
-        src = Path("cvti/scene/agent_mapper.py").read_text()
-        import re
-        m = re.search(r"timeout=(\d+)\) as response:\n\s+parsed = json", src)
-        self.assertIsNotNone(m)
-        self.assertGreaterEqual(int(m.group(1)), 150)
+        English rules rode a 90s timeout on a 90.2s-median machine. The
+        timeout is a parameter now (the gate derives a live budget per call,
+        3 Sep), so the promise moves to the DEFAULT, which is what scene
+        mapping and any caller that doesn't know better ride on."""
+        import inspect
+        from cvti.scene.agent_mapper import call_openai_compatible
+        default = inspect.signature(call_openai_compatible).parameters["timeout"].default
+        self.assertGreaterEqual(default, 150)
 
     def test_a_failed_weapon_model_disables_the_flag_it_serves(self):
         src = Path("cvti/serving/pipeline.py").read_text()

@@ -58,10 +58,12 @@ class WatchRunner:
         os.environ.setdefault("OLLAMA_API_KEY", "ollama")
         from cvti.scene.agent_mapper import call_openai_compatible
         # 256 output tokens: the answer is a short JSON list of watch matches.
+        # No retries, 120s budget — same slot courtesy as the scanner: watches
+        # rerun on their own interval, verifies must never queue behind them.
         return call_openai_compatible(prompt=prompt, frame_bytes=frame_bytes,
                                       model=self.model, api_key_env="OLLAMA_API_KEY",
                                       api_base_url=self.base_url, require_key=False,
-                                      max_tokens=256)
+                                      max_tokens=256, max_retries=0, timeout=120.0)
 
     def scan_camera(self, cam: dict, frame: Any, now: float | None = None) -> list[dict]:
         """Bind watches to tracked people for one camera. Returns newly opened cases."""

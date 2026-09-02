@@ -172,6 +172,21 @@ def start_server(models_dir: str | None = None) -> bool:
         return False
 
 
+def configured_parallel_slots(default: int = 2) -> int:
+    """How many requests the local Ollama server actually runs at once.
+
+    Ollama exposes no API for this, so the env var is the source of truth:
+    OLLAMA_NUM_PARALLEL when the operator set it, else the 2 that
+    start_server() spawns with (memory policy, 24 Aug). Sizing the gate pool
+    beyond this number buys queueing, not throughput.
+    """
+    raw = os.environ.get("OLLAMA_NUM_PARALLEL", "").strip()
+    try:
+        return max(1, int(raw)) if raw else default
+    except ValueError:
+        return default
+
+
 def host_from_base_url(base_url: str) -> str:
     """The native Ollama host for an OpenAI-compatible base URL.
 
