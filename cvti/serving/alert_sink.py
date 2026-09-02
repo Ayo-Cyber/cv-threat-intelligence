@@ -274,27 +274,13 @@ class AlertSink:
         self._lock = threading.Lock()
         self._db = sqlite3.connect(self.db_path, check_same_thread=False)
         self._db.executescript(_SCHEMA)
-        # Migrate older DBs that predate the latency column.
-        try:
-            self._db.execute("ALTER TABLE events ADD COLUMN latency_s REAL")
-        except sqlite3.OperationalError:
-            pass       # already there
-        try:
-            self._db.execute("ALTER TABLE events ADD COLUMN bbox TEXT")
-        except sqlite3.OperationalError:
-            pass
-        for _col, _type in (("unverified", "INTEGER DEFAULT 0"), ("gate_error", "TEXT"),
-                            ("legal_hold", "INTEGER DEFAULT 0"), ("state", "TEXT"),
-                            ("owner", "TEXT"), ("acknowledged_at", "REAL"),
-                            ("resolved_at", "REAL"), ("outcome", "TEXT"), ("note", "TEXT"),
-                            ("provisional", "INTEGER DEFAULT 0"),
-                            ("retracted", "INTEGER DEFAULT 0"),
-                            ("prompt_version", "TEXT")):
-            try:
-                self._db.execute(f"ALTER TABLE events ADD COLUMN {_col} {_type}")
-            except sqlite3.OperationalError:
-                pass   # already there
-        self._db.commit()
+        # Migrate older DBs in place. ONE column list, shared with the
+        # console's migration (cvti.triage.EVENT_COLUMNS) — the engine's and
+        # the console's lists drifted once, and the console crashed on a
+        # column only this side knew to add (2 Sep, 'no such column:
+        # retracted' on the Now screen).
+        from cvti.triage import ensure_columns
+        ensure_columns(self._db)
         self.persisted = 0
         # Routing: send each alert to the channels its rule names (severity, camera,
         # time-of-day…), falling back to the site-wide notifier. Escalation re-sends

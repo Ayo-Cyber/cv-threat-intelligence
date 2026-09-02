@@ -144,24 +144,34 @@ def needs_attention(con: sqlite3.Connection, *, min_priority: str = "medium",
     if con.execute("SELECT name FROM sqlite_master "
                    "WHERE type='table' AND name='events'").fetchone() is None:
         return {"now": None, "then": [], "waiting": 0, "held": []}
+    # Query only the columns THIS store has. ensure_columns() migrates every
+    # writable store first, so this matters for the stores it cannot touch —
+    # the bundled read-only demo, a pilot db opened from a snapshot. A store
+    # written before a feature existed has no rows using it by definition:
+    # no retracted column means nothing was ever retracted, no state column
+    # means nothing was ever claimed. (2 Sep: the Now screen crashed on
+    # exactly this, every 3-second poll, on every fresh install.)
+    cols = {row[1] for row in con.execute("PRAGMA table_info(events)")}
+    not_retracted = ("COALESCE(retracted, 0) = 0" if "retracted" in cols else "1=1")
+    review_case = ("CASE WHEN review IN ('true','false') THEN 'resolved' "
+                   "WHEN review = 'ack' THEN 'acknowledged' ELSE 'new' END"
+                   if "review" in cols else "'new'")
+    state_expr = (f"COALESCE(state, {review_case})" if "state" in cols else review_case)
     threshold = _PRIORITY_RANK.get(min_priority, 1)
     ranked = " ".join(f"WHEN '{p}' THEN {r}" for p, r in _PRIORITY_RANK.items())
     rows = con.execute(
-        f"SELECT * FROM events WHERE COALESCE(retracted, 0) = 0 "
-        f"AND COALESCE(state, CASE "
-        f"  WHEN review IN ('true','false') THEN 'resolved' "
-        f"  WHEN review = 'ack' THEN 'acknowledged' ELSE 'new' END) = 'new' "
+        f"SELECT * FROM events WHERE {not_retracted} "
+        f"AND {state_expr} = 'new' "
         f"AND (CASE priority {ranked} ELSE 0 END) >= ? "
         f"ORDER BY (CASE priority {ranked} ELSE 0 END) DESC, ts ASC LIMIT ?",
         (threshold, int(limit))).fetchall()
     held = con.execute(
         "SELECT id, rule, camera_id, owner, acknowledged_at FROM events "
-        "WHERE state = 'acknowledged' ORDER BY acknowledged_at DESC LIMIT 5").fetchall()
+        "WHERE state = 'acknowledged' ORDER BY acknowledged_at DESC LIMIT 5"
+    ).fetchall() if "state" in cols else []
     waiting = con.execute(
-        f"SELECT COUNT(*) FROM events WHERE COALESCE(retracted, 0) = 0 "
-        f"AND COALESCE(state, CASE "
-        f"  WHEN review IN ('true','false') THEN 'resolved' "
-        f"  WHEN review = 'ack' THEN 'acknowledged' ELSE 'new' END) = 'new' "
+        f"SELECT COUNT(*) FROM events WHERE {not_retracted} "
+        f"AND {state_expr} = 'new' "
         f"AND (CASE priority {ranked} ELSE 0 END) >= ?", (threshold,)).fetchone()[0]
     return {
         "now": dict(rows[0]) if rows else None,
@@ -171,13 +181,36 @@ def needs_attention(con: sqlite3.Connection, *, min_priority: str = "medium",
     }
 
 
+# Every column the live schema has that an older events store may lack — ONE
+# list, used by this module's console-side migration and imported by the
+# engine's sink for its own. The lists used to be two, and they drifted: the
+# console grew queries over `retracted` while its migration stopped at `note`,
+# so a store written before the retraction feature (the bundled demo, any
+# pre-1.4 pilot db) crashed the Now screen with 'no such column: retracted'
+# every 3-second poll (found by the 2 Sep UI pass).
+EVENT_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("review", "TEXT"), ("reviewed_at", "TEXT"),
+    ("latency_s", "REAL"), ("bbox", "TEXT"),
+    ("unverified", "INTEGER DEFAULT 0"), ("gate_error", "TEXT"),
+    ("legal_hold", "INTEGER DEFAULT 0"),
+    ("state", "TEXT"), ("owner", "TEXT"),
+    ("acknowledged_at", "REAL"), ("resolved_at", "REAL"),
+    ("outcome", "TEXT"), ("note", "TEXT"),
+    ("provisional", "INTEGER DEFAULT 0"), ("retracted", "INTEGER DEFAULT 0"),
+    ("prompt_version", "TEXT"),
+)
+
+
 def ensure_columns(con: sqlite3.Connection) -> None:
-    """Migrate an existing events table in place. Idempotent."""
-    for col, decl in (("state", "TEXT"), ("owner", "TEXT"),
-                      ("acknowledged_at", "REAL"), ("resolved_at", "REAL"),
-                      ("outcome", "TEXT"), ("note", "TEXT")):
+    """Migrate an existing events table in place. Idempotent, and safe on a
+    read-only store (every failed ALTER is skipped — the query side handles
+    missing columns, see needs_attention)."""
+    for col, decl in EVENT_COLUMNS:
         try:
             con.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
         except sqlite3.OperationalError:
             pass
-    con.commit()
+    try:
+        con.commit()
+    except sqlite3.OperationalError:
+        pass          # read-only store: nothing was altered, nothing to commit
