@@ -712,6 +712,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
                                video_action_model=video_action_model,
                                va_runner=va_runner,
+                               imgsz=imgsz,
                                baseline_config=baseline_config,
                                scene_contexts=mapping_preflight.contexts,
                                monitoring_scopes=monitoring_scopes_from_preflight(

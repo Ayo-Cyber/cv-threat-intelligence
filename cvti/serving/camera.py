@@ -162,7 +162,15 @@ class PerCameraState:
     va_runner: Any = None
     pose_conf: float = 0.35
     weapon_conf: float = 0.40
+    # Inference size for the per-camera pose/weapon passes. run_site plumbs
+    # its own --imgsz here (audit 1 Sep, D3): the engine spawns with 512, and
+    # until 3 Sep this default silently made pose and weapon the only models
+    # still paying for 640 — a leak, not a choice.
     imgsz: int = 640
+    # The heavy per-camera models (pose, weapon) run every Nth frame instead
+    # of every frame — their consumers are temporal accumulators plus the VLM
+    # gate, and half the samples still trigger them; the model cost halves.
+    heavy_stride: int = 2
     va_fps: float = 5.0
     va_window_seconds: float = 4.0
     va_frames: int = 16
@@ -180,6 +188,8 @@ class PerCameraState:
     _person_classes: Any = field(default=None, init=False, repr=False)
     _video_runtime: Any = field(default=None, init=False, repr=False)
     _va_index: int = field(default=0, init=False, repr=False)
+    _heavy_tick: int = field(default=0, init=False, repr=False)
+    _person_seen_last_frame: bool = field(default=False, init=False, repr=False)
     _tamper_det: Any = field(default=None, init=False, repr=False)
     _fall_det: Any = field(default=None, init=False, repr=False)
     _fire_det: Any = field(default=None, init=False, repr=False)
@@ -257,10 +267,15 @@ class PerCameraState:
         self._prev_pose = list(pose_people)
         return pose_people
 
-    def _merged_detections(self, object_detections: list | None, image: Any) -> list:
-        """Shared object detections + (optional) per-camera weapon-model detections."""
+    def _merged_detections(self, object_detections: list | None, image: Any,
+                           include_weapon: bool = True) -> list:
+        """Shared object detections + (optional) per-camera weapon-model detections.
+
+        `include_weapon=False` skips the weapon model's forward pass (the
+        person-gate/cadence below decided this frame doesn't earn one) while
+        still handing the assessments the shared detections."""
         merged = list(object_detections or [])
-        if self.weapon_model is not None:
+        if include_weapon and self.weapon_model is not None:
             from cvti.detector.core import merge_detections, predict_with_model
             weap = predict_with_model(self.weapon_model, image, self.weapon_conf, self.imgsz,
                                       self._weapon_classes, source_model="weapon")
@@ -425,7 +440,27 @@ class PerCameraState:
             zone_by_pid = {e.person_id: e.extra.get("zone") for e in zone_events}
 
         try:
-            pose_people = self._compute_pose(image, timestamp) if self._needs_pose() else []
+            # Person-gate + cadence for the HEAVY per-camera models (audit
+            # 1 Sep, D3). Pose and weapon are full forward passes per camera
+            # per frame, and they ran unconditionally — on empty corridors,
+            # on parked cars, all night. Everything they feed is about a
+            # person doing something, so: no person in the shared detector's
+            # frame, no heavy models. With people present they run on a
+            # stride (every Nth frame — their consumers are temporal
+            # accumulators and the VLM gate, which survive half the samples),
+            # except the first frame a person APPEARS, which always runs so a
+            # threat's opening moment is never the one we skipped. The gate
+            # reads the RAW detections, not the tracked ones — ByteTrack
+            # drops low-confidence boxes, and a half-seen person is exactly
+            # who the weapon model should look at.
+            person_present = bool(_person_boxes(detections))
+            first_appearance = person_present and not self._person_seen_last_frame
+            self._person_seen_last_frame = person_present
+            self._heavy_tick += 1
+            run_heavy = person_present and (
+                first_appearance or self._heavy_tick % max(1, self.heavy_stride) == 0)
+            pose_people = (self._compute_pose(image, timestamp)
+                           if self._needs_pose() and run_heavy else [])
             if self._conceal is not None:
                 from cvti.detector.core import pose_people_to_concealment_frames
                 from cvti.event_adapters import concealment_to_events
@@ -433,7 +468,8 @@ class PerCameraState:
                     pose_people_to_concealment_frames(pose_people, timestamp), timestamp)
                 raw_events += concealment_to_events(assessments, timestamp)
             if self.violence or self.weapons or self.theft:
-                merged = self._merged_detections(object_detections, image)
+                merged = self._merged_detections(object_detections, image,
+                                                 include_weapon=run_heavy)
                 raw_events += self._assessment_events(pose_people, merged, image, timestamp)
             # Video-action runs on a CADENCE, not only when another signal fired.
             # Gating it behind concealment meant theft that isn't concealment-
@@ -521,7 +557,8 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                         baseline_config: str | None = None,
                         scene_contexts: dict[str, dict] | None = None,
                         monitoring_scopes: dict[str, str] | None = None,
-                        reviewed_camera_ids: set | None = None) -> dict[str, dict]:
+                        reviewed_camera_ids: set | None = None,
+                        imgsz: int = 640) -> dict[str, dict]:
     """Parse a site config into {camera_id: {"source": ..., "state": PerCameraState}}.
 
     Site config per-camera keys: id, source, config, plus optional zones,
@@ -564,6 +601,10 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 pose_model=pose_model, weapon_model=weapon_model,
                 video_action_model=video_action_model,
                 va_runner=va_runner,
+                # The engine's one inference size: pose/weapon run at the
+                # same imgsz as the shared detector, not a leaked default.
+                imgsz=imgsz,
+                heavy_stride=int(cam.get("heavy_stride", 2)),
                 concealment=bool(cam.get("concealment")), violence=bool(cam.get("violence")),
                 weapons=bool(cam.get("weapons")), theft=bool(cam.get("theft")),
                 tamper=bool(cam.get("tamper")), fall=bool(cam.get("fall")),
