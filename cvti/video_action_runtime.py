@@ -136,6 +136,7 @@ class VideoActionRuntime:
         frame_count: int = DEFAULT_FRAME_COUNT,
         top_k: int = 5,
         cooldown_seconds: float = 2.0,
+        buffer_short_side: int = 256,
         verbose: bool = False,
     ) -> None:
         self.model = model
@@ -146,14 +147,37 @@ class VideoActionRuntime:
         self.frame_count = frame_count
         self.top_k = top_k
         self.cooldown_seconds = cooldown_seconds
+        # Buffer at the size the model actually consumes (audit 1 Sep, D4):
+        # VideoMAE's processor works from 224px crops and X3D from 256 — yet
+        # this buffer held full decoded frames, ~250 MB per 1080p camera, all
+        # of it resized away at inference. Shrink on the way IN: the resize
+        # cost moves to one small op per frame, and the buffer drops to ~14 MB.
+        self.buffer_short_side = buffer_short_side
         self.verbose = verbose
         self._last_analysis_timestamp = -1_000_000.0
         buffer_size = max(frame_count, int(round(self.fps * window_seconds * 2)) + frame_count)
         self._frames: deque[BufferedFrame] = deque(maxlen=buffer_size)
 
+    def _shrink(self, frame: np.ndarray) -> np.ndarray:
+        height, width = frame.shape[:2]
+        short = min(height, width)
+        if short <= self.buffer_short_side:
+            return frame
+        scale = self.buffer_short_side / float(short)
+        new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
+        # INTER_LINEAR, not INTER_AREA: at this shrink factor AREA costs
+        # ~6.4 ms per 1080p frame on the detection hot path where LINEAR
+        # costs 0.16 ms (measured 3 Sep) — and LINEAR is the exact filter
+        # the model's own preprocessing applied to these frames anyway, so
+        # the classifier sees what it always saw.
+        return cv2.resize(frame, new_size, interpolation=cv2.INTER_LINEAR)
+
     def add_frame(self, frame: np.ndarray, *, frame_index: int) -> None:
-        # Store RGB frames because VideoMAE/X3D wrappers expect RGB arrays.
-        self._frames.append(BufferedFrame(index=frame_index, frame=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+        # Shrink BEFORE the colour conversion so cvtColor also runs on the
+        # small frame. Store RGB because VideoMAE/X3D wrappers expect RGB.
+        small = self._shrink(frame)
+        self._frames.append(BufferedFrame(index=frame_index,
+                                          frame=cv2.cvtColor(small, cv2.COLOR_BGR2RGB)))
 
     def prepare_analysis(self, *, center_frame_index: int,
                          timestamp: float) -> "Callable[[], list[RawEvent]] | None":
