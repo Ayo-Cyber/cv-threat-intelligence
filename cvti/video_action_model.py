@@ -203,6 +203,13 @@ class VideoMAEActionModel:
         self._model: Any | None = None
         self._torch: Any | None = None
 
+    def load(self) -> None:
+        """Load weights NOW, during the startup phase whose heartbeat already
+        says 'loading detection models' — instead of inside the first
+        inference, where the frame loop (and the operator's first real alert)
+        paid the full torch + transformers import and weight load."""
+        self._load()
+
     def predict_frames(
         self,
         frames: list[np.ndarray],
@@ -299,6 +306,10 @@ class X3DActionModel:
         self._model: Any | None = None
         self._torch: Any | None = None
         self._labels: list[str] = []
+
+    def load(self) -> None:
+        """Load weights now (startup) rather than inside the first inference."""
+        self._load()
 
     def predict_frames(
         self,

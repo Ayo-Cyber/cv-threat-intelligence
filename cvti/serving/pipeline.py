@@ -690,16 +690,28 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                 c["weapons"] = False
     # Load ONE shared video-action model iff any camera enables it (best-effort).
     video_action_model = None
+    va_runner = None
     if any(c.get("video_action") for c in cams_cfg):
         try:
             from cvti.video_action_model import VideoMAEActionModel
             video_action_model = VideoMAEActionModel(video_action_model_path)
+            # Eagerly, in the phase whose heartbeat says 'loading detection
+            # models' — the wrapper is lazy, so until 2 Sep this log line
+            # celebrated a load that had not happened, and the FIRST
+            # theft-shaped event paid the whole torch+transformers load
+            # inside the frame loop, on top of its inference (audit D1).
+            video_action_model.load()
             log.info(f"[site] shared video-action model loaded ({video_action_model_path})")
         except Exception as exc:  # noqa: BLE001
+            video_action_model = None
             log.warning(f"[site] video-action model unavailable ({str(exc)[:80]}); disabled", exc_info=True)
             model_failures.append(f"video-action detector configured but its model failed to load: {str(exc)[:90]}")
+    if video_action_model is not None:
+        from cvti.video_action_runtime import AsyncVideoActionRunner
+        va_runner = AsyncVideoActionRunner().start()
     cams = build_camera_states(site, pose_model=pose_model, weapon_model=weapon_model,
                                video_action_model=video_action_model,
+                               va_runner=va_runner,
                                baseline_config=baseline_config,
                                scene_contexts=mapping_preflight.contexts,
                                monitoring_scopes=monitoring_scopes_from_preflight(
@@ -1309,6 +1321,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         _mapping_stop.set()
         _esc_stop.set()
         pipe.stop()
+        if va_runner is not None:
+            va_runner.stop()
+            if va_runner.dropped or va_runner.failed:
+                log.info(f"[VideoAction] clips analysed={va_runner.completed} "
+                         f"replaced_stale={va_runner.dropped} failed={va_runner.failed}")
         if custom_scanner is not None:
             custom_scanner.stop()
         if watch_runner is not None:

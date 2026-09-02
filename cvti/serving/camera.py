@@ -134,6 +134,10 @@ class PerCameraState:
     fire_min_hot_area_ratio: float = 0.012
     video_action: bool = False
     video_action_model: Any = None    # shared VideoMAEActionModel instance
+    # Shared AsyncVideoActionRunner (one worker thread per site). When set,
+    # inference leaves the frame loop entirely: this camera submits clips and
+    # drains verdicts. None = the synchronous legacy path (single-stream CLI).
+    va_runner: Any = None
     pose_conf: float = 0.35
     weapon_conf: float = 0.40
     imgsz: int = 640
@@ -413,11 +417,23 @@ class PerCameraState:
             # Gating it behind concealment meant theft that isn't concealment-
             # shaped (e.g. a grab-and-go) was never seen by the fine-tuned model —
             # even when it would catch it at high confidence. The runtime's own
-            # cooldown_seconds throttles how often the model actually runs, so
-            # calling every frame is cheap; it only infers ~every cooldown window.
+            # cooldown_seconds throttles how often clips are queued, so calling
+            # every frame is cheap.
             if self._video_runtime is not None:
-                raw_events += self._video_runtime.analyze_event(
-                    center_frame_index=self._va_index - 1, timestamp=timestamp)
+                if self.va_runner is not None:
+                    # Off the frame loop (audit 1 Sep, D1): the 2–6s forward
+                    # pass used to run HERE, stalling every camera on the
+                    # site. Now this frame only collects verdicts that
+                    # finished since last frame and queues a clip snapshot;
+                    # the shared worker does the waiting.
+                    raw_events += self.va_runner.drain(self.camera_id)
+                    clip = self._video_runtime.prepare_analysis(
+                        center_frame_index=self._va_index - 1, timestamp=timestamp)
+                    if clip is not None:
+                        self.va_runner.submit(self.camera_id, clip)
+                else:
+                    raw_events += self._video_runtime.analyze_event(
+                        center_frame_index=self._va_index - 1, timestamp=timestamp)
             self._health.ok()
         except Exception as exc:  # noqa: BLE001 - a detector hiccup must not kill the camera
             # Rate-limited: a detector throwing on every frame must not fill the
@@ -479,6 +495,7 @@ class PerCameraState:
 
 def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_model: Any = None,
                         video_action_model: Any = None,
+                        va_runner: Any = None,
                         baseline_config: str | None = None,
                         scene_contexts: dict[str, dict] | None = None,
                         monitoring_scopes: dict[str, str] | None = None,
@@ -524,6 +541,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 active_zone_roles=active_zone_roles,
                 pose_model=pose_model, weapon_model=weapon_model,
                 video_action_model=video_action_model,
+                va_runner=va_runner,
                 concealment=bool(cam.get("concealment")), violence=bool(cam.get("violence")),
                 weapons=bool(cam.get("weapons")), theft=bool(cam.get("theft")),
                 tamper=bool(cam.get("tamper")), fall=bool(cam.get("fall")),
