@@ -802,9 +802,21 @@ function linkCell(link){
   if(link && st==="connected" && link.last_frame_age_s!=null) age = " · frame "+fmtAge(link.last_frame_age_s)+" ago";
   else if(link && link.time_in_state) age = " · "+fmtAge(link.time_in_state);
   var rc = link && link.reconnects ? ' <span class="mut" title="reconnections">↻'+link.reconnects+'</span>' : "";
+  /* Adaptive ingest (3 Sep): when THIS machine can't keep up with the
+     camera's stream, say the numbers and the fix — a slow wall with no
+     explanation reads as a broken product. */
+  var ing = link && link.ingest;
+  var ingest = "";
+  if(ing && ing.width){
+    var res = ing.width+"×"+ing.height+(ing.source_fps?("@"+Math.round(ing.source_fps)):"");
+    ingest = ing.limited
+      ? '<div style="font-size:10.5px;color:var(--sev-high)" title="This machine cannot decode this stream at full rate. Use the camera\'s lower-resolution substream to restore it.">'
+        + esc(res)+' · machine-limited, sampling '+esc(String(ing.sampling_fps))+'fps</div>'
+      : '<div class="mut" style="font-size:10.5px">'+esc(res)+' · sampling '+esc(String(ing.sampling_fps))+'fps</div>';
+  }
   return '<span><span class="dot" style="background:'+ui[0]+'"></span>'
     + '<span style="color:'+ui[0]+'">'+esc(ui[1])+'</span>'
-    + '<span class="mut" style="font-size:11px">'+esc(age)+'</span>'+rc+'</span>';
+    + '<span class="mut" style="font-size:11px">'+esc(age)+'</span>'+rc+ingest+'</span>';
 }
 function fmtAge(sec){
   sec = Math.round(sec);

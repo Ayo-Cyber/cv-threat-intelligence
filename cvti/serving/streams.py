@@ -192,13 +192,80 @@ class StreamDecoder:
         self.state = CONNECTED
         self.state_since = time.time()
         self.last_frame_at = 0.0
+        # Adaptive ingest state (see _observe_ingest).
+        self.stream_width = 0
+        self.stream_height = 0
+        self._busy_ms: float | None = None
+        self.sustainable_fps = 30.0
+        self._ingest_limited = False
         # Bounded: the useful signal is "it has been flapping", not every attempt
         # since install.
         self.attempt_history: deque = deque(maxlen=20)
 
+    # --- adaptive ingest (3 Sep) --------------------------------------------
+    # "Slow stream" on the pilot's box was the machine, not the camera: a
+    # CPU-only laptop decoding a 1080p25 RTSP main stream while the VLM pegs
+    # every core cannot hit even 4fps — and nothing measured it, adapted to
+    # it, or SAID it. The decoder now measures what one kept frame actually
+    # costs on THIS machine (grabs + decode, wall time), derives the rate it
+    # can sustain while spending at most half its thread on ingest, caps the
+    # effective fps there, and reports all of it through link_status so the
+    # health doc and the Cameras screen can tell the operator the truth
+    # ("this machine sustains ~2.7fps of 1920x1080@25 — use the camera's
+    # substream") instead of just looking slow.
+    ADAPT_FLOOR_FPS = 1.0
+    ADAPT_TOLERANCE = 1.15   # 15% over pace is jitter; beyond it is deficit
+
     @property
     def time_in_state(self) -> float:
         return time.time() - self.state_since
+
+    def _observe_ingest(self, elapsed_seconds: float, stride: int) -> None:
+        """Is this machine keeping the pace this stream asks of it?
+
+        `elapsed` is one kept frame's wall time (stride grabs + decode). At
+        the live edge grab() WAITS for frames at source rate, so raw elapsed
+        punishes healthy machines for the camera's own pacing — the honest
+        deficit signal is elapsed exceeding what the iteration SHOULD take:
+        the larger of our own sampling period and the source's arrival time
+        for `stride` frames. Only a machine falling behind that deadline gets
+        capped, at the rate it actually achieves; headroom recovers the cap.
+        """
+        ms = elapsed_seconds * 1000.0
+        self._busy_ms = ms if self._busy_ms is None else 0.1 * ms + 0.9 * self._busy_ms
+        deadline_ms = self._min_period * 1000.0
+        if self._fps > 1e-3:
+            deadline_ms = max(deadline_ms, (stride / self._fps) * 1000.0)
+        if deadline_ms <= 0:
+            return
+        if self._busy_ms > deadline_ms * self.ADAPT_TOLERANCE:
+            achieved = max(self.ADAPT_FLOOR_FPS, 1000.0 / self._busy_ms)
+            self.sustainable_fps = 0.9 * self.sustainable_fps + 0.1 * achieved
+        else:
+            self.sustainable_fps = min(30.0, 0.9 * self.sustainable_fps + 0.1 * 30.0)
+        limited = self.sustainable_fps < min(self.target_fps, 30.0) - 0.1
+        if limited != self._ingest_limited:
+            self._ingest_limited = limited
+            if limited:
+                log.warning(
+                    "[decode %s] this machine sustains ~%.1ffps of %dx%d@%.0f — "
+                    "sampling reduced (asked %.0f). A lower-resolution stream "
+                    "(the camera's substream) would restore full rate.",
+                    self.camera_id, self.sustainable_fps, self.stream_width,
+                    self.stream_height, self._fps, self.target_fps)
+            else:
+                log.info("[decode %s] ingest recovered — full sampling rate restored",
+                         self.camera_id)
+
+    def ingest_status(self) -> dict:
+        return {
+            "width": self.stream_width, "height": self.stream_height,
+            "source_fps": round(self._fps, 1),
+            "busy_ms_per_frame": round(self._busy_ms or 0.0, 1),
+            "sustainable_fps": round(self.sustainable_fps, 1),
+            "sampling_fps": round(self._effective_fps(), 1),
+            "limited": self._ingest_limited,
+        }
 
     def _set_state(self, state: str, detail: str = "") -> None:
         if state == self.state:
@@ -228,15 +295,21 @@ class StreamDecoder:
                 # skipped to stay at the present. A big number on a camera
                 # means its stream bursts (HLS), not that anything is wrong.
                 "stale_dropped": self.stale_dropped,
+                "ingest": self.ingest_status(),
                 "attempts": list(self.attempt_history)}
 
     def _is_live(self) -> bool:
         return not str(self.source).isdigit() and "://" in str(self.source)
 
     def _effective_fps(self) -> float:
-        """target_fps, or the display boost while a viewer has it raised."""
+        """target_fps or the display boost — capped at what THIS machine has
+        measurably sustained for this stream (adaptive ingest, 3 Sep): asking
+        a starved CPU for 15fps it cannot decode only makes every consumer
+        later. The cap never goes below the floor, so detection always gets
+        something."""
         boost = self.display_fps
-        return max(self.target_fps, boost) if boost > 0 else self.target_fps
+        desired = max(self.target_fps, boost) if boost > 0 else self.target_fps
+        return max(self.ADAPT_FLOOR_FPS, min(desired, self.sustainable_fps))
 
     def _pacing(self) -> tuple[int, float]:
         """(stride, min_period) for the CURRENT effective fps — recomputed
@@ -285,6 +358,12 @@ class StreamDecoder:
             if ok:
                 ok, image = cap.read()
                 orig_index += 1
+            if ok:
+                # What one kept frame COSTS on this machine (grabs + decode,
+                # wall time) — feeds the adaptive ingest cap.
+                self._observe_ingest(time.perf_counter() - loop_start, stride)
+                if not self.stream_width:
+                    self.stream_height, self.stream_width = image.shape[:2]
             if not ok:
                 if self.reconnect and self._is_live():
                     # Live source dropped (camera reboot / network blip). Keep
