@@ -45,9 +45,13 @@ class BackendSelectionTest(unittest.TestCase):
         cv2.VideoCapture.assert_called_with(0)
 
     def test_network_streams_always_use_ffmpeg(self):
+        # Since 3 Sep the open also requests GPU decode (ANY negotiates and
+        # falls back to software by itself) — free on capable machines.
         for platform in ("win32", "darwin", "linux"):
             cv2, _ = self._open("rtsp://cam/1", platform)
-            cv2.VideoCapture.assert_called_with("rtsp://cam/1", cv2.CAP_FFMPEG)
+            cv2.VideoCapture.assert_called_with(
+                "rtsp://cam/1", cv2.CAP_FFMPEG,
+                [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
 
     def test_live_sources_request_a_one_frame_buffer(self):
         # The queue IS the latency: deeper on Windows, which is why the same
