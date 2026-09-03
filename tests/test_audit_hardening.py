@@ -95,10 +95,13 @@ class ScannerReconnectTest(unittest.TestCase):
     """#8: the custom-rules scanner reopens a dropped stream."""
 
     def test_the_loop_releases_and_reopens_dead_captures(self):
-        src = (ROOT / "cvti/serving/custom_rules.py").read_text()
-        loop = src.split("def _loop")[1]
-        self.assertIn("cap.release()", loop)
-        self.assertIn('caps[c["id"]] = self._open(c["source"])', loop,
+        # The per-camera scan lives in _scan_camera since the fast-path
+        # refactor (3 Sep); the reopen-after-drop promise moved with it.
+        import inspect
+        from cvti.serving.custom_rules import CustomRuleScanner
+        scan = inspect.getsource(CustomRuleScanner._scan_camera)
+        self.assertIn("cap.release()", scan)
+        self.assertIn('caps[c["id"]] = self._open(c["source"])', scan,
                       "no reopen after a stream drop")
 
 
