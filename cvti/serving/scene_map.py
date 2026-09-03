@@ -248,7 +248,7 @@ class FullAgentMapperService:
             saved = store.save_mapping(
                 mapped, source, dump_raw_response=self.dump_raw_response
             )
-            if policy == "require_reviewed":
+            if policy == "require_reviewed" and saved.status.status != "ready_reviewed":
                 saved = ContextResolution(
                     saved.context, saved.status, saved.provenance, False
                 )

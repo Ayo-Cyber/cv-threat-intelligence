@@ -339,6 +339,11 @@ def build_prompt(
     max_zone_suggestions: int,
     operator_hints: dict[str, Any] | None = None,
 ) -> str:
+    # Imported lazily because hierarchy imports the camera-level environment
+    # vocabulary from this module. Keeping one validator-owned source prevents
+    # the prompt and accepted schema values from drifting apart.
+    from cvti.scene.hierarchy import AREA_TYPES, SITE_TYPES
+
     dynamic_suffix = (
         f"\n\nCaller-provided metadata:\n"
         f'- camera_id: "{camera_id}"\n'
@@ -346,7 +351,11 @@ def build_prompt(
         f'- source_frame_path: "{source_frame_path}"\n'
         f"- max_zone_suggestions: {max_zone_suggestions}\n"
         "Use the provided camera_id, source_type, and source_frame_path exactly in the JSON output.\n"
-        f"Suggest no more than {max_zone_suggestions} zones."
+        f"Suggest no more than {max_zone_suggestions} zones.\n"
+        "For site_type_candidate, use exactly one of: "
+        f"{json.dumps(sorted(SITE_TYPES))}.\n"
+        "For area_type_candidate, use exactly one of: "
+        f"{json.dumps(sorted(AREA_TYPES))}."
     )
     # The operator's onboarding answers are PRIORS, not a bypass: one frame
     # can lie (empty forecourt at 3am reads as "parking lot"), but the person

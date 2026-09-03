@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -274,7 +276,15 @@ def _atomic_bytes_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_bytes(data)
-    temporary.replace(path)
+    attempts = 3 if sys.platform == "win32" else 1
+    for attempt in range(attempts):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.02 * (attempt + 1))
 
 
 def _atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
@@ -307,9 +317,12 @@ class SceneContextStore:
         self.camera_id = str(camera_id)
         self.directory = Path(context_root) / _directory_name_for(camera_id)
         self.context_path = self.directory / "scene_context.json"
+        self.proposal_context_path = self.directory / "scene_context.proposal.json"
         self.status_path = self.directory / "mapping_status.json"
         self.frame_path = self.directory / "source_frame.jpg"
+        self.proposal_frame_path = self.directory / "source_frame.proposal.jpg"
         self.raw_response_path = self.directory / "raw_response.txt"
+        self.proposal_raw_response_path = self.directory / "raw_response.proposal.txt"
 
     def load_status(self) -> MappingStatus:
         try:
@@ -389,6 +402,32 @@ class SceneContextStore:
         ok, encoded = cv2.imencode(".jpg", result.selected_frame)
         if not ok:
             raise ValueError("unable to encode representative source frame")
+
+        current_status = self.load_status()
+        current_fingerprint = source_fingerprint(source)
+        reviewed_context = self._load_context()
+        if (
+            current_status.status == "ready_reviewed"
+            and current_status.source_fingerprint == current_fingerprint
+            and reviewed_context is not None
+        ):
+            proposal = dict(context)
+            proposal["source_frame_path"] = str(self.proposal_frame_path)
+            proposal = validate_scene_context(proposal)
+            _atomic_bytes_write(self.proposal_frame_path, encoded.tobytes())
+            _atomic_json_write(self.proposal_context_path, proposal)
+            if dump_raw_response:
+                _atomic_bytes_write(
+                    self.proposal_raw_response_path,
+                    result.raw_response.encode("utf-8"),
+                )
+            return ContextResolution(
+                reviewed_context,
+                current_status,
+                "reviewed_during_mapping",
+                True,
+            )
+
         _atomic_bytes_write(self.frame_path, encoded.tobytes())
         _atomic_json_write(self.context_path, context)
         if dump_raw_response:

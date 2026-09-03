@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import threading
 
 import numpy as np
+import pytest
 
 from cvti.scene.agent_mapper import MappingResult
 from cvti.scene.context_store import SceneContextStore
@@ -53,6 +55,18 @@ class FailingMapper:
         raise RuntimeError("ollama unavailable")
 
 
+class BlockingMapper(RecordingMapper):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def map_result(self, *args, **kwargs) -> MappingResult:
+        self.started.set()
+        assert self.release.wait(timeout=2)
+        return super().map_result(*args, **kwargs)
+
+
 def _source(tmp_path):
     path = tmp_path / "clip.mp4"
     path.write_bytes(b"clip")
@@ -89,6 +103,37 @@ def test_auto_policy_maps_missing_context_and_returns_it_usable(tmp_path) -> Non
     assert result.contexts["cam_1"]["environment_type"] == "retail_shop"
     assert len(mapper.calls) == 1
     assert mapper.calls[0][:3] == (_camera(tmp_path)["source"], "cam_1", 3)
+
+
+@pytest.mark.parametrize("policy", ["auto", "require_reviewed"])
+def test_approval_landing_during_mapping_survives_the_late_result(
+    tmp_path, policy
+) -> None:
+    camera = _camera(tmp_path)
+    source = camera["source"]
+    mapper = BlockingMapper()
+    service = FullAgentMapperService(tmp_path / "out", mapper)
+    completed: list = []
+
+    worker = threading.Thread(
+        target=lambda: completed.append(service.prepare([camera], policy))
+    )
+    worker.start()
+    assert mapper.started.wait(timeout=2)
+
+    store = SceneContextStore(tmp_path / "out/context", "cam_1")
+    reviewed_context = _context(environment="parking_lot")
+    store.approve(reviewed_context, "owner", source)
+    mapper.release.set()
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert completed[0].contexts["cam_1"]["environment_type"] == "parking_lot"
+    assert completed[0].statuses["cam_1"]["status"] == "ready_reviewed"
+    assert (
+        json.loads(store.proposal_context_path.read_text())["environment_type"]
+        == "retail_shop"
+    )
 
 
 def test_require_reviewed_maps_but_blocks_unreviewed_camera(tmp_path) -> None:
