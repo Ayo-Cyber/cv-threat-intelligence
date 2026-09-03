@@ -197,7 +197,10 @@ def test_atomic_replace_does_not_retry_permission_errors_off_windows(
     assert attempts == 1
 
 
-def test_manual_context_outranks_reviewed_cache(tmp_path) -> None:
+def test_a_human_review_outranks_config_text(tmp_path) -> None:
+    """Flipped 3 Sep: config text used to OUTRANK an in-app review, which is
+    the exact bug class M1 killed — no file edit silently overrides a human's
+    approval. The review a person gave at this camera wins."""
     source = _source(tmp_path)
     store = SceneContextStore(tmp_path / "context", "cam_1")
     store.approve(_context("parking_lot"), "owner", source)
@@ -206,9 +209,47 @@ def test_manual_context_outranks_reviewed_cache(tmp_path) -> None:
         source, "require_reviewed", manual_context=_context("retail_shop")
     )
 
+    assert result.provenance == "cache"
+    assert result.usable is True
+    assert result.context["environment_type"] == "parking_lot"
+    assert result.status.reviewed_by == "owner"
+
+
+def test_config_text_is_authored_not_reviewed(tmp_path) -> None:
+    """The live-feed template's copy-pasted description carried a reviewed
+    badge nobody gave it (3 Sep, 'the descriptions are wrong') — and review
+    protection then blocked the mapper from ever fixing it. Authored text
+    keeps the camera usable, but lands UNREVIEWED and persisted, so the
+    mapper may refine it and Scene Review shows it honestly."""
+    source = _source(tmp_path)
+    store = SceneContextStore(tmp_path / "context", "cam_1")
+
+    result = store.resolve(source, "auto", manual_context=_context("retail_shop"))
+
     assert result.provenance == "manual"
     assert result.usable is True
-    assert result.context["environment_type"] == "retail_shop"
+    assert result.status.status == "ready_unreviewed"
+    assert result.status.reviewed_by == ""
+    assert store.load_status().status == "ready_unreviewed"   # persisted, one truth
+
+
+def test_old_site_config_reviewed_stamps_demote_on_read(tmp_path) -> None:
+    """Migration: stores stamped ready_reviewed/'site_config' before 3 Sep
+    (real reviewers have usernames) demote to unreviewed on the next resolve."""
+    import json as _json
+    source = _source(tmp_path)
+    store = SceneContextStore(tmp_path / "context", "cam_1")
+    store.resolve(source, "auto", manual_context=_context("retail_shop"))
+    # Forge the pre-3-Sep stamp on disk.
+    status = _json.loads(store.status_path.read_text())
+    status.update(status="ready_reviewed", reviewed_by="site_config",
+                  reviewed_at="2026-09-01T00:00:00Z")
+    store.status_path.write_text(_json.dumps(status))
+
+    result = store.resolve(source, "auto")
+
+    assert result.status.status == "ready_unreviewed"
+    assert store.load_status().status == "ready_unreviewed"
 
 
 def test_reviewed_matching_cache_is_usable_under_require_reviewed(tmp_path) -> None:
