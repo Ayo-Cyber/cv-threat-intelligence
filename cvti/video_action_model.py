@@ -264,9 +264,23 @@ class VideoMAEActionModel:
             self._log("Loading Hugging Face VideoMAE classes...")
             from transformers import VideoMAEForVideoClassification, VideoMAEImageProcessor
         except ImportError as exc:
+            # Name the ACTUAL missing module: the pilot's Windows screenshot
+            # (3 Sep) showed this error hiding which import failed while
+            # telling a customer to pip install into a venv that does not
+            # exist inside a frozen app. Support needs the module name; the
+            # operator needs honest wording for their situation.
+            import sys as _sys
+            if getattr(_sys, "frozen", False):
+                raise MissingVideoActionDependency(
+                    "This build shipped without a video-action dependency "
+                    f"({exc}). Theft detection continues on the other "
+                    "detectors; send a Diagnose bundle so we can fix the "
+                    "installer."
+                ) from exc
             raise MissingVideoActionDependency(
-                "VideoMAE needs optional dependencies. Install them with: "
-                "`./.venv/bin/python -m pip install transformers accelerate safetensors`"
+                f"VideoMAE needs optional dependencies ({exc}). Install them "
+                "with: `./.venv/bin/python -m pip install transformers "
+                "accelerate safetensors`"
             ) from exc
 
         self._log(f"Loading cached processor: {self.model_name}")

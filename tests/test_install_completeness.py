@@ -184,3 +184,36 @@ class BuildIdentityTest(unittest.TestCase):
         v = ConsoleBackend.app_version(object.__new__(ConsoleBackend))
         self.assertIsInstance(v, str)
         self.assertTrue(v)
+
+
+class EngineBundleCarriesItsDynamicImports(unittest.TestCase):
+    """The pilot's Windows engine died with "No module named 'logging.config'"
+    TWICE — the 30 Aug fix added the hidden import to the APP's Analysis, but
+    yolov5's weapon loader runs in the ENGINE process (second screenshot,
+    3 Sep). Pin the imports to the Analysis that actually needs them."""
+
+    def _engine_block(self) -> str:
+        spec = (ROOT / "packaging" / "argus.spec").read_text()
+        start = spec.index("engine_a = Analysis")
+        return spec[start:spec.index("app_pyz")]
+
+    def test_the_engine_analysis_names_logging_config(self):
+        block = self._engine_block()
+        self.assertIn('"logging.config"', block)
+        self.assertIn('"logging.handlers"', block)
+
+    def test_the_engine_analysis_names_videomae_modules(self):
+        block = self._engine_block()
+        self.assertIn('"transformers.models.videomae"', block)
+        self.assertIn('"safetensors"', block)
+
+    def test_a_frozen_missing_dependency_never_says_pip(self):
+        """A customer on the installed app must not be told to pip install
+        into a venv that does not exist — and support must get the module
+        name that actually failed."""
+        import inspect
+        from cvti.video_action_model import VideoMAEActionModel
+        src = inspect.getsource(VideoMAEActionModel._load)
+        self.assertIn("frozen", src)
+        self.assertIn("Diagnose bundle", src)
+        self.assertIn("{exc}", src)
