@@ -144,7 +144,9 @@ class GateCapTests(unittest.TestCase):
                         return_value='{"threats": []}') as called:
             scanner._check(cam, _frame(1920, 1080))
         kwargs = called.call_args.kwargs
-        self.assertEqual(kwargs["max_tokens"], 256)
+        # 320 since 3 Sep: each claim also carries confidence, target and a
+        # box. Still a hard cap — the point is bounded, not unbounded.
+        self.assertEqual(kwargs["max_tokens"], 320)
         h, w = _decoded_shape(kwargs["frame_bytes"])
         self.assertLessEqual(max(h, w), 896)
 
