@@ -479,6 +479,27 @@ class AlertSink:
                               "n": len(self._provisional_latency)}
         return out
 
+    def triage_state(self, camera_id: str, rule_name: str) -> str | None:
+        """The newest matching event's effective triage state, or None.
+
+        The incident lifecycle (custom_rules, 3 Sep) reads this to decide
+        whether an ongoing condition still needs reminding: an alert nobody
+        has touched does, an acknowledged or resolved one does not — the
+        human owns it now. Same review->state projection triage uses.
+        """
+        with self._lock:
+            row = self._db.execute(
+                "SELECT state, review FROM events WHERE camera_id = ? AND rule = ? "
+                "ORDER BY id DESC LIMIT 1", (camera_id, rule_name)).fetchone()
+        if row is None:
+            return None
+        state, review = row
+        if state in ("new", "acknowledged", "resolved"):
+            return state
+        if review in ("true", "false"):
+            return "resolved"
+        return "acknowledged" if review == "ack" else "new"
+
     def handle(self, alert: Any, result: Any) -> None:
         if result is None:
             return
