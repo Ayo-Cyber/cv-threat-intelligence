@@ -148,6 +148,16 @@ engine_a = Analysis(
         "scipy.optimize", "scipy.spatial", "scipy.linalg",
         "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont", "PIL.ImageOps",
         "cv2",
+        # Stdlib, but only imported dynamically (yolov5's utils/general.py
+        # does `import logging.config` at weapon-model load). The 30 Aug fix
+        # added these to the APP's hiddenimports — but the weapons loader
+        # runs in THIS process, so the frozen engine still died with
+        # "No module named 'logging.config'" (pilot screenshot, 3 Sep) and
+        # the weapons detector was disabled on every Windows install.
+        "logging.config", "logging.handlers",
+        # transformers alone doesn't guarantee its model modules travel;
+        # name the VideoMAE ones the video-action loader actually touches.
+        "transformers.models.videomae", "safetensors",
     ],
     # polars rides in via an optional pandas/arrow path nothing here uses:
     # 156 MB of a customer's download for a dependency the product never calls.
