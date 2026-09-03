@@ -1569,7 +1569,10 @@ class ConsoleBackend:
         sources = self._live_sources(count)
         if not sources:
             return {"cameras": [], "port": 0}
-        self._live = LiveWall(sources, fps=10).start()
+        # 15fps: this wall exists ONLY while the Watch screen is open,
+        # so it is already viewer-gated by its own lifecycle — spend the
+        # frames on smoothness (3 Sep, 'the stream seems laggy').
+        self._live = LiveWall(sources, fps=15).start()
         self._fs = FrameServer(self._live)
         port = self._fs.start()
         # cameras + the localhost port the UI fetches JPEG frames from

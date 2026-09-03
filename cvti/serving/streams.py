@@ -157,6 +157,14 @@ class StreamDecoder:
         self.camera_id = camera_id
         self.source = source
         self.target_fps = target_fps
+        # Viewer-aware display boost (3 Sep): while someone is actually
+        # WATCHING this camera (an open /stream connection on the publisher),
+        # the decode rate steps up to this so the glass is smooth; the moment
+        # nobody watches it drops back to target_fps, which is all detection
+        # samples anyway. 0 = no boost. Written by the publisher thread, read
+        # by the decode loop — a plain float, atomic enough in CPython, and a
+        # one-loop-late boost costs one frame period.
+        self.display_fps: float = 0.0
         self.reconnect = reconnect
         self.reconnect_backoff = reconnect_backoff   # seconds * attempt, capped at 5s
         # File sources loop by default so demo footage streams continuously
@@ -225,6 +233,18 @@ class StreamDecoder:
     def _is_live(self) -> bool:
         return not str(self.source).isdigit() and "://" in str(self.source)
 
+    def _effective_fps(self) -> float:
+        """target_fps, or the display boost while a viewer has it raised."""
+        boost = self.display_fps
+        return max(self.target_fps, boost) if boost > 0 else self.target_fps
+
+    def _pacing(self) -> tuple[int, float]:
+        """(stride, min_period) for the CURRENT effective fps — recomputed
+        every loop iteration so a boost takes effect within one frame."""
+        fps = self._effective_fps()
+        stride = max(1, round(self._fps / fps)) if (self._fps > 1e-3 and fps > 0) else 1
+        return stride, (1.0 / fps if fps > 0 else 0.0)
+
     def start(self) -> "StreamDecoder":
         self._thread = threading.Thread(target=self._loop, name=f"decode-{self.camera_id}",
                                         daemon=True)
@@ -242,15 +262,19 @@ class StreamDecoder:
         import cv2
         cap = self._open()
         self._fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-        # Sample target_fps by SKIPPING frames, not by slowing playback: keep 1
-        # frame every `stride`. This makes a file advance through video at real
-        # time while only decoding the frames we need (and drops a 30fps live
-        # source to the same sampled rate).
-        stride = max(1, round(self._fps / self.target_fps)) \
-            if (self._fps > 1e-3 and self.target_fps > 0) else 1
+        # Sample the effective fps by SKIPPING frames, not by slowing playback:
+        # keep 1 frame every `stride`. This makes a file advance through video
+        # at real time while only decoding the frames we need (and drops a
+        # 30fps live source to the same sampled rate). Recomputed per
+        # iteration: the display boost changes the answer while running.
         orig_index = 0
         attempt = 0
         while not self._stop.is_set():
+            stride, self._min_period = self._pacing()
+            if self.playout is not None:
+                # Playout pops at content rate; a boosted camera's content
+                # rate is the boosted one, or the wall stays at 4fps anyway.
+                self.playout.rate = max(self._effective_fps(), 1.0)
             loop_start = time.perf_counter()
             ok = True
             for _ in range(stride - 1):        # cheaply skip intermediate frames

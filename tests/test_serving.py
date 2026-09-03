@@ -292,11 +292,18 @@ class SmoothPublishTest(unittest.TestCase):
         self.assertGreaterEqual(hits, 35, "gate starves detection")
 
     def test_decoders_pace_to_publish_rate_when_decoupled(self):
+        # Since 3 Sep the pacing is viewer-aware: decoders START at detection
+        # rate and the smooth loop raises display_fps on exactly the cameras
+        # someone is watching — the always-on max(target, publish) decode is
+        # deliberately gone (it cost 12fps of decode per camera for a wall
+        # nobody had open).
         import inspect
         from cvti.serving.pipeline import MultiStreamPipeline
         src = inspect.getsource(MultiStreamPipeline.start)
-        self.assertIn("max(self.target_fps, self.publish_fps)", src)
+        self.assertIn("target_fps=self.target_fps", src)
         self.assertIn("_smooth_publish_loop", src)
+        loop = inspect.getsource(MultiStreamPipeline._smooth_publish_loop)
+        self.assertIn("has_viewers", loop)
 
     def test_the_live_wall_ships_raw_glass(self):
         # Boxes live with the alert (the sink's annotated subject shot); the
