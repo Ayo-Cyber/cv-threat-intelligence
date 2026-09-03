@@ -21,6 +21,8 @@ import hmac
 import json
 import os
 import secrets
+import select
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,6 +57,15 @@ class FramePublisher:
         self._tracks: dict[str, list] = {}
         self._alerting: dict[str, set] = {}
         self._seq: dict[str, int] = {}      # per-camera publish counter (MJPEG)
+        # Who is being WATCHED right now. Every tile on the Watch grid holds
+        # one long-lived /stream connection, so an open stream IS a viewer —
+        # no config, no heartbeat file, works for any client including the
+        # phone. The decode loop reads this to boost display fps only where
+        # eyes actually are (3 Sep). `viewer_linger` keeps the boost through a
+        # tab switch or MJPEG reconnect instead of flapping the decoder.
+        self._viewers: dict[str, int] = {}
+        self._viewer_last: dict[str, float] = {}
+        self.viewer_linger = 5.0
         self._lock = threading.Lock()
         self._server: Any = None
         self._thread: threading.Thread | None = None
@@ -102,6 +113,25 @@ class FramePublisher:
         """Tracks to draw in alert colour (cleared by passing an empty set)."""
         with self._lock:
             self._alerting[camera_id] = set(track_ids or ())
+
+    def _viewer_started(self, camera_id: str) -> None:
+        with self._lock:
+            self._viewers[camera_id] = self._viewers.get(camera_id, 0) + 1
+            self._viewer_last[camera_id] = time.time()
+
+    def _viewer_stopped(self, camera_id: str) -> None:
+        with self._lock:
+            self._viewers[camera_id] = max(0, self._viewers.get(camera_id, 0) - 1)
+            self._viewer_last[camera_id] = time.time()
+
+    def has_viewers(self, camera_id: str) -> bool:
+        """True while someone holds this camera's stream open (or did within
+        the linger window — a reconnecting tile must not flap the decoder)."""
+        with self._lock:
+            if self._viewers.get(camera_id, 0) > 0:
+                return True
+            last = self._viewer_last.get(camera_id, 0.0)
+        return bool(last and (time.time() - last) < self.viewer_linger)
 
     def frame(self, camera_id: str) -> bytes | None:
         with self._lock:
@@ -182,6 +212,8 @@ class FramePublisher:
                     self.send_header("Connection", "close")
                     self.end_headers()
                     last = -1
+                    last_probe = time.monotonic()
+                    pub._viewer_started(cam)   # an open stream IS a viewer
                     try:
                         while True:
                             data, seq = pub.frame_seq(cam)
@@ -196,8 +228,23 @@ class FramePublisher:
                                 self.wfile.flush()
                             else:
                                 time.sleep(0.02)
+                                # A closed viewer only surfaces on the next
+                                # WRITE — and a camera with no fresh frames
+                                # never writes, leaving a ghost viewer pinning
+                                # the display boost forever. The client never
+                                # sends after its request, so readable == EOF:
+                                # probe once a second.
+                                if time.monotonic() - last_probe >= 1.0:
+                                    last_probe = time.monotonic()
+                                    ready, _, _ = select.select(
+                                        [self.connection], [], [], 0)
+                                    if ready and not self.connection.recv(
+                                            1, socket.MSG_PEEK):
+                                        break          # viewer hung up
                     except (BrokenPipeError, ConnectionResetError, OSError):
                         pass          # the viewer navigated away; drop the stream
+                    finally:
+                        pub._viewer_stopped(cam)
                     return
                 if path.startswith("/frame/"):
                     cam = unquote(path[len("/frame/"):])

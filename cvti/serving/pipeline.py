@@ -281,7 +281,7 @@ class MultiStreamPipeline:
                  max_batch: int = 32, on_result: ResultHandler | None = None,
                  camera_states: dict[str, Any] | None = None, alert_queue: Any = None,
                  publisher: Any = None, on_link_change=None,
-                 publish_fps: float = 12.0) -> None:
+                 publish_fps: float = 15.0) -> None:
         self.sources = sources
         self.weights = weights
         self.target_fps = target_fps
@@ -332,19 +332,24 @@ class MultiStreamPipeline:
         self._names = self._model.names
         from cvti.detector.core import normalize_threat_classes
         self._threat_classes = normalize_threat_classes("gun,knife")
-        decode_fps = max(self.target_fps, self.publish_fps) if self.smooth_publish \
-            else self.target_fps
+        # Decoders start at DETECTION rate. Until 3 Sep smooth-publish ran
+        # every decoder at max(target, publish) fps around the clock — 12fps
+        # of decode per camera for a wall nobody was watching. The boost is
+        # now viewer-aware: the smooth loop raises display_fps on exactly the
+        # cameras with an open /stream connection and drops it when the last
+        # viewer leaves. Smoother where eyes are, ~3x cheaper where none are.
         for cam_id, src in self.sources.items():
             self._decoders[cam_id] = StreamDecoder(
-                cam_id, src, target_fps=decode_fps,
+                cam_id, src, target_fps=self.target_fps,
                 on_state_change=self.on_link_change).start()
         if self.smooth_publish:
             import threading as _th
             self._smooth_thread = _th.Thread(target=self._smooth_publish_loop,
                                              name="smooth-publish", daemon=True)
             self._smooth_thread.start()
-            log.info("[serving] live wall decoupled: publishing at %.0f fps, "
-                     "detection sampling at %.0f fps", self.publish_fps, self.target_fps)
+            log.info("[serving] live wall decoupled: watched cameras publish at "
+                     "%.0f fps, detection samples at %.0f fps", self.publish_fps,
+                     self.target_fps)
         log.info(f"[serving] {len(self._decoders)} camera(s) | device={self.device} "
               f"half={self.half} target_fps={self.target_fps} | model={self.weights}")
 
@@ -360,6 +365,9 @@ class MultiStreamPipeline:
             t0 = time.perf_counter()
             for cam_id, d in list(self._decoders.items()):
                 try:
+                    # Boost decode only while this camera is actually watched.
+                    d.display_fps = (self.publish_fps
+                                     if self.publisher.has_viewers(cam_id) else 0.0)
                     if d.playout is not None:
                         # Live URL source: paced playout — content plays at its
                         # own rate a bounded lag behind live, instead of
@@ -569,7 +577,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
              mapper_provider: str = "", mapper_model: str = "", mapper_base_url: str = "",
              gate_sensitivity: str = "balanced", publish_frames: bool = True,
-             publish_fps: float = 12.0, security_dir: str | None = None,
+             publish_fps: float = 15.0, security_dir: str | None = None,
              memory_guard: bool = True, memory_warn_gb: float = 2.0,
              memory_critical_gb: float = 1.0,
              pose_weights: str = "models/yolov8n-pose.pt",
