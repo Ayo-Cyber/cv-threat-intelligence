@@ -2553,11 +2553,15 @@ function renderSceneReview(summary){
     +'<button class="btn ghost sm" data-api="approveSiteContext"'+(summary.site?'':' disabled')+' onclick="confirmSiteContext()">Confirm site</button><div style="height:12px"></div>'
     +areas.map(function(a){return '<button class="srarea'+(selected&&selected.id===a.id?' on':'')+'" onclick="selectSceneArea(\''+esc(a.id)+'\')"><b>'+esc(a.name)+'</b><div class="mut" style="font-size:11px">'+a.camera_ids.length+' camera'+(a.camera_ids.length===1?'':'s')+'</div></button>';}).join("")+'</div>';
   if(!selected){root.innerHTML=side+'<div class="srmain"><h2>No cameras to map</h2></div>';return;}
-  var ctx=selected.context||{}, cams=(selected.cameras||[]).map(function(c){return '<div class="srcam">'+(c.source_frame_uri?'<img src="'+c.source_frame_uri+'" alt="'+esc(c.camera_id)+' scene">':'<div class="srblank">mapping '+esc(c.camera_id)+'</div>')+'<div style="padding:9px"><b class="mono">'+esc(c.camera_id)+'</b><div class="mut" style="font-size:11px">'+esc((c.mapping||{}).status||"pending")+'</div></div></div>';}).join("");
+  var ctx=selected.context||{}, cams=(selected.cameras||[]).map(function(c){
+    var confidence=Math.round((Number(c.confidence)||0)*100)+'%';
+    return '<div class="srcam">'+(c.source_frame_uri?'<img src="'+c.source_frame_uri+'" alt="'+esc(c.camera_id)+' scene">':'<div class="srblank">mapping '+esc(c.camera_id)+'</div>')+'<div style="padding:9px"><div class="row" style="justify-content:space-between"><b class="mono">'+esc(c.camera_id)+'</b><span class="mut" style="font-size:11px">'+confidence+'</span></div><div style="font-size:12px;margin-top:4px">'+esc(c.environment_type||"unknown")+'</div><div class="mut" style="font-size:11px">'+esc((c.mapping||{}).status||"pending")+(c.evidence_ready?' · evidence ready':' · evidence missing')+'</div></div></div>';
+  }).join("");
   var disabled=selected.bulk_reviewable&&selected.context?'':' disabled';
   var main='<div class="srmain"><div class="row"><div><h2 style="margin:0">'+esc(selected.name)+'</h2><div class="mut">'+esc(ctx.area_type||"Mapping camera views independently")+'</div></div><span style="flex:1"></span><button class="btn ghost" onclick="keepAreaPaused()">Keep paused</button></div>'
     +'<div class="srcams">'+cams+'</div><div style="max-width:760px"><label class="fld">Area type<input id="srAreaType" value="'+esc(ctx.area_type||"unknown")+'"></label><label class="fld" style="margin-top:8px">Description<textarea id="srAreaDesc">'+esc(ctx.area_description||"")+'</textarea></label></div>'
     +((ctx.conflicts||[]).length?'<div class="offbanner"><b>Camera views disagree.</b><span>Review them individually before confirming this area.</span></div>':'')
+    +((selected.missing_evidence_camera_ids||[]).length?'<div class="offbanner"><b>Camera evidence is incomplete.</b><span>'+esc(selected.missing_evidence_camera_ids.join(", "))+'</span></div>':'')
     +'<div class="row" style="gap:8px;margin-top:18px;flex-wrap:wrap"><button class="btn"'+disabled+' onclick="confirmArea()">Confirm area</button><button class="btn ghost"'+disabled+' onclick="editAndConfirmArea()">Edit and confirm</button><button class="btn ghost" onclick="rejectAndRemapCameras()">Reject and remap</button><button class="btn ghost" onclick="keepAreaPaused()">Keep paused</button></div></div>';
   root.innerHTML=side+main;
 }
