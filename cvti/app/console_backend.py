@@ -32,6 +32,26 @@ log = get_logger(__name__)
 
 _REVIEW_VALUES = {"ack", "true", "false", "new"}
 
+# monitor.log (the engine subprocess's stdout/stderr) is append-only across
+# every run and respawn — on a 24/7 site it grew without bound, and the crash
+# loops that make it valuable are exactly what makes it grow fastest.
+MONITOR_LOG_CAP_BYTES = 5 * 1024 * 1024
+
+
+def _rotate_monitor_log(path: Path, cap_bytes: int = MONITOR_LOG_CAP_BYTES) -> None:
+    """Rotate monitor.log at spawn time when it has outgrown the cap.
+
+    One predecessor is kept (monitor.log.1) so a crash's final words survive
+    the restart that follows it. Rotation happens between spawns — the only
+    moment no process holds the file — and is best-effort: a failed rename
+    (say, an old handle still open on Windows) just means we append on.
+    """
+    try:
+        if path.is_file() and path.stat().st_size > cap_bytes:
+            path.replace(path.with_name(path.name + ".1"))
+    except OSError:
+        log.warning("could not rotate %s; appending instead", path, exc_info=True)
+
 
 class ConsoleBackend:
     def __init__(self, site_path: str = "configs/site_live.json",
@@ -103,13 +123,11 @@ class ConsoleBackend:
         }
 
     def app_version(self) -> str:
-        """Which build this actually is — from the version file the release
-        build bakes into the bundle. The sidebar said 'v0.9' from a hardcoded
-        string while three releases shipped in two days."""
-        try:
-            return resource_path("VERSION").read_text().strip() or "dev"
-        except OSError:
-            return "dev"
+        """Which build this actually is. The sidebar said 'v0.9' from a
+        hardcoded string while three releases shipped in two days; now every
+        surface reads the one source (cvti.utils.argus_version)."""
+        from cvti.utils import argus_version
+        return argus_version()
 
     def english_rules_status(self) -> dict:
         """The scanner's own account of itself — written every cycle by the
@@ -1550,11 +1568,26 @@ class ConsoleBackend:
             return [str(engine)]
         return [sys.executable, "-m", "cvti.serving.pipeline"]
 
+    def _close_engine_log(self) -> None:
+        """Close the previous spawn's monitor.log handle. Every watchdog
+        respawn used to open a fresh handle and leak the old one — six
+        respawns in a crash loop meant six open handles on one file, which
+        also blocks rotating it on Windows."""
+        handle = getattr(self, "_engine_log_file", None)
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                log.debug("previous monitor.log handle would not close", exc_info=True)
+        self._engine_log_file = None
+
     def _spawn_engine(self) -> "subprocess.Popen":
         out_dir = Path(self.db_path).parent
         out_dir.mkdir(parents=True, exist_ok=True)
         notify = self.get_site().get("notify") or "console"
-        log_file = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
+        self._close_engine_log()
+        _rotate_monitor_log(out_dir / "monitor.log")
+        log_file = self._engine_log_file = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
         # Lean defaults keep the box cool: lower fps + image size cut compute a lot
         # with negligible quality loss at demo scale.
         # The gate needs the local Ollama server; in the bundled app nobody has
@@ -1647,6 +1680,7 @@ class ConsoleBackend:
             except subprocess.TimeoutExpired:
                 self._monitor.kill()
         self._monitor = None
+        self._close_engine_log()
         return {"running": False}
 
     def monitoring_status(self) -> dict:

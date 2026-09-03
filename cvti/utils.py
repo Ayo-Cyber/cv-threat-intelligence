@@ -49,6 +49,21 @@ def user_data_dir() -> Path:
     return base
 
 
+def argus_version() -> str:
+    """Which build this actually is — the ONE source every surface reads.
+
+    The release build bakes a VERSION file into the bundle (packaging spec,
+    from the tag); source checkouts have none and are honestly 'dev'. The
+    sidebar, the heartbeat, the logs, and the diagnostics bundle all stamp
+    this — support triage starts with 'which build?', and until 3 Sep only
+    the sidebar could answer.
+    """
+    try:
+        return resource_path("VERSION").read_text().strip() or "dev"
+    except OSError:
+        return "dev"
+
+
 def writable_configs_dir() -> Path:
     """
     Return a writable configs directory.

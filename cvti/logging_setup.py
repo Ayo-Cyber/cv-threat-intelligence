@@ -137,8 +137,18 @@ def setup_logging(
     logging.getLogger("PIL").setLevel(max(resolved, logging.WARNING))
 
     _configured[component] = path
+    # Support triage starts with "which build?" — make the log's first line
+    # answer it (local import: logging must stay usable even if utils breaks).
+    try:
+        from cvti.utils import argus_version
+        version = argus_version()
+    except Exception:  # noqa: BLE001 - a version lookup must never break logging
+        version = "unknown"
+        log = get_logger(__name__)
+        log.debug("version lookup failed", exc_info=True)
     get_logger(__name__).info(
-        "logging started — component=%s level=%s file=%s", component, level_name, path)
+        "logging started — argus=%s component=%s level=%s file=%s",
+        version, component, level_name, path)
     return path
 
 
