@@ -87,6 +87,8 @@ class CustomRuleScanner:
         # resets it. Alert verification keeps priority; sentences catch up
         # when the model has headroom.
         self._backoff = 1.0
+        # Site-file mtime as of the last look — the fast-path's change signal.
+        self._site_mtime: float = 0.0
 
     def _refresh_cameras(self) -> None:
         """Re-read the site file so a sentence typed in the app starts scanning
@@ -126,6 +128,95 @@ class CustomRuleScanner:
             ok, fr = cap.read()
         return fr if ok else None
 
+    def _scan_camera(self, c: dict, caps: dict, dead_since: dict) -> None:
+        """One camera, one scan: get a frame, ask the model, emit hits."""
+        if self.frame_source is not None:
+            # the engine already decoded this stream — just look at it
+            frame = self.frame_source(c["id"])
+            if frame is None:
+                return
+        else:
+            if c["id"] not in caps:              # standalone fallback: own decode
+                caps[c["id"]] = self._open(c["source"])
+                log.info(f"[custom-rules] now scanning {c['id']} "
+                         f"({len(_rules_for(c))} rule(s))")
+            cap = caps.get(c["id"])
+            if cap is None:
+                return
+            frame = self._grab(cap)
+            if frame is None:
+                # The main pipeline's decoder reconnects; this scanner used
+                # to hold one dead VideoCapture forever, so the customer's
+                # English rules silently stopped scanning that camera after
+                # any stream drop. Reopen with a 30s backoff.
+                # (Audit 23 Aug, #8.)
+                import time as _t
+                first = dead_since.setdefault(c["id"], _t.time())
+                if _t.time() - first >= 30:
+                    log.info(f"[custom-rules {c['id']}] no frames for 30s — reopening stream")
+                    try:
+                        cap.release()
+                    except Exception:  # noqa: BLE001
+                        log.debug("release failed", exc_info=True)
+                    caps[c["id"]] = self._open(c["source"])
+                    dead_since[c["id"]] = _t.time()
+                return
+            dead_since.pop(c["id"], None)
+        try:
+            hits = self._check(c, frame)
+            self._record(c, hits)
+        except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
+            log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
+            self._record(c, None, error=str(exc)[:200])
+            return
+        for hit in hits:
+            if not self._cooling(c["id"], hit["name"]):
+                self._emit(c, frame, hit)
+
+    def _rule_keys(self) -> set:
+        return {(c["id"], t["name"]) for c in self.cameras for t in _rules_for(c)}
+
+    def _site_changed(self) -> bool:
+        if not self.site_config_path:
+            return False
+        try:
+            mtime = Path(self.site_config_path).stat().st_mtime
+        except OSError:
+            return False
+        changed = mtime != self._site_mtime
+        self._site_mtime = mtime
+        return changed
+
+    def _wait_for_next_pass(self, seconds: float, caps: dict, dead_since: dict) -> None:
+        """The inter-pass sleep — with a fast path for a freshly typed rule.
+
+        'Typed it, saw it work' (audit 1 Sep): a rule typed in the app used to
+        wait out the remainder of this sleep — up to interval x backoff, two
+        minutes under load — before its first scan. Now the sleep polls the
+        site file's mtime once a second (one stat call); when a change ADDS a
+        rule, the camera that gained it is scanned right here, and the sleep
+        then resumes to its original deadline, so one typed sentence never
+        doubles the whole site's scan rate. Edits and deletions don't cut the
+        sleep — only a new sentence has a person watching for its first
+        answer.
+        """
+        deadline = time.monotonic() + seconds
+        while not self._stop.is_set() and time.monotonic() < deadline:
+            self._stop.wait(min(1.0, max(0.05, deadline - time.monotonic())))
+            if not self._site_changed():
+                continue
+            before = self._rule_keys()
+            self._refresh_cameras()
+            fresh = self._rule_keys() - before
+            if not fresh:
+                continue
+            fresh_cams = {cam_id for cam_id, _ in fresh}
+            log.info(f"[custom-rules] new sentence on {', '.join(sorted(fresh_cams))} "
+                     "— scanning now instead of next cycle")
+            for c in self.cameras:
+                if c["id"] in fresh_cams and not self._stop.is_set():
+                    self._scan_camera(c, caps, dead_since)
+
     def _loop(self) -> None:
         caps: dict = {}
         dead_since: dict = {}     # camera_id -> when frames stopped
@@ -140,59 +231,8 @@ class CustomRuleScanner:
                     except Exception:  # noqa: BLE001
                         log.debug("release failed", exc_info=True)
             for c in self.cameras:
-                if self.frame_source is not None:
-                    # the engine already decoded this stream — just look at it
-                    frame = self.frame_source(c["id"])
-                    if frame is None:
-                        continue
-                    try:
-                        hits = self._check(c, frame)
-                        self._record(c, hits)
-                    except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
-                        log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
-                        self._record(c, None, error=str(exc)[:200])
-                        continue
-                    for hit in hits:
-                        if not self._cooling(c["id"], hit["name"]):
-                            self._emit(c, frame, hit)
-                    continue
-                if c["id"] not in caps:              # standalone fallback: own decode
-                    caps[c["id"]] = self._open(c["source"])
-                    log.info(f"[custom-rules] now scanning {c['id']} "
-                             f"({len(_rules_for(c))} rule(s))")
-                cap = caps.get(c["id"])
-                if cap is None:
-                    continue
-                frame = self._grab(cap)
-                if frame is None:
-                    # The main pipeline's decoder reconnects; this scanner used
-                    # to hold one dead VideoCapture forever, so the customer's
-                    # English rules silently stopped scanning that camera after
-                    # any stream drop. Reopen with a 30s backoff.
-                    # (Audit 23 Aug, #8.)
-                    import time as _t
-                    first = dead_since.setdefault(c["id"], _t.time())
-                    if _t.time() - first >= 30:
-                        log.info(f"[custom-rules {c['id']}] no frames for 30s — reopening stream")
-                        try:
-                            cap.release()
-                        except Exception:  # noqa: BLE001
-                            log.debug("release failed", exc_info=True)
-                        caps[c["id"]] = self._open(c["source"])
-                        dead_since[c["id"]] = _t.time()
-                    continue
-                dead_since.pop(c["id"], None)
-                try:
-                    hits = self._check(c, frame)
-                    self._record(c, hits)
-                except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
-                    log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
-                    self._record(c, None, error=str(exc)[:200])
-                    continue
-                for hit in hits:
-                    if not self._cooling(c["id"], hit["name"]):
-                        self._emit(c, frame, hit)
-            self._stop.wait(self.interval * self._backoff)
+                self._scan_camera(c, caps, dead_since)
+            self._wait_for_next_pass(self.interval * self._backoff, caps, dead_since)
         for cap in caps.values():
             try:
                 cap.release()

@@ -67,12 +67,20 @@ class HeartbeatTest(unittest.TestCase):
             self.assertIn("english_rules.cam1", names)
 
     def test_the_scan_loop_records_every_cycle(self):
-        """Both loop paths must call _record — the whole point is that a cycle
-        can never pass silently again."""
+        """Every scan path must call _record — the whole point is that a cycle
+        can never pass silently again. The two loop paths were unified into
+        _scan_camera (fast-path refactor, 3 Sep): the loop and the fast path
+        must both scan THROUGH it, and it must record success and failure."""
         import inspect
-        src = inspect.getsource(CustomRuleScanner._loop)
-        self.assertGreaterEqual(src.count("self._record("), 4,
-                                "a scan path exists that records nothing")
+        scan = inspect.getsource(CustomRuleScanner._scan_camera)
+        self.assertGreaterEqual(scan.count("self._record("), 2,
+                                "a scan outcome exists that records nothing")
+        loop = inspect.getsource(CustomRuleScanner._loop)
+        wait = inspect.getsource(CustomRuleScanner._wait_for_next_pass)
+        self.assertIn("self._scan_camera(", loop)
+        self.assertIn("self._scan_camera(", wait)
+        self.assertNotIn("self._check(", loop + wait,
+                         "a scan path bypasses _scan_camera and its recording")
 
     def test_the_ui_shows_the_pulse(self):
         html = Path("cvti/app/web/index.html").read_text()

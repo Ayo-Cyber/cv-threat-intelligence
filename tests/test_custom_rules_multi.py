@@ -73,11 +73,16 @@ class EveryTrueRuleFiresTest(unittest.TestCase):
         self.assertFalse(s._cooling("stage", "glasses"),
                          "one rule's cooldown muted a different rule")
 
-    def test_both_loop_paths_emit_every_hit(self):
-        """The loop used to take one hit; a regression here re-shadows rules."""
+    def test_every_scan_path_emits_every_hit(self):
+        """The loop used to take one hit; a regression here re-shadows rules.
+        Both former loop paths now scan through _scan_camera (3 Sep), so the
+        one emit loop there covers them — as long as nothing scans around it."""
+        import inspect
+        from cvti.serving.custom_rules import CustomRuleScanner
+        scan = inspect.getsource(CustomRuleScanner._scan_camera)
+        self.assertIn("for hit in hits:", scan,
+                      "the scan path stopped iterating over all hits")
         src = Path("cvti/serving/custom_rules.py").read_text()
-        self.assertEqual(src.count("for hit in hits:"), 2,
-                         "a loop path stopped iterating over all hits")
         self.assertNotIn('"threat": "<exact threat name', src,
                          "the singular-answer prompt is back")
 
