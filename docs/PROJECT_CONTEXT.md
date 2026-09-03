@@ -1,6 +1,36 @@
 # Project Context
 
-## Current Authoritative Handoff - 2026-08-30
+## Current Authoritative Handoff - 2026-09-03
+
+The full hierarchical Agent Mapper work is now on Ayo's `main`, including
+review protection, evidence-bearing bulk review, and the performance work
+merged through PR #87. Demi's current branch,
+`feat/mapper-evaluation-baseline`, addresses sprint item M3: turn Mapper
+quality into a measured number.
+
+The first reproducible smoke baseline is complete:
+
+- repaired `tests/agent_mapper/eval.py` to import the canonical
+  `cvti.scene.agent_mapper` implementation;
+- added fail-fast validation for missing clips, duplicate paths, unsupported
+  environment labels, invalid acceptable-label sets, and SHA-256 mismatches;
+- curated `tests/agent_mapper/labels.json` as `initial-15-v1`: 15 clips,
+  five environments, three clips each, with provenance limitations and hashes;
+- ran local Ollama `gemma3:4b`: 15/15 valid JSON, 7/15 exact environment
+  matches, 10/15 acceptable matches, zero threat-language leakage, zero hard
+  errors, and 16.515 seconds average provider latency;
+- preserved per-clip rows and the interpretation in
+  `tests/agent_mapper/results/`.
+
+This is one third of M3, not the promised final benchmark. Before model
+selection, expand to 45 clips covering all 15 runtime environments, obtain
+independent adjudication for ambiguous labels, add clean residential examples,
+document media rights, and run the same frozen manifest against at least one
+small-model alternative. Until then, keep `gemma3:4b` behind mandatory human
+scene review; its structural output is reliable, but outdoor classification is
+not accurate enough for automatic acceptance.
+
+## Previous Authoritative Handoff - 2026-08-30
 
 This section supersedes older "current state" statements later in this
 chronological document. The implementation base is Ayo's production branch at

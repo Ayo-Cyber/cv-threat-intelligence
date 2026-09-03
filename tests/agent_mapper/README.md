@@ -1,15 +1,15 @@
 # Agent Mapper VLM evaluation
 
 Compares open-source VLMs on the descriptive-only `scene_context.json` task. The
-harness reuses the same functions `agent_mapper.py` calls at runtime, so it tests
-what we actually ship.
+harness imports `cvti.scene.agent_mapper`, so it tests the same implementation
+the serving pipeline ships.
 
 ## Layout
 
 ```
 tests/agent_mapper/
   clips/<env>/<clip_id>.mp4     # ground-truth clips (gitignored)
-  labels.json                   # one entry per clip with expected environment_type
+  labels.json                   # initial 15-clip smoke baseline and ground truth
   eval.py                       # runs N models against M clips, writes a CSV
   results/eval_<run_id>.csv     # one row per (model, clip) — gitignored
 ```
@@ -68,6 +68,27 @@ $env:OLLAMA_API_KEY = "ollama"
 
 (For a persistent setting, use `[System.Environment]::SetEnvironmentVariable("OLLAMA_API_KEY", "ollama", "User")`.)
 
+## Baseline media
+
+`labels.json` contains the initial M3 smoke baseline: 15 clips, five environment
+types, and three clips per type. It is intentionally the first third of the
+planned 45-clip/15-environment dataset, not the completed benchmark.
+
+The videos are excluded from Git because of size and unresolved redistribution
+rights. Each manifest entry includes a SHA-256 checksum so collaborators can
+verify that they are evaluating the exact same local media. On the original dev
+machine the clips live under `data/anomaly/` and `data/hse_demo/`. If they are
+in another checkout, point `--clips-dir` at that checkout's root:
+
+```bash
+OLLAMA_API_KEY=ollama python tests/agent_mapper/eval.py \
+  --models gemma3:4b \
+  --clips-dir "/path/to/checkout-containing-data"
+```
+
+The evaluator fails before loading a model when a selected clip is absent or a
+manifest label is outside the runtime vocabulary.
+
 ## Add clips and labels
 
 1. Drop labeled clips into `tests/agent_mapper/clips/<environment_type>/` — for
@@ -83,14 +104,14 @@ $env:OLLAMA_API_KEY = "ollama"
 }
 ```
 
-Aim for ~3 clips per environment_type so the per-model accuracy numbers are
-meaningful. Use `schemas/scene_context.schema.json` for the canonical list of
-allowed environment values.
+Aim for at least three clips per `environment_type`. Use the runtime vocabulary
+in `cvti.scene.agent_mapper.ALLOWED_ENVIRONMENT_TYPES`; the evaluator validates
+against that same source of truth.
 
 ## Run the eval
 
-```powershell
-python tests\agent_mapper\eval.py --models qwen3-vl:8b,gemma4:26b
+```bash
+OLLAMA_API_KEY=ollama python tests/agent_mapper/eval.py --models gemma3:4b
 ```
 
 Useful flags:

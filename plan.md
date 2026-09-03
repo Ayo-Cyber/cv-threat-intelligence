@@ -1,6 +1,28 @@
 # CV Threat Intelligence Backend V1 Plan
 
-## Current Execution Status - 2026-08-30
+## Current Execution Status - 2026-09-03
+
+The hierarchical Agent Mapper implementation and Ayo's latency/delivery changes
+are merged on `ayo/main`. The remaining Mapper sprint item is M3 measurement.
+An initial 15-clip/five-environment smoke baseline now exists on
+`feat/mapper-evaluation-baseline`.
+
+Measured with local Ollama `gemma3:4b`:
+
+- schema-valid output: 15/15;
+- exact environment match: 7/15;
+- acceptable environment match: 10/15;
+- threat-language leakage: 0/15;
+- hard errors: 0/15;
+- average provider latency: 16.515 seconds.
+
+The immediate next step is to merge this reproducible baseline, then expand it
+to the planned 45 clips across all 15 environment types. Human scene review
+must remain mandatory while outdoor environment accuracy is this weak. See
+`tests/agent_mapper/results/BASELINE_GEMMA3_4B_INITIAL15.md` for the verdict,
+limitations, and reproduction command.
+
+## Previous Execution Status - 2026-08-30
 
 The immediate Agent Mapper workstream is implemented on
 `feat/full-agent-mapper-integration`, based on `ayo/main@b32dbec`, and awaits
