@@ -22,6 +22,83 @@ from cvti.logging_setup import get_logger
 log = get_logger(__name__)
 
 
+# A hesitant yes is a no (3 Sep, 'not flagging things that aren't it'): the
+# scanner asks the model for certainty in its OWN answer and drops claims
+# below this. Chosen next to the gate's min_confidence philosophy — the floor
+# kills the borderline "reported at 0.5" noise, not real sightings.
+MIN_RULE_CONFIDENCE = 0.7
+
+# Evidence boxes, colour-coded by WHAT was flagged (BGR): the person in blue,
+# a loose object in amber, a held instrument (weapon-shaped things) in red —
+# so the operator's eye lands on the right thing before reading a word.
+TARGET_COLOURS = {"person": (255, 140, 40),
+                  "object": (0, 165, 255),
+                  "instrument": (0, 0, 255)}
+
+
+def _claim_confidence(claim: dict) -> float:
+    """The model's stated certainty, 0..1. Absent or malformed = 1.0 — the
+    floor tightens compliant answers, it doesn't strand non-compliant ones."""
+    raw = claim.get("confidence")
+    if raw is None:
+        return 1.0
+    try:
+        return max(0.0, min(1.0, float(raw)))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _claim_target(claim: dict) -> str:
+    target = str(claim.get("target") or "").strip().lower()
+    return target if target in TARGET_COLOURS else "object"
+
+
+def _normalized_box(raw) -> tuple | None:
+    """A model-supplied [x1,y1,x2,y2] on the 0-1000 grid, or None.
+
+    Strict on purpose: a fabricated or degenerate box drawn over evidence is
+    worse than no box, so anything malformed is dropped silently and the
+    frame ships unboxed — exactly the pre-3-Sep behaviour."""
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = (float(v) for v in raw)
+    except (TypeError, ValueError):
+        return None
+    if not all(0.0 <= v <= 1000.0 for v in (x1, y1, x2, y2)):
+        return None
+    if x2 - x1 < 5 or y2 - y1 < 5:      # degenerate sliver, not a subject
+        return None
+    return (x1, y1, x2, y2)
+
+
+def annotate_hit(frame, hit: dict):
+    """(evidence_frame, pixel_box|None): the hit's box drawn colour-coded on a
+    COPY of the frame, with the rule name as the label. No box = the original
+    frame untouched and no pixel box."""
+    import cv2
+    box = hit.get("box")
+    if box is None:
+        return frame, None
+    height, width = frame.shape[:2]
+    x1 = int(round(box[0] / 1000.0 * width))
+    y1 = int(round(box[1] / 1000.0 * height))
+    x2 = int(round(box[2] / 1000.0 * width))
+    y2 = int(round(box[3] / 1000.0 * height))
+    x1, x2 = max(0, min(x1, width - 1)), max(0, min(x2, width - 1))
+    y1, y2 = max(0, min(y1, height - 1)), max(0, min(y2, height - 1))
+    if x2 <= x1 or y2 <= y1:
+        return frame, None
+    target = hit.get("target", "object")
+    colour = TARGET_COLOURS.get(target, TARGET_COLOURS["object"])
+    evidence = frame.copy()
+    cv2.rectangle(evidence, (x1, y1), (x2, y2), colour, 2)
+    label = f"{target}: {hit.get('name', '')}"[:48]
+    cv2.putText(evidence, label, (x1 + 3, max(14, y1 - 6)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1, cv2.LINE_AA)
+    return evidence, (x1, y1, x2, y2)
+
+
 def _rules_for(cam: dict) -> list[dict]:
     """Every English rule on a camera, whatever field it arrived in.
 
@@ -302,13 +379,28 @@ class CustomRuleScanner:
         # hoodie had written a glasses rule; the hoodie rule answered every
         # cycle and the glasses rule never fired once. The evidence frame shows
         # both, plainly.
+        # Tightened 3 Sep ('not flagging things that aren't it'): the model
+        # must point at concrete visible evidence, say how sure it is, and
+        # SHOW us where — near-matches are named as the failure mode they are,
+        # and 'none' is framed as the normal answer, not a disappointment.
         prompt = (
-            "You are a security camera analyst. Only report a threat if it is clearly "
-            f"happening in the image; otherwise report none.\nScene: {self._scene(cam['id'])}.\n"
+            "You are a security camera analyst. Verify each watch item against ONLY "
+            f"what is clearly visible in this image.\nScene: {self._scene(cam['id'])}.\n"
             f"Watch specifically for:\n{lines}\n"
             "Check EVERY listed item independently — more than one can be true at once.\n"
+            "Rules:\n"
+            "- Report an item ONLY when you can point at concrete visible evidence in "
+            "THIS image. Near-matches do not count: a dark jacket is not a hoodie, a "
+            "phone is not a weapon, a person merely being present does not match an "
+            "action.\n"
+            "- If you are not sure, do not report it. An empty list is the normal "
+            "answer for a normal scene.\n"
             'Reply ONLY compact JSON: {"threats": [{"name": "<exact name from the list>", '
-            '"reason": "<one short sentence of what you see>"}]} — an empty list if none.'
+            '"reason": "<one short sentence naming the visible evidence>", '
+            '"confidence": <0.0-1.0, certainty in your own answer>, '
+            '"target": "person" | "object" | "instrument", '
+            '"box": [x1, y1, x2, y2] <the matching person or object, coordinates '
+            "normalized to 0-1000 over the image>}]} — an empty list if none."
         )
         from cvti.scene.agent_mapper import call_openai_compatible, downscale_for_vlm
         ok, buf = cv2.imencode(".jpg", downscale_for_vlm(frame),
@@ -324,7 +416,7 @@ class CustomRuleScanner:
         # the adaptive backoff and the heartbeat file are for.
         raw = call_openai_compatible(prompt=prompt, frame_bytes=buf.tobytes(), model=self.model,
                                      api_key_env="OLLAMA_API_KEY", api_base_url=self.base_url,
-                                     require_key=False, max_tokens=256,
+                                     require_key=False, max_tokens=320,
                                      max_retries=0, timeout=120.0)
         m = re.search(r"\{.*\}", raw or "", re.S)
         if not m:
@@ -363,19 +455,44 @@ class CustomRuleScanner:
                               if _overlap(t) >= (2 if len(words) > 1 else 1)), None)
             if match is None or match["name"] in seen:
                 continue
+            # Confidence floor (3 Sep): the model now states certainty in its
+            # OWN answer, and a hesitant yes is a no. Absent confidence (an
+            # older model free-styling the shape) passes — the floor tightens
+            # compliant answers, it doesn't strand non-compliant ones.
+            conf = _claim_confidence(c)
+            if conf < MIN_RULE_CONFIDENCE:
+                log.info(f"[custom-rules {cam['id']}] '{match['name']}' below the "
+                         f"confidence floor ({conf:.2f} < {MIN_RULE_CONFIDENCE}) — dropped")
+                continue
             seen.add(match["name"])
-            hits.append({"name": match["name"], "reason": str(c.get("reason", ""))[:240]})
+            hit = {"name": match["name"], "reason": str(c.get("reason", ""))[:240],
+                   "confidence": conf}
+            box = _normalized_box(c.get("box"))
+            if box is not None:
+                hit["box"] = box
+                hit["target"] = _claim_target(c)
+            hits.append(hit)
         return hits
 
     def _emit(self, cam: dict, frame, hit: dict) -> None:
         from cvti.contracts import VerificationResult
         from cvti.serving.alert_queue import QueuedAlert
+        # The evidence points at WHAT the model saw (3 Sep): the matching
+        # person/object/instrument gets a colour-coded box drawn on the
+        # evidence copy, and the pixel bbox rides in the payload so the sink's
+        # subject shot points at it too. No box from the model = today's
+        # unboxed frame, honestly.
+        evidence, pixel_box = annotate_hit(frame, hit)
+        payload = {"frames": [evidence]}
+        if pixel_box is not None:
+            payload["bbox"] = pixel_box
         alert = QueuedAlert(
             camera_id=cam["id"], rule_name=f"custom:{hit['name']}",
             priority="high", title=f"CUSTOM: {hit['name']}", timestamp=time.time(),
-            payload={"frames": [frame]})
+            payload=payload)
         result = VerificationResult(
-            confirmed=True, confidence=0.9, reason=hit["reason"],
+            confirmed=True, confidence=float(hit.get("confidence", 0.9)),
+            reason=hit["reason"],
             alert_priority="high", timestamp=time.time(), raw_response="custom-vlm")
         self.sink.handle(alert, result)
 
