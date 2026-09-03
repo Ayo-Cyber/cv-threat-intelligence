@@ -32,6 +32,7 @@ class PacingTests(unittest.TestCase):
         d.target_fps = target
         d.display_fps = 0.0
         d._fps = 30.0
+        d.sustainable_fps = 30.0                   # adaptive ingest: no deficit
         return d
 
     def test_unwatched_paces_at_detection_rate(self):

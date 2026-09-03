@@ -35,6 +35,16 @@ def derive_status(*, cameras: list, gate: dict, disk: dict, memory: dict,
                                       f"{cam.get('time_in_state', 0):.0f}s"))
         elif cam.get("state") == "reconnecting":
             reasons.append((DEGRADED, f"camera {cam.get('camera_id')} reconnecting"))
+        ingest = cam.get("ingest") or {}
+        if ingest.get("limited"):
+            # Adaptive ingest (3 Sep): the machine, not the camera, is the
+            # bottleneck — say so with numbers and the one action that fixes it.
+            reasons.append((DEGRADED,
+                            f"camera {cam.get('camera_id')}: this machine sustains "
+                            f"~{ingest.get('sustainable_fps')}fps of "
+                            f"{ingest.get('width')}x{ingest.get('height')}"
+                            f"@{ingest.get('source_fps')} — sampling reduced; the "
+                            "camera's lower-resolution substream would restore full rate"))
 
     if gate.get("reachable") is False:
         # The gate down means alerts arrive UNVERIFIED — the product is running
