@@ -1,14 +1,15 @@
 """Evaluate Agent Mapper output across one or more VLM providers.
 
 Loads labels.json, runs agent_mapper on each clip per requested model, and writes a
-CSV of results plus a console summary. Designed to import agent_mapper.py directly
-so the eval exercises the same code path the CLI uses.
+CSV of results plus a console summary. Imports the canonical scene mapper module so
+the eval exercises the same code path the application uses.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import sys
 import time
@@ -19,7 +20,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-import agent_mapper as mapper  # noqa: E402
+from cvti.scene import agent_mapper as mapper  # noqa: E402
 
 # Words that should NOT appear in scene_description or notes when the prompt is
 # working — they indicate the model leaked threat semantics into the descriptive layer.
@@ -145,22 +146,70 @@ def parse_args() -> argparse.Namespace:
 
 def load_labels(labels_path: Path, clips_root: Path, filter_env: str) -> list[ClipLabel]:
     raw = json.loads(labels_path.read_text(encoding="utf-8"))
+    entries = raw.get("clips", [])
+    if not isinstance(entries, list):
+        raise ValueError("labels.json clips must be an array")
     clips: list[ClipLabel] = []
-    for entry in raw.get("clips", []):
-        clip_path = (clips_root.parent.parent / entry["clip_path"]).resolve()
-        if not clip_path.is_absolute():
-            clip_path = (REPO_ROOT / entry["clip_path"]).resolve()
-        # If the path doesn't resolve under clips_root, fall back to interpreting it as repo-relative.
-        if not clip_path.exists():
-            clip_path = (REPO_ROOT / entry["clip_path"]).resolve()
-        expected = entry["expected_environment_type"]
+    seen_paths: set[Path] = set()
+    allowed = mapper.ALLOWED_ENVIRONMENT_TYPES
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(f"clip entry {index} must be an object")
+        expected = str(entry.get("expected_environment_type", "")).strip()
         if filter_env and expected != filter_env:
             continue
+        if expected not in allowed:
+            raise ValueError(
+                f"unsupported expected_environment_type at clip entry {index}: {expected}"
+            )
+        acceptable = entry.get("acceptable_environment_types", [expected])
+        if not isinstance(acceptable, list) or not acceptable:
+            raise ValueError(
+                f"acceptable_environment_types at clip entry {index} must be a non-empty array"
+            )
+        acceptable = [str(value).strip() for value in acceptable]
+        unsupported = sorted(set(acceptable) - allowed)
+        if unsupported:
+            raise ValueError(
+                "unsupported acceptable_environment_types at clip entry "
+                f"{index}: {', '.join(unsupported)}"
+            )
+        if expected not in acceptable:
+            raise ValueError(
+                f"acceptable_environment_types at clip entry {index} must include {expected}"
+            )
+
+        raw_path_value = str(entry.get("clip_path", "")).strip()
+        if not raw_path_value:
+            raise ValueError(f"clip_path at clip entry {index} is empty")
+        raw_path = Path(raw_path_value)
+        candidates = (
+            [raw_path]
+            if raw_path.is_absolute()
+            else [REPO_ROOT / raw_path, clips_root / raw_path]
+        )
+        clip_path = next(
+            (candidate.resolve() for candidate in candidates if candidate.exists()),
+            candidates[0].resolve(),
+        )
+        if not clip_path.exists():
+            raise FileNotFoundError(f"labeled clip does not exist: {clip_path}")
+        expected_sha256 = str(entry.get("sha256", "")).strip().lower()
+        if expected_sha256:
+            digest = hashlib.sha256()
+            with clip_path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != expected_sha256:
+                raise ValueError(f"sha256 mismatch for labeled clip: {clip_path}")
+        if clip_path in seen_paths:
+            raise ValueError(f"duplicate clip_path in labels: {clip_path}")
+        seen_paths.add(clip_path)
         clips.append(
             ClipLabel(
                 clip_path=clip_path,
                 expected_environment_type=expected,
-                acceptable_environment_types=entry.get("acceptable_environment_types", [expected]),
+                acceptable_environment_types=acceptable,
                 notes=entry.get("notes", ""),
             )
         )
@@ -331,7 +380,11 @@ def main() -> None:
     clips_dir = Path(args.clips_dir)
     results_dir = Path(args.results_dir)
 
-    clips = load_labels(labels_path, clips_dir, args.filter_env.strip())
+    try:
+        clips = load_labels(labels_path, clips_dir, args.filter_env.strip())
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"Invalid evaluation manifest: {exc}", file=sys.stderr)
+        sys.exit(2)
     if not clips:
         print("No clips matched the filter (or labels.json is empty). Add clips and entries first.")
         sys.exit(1)

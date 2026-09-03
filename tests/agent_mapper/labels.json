@@ -1,11 +1,119 @@
 {
-  "_doc": "Ground-truth labels for Agent Mapper eval. One entry per clip file under tests/agent_mapper/clips/<env>/. Use environment_type values from schemas/scene_context.schema.json. The acceptable_environment_types array lets a prediction count as correct if it falls in a list of close alternates (e.g. estate_gate vs estate_street).",
+  "_doc": "Initial Agent Mapper smoke baseline: 15 clips across 5 environment types. This is the first third of the planned 45-clip, 15-environment M3 dataset and must not be reported as the completed M3 benchmark.",
+  "_dataset": {
+    "version": "initial-15-v1",
+    "labeled_on": "2026-09-03",
+    "clip_count": 15,
+    "environment_count": 5,
+    "clips_per_environment": 3,
+    "provenance": "Locally held CamNuvem anomaly clips plus the public fire/smoke evaluation clips already used by this project. Media remains gitignored; sha256 identifies the exact files.",
+    "limitations": "Small convenience sample, Western/public footage, repeated source collections, and no Nigerian pilot footage. Environment accuracy from this set is directional only."
+  },
   "clips": [
     {
-      "clip_path": "tests/agent_mapper/clips/estate_gate/example_estate_gate_01.mp4",
-      "expected_environment_type": "estate_gate",
-      "acceptable_environment_types": ["estate_gate", "estate_street", "perimeter_fence"],
-      "notes": "Replace this entry with real labeled clips. Drop MP4 files into tests/agent_mapper/clips/<env>/ and add matching entries here."
+      "clip_path": "data/anomaly/19.mp4",
+      "sha256": "f2d6baad9741388aa85f48ea18acdfaac306178f053b0ec39cf6f56c0311316d",
+      "expected_environment_type": "retail_shop",
+      "acceptable_environment_types": ["retail_shop"],
+      "notes": "Convenience-store aisle with stocked merchandise shelves."
+    },
+    {
+      "clip_path": "data/anomaly/119.mp4",
+      "sha256": "bec9b02bf0f859b4ac724915a4c4717158330134b526371e8020bc82e716063c",
+      "expected_environment_type": "retail_shop",
+      "acceptable_environment_types": ["retail_shop"],
+      "notes": "Wide grocery/convenience-store aisle view."
+    },
+    {
+      "clip_path": "data/anomaly/196.mp4",
+      "sha256": "48fb7e6e507ea00529ea2d1109d2c2f42653614917907448be9d0ee61768ff3f",
+      "expected_environment_type": "retail_shop",
+      "acceptable_environment_types": ["retail_shop"],
+      "notes": "Pastry-shop sales counter and customer area."
+    },
+    {
+      "clip_path": "data/anomaly/43.mp4",
+      "sha256": "8db147d0a0c6aedde232127dfed0c7c2b4b2569455614eac165a0e5d522d7a3a",
+      "expected_environment_type": "parking_lot",
+      "acceptable_environment_types": ["parking_lot"],
+      "notes": "Wide outdoor parking area with multiple parked vehicles."
+    },
+    {
+      "clip_path": "data/anomaly/146.mp4",
+      "sha256": "0571ab5b0e124d94cbe58ae35eee83c32f5b57eab80073d234e22cb468a450a8",
+      "expected_environment_type": "parking_lot",
+      "acceptable_environment_types": ["parking_lot", "estate_street", "residential_exterior"],
+      "notes": "Vehicle approach beside a paved parking/driveway area."
+    },
+    {
+      "clip_path": "data/anomaly/391.mp4",
+      "sha256": "923659aead474cd1306f5b06b21b416f2614b5f543114690ecccb7e51da75c69",
+      "expected_environment_type": "parking_lot",
+      "acceptable_environment_types": ["parking_lot", "residential_exterior"],
+      "notes": "Night CCTV view of vehicles on a paved forecourt."
+    },
+    {
+      "clip_path": "data/anomaly/10.mp4",
+      "sha256": "5c7a9893a495bd894e8fe1a86b17a408476c8bff956b80093e0639fe267650e6",
+      "expected_environment_type": "estate_street",
+      "acceptable_environment_types": ["estate_street", "residential_exterior", "perimeter_fence"],
+      "notes": "Residential roadside viewed from behind a property gate."
+    },
+    {
+      "clip_path": "data/anomaly/113.mp4",
+      "sha256": "693021d5eabf8eeaeba6d426bbaef440d488a78de8e98f8ec4eb66923d2e67ad",
+      "expected_environment_type": "estate_street",
+      "acceptable_environment_types": ["estate_street", "residential_exterior"],
+      "notes": "Narrow residential street between buildings."
+    },
+    {
+      "clip_path": "data/anomaly/398.mp4",
+      "sha256": "6e378268b6f53b4c3eda13f19ff60e1aa2bf81bb2fa8dc61e95597e681bce87f",
+      "expected_environment_type": "estate_street",
+      "acceptable_environment_types": ["estate_street", "residential_exterior"],
+      "notes": "Residential access road with parked vehicles and building fronts."
+    },
+    {
+      "clip_path": "data/hse_demo/fire_videos.1406/neg/negsVideo10.1072.mp4",
+      "sha256": "fca2a38a3acc648e36d7b20f9a0cfbf564b9ea532a80e7bb99d59db598895efa",
+      "expected_environment_type": "office_floor",
+      "acceptable_environment_types": ["office_floor", "office_lobby"],
+      "notes": "Small office workspace with desk, chairs, and coat stand."
+    },
+    {
+      "clip_path": "data/hse_demo/smoke_videos.1407/neg/testneg03.809.mp4",
+      "sha256": "2cad038ee79e7312445d75fdc2d91f3db0f67bfc000d9a5cfa39221f97bd7464",
+      "expected_environment_type": "office_floor",
+      "acceptable_environment_types": ["office_floor", "office_lobby"],
+      "notes": "Open office with workstations and seated staff."
+    },
+    {
+      "clip_path": "data/anomaly/477.mp4",
+      "sha256": "8b9954e3ed3594fe7386fffea5d4426279e6439f1bb43344dbc346302d1d2766",
+      "expected_environment_type": "office_floor",
+      "acceptable_environment_types": ["office_floor", "retail_shop"],
+      "notes": "Compact back-office/workroom with desks and shelving."
+    },
+    {
+      "clip_path": "data/hse_demo/smoke_videos.1407/neg/testneg01.807.mp4",
+      "sha256": "f3ac3b366e432867e01ce48c978822091183a05e2846109d864bdd65ca5138d7",
+      "expected_environment_type": "residential_exterior",
+      "acceptable_environment_types": ["residential_exterior", "estate_street"],
+      "notes": "Daytime exterior of homes, garden, and roadside."
+    },
+    {
+      "clip_path": "data/hse_demo/smoke_videos.1407/pos/testpos01.817.mp4",
+      "sha256": "c57709598ec61d8ced655c42dd741a535909ff7bece2fe302f95603bdf889e8d",
+      "expected_environment_type": "residential_exterior",
+      "acceptable_environment_types": ["residential_exterior"],
+      "notes": "Residential garden/backyard with lawn and landscaping."
+    },
+    {
+      "clip_path": "data/hse_demo/smoke_videos.1407/pos/testpos06.822.mp4",
+      "sha256": "9790176e826f7a2680b487c697676896b879ae5f55b5de3652cc3e1bfef8f1a6",
+      "expected_environment_type": "residential_exterior",
+      "acceptable_environment_types": ["residential_exterior"],
+      "notes": "Paved residential courtyard beside a house."
     }
   ]
 }
