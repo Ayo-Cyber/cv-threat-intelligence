@@ -83,3 +83,14 @@ def test_scene_review_is_one_grouped_workspace() -> None:
     assert "approveSiteContext" in body
     for label in ("Confirm area", "Edit and confirm", "Reject and remap", "Keep paused"):
         assert label in html
+
+
+def test_scene_review_shows_per_camera_evidence_before_bulk_confirmation() -> None:
+    html = HTML.read_text()
+    body = _function_body(html, "renderSceneReview")
+
+    assert "environment_type" in body
+    assert "confidence" in body
+    assert "evidence_ready" in body
+    assert "missing_evidence_camera_ids" in body
+    assert "selected.bulk_reviewable" in body

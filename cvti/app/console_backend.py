@@ -963,21 +963,72 @@ class ConsoleBackend:
         self._require(perms.VIEW_LIVE)
         return self._hierarchy_store().load_area(area_id)
 
+    def _area_review_record(self, area: dict, context: dict | None) -> dict:
+        evidence_ids = {
+            str(camera_id)
+            for camera_id in (context or {}).get("evidence_camera_ids", [])
+        }
+        cameras = []
+        missing_evidence = []
+        for camera_id in area["camera_ids"]:
+            camera_context = self.scene_context(camera_id)
+            frame_uri = (camera_context or {}).get("source_frame_uri", "")
+            evidence_ready = bool(
+                camera_context and frame_uri and camera_id in evidence_ids
+            )
+            if not evidence_ready:
+                missing_evidence.append(camera_id)
+            cameras.append({
+                "camera_id": camera_id,
+                "mapping": (camera_context or {}).get(
+                    "mapping", {"status": "pending"}
+                ),
+                "source_frame_uri": frame_uri,
+                "environment_type": (camera_context or {}).get(
+                    "environment_type", "unknown"
+                ),
+                "confidence": float((camera_context or {}).get("confidence", 0.0)),
+                "evidence_ready": evidence_ready,
+            })
+        bulk_reviewable = bool(
+            context
+            and cameras
+            and not context.get("conflicts")
+            and not missing_evidence
+        )
+        return {
+            **area,
+            "context": context,
+            "cameras": cameras,
+            "missing_evidence_camera_ids": missing_evidence,
+            "bulk_reviewable": bulk_reviewable,
+        }
+
     def approve_area_context(self, area_id: str, context: dict) -> dict:
         self._require(perms.CONFIGURE_CAMERAS)
         payload = dict(context)
         payload["area_id"] = area_id
-        saved = self._hierarchy_store().approve_area(
-            payload, self.current_user.username
-        )
-        approved_cameras: list[str] = []
         area = next(
             (item for item in onboarding.normalized_areas(self.site_path)
              if item["id"] == area_id),
             None,
         )
+        if area is None:
+            raise ValueError(f"unknown area: {area_id}")
+        review = self._area_review_record(area, payload)
+        if not review["bulk_reviewable"]:
+            missing = ", ".join(review["missing_evidence_camera_ids"])
+            detail = f" Missing: {missing}." if missing else ""
+            raise ValueError(
+                "Area approval requires complete camera evidence and no conflicts."
+                + detail
+            )
+        saved = self._hierarchy_store().approve_area(
+            payload, self.current_user.username
+        )
+        approved_cameras: list[str] = []
         cameras = {str(camera["id"]): camera for camera in self.list_cameras()}
-        for camera_id in (area or {}).get("camera_ids", []):
+        for camera_id in area["camera_ids"]:
             camera = cameras.get(camera_id)
             store = self._scene_store(camera_id)
             camera_context = store._load_context()
@@ -1032,16 +1083,7 @@ class ConsoleBackend:
         areas = []
         for area in onboarding.normalized_areas(self.site_path):
             context = self._hierarchy_store().load_area(area["id"])
-            cameras = []
-            for camera_id in area["camera_ids"]:
-                camera_context = self.scene_context(camera_id)
-                cameras.append({
-                    "camera_id": camera_id,
-                    "mapping": (camera_context or {}).get("mapping", {"status": "pending"}),
-                    "source_frame_uri": (camera_context or {}).get("source_frame_uri", ""),
-                })
-            areas.append({**area, "context": context, "cameras": cameras,
-                          "bulk_reviewable": bool(context and not context.get("conflicts"))})
+            areas.append(self._area_review_record(area, context))
         statuses = [camera["mapping"].get("status")
                     for area in areas for camera in area["cameras"]]
         return {
