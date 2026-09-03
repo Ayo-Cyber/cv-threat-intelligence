@@ -64,7 +64,11 @@ def _operator_hints(camera: dict[str, Any]) -> dict[str, Any] | None:
     environment = str(camera.get("environment_type") or "").strip()
     actors = [str(a).strip() for a in camera.get("expected_actors") or []]
     actors = [a for a in actors if a]
-    note = str(camera.get("scene_hint") or "").strip()
+    # An authored scene_description is a PRIOR too (3 Sep): when the operator
+    # remaps a camera whose config carries one, the mapper should refine that
+    # text, not guess from a single frame as if nobody had said anything.
+    note = (str(camera.get("scene_hint") or "").strip()
+            or str(camera.get("scene_description") or "").strip())
     hints: dict[str, Any] = {}
     site_type = str(camera.get("site_type") or "").strip()
     area_id = str(camera.get("area_id") or "").strip()

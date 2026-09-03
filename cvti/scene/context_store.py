@@ -490,13 +490,34 @@ class SceneContextStore:
     ) -> ContextResolution:
         normalized_policy = normalize_scene_context_policy(policy)
         if manual_context is not None:
+            # Human-AUTHORED, not human-REVIEWED (3 Sep). This used to stamp
+            # ready_reviewed/"site_config" — so the live-feed template's
+            # copy-pasted "public street/plaza/terminal" carried reviewed
+            # authority nobody gave it, and (correctly) the review protection
+            # then blocked the mapper from ever fixing it: Venice Canal was a
+            # "street/plaza/terminal" forever. Authored text keeps the camera
+            # RUNNING (usable=True — an operator who typed a description said
+            # 'watch this') and feeds the gate, but suppression rights and the
+            # reviewed badge come only from a person approving THIS camera in
+            # Scene Review. And a review a person already gave OUTRANKS the
+            # config text — the M1 doctrine: no file edit silently overrides
+            # a human's approval.
+            current = self.load_status()
+            if (current.status == "ready_reviewed"
+                    and current.reviewed_by
+                    and current.reviewed_by != "site_config"
+                    and current.source_fingerprint == source_fingerprint(source)):
+                reviewed = self._load_context()
+                if reviewed is not None:
+                    return ContextResolution(reviewed, current, "cache", True)
             prepared = self._prepare_context(manual_context, source)
-            status = MappingStatus(
-                status="ready_reviewed",
-                source_fingerprint=source_fingerprint(source),
-                mapped_at=prepared["generated_at"],
-                reviewed_at=prepared["generated_at"],
-                reviewed_by="site_config",
+            _atomic_json_write(self.context_path, prepared)
+            status = self._write_status(
+                MappingStatus(
+                    status="ready_unreviewed",
+                    source_fingerprint=source_fingerprint(source),
+                    mapped_at=prepared["generated_at"],
+                )
             )
             return ContextResolution(prepared, status, "manual", True)
 
@@ -507,6 +528,21 @@ class SceneContextStore:
             if status.source_fingerprint and status.source_fingerprint != current_fingerprint:
                 stale = self.mark_stale(source)
                 return ContextResolution(context, stale, "cache", False)
+            if status.status == "ready_reviewed" and status.reviewed_by == "site_config":
+                # Migration for stores stamped before 3 Sep: "site_config" was
+                # the auto-stamp's marker (real reviewers have usernames).
+                # Demote in place so the mapper and Scene Review treat it as
+                # the unreviewed authored text it always was.
+                status = self._write_status(
+                    MappingStatus(
+                        status="ready_unreviewed",
+                        source_fingerprint=status.source_fingerprint,
+                        mapped_at=status.mapped_at,
+                    )
+                )
+                return ContextResolution(
+                    context, status, "cache", normalized_policy == "auto"
+                )
             if status.status == "ready_reviewed":
                 return ContextResolution(context, status, "cache", True)
             if status.status == "ready_unreviewed":

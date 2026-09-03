@@ -1,7 +1,8 @@
 {
   "zones": [
     {"name": "watch", "kind": "restricted", "anchors": ["BOTTOM_CENTER"],
-     "dwell_alert_seconds": 1.5,
+     "_comment": "45s, not 1.5: this zone covers the WHOLE frame of public EarthCams. At 1.5s every pedestrian who paused became an auto-confirmed loitering alert — 182 of them from one evening of Dublin Street (3 Sep). Loitering on a public feed means someone CAMPED in view, not someone who stopped walking.",
+     "dwell_alert_seconds": 45,
      "polygon": [[2,2],[1276,2],[1276,716],[2,716]]}
   ]
 }

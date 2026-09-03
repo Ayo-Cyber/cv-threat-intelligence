@@ -1940,12 +1940,20 @@ class ConsoleBackend:
         with ThreadPoolExecutor(max_workers=min(6, max(1, len(feeds)))) as pool:
             for name, url in pool.map(_resolve_one, feeds):
                 if url:
+                    # Per-camera text, not one template pasted four times —
+                    # 'Venice Canal' described as "a street/plaza/terminal"
+                    # was the operator's 'the descriptions are wrong' (3 Sep).
+                    # No environment_type claim: "public area" was not even in
+                    # the vocabulary; the mapper infers it, with this text as
+                    # its prior, and a human reviews it in Scene Review.
                     cams.append({
                         "id": name, "source": url,
                         "config": "configs/rules/live_watch.json",
                         "zones": "configs/zones/live_watch.json",
-                        "environment_type": "public area",
-                        "scene_description": "A public street/plaza/terminal; a person lingering (loitering) or running may signal an incident.",
+                        "scene_description": (
+                            f"Public live camera: {name}. A busy public view — "
+                            "people passing through is normal; someone camped "
+                            "in view or running may signal an incident."),
                         "running": True, "running_min_speed_ratio": 0.08,
                         "running_min_frames": 3})
         if not cams:
