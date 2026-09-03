@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -10,6 +11,7 @@ from cvti.scene import SceneContextStore as PublicSceneContextStore
 from cvti.scene.agent_mapper import MappingResult
 from cvti.scene.context_store import (
     SceneContextStore,
+    _atomic_bytes_write,
     normalize_environment_type,
     source_fingerprint,
     validate_scene_context,
@@ -128,6 +130,71 @@ def test_raw_response_is_debug_only(tmp_path) -> None:
     store.save_mapping(_mapping_result(), _source(tmp_path), dump_raw_response=True)
 
     assert store.raw_response_path.read_text().startswith("{")
+
+
+def test_late_mapping_becomes_proposal_instead_of_overwriting_review(tmp_path) -> None:
+    source = _source(tmp_path)
+    store = SceneContextStore(tmp_path / "context", "cam_1")
+    reviewed = store.approve(_context("parking_lot"), "owner", source)
+
+    resolution = store.save_mapping(
+        _mapping_result("retail_shop"), source, dump_raw_response=True
+    )
+
+    assert resolution.context == reviewed.context
+    assert resolution.status.status == "ready_reviewed"
+    assert resolution.provenance == "reviewed_during_mapping"
+    assert json.loads(store.context_path.read_text())["environment_type"] == "parking_lot"
+    assert (
+        json.loads(store.proposal_context_path.read_text())["environment_type"]
+        == "retail_shop"
+    )
+    assert store.proposal_frame_path.read_bytes().startswith(b"\xff\xd8")
+    assert store.proposal_raw_response_path.read_text().startswith("{")
+
+
+def test_windows_atomic_replace_retries_transient_permission_errors(
+    tmp_path, monkeypatch
+) -> None:
+    destination = tmp_path / "context.json"
+    real_replace = Path.replace
+    attempts = 0
+
+    def flaky_replace(path: Path, target: Path) -> Path:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError("file is being read")
+        return real_replace(path, target)
+
+    monkeypatch.setattr("cvti.scene.context_store.sys.platform", "win32")
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    monkeypatch.setattr("cvti.scene.context_store.time.sleep", lambda _: None)
+
+    _atomic_bytes_write(destination, b"complete")
+
+    assert destination.read_bytes() == b"complete"
+    assert attempts == 3
+
+
+def test_atomic_replace_does_not_retry_permission_errors_off_windows(
+    tmp_path, monkeypatch
+) -> None:
+    destination = tmp_path / "context.json"
+    attempts = 0
+
+    def denied_replace(path: Path, target: Path) -> Path:
+        nonlocal attempts
+        attempts += 1
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("cvti.scene.context_store.sys.platform", "darwin")
+    monkeypatch.setattr(Path, "replace", denied_replace)
+
+    with pytest.raises(PermissionError, match="denied"):
+        _atomic_bytes_write(destination, b"never committed")
+
+    assert attempts == 1
 
 
 def test_manual_context_outranks_reviewed_cache(tmp_path) -> None:

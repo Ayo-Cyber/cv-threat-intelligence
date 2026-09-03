@@ -72,3 +72,21 @@ def test_prompt_requests_independent_hierarchy_evidence() -> None:
     assert 'area type prior: "loading_bay"' in prompt
     assert "site_type_candidate" in prompt
     assert "area_type_candidate" in prompt
+
+
+def test_prompt_enumerates_validator_backed_hierarchy_vocabulary() -> None:
+    from cvti.scene.agent_mapper import build_prompt
+    from cvti.scene.hierarchy import AREA_TYPES, SITE_TYPES
+
+    prompt = build_prompt(
+        template="MAP.",
+        camera_id="cam1",
+        source_type="rtsp",
+        source_frame_path="frame.jpg",
+        max_zone_suggestions=3,
+    )
+
+    for site_type in SITE_TYPES:
+        assert f'"{site_type}"' in prompt
+    for area_type in AREA_TYPES:
+        assert f'"{area_type}"' in prompt
