@@ -53,17 +53,40 @@ class SettleWindowTest(unittest.TestCase):
         self.assertFalse([e for e in events if "fire" in e],
                          f"fire alert during exposure settle: {events}")
 
+    def _flame_frame(self):
+        # A LOCALIZED hot region (~15% of frame) — what an actual fire looks
+        # like to a fixed camera, unlike the whole-frame bloom above, which
+        # the detector now rejects outright (max_hot_area_ratio, 3 Sep).
+        f = np.zeros((120, 160, 3), dtype=np.uint8)
+        f[40:90, 50:110, 0] = 30
+        f[40:90, 50:110, 1] = 140
+        f[40:90, 50:110, 2] = 250
+        return f
+
     def test_fire_can_still_fire_after_settling(self):
-        """The window must delay the detector, not delete it: the same
-        white-out frames that are ignored during settle DO alert once the
+        """The window must delay the detector, not delete it: a real,
+        localized flame that is ignored during settle DOES alert once the
         camera is past it — proving the guard is a delay, not a mute."""
         st = self._state()
         events = []
         for i in range(80):                    # 20s: settle ends at 8s
-            out = st.process(_no_detections(), self._hot_frame(), timestamp=i * 0.25)
+            out = st.process(_no_detections(), self._flame_frame(), timestamp=i * 0.25)
             events.extend(a.rule_name for a in (out or []))
         self.assertTrue([e for e in events if "fire" in e],
                         "the settle window muted the fire detector forever")
+
+    def test_whole_frame_bloom_never_fires_even_after_settling(self):
+        """The pilot's report, round two (3 Sep): 'when we start it shows
+        baseline fire'. His camera's IR/exposure bloom outlives the 8s settle
+        window — but bloom is WHOLE-FRAME hot, and a real fire is not. The
+        ceiling makes the bloom class impossible regardless of timing."""
+        st = self._state()
+        events = []
+        for i in range(200):                   # 50s — far past any settle
+            out = st.process(_no_detections(), self._hot_frame(), timestamp=i * 0.25)
+            events.extend(a.rule_name for a in (out or []))
+        self.assertFalse([e for e in events if "fire" in e],
+                         f"whole-frame bloom read as fire: {events}")
 
     def test_the_detector_wakes_after_settling(self):
         from cvti.serving.camera import PerCameraState

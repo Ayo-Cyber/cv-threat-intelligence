@@ -163,6 +163,15 @@ class FireSmokeCandidateDetector:
 
     min_frames: int = 3
     min_hot_area_ratio: float = 0.012
+    # Ceiling, symmetric with smoke's (3 Sep): the smoke path always knew
+    # whole-frame grey is fog or exposure, but the hot path had NO upper
+    # bound — so a night camera's IR/exposure bloom (globally warm, bright,
+    # saturated after tone-mapping) read as fire at every engine start on
+    # the pilot's camera, sailing past the 8s settle window whenever the
+    # bloom hunted longer. A real fire covering two thirds of a fixed CCTV
+    # frame is a swallowed camera (tamper's job to report); whole-frame hot
+    # is the camera's own optics, not a candidate.
+    max_hot_area_ratio: float = 0.65
     min_smoke_area_ratio: float = 0.08
     max_smoke_area_ratio: float = 0.65
     _candidate_frames: int = 0
@@ -179,7 +188,8 @@ class FireSmokeCandidateDetector:
         hot_area_ratio = float(cv2.countNonZero(hot_mask)) / max(total, 1.0)
         smoke_area_ratio = float(cv2.countNonZero(smoke_mask)) / max(total, 1.0)
         smoke_candidate = self.min_smoke_area_ratio <= smoke_area_ratio <= self.max_smoke_area_ratio
-        candidate = hot_area_ratio >= self.min_hot_area_ratio or smoke_candidate
+        hot_candidate = self.min_hot_area_ratio <= hot_area_ratio <= self.max_hot_area_ratio
+        candidate = hot_candidate or smoke_candidate
 
         if not candidate:
             self._candidate_frames = 0
