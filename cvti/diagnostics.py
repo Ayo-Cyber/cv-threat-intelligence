@@ -32,6 +32,15 @@ EXCLUDED = ("*.jpg", "*.jpeg", "*.png", "*.mp4", "*.avi", "*.mov", "*.db",
             "*.db-wal", "*.db-shm")
 
 
+def _version() -> str:
+    try:
+        from cvti.utils import argus_version
+        return argus_version()
+    except Exception:  # noqa: BLE001 - a version lookup must never break support
+        log.debug("version lookup failed", exc_info=True)
+        return "unknown"
+
+
 def _disk(path: Path) -> dict:
     try:
         usage = shutil.disk_usage(path)
@@ -90,6 +99,7 @@ def health_snapshot(output_dir: str | Path) -> dict:
             "frozen": bool(getattr(sys, "frozen", False)),
         },
         "argus": {
+            "version": _version(),
             "log_level": os.environ.get("ARGUS_LOG_LEVEL", "INFO"),
             "mock_gate_allowed": os.environ.get("ARGUS_ALLOW_MOCK_GATE") == "1",
             "output_dir": str(out_dir),
@@ -123,6 +133,18 @@ def build_bundle(output_dir: str | Path, dest: str | Path | None = None) -> Path
                     continue           # defensive: nothing personal should be here anyway
                 zf.write(entry, f"logs/{entry.name}")
                 included.append(f"logs/{entry.name}")
+        # The engine subprocess's stdout/stderr — where its tracebacks land.
+        # It lives beside events.db, not in the log dir, so every support
+        # bundle before 3 Sep shipped WITHOUT the one file that explains a
+        # crash loop (both pilot debugging sessions needed it hand-fetched).
+        for name in ("monitor.log", "monitor.log.1"):
+            candidate = out_dir / name
+            if candidate.is_file():
+                try:
+                    zf.write(candidate, f"logs/{name}")
+                    included.append(f"logs/{name}")
+                except OSError:
+                    log.warning("could not add %s to the bundle", name, exc_info=True)
 
         zf.writestr("health.json", json.dumps(snapshot, indent=2, default=str))
         included.append("health.json")

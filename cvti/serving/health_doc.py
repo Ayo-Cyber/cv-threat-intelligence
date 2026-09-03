@@ -88,8 +88,13 @@ def build_health_doc(*, started_at: float, cameras: list, gate: dict, disk: dict
     status, reasons = derive_status(cameras=cameras, gate=gate, disk=disk,
                                     memory=memory, components=components,
                                     scene_mapping=scene_mapping)
+    # Every heartbeat says which build wrote it: support triage starts with
+    # "which version are you on?", and the honest answer is what the ENGINE
+    # is running, not what the console's sidebar shows.
+    from cvti.utils import argus_version
     return {
         "status": status,
+        "version": argus_version(),
         "reasons": reasons,                    # empty when ok, by design
         "uptime_s": round(max(0.0, now - started_at), 1),
         "generated_at": now,
