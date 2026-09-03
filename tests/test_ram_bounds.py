@@ -108,11 +108,13 @@ class ScannerCooldownTest(unittest.TestCase):
                 "custom_rules": [{"question": "Old rule?"}]}]}))
             sc = CustomRuleScanner([], sink=None, model="m", site_config_path=str(site))
             sc._refresh_cameras()
-            sc._last_fire[("c", "old rule")] = 1.0
+            sc._incidents[("c", "old rule")] = {"opened_at": 1.0, "last_seen": 1.0,
+                                                "misses": 0, "reminders": 0,
+                                                "next_reminder_at": 2.0}
             site.write_text(json.dumps({"cameras": [{"id": "c", "source": "x.mp4",
                 "custom_rules": [{"question": "New rule?"}]}]}))
             sc._refresh_cameras()
-            self.assertNotIn(("c", "old rule"), sc._last_fire)
+            self.assertNotIn(("c", "old rule"), sc._incidents)
 
 
 if __name__ == "__main__":

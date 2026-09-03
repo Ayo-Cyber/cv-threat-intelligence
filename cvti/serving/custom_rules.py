@@ -28,6 +28,15 @@ log = get_logger(__name__)
 # kills the borderline "reported at 0.5" noise, not real sightings.
 MIN_RULE_CONFIDENCE = 0.7
 
+# Incident lifecycle (3 Sep). Reminders for an UNACKNOWLEDGED ongoing
+# situation widen geometrically from the base cooldown (90s -> 4.5min ->
+# 13.5min, capped at 15) — insistent enough to get a human, quiet enough not
+# to bury them. Two consecutive clear scans close the incident; the next
+# sighting is genuinely new information and alerts fresh.
+REMINDER_WIDENING = 3.0
+REMINDER_CAP_SECONDS = 900.0
+CLEAR_AFTER_MISSES = 2
+
 # Evidence boxes, colour-coded by WHAT was flagged (BGR): the person in blue,
 # a loose object in amber, a held instrument (weapon-shaped things) in red —
 # so the operator's eye lands on the right thing before reading a word.
@@ -147,7 +156,16 @@ class CustomRuleScanner:
         self.cooldown = cooldown
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._last_fire: dict[tuple, float] = {}   # (cam, rule) -> ts
+        # One ongoing situation = ONE incident, not an alert every cooldown
+        # (3 Sep, 'why do we constantly keep sending that alert?'). A rule
+        # that keeps answering yes updates its open incident; it re-alerts
+        # only as a REMINDER, at widening intervals, and only while nobody
+        # has acknowledged the alert — repetition's real job is making sure
+        # a human sees it, and an acknowledged incident has one. Cleared
+        # for CLEAR_AFTER_MISSES scans = closed; the next sighting is new
+        # information and opens a new incident.
+        # (cam, rule) -> {opened_at, last_seen, misses, reminders, next_reminder_at}
+        self._incidents: dict[tuple, dict] = {}
         # The heartbeat file. 'My English rule hasn't fired' arrived three
         # times in two days (28-30 Aug) and the product offered no way to tell
         # 'the model answers none every cycle' from 'every call fails' from
@@ -179,10 +197,10 @@ class CustomRuleScanner:
             log.debug("[custom-rules] site re-read failed; keeping current", exc_info=True)
             return
         self.cameras = [c for c in self._all_cameras if _rules_for(c)]
-        # Cooldown keys for renamed/deleted rules are dead — prune to the live set.
+        # Incidents for renamed/deleted rules are dead — prune to the live set.
         live = {(c["id"], t["name"]) for c in self.cameras for t in _rules_for(c)}
-        for k in [k for k in self._last_fire if k not in live]:
-            self._last_fire.pop(k, None)
+        for k in [k for k in self._incidents if k not in live]:
+            self._incidents.pop(k, None)
 
     def start(self) -> "CustomRuleScanner":
         if not self.cameras and not self.site_config_path:
@@ -246,9 +264,7 @@ class CustomRuleScanner:
             log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
             self._record(c, None, error=str(exc)[:200])
             return
-        for hit in hits:
-            if not self._cooling(c["id"], hit["name"]):
-                self._emit(c, frame, hit)
+        self._route_hits(c, frame, hits)
 
     def _rule_keys(self) -> set:
         return {(c["id"], t["name"]) for c in self.cameras for t in _rules_for(c)}
@@ -324,6 +340,13 @@ class CustomRuleScanner:
         entry = self._status.setdefault(cam["id"], {"scans": 0, "hits": 0, "errors": 0})
         entry["scans"] += 1
         entry["rules"] = len(_rules_for(cam))
+        # Open incidents, so the Rules panel can say "ongoing: hoodie, 12 min"
+        # instead of the operator wondering why the alerts went quiet.
+        entry["ongoing"] = [
+            {"rule": key[1],
+             "for_s": round(time.time() - incident["opened_at"]),
+             "reminders": incident["reminders"]}
+            for key, incident in self._incidents.items() if key[0] == cam["id"]]
         entry["last_scan_at"] = time.time()
         if error is not None:
             entry["errors"] += 1
@@ -353,13 +376,61 @@ class CustomRuleScanner:
             except OSError:
                 log.debug("english-rules status write failed", exc_info=True)
 
-    def _cooling(self, cam_id: str, name: str) -> bool:
-        key = (cam_id, name)
-        now = time.time()
-        if now - self._last_fire.get(key, 0.0) < self.cooldown:
-            return True
-        self._last_fire[key] = now
-        return False
+    def _triage_state(self, cam_id: str, rule_name: str) -> str | None:
+        """The newest matching alert's triage state, best-effort."""
+        lookup = getattr(self.sink, "triage_state", None)
+        if lookup is None:
+            return None
+        try:
+            return lookup(cam_id, f"custom:{rule_name}")
+        except Exception:  # noqa: BLE001 - a state lookup must never stop scanning
+            log.debug("[custom-rules] triage-state lookup failed", exc_info=True)
+            return None
+
+    def _route_hits(self, c: dict, frame, hits: list[dict],
+                    now: float | None = None) -> None:
+        """Incident lifecycle: first sighting alerts, persistence updates,
+        reminders escalate only while unacknowledged, clearance closes."""
+        now = time.time() if now is None else now
+        cam_id = c["id"]
+        hit_names = set()
+        for hit in hits:
+            hit_names.add(hit["name"])
+            key = (cam_id, hit["name"])
+            incident = self._incidents.get(key)
+            if incident is None:
+                # New information: a situation that wasn't there last scan.
+                self._incidents[key] = {"opened_at": now, "last_seen": now,
+                                        "misses": 0, "reminders": 0,
+                                        "next_reminder_at": now + self.cooldown}
+                self._emit(c, frame, hit)
+                continue
+            incident["last_seen"] = now
+            incident["misses"] = 0
+            state = self._triage_state(cam_id, hit["name"])
+            if state in ("acknowledged", "resolved"):
+                continue         # a human owns it — re-confirming is noise
+            if now >= incident["next_reminder_at"]:
+                incident["reminders"] += 1
+                interval = min(self.cooldown * (REMINDER_WIDENING
+                                                ** incident["reminders"]),
+                               REMINDER_CAP_SECONDS)
+                incident["next_reminder_at"] = now + interval
+                self._emit(c, frame, hit, ongoing_since=incident["opened_at"])
+        # Rules scanned this pass but NOT seen: count toward clearance. A rule
+        # that was never checked (deleted mid-flight) is pruned by refresh.
+        scanned = {t["name"] for t in _rules_for(c)}
+        for key in [k for k in self._incidents if k[0] == cam_id]:
+            rule = key[1]
+            if rule in hit_names or rule not in scanned:
+                continue
+            incident = self._incidents[key]
+            incident["misses"] += 1
+            if incident["misses"] >= CLEAR_AFTER_MISSES:
+                held = now - incident["opened_at"]
+                log.info(f"[custom-rules {cam_id}] incident closed: '{rule}' "
+                         f"clear after {held / 60:.1f} min")
+                self._incidents.pop(key, None)
 
     def _scene(self, cam_id: str) -> str:
         from cvti.scene.context_store import render_scene_context
@@ -474,7 +545,8 @@ class CustomRuleScanner:
             hits.append(hit)
         return hits
 
-    def _emit(self, cam: dict, frame, hit: dict) -> None:
+    def _emit(self, cam: dict, frame, hit: dict,
+              ongoing_since: float | None = None) -> None:
         from cvti.contracts import VerificationResult
         from cvti.serving.alert_queue import QueuedAlert
         # The evidence points at WHAT the model saw (3 Sep): the matching
@@ -486,13 +558,21 @@ class CustomRuleScanner:
         payload = {"frames": [evidence]}
         if pixel_box is not None:
             payload["bbox"] = pixel_box
+        title = f"CUSTOM: {hit['name']}"
+        reason = hit["reason"]
+        if ongoing_since is not None:
+            # A reminder, not a discovery: nobody has acknowledged the open
+            # incident, so it asks again — and says how long it has waited.
+            minutes = max(1, round((time.time() - ongoing_since) / 60))
+            title = f"STILL: {hit['name']}"
+            reason = f"ongoing {minutes} min, unacknowledged — {hit['reason']}"
         alert = QueuedAlert(
             camera_id=cam["id"], rule_name=f"custom:{hit['name']}",
-            priority="high", title=f"CUSTOM: {hit['name']}", timestamp=time.time(),
+            priority="high", title=title, timestamp=time.time(),
             payload=payload)
         result = VerificationResult(
             confirmed=True, confidence=float(hit.get("confidence", 0.9)),
-            reason=hit["reason"],
+            reason=reason,
             alert_priority="high", timestamp=time.time(), raw_response="custom-vlm")
         self.sink.handle(alert, result)
 

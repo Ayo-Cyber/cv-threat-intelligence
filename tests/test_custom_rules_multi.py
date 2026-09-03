@@ -66,12 +66,26 @@ class EveryTrueRuleFiresTest(unittest.TestCase):
                     "not json at all", ""):
             self.assertEqual(_check_with(raw), [], f"fired on {raw!r}")
 
-    def test_cooldown_is_per_rule_not_per_camera(self):
-        s = CustomRuleScanner([CAM], sink=None, model="test")
-        self.assertFalse(s._cooling("stage", "hoodie"))
-        self.assertTrue(s._cooling("stage", "hoodie"), "same rule should cool")
-        self.assertFalse(s._cooling("stage", "glasses"),
-                         "one rule's cooldown muted a different rule")
+    def test_incidents_are_per_rule_not_per_camera(self):
+        """The old per-rule cooldown became per-rule INCIDENTS (3 Sep) — the
+        original lesson stands: one rule's ongoing incident must never mute a
+        different rule on the same camera."""
+        emitted = []
+
+        class Sink:
+            def handle(self, alert, result):
+                emitted.append(alert.rule_name)
+
+        cam = {"id": "stage", "source": "x", "custom_threats": [
+            {"name": "hoodie", "description": "a hoodie"},
+            {"name": "glasses", "description": "eye glasses"}]}
+        s = CustomRuleScanner([cam], sink=Sink(), model="test")
+        s._route_hits(cam, None, [{"name": "hoodie", "reason": "seen"}], now=100.0)
+        s._route_hits(cam, None, [{"name": "hoodie", "reason": "seen"},
+                                  {"name": "glasses", "reason": "seen"}], now=101.0)
+        # hoodie alerted once (second sighting updates its incident);
+        # glasses alerted on ITS first sighting despite hoodie being open.
+        self.assertEqual(emitted, ["custom:hoodie", "custom:glasses"])
 
     def test_every_scan_path_emits_every_hit(self):
         """The loop used to take one hit; a regression here re-shadows rules.
@@ -80,8 +94,11 @@ class EveryTrueRuleFiresTest(unittest.TestCase):
         import inspect
         from cvti.serving.custom_rules import CustomRuleScanner
         scan = inspect.getsource(CustomRuleScanner._scan_camera)
-        self.assertIn("for hit in hits:", scan,
-                      "the scan path stopped iterating over all hits")
+        self.assertIn("self._route_hits(", scan,
+                      "the scan path stopped routing hits")
+        route = inspect.getsource(CustomRuleScanner._route_hits)
+        self.assertIn("for hit in hits:", route,
+                      "the routing stopped iterating over all hits")
         src = Path("cvti/serving/custom_rules.py").read_text()
         self.assertNotIn('"threat": "<exact threat name', src,
                          "the singular-answer prompt is back")
