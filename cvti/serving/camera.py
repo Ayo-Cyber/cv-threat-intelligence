@@ -572,6 +572,11 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
     out: dict[str, dict] = {}
     for cam in site_config["cameras"]:
         cam_id = cam["id"]
+        if cam.get("view_only"):
+            # A view-only camera is glass, not a detector (4 Sep, pilot): it
+            # streams to the wall and runs nothing — no state, no rules, no
+            # baseline. The pipeline still decodes and publishes it.
+            continue
         engine = CustomizationEngine(cam["config"], baseline_path=baseline_config)
         zone_monitor = None
         if cam.get("zones"):

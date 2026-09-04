@@ -6,9 +6,12 @@ the operator still called the watched view laggy. The contract now:
 
 - an open /stream connection on the frame publisher IS a viewer (every Watch
   tile holds one); no config, no heartbeat file, any client counts;
-- a watched camera's decoder steps up to publish_fps (15) within one frame
-  period, and drops back to target_fps when the last viewer leaves (with a
-  linger so a reconnecting tile doesn't flap the decoder);
+- a watched camera's decoder steps up to publish_fps (24 since 4 Sep — the
+  wall spent a day capped at the CLI's forgotten default of 12 while every
+  layer above could do more; the sustainable-fps cap still protects starved
+  machines) within one frame period, and drops back to target_fps when the
+  last viewer leaves (with a linger so a reconnecting tile doesn't flap the
+  decoder);
 - detection keeps sampling at target_fps regardless (the _due_for_detection
   gate) — smooth glass never means more model load.
 """
@@ -116,7 +119,8 @@ class WiringPins(unittest.TestCase):
         import inspect
         from cvti.serving import pipeline
         src = inspect.getsource(pipeline.MultiStreamPipeline.start)
-        self.assertIn("target_fps=self.target_fps", src)
+        # detection cameras start at detection rate; view-only glass idles at 1fps
+        self.assertIn("target_fps=(1.0 if vo else self.target_fps)", src)
         self.assertNotIn("max(self.target_fps, self.publish_fps)", src)
 
     def test_the_smooth_loop_boosts_only_watched_cameras(self):
@@ -132,6 +136,22 @@ class WiringPins(unittest.TestCase):
         from cvti.serving import pipeline
         self.assertIn("0.95 / self.target_fps",
                       inspect.getsource(pipeline.MultiStreamPipeline._due_for_detection))
+
+
+class PublishRateDefaults(unittest.TestCase):
+    def test_every_publish_fps_default_is_24(self):
+        """The wall ran at 12fps for a day because the CLI default lagged the
+        class default and nobody passed the flag. All three defaults move
+        together now — a mismatch is a regression, not a preference."""
+        import inspect
+        from cvti.serving.pipeline import MultiStreamPipeline, run_site
+        self.assertEqual(inspect.signature(MultiStreamPipeline.__init__)
+                         .parameters["publish_fps"].default, 24.0)
+        self.assertEqual(inspect.signature(run_site)
+                         .parameters["publish_fps"].default, 24.0)
+        import cvti.serving.pipeline as pipeline_mod
+        src = inspect.getsource(pipeline_mod)
+        self.assertIn('"--publish-fps", type=float, default=24.0', src)
 
 
 if __name__ == "__main__":

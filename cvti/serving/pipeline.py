@@ -153,7 +153,10 @@ def prepare_scene_mapping(
 
 def active_cameras_after_preflight(cameras: list[dict], preflight) -> list[dict]:
     _ = preflight
-    return [dict(camera) for camera in cameras]
+    # "Active" means running detection: a view-only camera is glass, not a
+    # detector (4 Sep) — it never needs scene context, rules, or models, so
+    # it neither blocks startup nor enters the detection roster.
+    return [dict(camera) for camera in cameras if not camera.get("view_only")]
 
 
 def monitoring_scopes_from_preflight(preflight, policy: str = "auto") -> dict[str, str]:
@@ -281,7 +284,8 @@ class MultiStreamPipeline:
                  max_batch: int = 32, on_result: ResultHandler | None = None,
                  camera_states: dict[str, Any] | None = None, alert_queue: Any = None,
                  publisher: Any = None, on_link_change=None,
-                 publish_fps: float = 15.0) -> None:
+                 publish_fps: float = 24.0,
+                 view_only: set[str] | None = None) -> None:
         self.sources = sources
         self.weights = weights
         self.target_fps = target_fps
@@ -293,6 +297,8 @@ class MultiStreamPipeline:
         self.max_batch = max_batch
         self._camera_states = camera_states
         self._alert_queue = alert_queue
+        # Cameras that stream glass only — their frames never enter detection.
+        self.view_only: set[str] = set(view_only or ())
         # Publishes frames (with boxes) so the UI never decodes the stream twice.
         self.publisher = publisher
         self.publish_fps = publish_fps
@@ -339,9 +345,14 @@ class MultiStreamPipeline:
         # cameras with an open /stream connection and drops it when the last
         # viewer leaves. Smoother where eyes are, ~3x cheaper where none are.
         for cam_id, src in self.sources.items():
+            vo = cam_id in self.view_only
+            # A view-only camera decodes just enough to keep its link state
+            # honest when nobody watches; the viewer boost carries it to
+            # publish rate the moment the wall shows it. Detection cameras
+            # decode at detection rate as before.
             self._decoders[cam_id] = StreamDecoder(
-                cam_id, src, target_fps=self.target_fps,
-                on_state_change=self.on_link_change).start()
+                cam_id, src, target_fps=(1.0 if vo else self.target_fps),
+                on_state_change=self.on_link_change, view_only=vo).start()
         if self.smooth_publish:
             import threading as _th
             self._smooth_thread = _th.Thread(target=self._smooth_publish_loop,
@@ -455,6 +466,8 @@ class MultiStreamPipeline:
         while time.perf_counter() < t_end:
             tick = time.perf_counter()
             batch = collect_batch(self._decoders, max_batch=self.max_batch)
+            if batch and self.view_only:
+                batch = [f for f in batch if f.camera_id not in self.view_only]
             if batch and self.smooth_publish:
                 now = time.perf_counter()
                 batch = [f for f in batch if self._due_for_detection(f.camera_id, now)]
@@ -463,7 +476,10 @@ class MultiStreamPipeline:
                 t0 = time.perf_counter()
                 results = self._model.predict(images, imgsz=self.imgsz, conf=self.conf,
                                               device=self.device, half=self.half, verbose=False)
-                self._detect_ms_total += (time.perf_counter() - t0) * 1000.0
+                batch_ms = (time.perf_counter() - t0) * 1000.0
+                self._detect_ms_total += batch_ms
+                from cvti.serving.perf import BOARD
+                BOARD.observe("detect_batch", "engine", batch_ms)
                 for frame, result in zip(batch, results):
                     self.on_result(frame, result)
                 self.batches += 1
@@ -577,7 +593,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
              gate_provider: str = "mock", gate_model: str = "", gate_base_url: str = "",
              mapper_provider: str = "", mapper_model: str = "", mapper_base_url: str = "",
              gate_sensitivity: str = "balanced", publish_frames: bool = True,
-             publish_fps: float = 15.0, security_dir: str | None = None,
+             publish_fps: float = 24.0, security_dir: str | None = None,
              memory_guard: bool = True, memory_warn_gb: float = 2.0,
              memory_critical_gb: float = 1.0,
              pose_weights: str = "models/yolov8n-pose.pt",
@@ -644,8 +660,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         # inspect() reads caches and hierarchy only — no VLM inference — so
         # startup is fast and the wait-loop below can re-check cheaply. The
         # actual mapping happens in the background coordinator once running.
+        # View-only cameras are glass: no context, no mapping, no VLM ever.
         return mapping_service.inspect(
-            list(site.get("cameras") or []),
+            [c for c in (site.get("cameras") or []) if not c.get("view_only")],
             site.get("scene_context_policy", "auto"),
         )
 
@@ -661,7 +678,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # alive, keep the heartbeat honest about why, and re-run the preflight —
     # the moment a human approves a context in the app (or a remap succeeds),
     # cameras start without anyone restarting anything.
-    while not cams_cfg:
+    _view_only_cams = [c for c in (site.get("cameras") or []) if c.get("view_only")]
+    while not cams_cfg and not _view_only_cams:
         _starting["phase"] = (
             "waiting — add a camera to begin monitoring"
             if not site.get("cameras") else
@@ -678,10 +696,14 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         cams_cfg = active_cameras_after_preflight(
             list(site.get("cameras") or []), mapping_preflight
         )
+        _view_only_cams = [c for c in (site.get("cameras") or [])
+                           if c.get("view_only")]
         mapping_health = _mapping_health_rows(mapping_preflight)
     _starting["phase"] = "starting — loading detection models"
     _starting["scene"] = mapping_health
-    site = {**site, "cameras": cams_cfg}
+    # View-only cameras ride along: build_camera_states skips them, but the
+    # decoder/publisher wiring below needs them in the roster to stream glass.
+    site = {**site, "cameras": cams_cfg + _view_only_cams}
     # Load ONE shared pose model iff any camera enables a pose-based signal.
     pose_model = None
     if any(c.get(k) for c in cams_cfg for k in ("concealment", "violence", "theft")):
@@ -750,6 +772,14 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                })
     sources = {cid: c["source"] for cid, c in cams.items()}
     states = {cid: c["state"] for cid, c in cams.items()}
+    # View-only cameras stream to the wall with NO detection (4 Sep, pilot ask:
+    # "just streaming the video"): they get a decoder and a publisher slot,
+    # never a camera state, a detector, a scanner entry, or a scene mapping.
+    view_only_ids = {str(c.get("id")) for c in (site.get("cameras") or [])
+                     if c.get("view_only")}
+    for c in site.get("cameras") or []:
+        if str(c.get("id")) in view_only_ids and c.get("source") is not None:
+            sources[str(c.get("id"))] = c["source"]
     queue = AlertQueue()
 
     # Confirmed alerts are persisted (SQLite + evidence bundle) and notified,
@@ -824,7 +854,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     pipe = MultiStreamPipeline(sources, weights=weights, target_fps=target_fps, imgsz=imgsz,
                                conf=conf, device=device, half=half, camera_states=states,
                                alert_queue=queue, publisher=publisher,
-                               on_link_change=_on_link_change, publish_fps=publish_fps)
+                               on_link_change=_on_link_change, publish_fps=publish_fps,
+                               view_only=view_only_ids)
 
     def _fast_path(alert) -> None:
         """Two-tier alerting (EP-06-T4): criticals are shown provisionally the
@@ -1128,6 +1159,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             _record_health(output_dir, st)
         except Exception:  # noqa: BLE001 - history must never hurt monitoring
             log.debug("health history write failed", exc_info=True)
+        # Stage-by-stage timing percentiles, same cadence as health. This file
+        # rides the diagnostics bundle so a support zip says WHERE the time
+        # goes on the customer's machine instead of inviting a guess.
+        from cvti.serving.perf import write_report as _write_perf
+        _write_perf(output_dir)
         try:
             _health_path.write_text(json.dumps(st))
         except OSError:
@@ -1412,7 +1448,10 @@ def main() -> None:
     p.add_argument("--site-config", default="", help="Site JSON: per-camera source + rules + zones.")
     p.add_argument("--weights", default="models/yolov8n.pt")
     p.add_argument("--target-fps", type=float, default=5.0)
-    p.add_argument("--publish-fps", type=float, default=12.0,
+    # 24 not 12 (4 Sep): the wall was capped at 12fps by THIS default
+    # while every layer above could do more. The decoder still bows to what
+    # the machine measurably sustains, and only WATCHED cameras pay for it.
+    p.add_argument("--publish-fps", type=float, default=24.0,
                    help="live-wall frame rate, decoupled from detection; 0 = old coupled behavior")
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--conf", type=float, default=0.4)

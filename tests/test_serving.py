@@ -300,7 +300,8 @@ class SmoothPublishTest(unittest.TestCase):
         import inspect
         from cvti.serving.pipeline import MultiStreamPipeline
         src = inspect.getsource(MultiStreamPipeline.start)
-        self.assertIn("target_fps=self.target_fps", src)
+        # detection cameras start at detection rate; view-only glass idles at 1fps
+        self.assertIn("target_fps=(1.0 if vo else self.target_fps)", src)
         self.assertIn("_smooth_publish_loop", src)
         loop = inspect.getsource(MultiStreamPipeline._smooth_publish_loop)
         self.assertIn("has_viewers", loop)

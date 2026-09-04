@@ -146,6 +146,20 @@ def build_bundle(output_dir: str | Path, dest: str | Path | None = None) -> Path
                 except OSError:
                     log.warning("could not add %s to the bundle", name, exc_info=True)
 
+        # Stage-by-stage timing percentiles (decode / detect / verify queue /
+        # verify inference / English scans) plus CPU and memory at capture.
+        # This is the file that turns "it's slow" into a named stage — the
+        # entire point of the 4 Sep instrumentation build. Counts only,
+        # never content.
+        for name in ("perf_report.json", "gate_health.json"):
+            candidate = out_dir / name
+            if candidate.is_file():
+                try:
+                    zf.write(candidate, name)
+                    included.append(name)
+                except OSError:
+                    log.warning("could not add %s to the bundle", name, exc_info=True)
+
         zf.writestr("health.json", json.dumps(snapshot, indent=2, default=str))
         included.append("health.json")
         zf.writestr("MANIFEST.txt",

@@ -77,8 +77,10 @@ class HeartbeatTest(unittest.TestCase):
                                 "a scan outcome exists that records nothing")
         loop = inspect.getsource(CustomRuleScanner._loop)
         wait = inspect.getsource(CustomRuleScanner._wait_for_next_pass)
-        self.assertIn("self._scan_camera(", loop)
-        self.assertIn("self._scan_camera(", wait)
+        # scans go through _timed_scan since 4 Sep — same scan, plus its
+        # perf_report entry
+        self.assertIn("self._timed_scan(", loop)
+        self.assertIn("self._timed_scan(", wait)
         self.assertNotIn("self._check(", loop + wait,
                          "a scan path bypasses _scan_camera and its recording")
 

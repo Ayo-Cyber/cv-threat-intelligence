@@ -245,8 +245,18 @@ class CustomRuleScanner:
             ok, fr = cap.read()
         return fr if ok else None
 
+    def _timed_scan(self, c: dict, caps: dict, dead_since: dict) -> None:
+        """_scan_camera plus a perf observation — the scanner's entry in
+        perf_report.json (4 Sep instrumentation build)."""
+        from cvti.serving.perf import BOARD
+        _t0 = time.monotonic()
+        try:
+            self._scan_camera(c, caps, dead_since)
+        finally:
+            BOARD.observe("english_scan", c.get("id", "?"),
+                          (time.monotonic() - _t0) * 1000.0)
+
     def _scan_camera(self, c: dict, caps: dict, dead_since: dict) -> None:
-        """One camera, one scan: get a frame, ask the model, emit hits."""
         if self.frame_source is not None:
             # the engine already decoded this stream — just look at it
             frame = self.frame_source(c["id"])
@@ -330,7 +340,7 @@ class CustomRuleScanner:
                      "— scanning now instead of next cycle")
             for c in self.cameras:
                 if c["id"] in fresh_cams and not self._stop.is_set():
-                    self._scan_camera(c, caps, dead_since)
+                    self._timed_scan(c, caps, dead_since)
 
     def _loop(self) -> None:
         caps: dict = {}
@@ -346,7 +356,7 @@ class CustomRuleScanner:
                     except Exception:  # noqa: BLE001
                         log.debug("release failed", exc_info=True)
             for c in self.cameras:
-                self._scan_camera(c, caps, dead_since)
+                self._timed_scan(c, caps, dead_since)
             self._wait_for_next_pass(self.interval * self._backoff, caps, dead_since)
         for cap in caps.values():
             try:
