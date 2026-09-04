@@ -8,9 +8,15 @@ Two operator asks in one contract:
   the confidence floor is dropped, because a hesitant yes is a no;
 - 'flag the instrument, person, object': each claim carries a target kind and
   a 0-1000 box; the evidence frame ships with that box drawn colour-coded
-  (person blue, object amber, instrument red) and the pixel bbox rides in the
-  alert payload so the subject shot points at the same thing. A malformed box
-  is dropped, never drawn — a fabricated box over evidence is worse than none.
+  (person blue, instrument red) and the pixel bbox rides in the alert payload
+  so the subject shot points at the same thing. A malformed box is dropped,
+  never drawn — a fabricated box over evidence is worse than none.
+
+Amended 4 Sep ('remove the bounding box for the bus, you aren't getting it
+right at all'): the model cannot place a free-standing scene object, so an
+`object` claim is corner-tagged in amber with its name and ships NO located
+box. Only person and instrument claims — the things it anchors on — keep
+their drawn boxes.
 """
 from __future__ import annotations
 
@@ -121,14 +127,45 @@ class AnnotationTests(unittest.TestCase):
         self.assertEqual(tuple(evidence[y1 + 1, (x1 + x2) // 2]),
                          TARGET_COLOURS["person"])
 
-    def test_each_target_kind_gets_its_own_colour(self):
-        for target in ("person", "object", "instrument"):
+    def test_locatable_targets_get_their_own_coloured_box(self):
+        for target in ("person", "instrument"):
             evidence, box = annotate_hit(
                 self._frame(), {"name": "r", "target": target,
                                 "box": (100, 100, 900, 900)})
             x1, y1, x2, _ = box
             self.assertEqual(tuple(evidence[y1 + 1, (x1 + x2) // 2]),
                              TARGET_COLOURS[target], target)
+
+    def test_an_object_claim_is_tagged_not_located(self):
+        """The bus lesson (4 Sep): the model's box for a free-standing object
+        pointed at nothing, so an object hit ships a corner tag naming what
+        was seen and NO located box — no rectangle at the model's coordinates,
+        no bbox for the subject shot to zoom to."""
+        frame = self._frame()
+        hit = {"name": "bus", "target": "object", "box": (100, 100, 900, 900)}
+        evidence, pixel_box = annotate_hit(frame, hit)
+        self.assertIsNone(pixel_box)
+        self.assertIsNot(evidence, frame)
+        self.assertEqual(int(frame.sum()), 0)                     # original untouched
+        # The corner tag carries the object colour...
+        self.assertEqual(tuple(evidence[2, 2]), TARGET_COLOURS["object"])
+        # ...and nothing is drawn where the model's (wrong) box would sit.
+        self.assertEqual(tuple(evidence[50, 100]), (0, 0, 0))     # box centre
+        self.assertEqual(tuple(evidence[89, 100]), (0, 0, 0))     # box bottom border
+
+    def test_emit_of_an_object_hit_ships_no_bbox(self):
+        emitted = {}
+
+        class Sink:
+            def handle(self, alert, result):
+                emitted["alert"] = alert
+
+        scanner = CustomRuleScanner([CAM], sink=Sink(), model="gemma3:4b")
+        scanner._emit(CAM, self._frame(), {"name": "bus", "reason": "a bus",
+                                           "confidence": 0.9, "target": "object",
+                                           "box": (100, 100, 900, 900)})
+        self.assertNotIn("bbox", emitted["alert"].payload)
+        self.assertGreater(int(emitted["alert"].payload["frames"][0].sum()), 0)
 
     def test_no_box_ships_the_original_frame(self):
         frame = self._frame()
