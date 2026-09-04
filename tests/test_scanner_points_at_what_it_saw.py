@@ -17,6 +17,13 @@ right at all'): the model cannot place a free-standing scene object, so an
 `object` claim is corner-tagged in amber with its name and ships NO located
 box. Only person and instrument claims — the things it anchors on — keep
 their drawn boxes.
+
+Amended again 4 Sep evening ('the bounding boxes for custom is not always in
+the right place'): the VLM says WHAT, the detector says WHERE. With the
+engine's tracked person boxes available, a person claim's evidence box is a
+DETECTOR box — the model's coordinates only pick which person; when the
+detector can't corroborate, or the model's box is a near-whole-frame border
+(the cap event), the hit is corner-tagged instead of pointed.
 """
 from __future__ import annotations
 
@@ -152,6 +159,63 @@ class AnnotationTests(unittest.TestCase):
         # ...and nothing is drawn where the model's (wrong) box would sit.
         self.assertEqual(tuple(evidence[50, 100]), (0, 0, 0))     # box centre
         self.assertEqual(tuple(evidence[89, 100]), (0, 0, 0))     # box bottom border
+
+    def test_a_whole_frame_person_box_is_a_tag_not_a_border(self):
+        """The cap event: the model 'located' the person by boxing the entire
+        image. A border around everything located nothing."""
+        frame = self._frame()
+        evidence, pixel_box = annotate_hit(
+            frame, {"name": "cap", "target": "person", "box": (0, 0, 1000, 1000)})
+        self.assertIsNone(pixel_box)
+        self.assertEqual(tuple(evidence[2, 2]), TARGET_COLOURS["person"])  # tag
+        self.assertEqual(tuple(evidence[50, 100]), (0, 0, 0))              # no border
+
+    def test_a_person_claim_snaps_to_the_single_tracked_person(self):
+        from cvti.serving.custom_rules import ground_person_box
+        frame = self._frame()
+        hit = {"name": "hoodie", "target": "person", "box": (100, 100, 500, 900)}
+        evidence, pixel_box = annotate_hit(frame, hit,
+                                           person_boxes=[(7, 60, 20, 120, 80)])
+        self.assertEqual(pixel_box, (60, 20, 120, 80))    # the DETECTOR's box
+        self.assertIsNone(ground_person_box((0, 0, 10, 10), []))
+
+    def test_among_several_people_the_models_box_only_picks(self):
+        from cvti.serving.custom_rules import ground_person_box
+        people = [(1, 0, 0, 40, 90), (2, 150, 10, 190, 95)]
+        # model points near the right-hand person -> that DETECTOR box wins
+        self.assertEqual(ground_person_box((140, 0, 200, 100), people),
+                         (150, 10, 190, 95))
+        # model points at empty pavement -> no overlap -> nothing to draw
+        self.assertIsNone(ground_person_box((60, 20, 120, 80), people))
+
+    def test_no_tracked_person_means_tag_not_guess(self):
+        frame = self._frame()
+        hit = {"name": "hoodie", "target": "person", "box": (100, 100, 500, 900)}
+        evidence, pixel_box = annotate_hit(frame, hit, person_boxes=[])
+        self.assertIsNone(pixel_box)
+        self.assertEqual(tuple(evidence[2, 2]), TARGET_COLOURS["person"])
+
+    def test_standalone_scanner_keeps_the_sane_model_box(self):
+        """No detector available (person_boxes=None): the sanity-checked model
+        box still draws — strictly better than nothing, as before."""
+        evidence, pixel_box = annotate_hit(
+            self._frame(), {"name": "hoodie", "target": "person",
+                            "box": (100, 100, 900, 900)})
+        self.assertEqual(pixel_box, (20, 10, 180, 90))
+
+    def test_emit_grounds_through_the_boxes_source(self):
+        emitted = {}
+
+        class Sink:
+            def handle(self, alert, result):
+                emitted["alert"] = alert
+
+        scanner = CustomRuleScanner([CAM], sink=Sink(), model="gemma3:4b",
+                                    boxes_source=lambda cid: [(3, 10, 10, 50, 60)])
+        scanner._emit(CAM, self._frame(), {"name": "hoodie", "reason": "hood",
+                                           "confidence": 0.9, "target": "person",
+                                           "box": (400, 400, 800, 800)})
+        self.assertEqual(emitted["alert"].payload["bbox"], (10, 10, 50, 60))
 
     def test_emit_of_an_object_hit_ships_no_bbox(self):
         emitted = {}

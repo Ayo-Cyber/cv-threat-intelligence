@@ -1041,6 +1041,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             base_url=gate_base_url or "http://localhost:11434/v1",
             site_config_path=site_config_path,
             frame_source=_scanner_frame,
+            # The tracker's person boxes ground a person claim's evidence box
+            # — the VLM says what, the detector says where (4 Sep).
+            boxes_source=lambda cam_id: pipe.latest_boxes.get(cam_id),
             context_provider=lambda camera_id: getattr(
                 states.get(camera_id), "scene_context", None
             ))
