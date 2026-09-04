@@ -52,6 +52,48 @@ TARGET_COLOURS = {"person": (255, 140, 40),
 # pretending we know where it is.
 LOCATED_TARGETS = ("person", "instrument")
 
+# The VLM says WHAT, the detector says WHERE (4 Sep evening, after a day of
+# model boxes landing off-target): when the engine's tracked person boxes are
+# available, a person claim snaps to one of THOSE — the model's own box is
+# used only to pick WHICH person, never drawn. A model box covering nearly
+# the whole frame located nothing (the cap event drew a border around the
+# entire image) and grounds nothing.
+UNGROUNDED_AREA_FRAC = 0.9
+MIN_SNAP_IOU = 0.05
+
+
+def _iou(a: tuple, b: tuple) -> float:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    if inter <= 0:
+        return 0.0
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+def ground_person_box(vlm_pixel_box: tuple, person_boxes: list) -> tuple | None:
+    """The detector box a person claim may draw, or None (tag only).
+
+    Exactly one tracked person: unambiguous — theirs. Several: the model's
+    box picks which, and only when it genuinely overlaps one (a pick below
+    MIN_SNAP_IOU is a guess, and a wrong person boxed as the subject is the
+    exact lie this exists to end). Nobody tracked: the claim may still be
+    real (detection sampled a different instant) but there is nothing
+    trustworthy to point at — tag, don't point.
+    """
+    boxes = [tuple(b[-4:]) for b in (person_boxes or [])]
+    if not boxes:
+        return None
+    if len(boxes) == 1:
+        return boxes[0]
+    best = max(boxes, key=lambda b: _iou(vlm_pixel_box, b))
+    return best if _iou(vlm_pixel_box, best) >= MIN_SNAP_IOU else None
+
 
 def _claim_confidence(claim: dict) -> float:
     """The model's stated certainty, 0..1. Absent or malformed = 1.0 — the
@@ -89,12 +131,20 @@ def _normalized_box(raw) -> tuple | None:
     return (x1, y1, x2, y2)
 
 
-def annotate_hit(frame, hit: dict):
+def annotate_hit(frame, hit: dict, person_boxes: list | None = None):
     """(evidence_frame, pixel_box|None): the hit drawn colour-coded on a COPY
-    of the frame. A person/instrument claim gets its located box with the rule
-    name as the label; an object claim gets a corner tag naming what was seen
-    and NO located box (see LOCATED_TARGETS). No box from the model = the
-    original frame untouched and no pixel box."""
+    of the frame.
+
+    Where a box may come from, in trust order (4 Sep, twice in one day):
+    - a PERSON claim with the engine's tracked person boxes available snaps
+      to a DETECTOR box (ground_person_box) — the model's coordinates only
+      pick which person, they are never drawn;
+    - an INSTRUMENT claim keeps the model's sanity-checked box (until
+      grounded open-vocabulary detection lands);
+    - an OBJECT claim, an ungrounded near-whole-frame box, or a person claim
+      the detector can't corroborate: corner tag naming what was seen, no
+      located box. A wrong box over evidence is worse than none.
+    No box from the model = the original frame untouched and no pixel box."""
     import cv2
     box = hit.get("box")
     if box is None:
@@ -103,8 +153,8 @@ def annotate_hit(frame, hit: dict):
     colour = TARGET_COLOURS.get(target, TARGET_COLOURS["object"])
     label = f"{target}: {hit.get('name', '')}"[:48]
     height, width = frame.shape[:2]
-    if target not in LOCATED_TARGETS:
-        # Tag, don't point: the sighting is real, its coordinates are not.
+
+    def _tag_only():
         evidence = frame.copy()
         (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX,
                                              0.5, 1)
@@ -115,6 +165,10 @@ def annotate_hit(frame, hit: dict):
         cv2.putText(evidence, label, (pad, pad + th),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
         return evidence, None
+
+    if target not in LOCATED_TARGETS:
+        # Tag, don't point: the sighting is real, its coordinates are not.
+        return _tag_only()
     x1 = int(round(box[0] / 1000.0 * width))
     y1 = int(round(box[1] / 1000.0 * height))
     x2 = int(round(box[2] / 1000.0 * width))
@@ -123,6 +177,19 @@ def annotate_hit(frame, hit: dict):
     y1, y2 = max(0, min(y1, height - 1)), max(0, min(y2, height - 1))
     if x2 <= x1 or y2 <= y1:
         return frame, None
+    area_frac = ((x2 - x1) * (y2 - y1)) / float(width * height)
+    if target == "person" and person_boxes is not None:
+        grounded = ground_person_box((x1, y1, x2, y2), person_boxes)
+        if grounded is None:
+            return _tag_only()
+        x1, y1, x2, y2 = (int(v) for v in grounded)
+        x1, x2 = max(0, min(x1, width - 1)), max(0, min(x2, width - 1))
+        y1, y2 = max(0, min(y1, height - 1)), max(0, min(y2, height - 1))
+        if x2 <= x1 or y2 <= y1:
+            return _tag_only()
+    elif area_frac >= UNGROUNDED_AREA_FRAC:
+        # A border around the whole image is not a location (the cap event).
+        return _tag_only()
     evidence = frame.copy()
     cv2.rectangle(evidence, (x1, y1), (x2, y2), colour, 2)
     cv2.putText(evidence, label, (x1 + 3, max(14, y1 - 6)),
@@ -161,7 +228,13 @@ class CustomRuleScanner:
                  base_url: str = "http://localhost:11434/v1",
                  interval: float = 12.0, cooldown: float = 90.0,
                  site_config_path: str | None = None,
-                 frame_source=None, context_provider=None) -> None:
+                 frame_source=None, context_provider=None,
+                 boxes_source=None) -> None:
+        # boxes_source(camera_id) -> [(track_id, x1, y1, x2, y2), ...] pixel
+        # person boxes from the engine's tracker: the grounded WHERE for a
+        # person claim's evidence box (the VLM's own coordinates only pick
+        # which person). None = standalone scanner, model boxes sanity-checked.
+        self.boxes_source = boxes_source
         # frame_source(camera_id) -> frame|None: when the engine provides it,
         # the scanner PEEKS the frames the engine already decoded instead of
         # opening its own VideoCapture per camera — which doubled network
@@ -587,7 +660,13 @@ class CustomRuleScanner:
         # shot points at it too. An object claim is corner-tagged, never
         # located (4 Sep — see LOCATED_TARGETS); no box from the model = an
         # unboxed frame, honestly.
-        evidence, pixel_box = annotate_hit(frame, hit)
+        person_boxes = None
+        if self.boxes_source is not None:
+            try:
+                person_boxes = self.boxes_source(cam["id"])
+            except Exception:  # noqa: BLE001 - grounding is best-effort
+                log.debug("boxes_source failed", exc_info=True)
+        evidence, pixel_box = annotate_hit(frame, hit, person_boxes=person_boxes)
         payload = {"frames": [evidence]}
         if pixel_box is not None:
             payload["bbox"] = pixel_box
