@@ -158,8 +158,13 @@ class OllamaServerManagementTest(unittest.TestCase):
 
         real_popen = vlm_ollama.subprocess.Popen
         real_binary = vlm_ollama.ollama_binary
+        real_probe = vlm_ollama._low_memory_box
         vlm_ollama.subprocess.Popen = fake_popen
         vlm_ollama.ollama_binary = lambda: "/fake/ollama"
+        # This pins the ROOMY machine's env contract; the low-memory profile
+        # (4 Sep) has its own tests. Without this, the assertion depends on
+        # the test host's RAM — CI runners sit exactly at the 16GB threshold.
+        vlm_ollama._low_memory_box = lambda *a, **k: False
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 models = str(Path(tmp) / "ollama-models")
@@ -174,6 +179,7 @@ class OllamaServerManagementTest(unittest.TestCase):
         finally:
             vlm_ollama.subprocess.Popen = real_popen
             vlm_ollama.ollama_binary = real_binary
+            vlm_ollama._low_memory_box = real_probe
 
     def test_an_already_running_server_is_used_as_is(self):
         real_up = vlm_ollama.server_up
