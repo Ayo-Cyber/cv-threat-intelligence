@@ -217,6 +217,33 @@ class AnnotationTests(unittest.TestCase):
                                            "box": (400, 400, 800, 800)})
         self.assertEqual(emitted["alert"].payload["bbox"], (10, 10, 50, 60))
 
+    def test_boxes_are_captured_with_the_frame_not_at_emit(self):
+        """Dublin, 20:04: the VLM call takes ~10s, and boxes fetched at emit
+        time described a street everyone had walked on from — the evidence
+        box landed on empty cobbles. The tracker snapshot must be taken at
+        the same instant as the frame it grounds."""
+        import numpy as np
+        emitted = {}
+
+        class Sink:
+            def handle(self, alert, result):
+                emitted["alert"] = alert
+
+        moving = [[(1, 10, 10, 50, 60)],            # where the person WAS (scan)
+                  [(1, 120, 40, 180, 95)]]          # where they are at emit
+
+        scanner = CustomRuleScanner([CAM], sink=Sink(), model="gemma3:4b",
+                                    frame_source=lambda cid: np.zeros(
+                                        (100, 200, 3), dtype=np.uint8),
+                                    boxes_source=lambda cid: moving.pop(0))
+        with mock.patch("cvti.scene.agent_mapper.call_openai_compatible",
+                        return_value='{"threats": [{"name": "hoodie", "reason": '
+                                     '"hood up", "confidence": 0.9, "target": '
+                                     '"person", "box": [50, 50, 300, 700]}]}'):
+            scanner._timed_scan(CAM, {}, {})
+        self.assertEqual(emitted["alert"].payload["bbox"], (10, 10, 50, 60),
+                         "the evidence box must match the scanned frame's moment")
+
     def test_emit_of_an_object_hit_ships_no_bbox(self):
         emitted = {}
 

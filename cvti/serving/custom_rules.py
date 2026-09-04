@@ -59,7 +59,10 @@ LOCATED_TARGETS = ("person", "instrument")
 # the whole frame located nothing (the cap event drew a border around the
 # entire image) and grounds nothing.
 UNGROUNDED_AREA_FRAC = 0.9
-MIN_SNAP_IOU = 0.05
+# On a crowded street a garbage model box grazes SOME person box; a graze is
+# not a pick. Raised from 0.05 after the first grounded evidence still boxed
+# the wrong spot (Dublin, 20:04) — in a crowd, tag-only beats a coin flip.
+MIN_SNAP_IOU = 0.15
 
 
 def _iou(a: tuple, b: tuple) -> float:
@@ -235,6 +238,11 @@ class CustomRuleScanner:
         # person claim's evidence box (the VLM's own coordinates only pick
         # which person). None = standalone scanner, model boxes sanity-checked.
         self.boxes_source = boxes_source
+        # Person boxes captured at the same instant as the scanned frame —
+        # the VLM call between capture and emit takes ~10s, and boxes fetched
+        # at emit time describe a DIFFERENT street (Dublin, 20:04: the box
+        # landed on the cobbles everyone had walked away from).
+        self._scan_boxes: dict = {}
         # frame_source(camera_id) -> frame|None: when the engine provides it,
         # the scanner PEEKS the frames the engine already decoded instead of
         # opening its own VideoCapture per camera — which doubled network
@@ -335,6 +343,7 @@ class CustomRuleScanner:
             frame = self.frame_source(c["id"])
             if frame is None:
                 return
+            self._capture_boxes(c["id"])
         else:
             if c["id"] not in caps:              # standalone fallback: own decode
                 caps[c["id"]] = self._open(c["source"])
@@ -370,6 +379,16 @@ class CustomRuleScanner:
             self._record(c, None, error=str(exc)[:200])
             return
         self._route_hits(c, frame, hits)
+
+    def _capture_boxes(self, cam_id: str) -> None:
+        """Snapshot the tracker's person boxes for the frame just captured."""
+        if self.boxes_source is None:
+            return
+        try:
+            self._scan_boxes[cam_id] = self.boxes_source(cam_id)
+        except Exception:  # noqa: BLE001 - grounding is best-effort
+            log.debug("boxes_source failed", exc_info=True)
+            self._scan_boxes[cam_id] = None
 
     def _rule_keys(self) -> set:
         return {(c["id"], t["name"]) for c in self.cameras for t in _rules_for(c)}
@@ -660,12 +679,17 @@ class CustomRuleScanner:
         # shot points at it too. An object claim is corner-tagged, never
         # located (4 Sep — see LOCATED_TARGETS); no box from the model = an
         # unboxed frame, honestly.
-        person_boxes = None
-        if self.boxes_source is not None:
-            try:
-                person_boxes = self.boxes_source(cam["id"])
-            except Exception:  # noqa: BLE001 - grounding is best-effort
-                log.debug("boxes_source failed", exc_info=True)
+        # Grounding uses the boxes captured WITH the frame (see _capture_boxes);
+        # a live fetch here would describe the street ten VLM-seconds later.
+        if cam["id"] in self._scan_boxes:
+            person_boxes = self._scan_boxes[cam["id"]]
+        else:
+            person_boxes = None
+            if self.boxes_source is not None:      # direct-emit path (tests, tools)
+                try:
+                    person_boxes = self.boxes_source(cam["id"])
+                except Exception:  # noqa: BLE001 - grounding is best-effort
+                    log.debug("boxes_source failed", exc_info=True)
         evidence, pixel_box = annotate_hit(frame, hit, person_boxes=person_boxes)
         payload = {"frames": [evidence]}
         if pixel_box is not None:
