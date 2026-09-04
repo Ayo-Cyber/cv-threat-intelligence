@@ -37,12 +37,20 @@ REMINDER_WIDENING = 3.0
 REMINDER_CAP_SECONDS = 900.0
 CLEAR_AFTER_MISSES = 2
 
-# Evidence boxes, colour-coded by WHAT was flagged (BGR): the person in blue,
+# Evidence marks, colour-coded by WHAT was flagged (BGR): the person in blue,
 # a loose object in amber, a held instrument (weapon-shaped things) in red —
 # so the operator's eye lands on the right thing before reading a word.
 TARGET_COLOURS = {"person": (255, 140, 40),
                   "object": (0, 165, 255),
                   "instrument": (0, 0, 255)}
+
+# Only claims the model can actually PLACE earn a located box (4 Sep): it
+# anchors on people and on what a person is holding, but its box for a
+# free-standing scene object — the operator's bus rule, live — landed nowhere
+# near the subject. A wrong box drawn over evidence is worse than none, so an
+# object claim is tagged by name and colour in the frame corner instead of
+# pretending we know where it is.
+LOCATED_TARGETS = ("person", "instrument")
 
 
 def _claim_confidence(claim: dict) -> float:
@@ -82,14 +90,31 @@ def _normalized_box(raw) -> tuple | None:
 
 
 def annotate_hit(frame, hit: dict):
-    """(evidence_frame, pixel_box|None): the hit's box drawn colour-coded on a
-    COPY of the frame, with the rule name as the label. No box = the original
-    frame untouched and no pixel box."""
+    """(evidence_frame, pixel_box|None): the hit drawn colour-coded on a COPY
+    of the frame. A person/instrument claim gets its located box with the rule
+    name as the label; an object claim gets a corner tag naming what was seen
+    and NO located box (see LOCATED_TARGETS). No box from the model = the
+    original frame untouched and no pixel box."""
     import cv2
     box = hit.get("box")
     if box is None:
         return frame, None
+    target = hit.get("target", "object")
+    colour = TARGET_COLOURS.get(target, TARGET_COLOURS["object"])
+    label = f"{target}: {hit.get('name', '')}"[:48]
     height, width = frame.shape[:2]
+    if target not in LOCATED_TARGETS:
+        # Tag, don't point: the sighting is real, its coordinates are not.
+        evidence = frame.copy()
+        (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX,
+                                             0.5, 1)
+        pad = 5
+        cv2.rectangle(evidence, (0, 0),
+                      (min(width - 1, tw + 2 * pad), th + baseline + 2 * pad),
+                      colour, -1)
+        cv2.putText(evidence, label, (pad, pad + th),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+        return evidence, None
     x1 = int(round(box[0] / 1000.0 * width))
     y1 = int(round(box[1] / 1000.0 * height))
     x2 = int(round(box[2] / 1000.0 * width))
@@ -98,11 +123,8 @@ def annotate_hit(frame, hit: dict):
     y1, y2 = max(0, min(y1, height - 1)), max(0, min(y2, height - 1))
     if x2 <= x1 or y2 <= y1:
         return frame, None
-    target = hit.get("target", "object")
-    colour = TARGET_COLOURS.get(target, TARGET_COLOURS["object"])
     evidence = frame.copy()
     cv2.rectangle(evidence, (x1, y1), (x2, y2), colour, 2)
-    label = f"{target}: {hit.get('name', '')}"[:48]
     cv2.putText(evidence, label, (x1 + 3, max(14, y1 - 6)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1, cv2.LINE_AA)
     return evidence, (x1, y1, x2, y2)
@@ -549,10 +571,11 @@ class CustomRuleScanner:
               ongoing_since: float | None = None) -> None:
         from cvti.contracts import VerificationResult
         from cvti.serving.alert_queue import QueuedAlert
-        # The evidence points at WHAT the model saw (3 Sep): the matching
-        # person/object/instrument gets a colour-coded box drawn on the
-        # evidence copy, and the pixel bbox rides in the payload so the sink's
-        # subject shot points at it too. No box from the model = today's
+        # The evidence points at WHAT the model saw (3 Sep): a person or
+        # instrument claim gets its colour-coded box drawn on the evidence
+        # copy, and the pixel bbox rides in the payload so the sink's subject
+        # shot points at it too. An object claim is corner-tagged, never
+        # located (4 Sep — see LOCATED_TARGETS); no box from the model = an
         # unboxed frame, honestly.
         evidence, pixel_box = annotate_hit(frame, hit)
         payload = {"frames": [evidence]}
