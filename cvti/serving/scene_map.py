@@ -120,6 +120,13 @@ class FullAgentMapperService:
         self.mapper = mapper
         self.dump_raw_response = dump_raw_response
         self.legacy_root = Path(legacy_root)
+        # Late-bound by the pipeline once its decoders run: camera_id -> the
+        # engine's latest frame (peek, never consume). Session-capped cameras
+        # (the pilot's Tapo allows two RTSP clients) refuse the mapper's own
+        # second capture while the engine holds one — so when the engine is
+        # already looking, map what IT sees. None = open our own, as before
+        # (startup preflight, CLI use).
+        self.frame_source = None
 
     def inspect(
         self, cameras: list[dict[str, Any]], policy: str = "auto"
@@ -140,10 +147,10 @@ class FullAgentMapperService:
                     legacy_context_path=(
                         self.legacy_root / camera_id / "scene_context.json"),
                 )
-                if manual is not None and resolution.context is not None:
-                    resolution = store.approve(
-                        resolution.context, "site_config", source
-                    )
+                # (4 Sep) resolve() already persisted authored config text as
+                # ready_UNREVIEWED — the approve("site_config") that used to
+                # sit here re-stamped the reviewed badge #91 removed, on every
+                # engine start. Authored is not reviewed; nothing to add.
             except Exception as exc:  # noqa: BLE001 — same guarantee as
                 # prepare(): inspect() runs at engine startup, and a malformed
                 # hand-edited scene_context in site.json used to raise out of
@@ -229,8 +236,9 @@ class FullAgentMapperService:
         )
 
         if manual is not None and resolution.context is not None:
-            persisted = store.approve(resolution.context, "site_config", source)
-            return CameraMappingResult(camera_id, persisted, False)
+            # resolve() persisted it unreviewed; usable, badge-less (4 Sep —
+            # the approve("site_config") here was #91's bug re-opened).
+            return CameraMappingResult(camera_id, resolution, False)
         if resolution.usable:
             return CameraMappingResult(camera_id, resolution, False)
         if resolution.status.status == "ready_unreviewed":
@@ -242,12 +250,26 @@ class FullAgentMapperService:
 
         try:
             store.mark_pending(source)
+            frames = None
+            if self.frame_source is not None:
+                try:
+                    engine_frame = self.frame_source(camera_id)
+                except Exception:  # noqa: BLE001 - a peek must never fail a mapping
+                    log.debug("engine frame peek failed for %s", camera_id, exc_info=True)
+                    engine_frame = None
+                if engine_frame is not None:
+                    frames = [engine_frame]
+            # frames= only when the engine supplied one: keeps every existing
+            # mapper implementation (and test double) with the older
+            # signature working unchanged.
+            engine_kwargs = {"frames": frames} if frames is not None else {}
             mapped = self.mapper.map_result(
                 source,
                 camera_id,
                 sample_count=3,
                 source_frame_path=str(store.frame_path),
                 operator_hints=_operator_hints(camera),
+                **engine_kwargs,
             )
             saved = store.save_mapping(
                 mapped, source, dump_raw_response=self.dump_raw_response

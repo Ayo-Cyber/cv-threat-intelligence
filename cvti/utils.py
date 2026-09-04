@@ -49,6 +49,19 @@ def user_data_dir() -> Path:
     return base
 
 
+def redact_credentials(text: str) -> str:
+    """Strip user:password@ out of any URL embedded in `text`.
+
+    Camera sources carry credentials (rtsp://user:pass@host/...), and error
+    strings that quote the source travel a long way — the health panel, the
+    heartbeat file, the Diagnose zip, a screenshot pasted into a chat. The
+    pilot's RTSP password was on his System screen inside a mapping error
+    (4 Sep). Anything that stringifies a source for humans runs through here.
+    """
+    import re
+    return re.sub(r"(\w+?://)[^/@\s]+@", r"\1***@", str(text))
+
+
 def argus_version() -> str:
     """Which build this actually is — the ONE source every surface reads.
 

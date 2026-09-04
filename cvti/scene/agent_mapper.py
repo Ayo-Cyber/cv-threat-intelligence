@@ -243,7 +243,10 @@ def capture_sample_frames(
 
     capture = cv2.VideoCapture(source)
     if not capture.isOpened():
-        raise RuntimeError(f"Unable to open source: {source}")
+        from cvti.utils import redact_credentials
+        # The source may carry rtsp credentials; this string ends up on the
+        # System screen and in the Diagnose zip (pilot's password did, 4 Sep).
+        raise RuntimeError(f"Unable to open source: {redact_credentials(str(source))}")
 
     try:
         if source_type == "video_file":
@@ -877,13 +880,20 @@ class AgentMapper:
         sample_count: int = 3,
         source_frame_path: str = "",
         operator_hints: dict[str, Any] | None = None,
+        frames: list | None = None,
     ) -> MappingResult:
         source = normalize_source(str(source_raw))
         source_type = detect_source_type(source)
         cam = build_camera_id(camera_id, source)
         frame_path = source_frame_path or f"runs/context/{cam}/source_frame.jpg"
 
-        samples = capture_sample_frames(source, source_type, max(1, sample_count), 2.0)
+        if frames:
+            # Caller-supplied frames (the engine's own decoded view): no
+            # second capture session against a camera that may cap them.
+            samples = [SampledFrame(image=f, timestamp_seconds=0.0,
+                                    score=score_frame(f)) for f in frames]
+        else:
+            samples = capture_sample_frames(source, source_type, max(1, sample_count), 2.0)
         selected = choose_representative_frame(samples)
         frame_bytes = encode_frame_as_jpeg_bytes(selected.image)
 

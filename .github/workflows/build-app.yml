@@ -132,6 +132,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchvision==0.23.0
           pip install -r requirements.txt
+          # The video-action model's deps live in their own file — and the
+          # build never installed it, so PyInstaller could not bundle what
+          # was not there: every Windows install shipped without transformers
+          # and VideoMAE was dead on arrival (pilot screenshot, 4 Sep — the
+          # v1.8.2 error finally NAMED the missing module).
+          pip install -r requirements-video.txt
           pip uninstall -y opencv-python
           pip install pyinstaller PyQt6 PyQt6-WebEngine "opencv-python-headless==4.13.0.92"
 

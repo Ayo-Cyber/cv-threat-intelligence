@@ -70,7 +70,10 @@ def derive_status(*, cameras: list, gate: dict, disk: dict, memory: dict,
         camera_id = mapping.get("camera_id", "unknown")
         mapping_status = mapping.get("status")
         if mapping_status == "failed":
-            detail = str(mapping.get("error") or "unknown error")
+            # Defensive second layer: whatever produced this error, no
+            # credential embedded in a source URL reaches a screen from here.
+            from cvti.utils import redact_credentials
+            detail = redact_credentials(str(mapping.get("error") or "unknown error"))
             reasons.append((DEGRADED, f"camera {camera_id} scene mapping failed: {detail}"))
         elif mapping_status == "stale":
             reasons.append((DEGRADED, f"camera {camera_id} scene context is stale"))

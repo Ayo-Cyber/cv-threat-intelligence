@@ -12,7 +12,15 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sn
+# Vendored patch (Argus, 4 Sep): seaborn is a TRAINING-plot dependency
+# (pairplot/histplot in plot_labels below) that inference never touches —
+# but this module-level import ran at weapon-model load, so the frozen
+# engine died with "No module named 'seaborn'" on every Windows install
+# (pilot screenshot). Optional import; the two plotting call sites guard.
+try:
+    import seaborn as sn
+except ImportError:                    # frozen inference bundle: plots unused
+    sn = None
 import torch
 from PIL import Image, ImageDraw
 from scipy.ndimage.filters import gaussian_filter1d
@@ -324,6 +332,9 @@ def plot_val_study(file="", dir="", x=None):
 @TryExcept()  # known issue https://github.com/ultralytics/yolov5/issues/5395
 def plot_labels(labels, names=(), save_dir=Path("")):
     """Plots dataset labels, saving correlogram and label images, handles classes, and visualizes bounding boxes."""
+    if sn is None:  # Argus vendored patch: training-only path, seaborn absent in the inference bundle
+        LOGGER.info("seaborn unavailable; skipping label plots")
+        return
     LOGGER.info(f"Plotting labels to {save_dir / 'labels.jpg'}... ")
     c, b = labels[:, 0], labels[:, 1:].transpose()  # classes, boxes
     nc = int(c.max() + 1)  # number of classes
