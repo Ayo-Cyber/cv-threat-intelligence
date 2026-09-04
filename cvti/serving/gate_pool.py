@@ -118,10 +118,18 @@ class GatePool:
                             except Exception as exc:  # noqa: BLE001 - feedback lookup must never break the gate
                                 log.debug("feedback example lookup failed", exc_info=True)
                                 examples = None
+                        from cvti.serving.perf import BOARD
+                        # How long the alert sat in the queue before a worker
+                        # picked it up — on a starved box this, not inference,
+                        # is usually the real "verification is slow".
+                        BOARD.observe("verify_wait", alert.camera_id,
+                                      max(0.0, (time.time() - alert.timestamp) * 1000.0))
                         _t0 = time.monotonic()
                         result = gate.verify(p.get("frames"), candidate, p.get("scene"),
                                              examples=examples)
-                        self._latencies.append(time.monotonic() - _t0)
+                        _dur = time.monotonic() - _t0
+                        self._latencies.append(_dur)
+                        BOARD.observe("verify_infer", alert.camera_id, _dur * 1000.0)
                     if result is not None and getattr(result, "errored", False):
                         # No verdict was reached. The alert was surfaced
                         # UNVERIFIED — that is delivery working, not the gate.

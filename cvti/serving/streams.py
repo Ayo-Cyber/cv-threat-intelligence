@@ -153,10 +153,13 @@ class StreamDecoder:
     def __init__(self, camera_id: str, source: int | str, *, target_fps: float = 5.0,
                  reconnect: bool = True, reconnect_backoff: float = 1.0,
                  loop_files: bool = True, offline_grace_seconds: float = DEFAULT_OFFLINE_GRACE,
-                 on_state_change=None) -> None:
+                 on_state_change=None, view_only: bool = False) -> None:
         self.camera_id = camera_id
         self.source = source
         self.target_fps = target_fps
+        # A view-only camera streams glass and runs NO detection (4 Sep, pilot):
+        # the flag rides here so link/ingest status can say so honestly.
+        self.view_only = view_only
         # Viewer-aware display boost (3 Sep): while someone is actually
         # WATCHING this camera (an open /stream connection on the publisher),
         # the decode rate steps up to this so the glass is smooth; the moment
@@ -233,6 +236,8 @@ class StreamDecoder:
         """
         ms = elapsed_seconds * 1000.0
         self._busy_ms = ms if self._busy_ms is None else 0.1 * ms + 0.9 * self._busy_ms
+        from cvti.serving.perf import BOARD
+        BOARD.observe("decode", self.camera_id, ms)
         deadline_ms = self._min_period * 1000.0
         if self._fps > 1e-3:
             deadline_ms = max(deadline_ms, (stride / self._fps) * 1000.0)
@@ -258,7 +263,7 @@ class StreamDecoder:
                          self.camera_id)
 
     def ingest_status(self) -> dict:
-        return {
+        out = {
             "width": self.stream_width, "height": self.stream_height,
             "source_fps": round(self._fps, 1),
             "busy_ms_per_frame": round(self._busy_ms or 0.0, 1),
@@ -266,6 +271,9 @@ class StreamDecoder:
             "sampling_fps": round(self._effective_fps(), 1),
             "limited": self._ingest_limited,
         }
+        if getattr(self, "view_only", False):   # tests build decoders raw
+            out["view_only"] = True
+        return out
 
     def _set_state(self, state: str, detail: str = "") -> None:
         if state == self.state:

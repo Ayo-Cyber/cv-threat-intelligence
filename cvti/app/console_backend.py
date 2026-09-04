@@ -817,6 +817,31 @@ class ConsoleBackend:
                           f"camera:{camera_id}", detail={"custom_rule": "(all removed)"})
         return out
 
+    def set_view_only(self, camera_id: str, enabled: bool) -> dict:
+        """Glass mode per camera (4 Sep, pilot): stream the video, run NO
+        detection on it. The engine gives such a camera a decoder and a wall
+        slot and nothing else — no models, no scene mapping, no English scans
+        — so a starved machine spends its cycles on the cameras that detect.
+        Applies on the next engine start; if monitoring is running we restart
+        it here so the toggle means what it says."""
+        self._require(perms.CONFIGURE_DETECTORS)
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam is None:
+            return {"error": f"camera '{camera_id}' not found"}
+        if enabled:
+            cam["view_only"] = True
+        else:
+            cam.pop("view_only", None)
+        onboarding.add_camera(self.site_path, cam)      # upsert by id
+        self.audit.record(self.current_user.username, "config_change",
+                          f"camera:{camera_id}", detail={"view_only": bool(enabled)})
+        restarted = False
+        if self._monitor and self._monitor.poll() is None:
+            self.stop_monitoring()
+            restarted = bool(self.start_monitoring().get("running"))
+        return {"ok": True, "view_only": bool(enabled), "engine_restarted": restarted}
+
     def add_zone(self, camera_id: str, name: str, points: list, dwell_seconds: float = 5.0) -> dict:
         """Save a drawn zone (>=3 [x,y] points in ORIGINAL pixels) + wire a
         loitering rule for it. The running engine hot-reloads it within seconds."""

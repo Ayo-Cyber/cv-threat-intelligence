@@ -1617,7 +1617,9 @@ function renderRules(){
       return '<div class="panel rulecard"><div class="row" style="justify-content:space-between">'
         +'<div class="row" style="gap:8px"><span class="dot" style="background:var(--c-live)"></span><b class="mono" style="font-size:14px">'+esc(c.id)+'</b>'
         +'<span class="mono mut" style="font-size:11px">'+esc((c.source||"").split("/").pop().split("@").pop())+'</span></div>'
-        +'<span class="mut rcount" style="font-size:12px">'+(native+customs.length)+' threat'+((native+customs.length)===1?"":"s")+' watched</span></div>'
+        +'<span class="mut rcount" style="font-size:12px">'+(c.view_only?'view-only — streaming, no detection':(native+customs.length)+' threat'+((native+customs.length)===1?"":"s")+' watched')+'</span></div>'
+        +'<div class="row" style="margin-top:8px;gap:8px"><button class="detchip'+(c.view_only?" on":"")+'" onclick="toggleViewOnly(\''+esc(c.id)+'\','+(c.view_only?'false':'true')+', this)" title="Stream this camera to the wall without running any detection on it — frees this machine for the cameras that detect.">'
+        +'<span class="di">🪟</span><span class="dl">View-only (glass, no detection)</span><span class="dt">'+(c.view_only?"●":"○")+'</span></button></div>'
         +'<div class="scenemap" id="scene-'+esc(c.id)+'"><span class="mut">reading scene…</span></div>'
         +'<div class="syslabel" style="margin-top:12px">Built-in detectors</div>'
         +dets
@@ -1838,6 +1840,15 @@ function addCustom(camId){
   call("addCustomThreat",[camId, n.trim(), d.trim()],function(r){ renderRules(); });
 }
 function removeCustom(camId, i){ call("removeCustomThreat",[camId, i],function(){ renderRules(); }); }
+function toggleViewOnly(camId, enable, btn){
+  if(btn){ btn.disabled = true; var dl = btn.querySelector(".dl");
+    if(dl) dl.textContent = enable ? "Switching to view-only…" : "Turning detection back on…"; }
+  call("setViewOnly",[camId, !!enable],function(r){
+    if(r && r.error && btn){ btn.disabled=false; var dl=btn.querySelector(".dl");
+      if(dl) dl.textContent = r.error; return; }
+    renderRules();   // re-render from saved truth (chip, count, restart state)
+  });
+}
 function toggleRule(camId, det, btn){
   if(!btn) return;
   var next = !btn.classList.contains("on");
