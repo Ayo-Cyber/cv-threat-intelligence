@@ -923,7 +923,11 @@ class ConsoleBackend:
         if isinstance(context, dict):
             return self._scene_context_response(camera_id, context)
         cam = self._scene_camera(camera_id)
-        if cam and cam.get("scene_description"):
+        if (
+            cam
+            and cam.get("scene_description")
+            and str(cam.get("scene_context_mode", "")).strip().lower() == "manual"
+        ):
             return {
                 "camera_id": camera_id,
                 "environment_type": cam.get("environment_type", "unknown"),

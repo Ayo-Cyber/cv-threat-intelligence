@@ -33,6 +33,10 @@ class SceneMappingPreflight:
 
 
 def _manual_context(camera: dict[str, Any]) -> dict[str, Any] | None:
+    # A description is also collected as an onboarding/demo hint. It may only
+    # bypass visual mapping when the operator explicitly marks it as manual.
+    if str(camera.get("scene_context_mode", "")).strip().lower() != "manual":
+        return None
     description = str(camera.get("scene_description", "")).strip()
     if not description:
         return None
@@ -52,15 +56,19 @@ def _manual_context(camera: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _manual_context_unless_remapping(
+    camera: dict[str, Any], store: SceneContextStore
+) -> dict[str, Any] | None:
+    if store.load_status().status == "stale":
+        return None
+    return _manual_context(camera)
+
+
 def _operator_hints(camera: dict[str, Any]) -> dict[str, Any] | None:
     """The operator's onboarding answers, when they gave any.
 
-    Distinct from _manual_context on purpose: a full scene_description is
-    human-AUTHORED context (mapper skipped, auto-approved), while these are
-    human HINTS — priors the mapper refines instead of guessing from one
-    frame. Collected by the connect-your-cameras wizard; the discord this
-    heals (co-engineer, 1 Sep) was onboarding knowledge the backend never
-    saw."""
+    Unless scene_context_mode=manual, scene_description is a prior that the
+    mapper must refine from visual evidence rather than a completed map."""
     environment = str(camera.get("environment_type") or "").strip()
     actors = [str(a).strip() for a in camera.get("expected_actors") or []]
     actors = [a for a in actors if a]
@@ -139,7 +147,7 @@ class FullAgentMapperService:
             try:
                 source = camera["source"]
                 store = SceneContextStore(self.context_root, camera_id)
-                manual = _manual_context(camera)
+                manual = _manual_context_unless_remapping(camera, store)
                 resolution = store.resolve(
                     source,
                     normalized_policy,
@@ -226,7 +234,7 @@ class FullAgentMapperService:
         camera_id = str(camera["id"])
         source = camera["source"]
         store = SceneContextStore(self.context_root, camera_id)
-        manual = _manual_context(camera)
+        manual = _manual_context_unless_remapping(camera, store)
         legacy_path = self.legacy_root / camera_id / "scene_context.json"
         resolution = store.resolve(
             source,
