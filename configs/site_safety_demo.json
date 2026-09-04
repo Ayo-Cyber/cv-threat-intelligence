@@ -4,9 +4,9 @@
   "notify": "console",
   "configured": true,
   "cameras": [
-    {"id": "fire_watch", "source": "data/test_clips/synthetic_fire.mp4",  "config": "configs/manufacturing_hse_v1.json", "environment_type": "manufacturing_floor", "scene_description": "Factory floor where visible flame, smoke or haze indicates a fire hazard.", "fire_smoke": true},
-    {"id": "aisle_panic", "source": "data/test_clips/normal_street_01.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "walkway", "scene_description": "A walkway where people normally move calmly; running may indicate panic or an evacuation.", "running": true, "running_min_speed_ratio": 0.08, "running_min_frames": 3},
-    {"id": "gather_zone", "source": "data/test_clips/normal_street_02.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "open_area", "scene_description": "An open area where a tight crowd can block movement or exits.", "crowd_formation": true, "crowd_min_people": 3, "crowd_min_frames": 2, "crowd_max_cluster_ratio": 0.32},
-    {"id": "incident",   "source": "data/test_clips/stabbing_event.mp4",     "config": "configs/manufacturing_hse_v1.json", "environment_type": "indoor", "scene_description": "Indoor area; a person on the ground may signal a medical emergency or assault.", "fall": true, "violence": true}
+    {"id": "fire_watch", "source": "data/test_clips/synthetic_fire.mp4",  "config": "configs/manufacturing_hse_v1.json", "environment_type": "manufacturing_floor", "scene_hint": "Factory production floor.", "fire_smoke": true},
+    {"id": "aisle_panic", "source": "data/test_clips/normal_street_01.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "walkway", "scene_hint": "Pedestrian walkway within a work site.", "running": true, "running_min_speed_ratio": 0.08, "running_min_frames": 3},
+    {"id": "gather_zone", "source": "data/test_clips/normal_street_02.mp4", "config": "configs/manufacturing_hse_v1.json", "environment_type": "open_area", "scene_hint": "Open gathering area within a work site.", "crowd_formation": true, "crowd_min_people": 3, "crowd_min_frames": 2, "crowd_max_cluster_ratio": 0.32},
+    {"id": "incident",   "source": "data/test_clips/stabbing_event.mp4",     "config": "configs/manufacturing_hse_v1.json", "environment_type": "indoor", "scene_hint": "Indoor monitored area.", "fall": true, "violence": true}
   ]
 }

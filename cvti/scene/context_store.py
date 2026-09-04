@@ -525,6 +525,15 @@ class SceneContextStore:
         status = self.load_status()
         current_fingerprint = source_fingerprint(source)
         if context is not None:
+            if (
+                status.status == "ready_unreviewed"
+                and str(context.get("notes", "")).strip()
+                == "Human-authored site configuration."
+            ):
+                # Pre-v1.8.4 config fallbacks had no visual evidence but were
+                # persisted like completed maps. Replace them on the next run.
+                stale = self.mark_stale(source)
+                return ContextResolution(context, stale, "cache", False)
             if status.source_fingerprint and status.source_fingerprint != current_fingerprint:
                 stale = self.mark_stale(source)
                 return ContextResolution(context, stale, "cache", False)

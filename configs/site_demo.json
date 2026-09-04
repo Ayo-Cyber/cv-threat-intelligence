@@ -7,7 +7,7 @@
       "zones": "configs/retail_zones.theft_shop_01.json",
       "config": "configs/shelf_zones_demo.json",
       "environment_type": "retail_shop",
-      "scene_description": "retail shop aisle with merchandise shelves"
+      "scene_hint": "retail shop aisle with merchandise shelves"
     },
     {
       "id": "aisle_cam_2",
@@ -15,7 +15,7 @@
       "zones": "configs/retail_zones.theft_shop_01.json",
       "config": "configs/shelf_zones_demo.json",
       "environment_type": "retail_shop",
-      "scene_description": "second aisle, same store"
+      "scene_hint": "second aisle, same store"
     }
   ]
 }

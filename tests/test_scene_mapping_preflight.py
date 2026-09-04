@@ -183,7 +183,9 @@ def test_mapper_failure_under_strict_policies_still_blocks(tmp_path) -> None:
     assert result.blocked_camera_ids == {"cam_1"}
 
 
-def test_static_camera_context_runs_the_camera_but_is_not_a_review(tmp_path) -> None:
+def test_explicit_manual_camera_context_runs_without_mapper_but_is_not_a_review(
+    tmp_path,
+) -> None:
     """Rewritten 4 Sep. This pin used to demand ready_reviewed for config
     text — and it kept passing after #91's demotion only because scene_map
     re-stamped the badge on every prepare (the bug this rewrite documents).
@@ -195,6 +197,7 @@ def test_static_camera_context_runs_the_camera_but_is_not_a_review(tmp_path) -> 
     service = FullAgentMapperService(tmp_path / "out", mapper)
     camera = _camera(
         tmp_path,
+        scene_context_mode="manual",
         environment_type="parking_lot",
         scene_description="A monitored car park.",
         expected_actors=["drivers", "security staff"],
@@ -210,6 +213,66 @@ def test_static_camera_context_runs_the_camera_but_is_not_a_review(tmp_path) -> 
         "security staff",
     ]
     assert mapper.calls == []
+
+
+def test_config_description_is_a_mapper_hint_unless_explicitly_manual(tmp_path) -> None:
+    mapper = RecordingMapper()
+    service = FullAgentMapperService(tmp_path / "out", mapper)
+    camera = _camera(
+        tmp_path,
+        environment_type="parking_lot",
+        scene_description="A preloaded demo description.",
+    )
+
+    result = service.prepare([camera], "auto")
+
+    assert len(mapper.calls) == 1
+    assert mapper.hints_seen == [{
+        "environment_type": "parking_lot",
+        "note": "A preloaded demo description.",
+    }]
+    assert result.statuses["cam_1"]["provenance"] == "mapper"
+    assert (tmp_path / "out/context/cam_1/source_frame.jpg").exists()
+
+
+def test_remap_request_overrides_explicit_manual_context(tmp_path) -> None:
+    mapper = RecordingMapper()
+    service = FullAgentMapperService(tmp_path / "out", mapper)
+    camera = _camera(
+        tmp_path,
+        scene_context_mode="manual",
+        scene_description="A human-authored description.",
+    )
+    service.prepare([camera], "auto")
+    assert mapper.calls == []
+    SceneContextStore(tmp_path / "out/context", "cam_1").mark_stale(
+        camera["source"]
+    )
+
+    result = service.prepare([camera], "auto")
+
+    assert len(mapper.calls) == 1
+    assert result.statuses["cam_1"]["provenance"] == "mapper"
+
+
+def test_old_unreviewed_config_fallback_is_replaced_by_real_mapping(tmp_path) -> None:
+    camera = _camera(
+        tmp_path,
+        environment_type="parking_lot",
+        scene_description="A preloaded demo description.",
+    )
+    store = SceneContextStore(tmp_path / "out/context", "cam_1")
+    old_context = _context(environment="parking_lot")
+    old_context["notes"] = "Human-authored site configuration."
+    store.resolve(camera["source"], "auto", manual_context=old_context)
+    mapper = RecordingMapper()
+    service = FullAgentMapperService(tmp_path / "out", mapper)
+
+    result = service.prepare([camera], "auto")
+
+    assert len(mapper.calls) == 1
+    assert result.statuses["cam_1"]["provenance"] == "mapper"
+    assert (tmp_path / "out/context/cam_1/source_frame.jpg").exists()
 
 
 def test_build_camera_states_uses_pre_resolved_context_and_accepted_roles(
@@ -302,7 +365,9 @@ def test_onboarding_hints_reach_the_mapper_as_priors(tmp_path) -> None:
     }]
 
 
-def test_no_hints_means_no_priors_and_manual_still_bypasses(tmp_path) -> None:
+def test_no_hints_means_no_priors_and_explicit_manual_still_bypasses(
+    tmp_path,
+) -> None:
     mapper = RecordingMapper()
     service = FullAgentMapperService(tmp_path / "out", mapper,
                                      legacy_root=tmp_path / "legacy")
@@ -313,8 +378,9 @@ def test_no_hints_means_no_priors_and_manual_still_bypasses(tmp_path) -> None:
                                       legacy_root=tmp_path / "legacy")
     result = authored.prepare([_camera(
         tmp_path, id="cam_2", scene_description="A watched forecourt.",
+        scene_context_mode="manual",
     )], "auto")
-    assert len(mapper.calls) == 1, "a full description is authored, not a hint"
+    assert len(mapper.calls) == 1, "explicit manual context must bypass mapping"
     assert result.contexts["cam_2"]["scene_description"] == "A watched forecourt."
 
 

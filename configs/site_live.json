@@ -19,7 +19,7 @@
       "fall": false,
       "zones": "configs/zones/stage.json",
       "_base_config": "configs/all_threats_v1.json",
-      "scene_description": "A room monitored by a demo webcam.",
+      "scene_hint": "Indoor area viewed by a webcam.",
       "environment_type": "office",
       "custom_rules": [
         {

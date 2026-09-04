@@ -51,6 +51,27 @@ def _backend(tmp_path, role: str = "owner"):
     return backend, source
 
 
+def test_unmarked_config_description_is_not_presented_as_mapped_context(
+    tmp_path,
+) -> None:
+    site = tmp_path / "site.json"
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"clip")
+    site.write_text(json.dumps({"cameras": [{
+        "id": "cam_1",
+        "source": str(source),
+        "scene_description": "A preloaded demo description.",
+    }]}))
+    backend = signed_in(
+        "owner",
+        site_path=str(site),
+        db_path=str(tmp_path / "events.db"),
+        enable_demo=False,
+    )
+
+    assert backend.scene_context("cam_1") is None
+
+
 def _seed_mapping(tmp_path, source: Path) -> SceneContextStore:
     store = SceneContextStore(tmp_path / "context", "cam_1")
     result = MappingResult(

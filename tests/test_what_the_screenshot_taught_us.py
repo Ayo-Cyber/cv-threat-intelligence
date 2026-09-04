@@ -116,6 +116,7 @@ class ReviewedBadgeStaysDeadTests(unittest.TestCase):
         clip = Path(tmp) / "c.mp4"
         clip.write_bytes(b"x")
         camera = {"id": "cam1", "source": str(clip),
+                  "scene_context_mode": "manual",
                   "scene_description": "A templated description nobody reviewed."}
         service = FullAgentMapperService(Path(tmp) / "out", AgentMapper(provider="mock"))
         store = SceneContextStore(Path(tmp) / "out/context", "cam1")
