@@ -841,6 +841,20 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     pipe.on_queued = _fast_path
     pipe.start()
 
+    # The mapper reuses the ENGINE's frames once decoding runs (4 Sep): many
+    # cameras cap concurrent RTSP sessions (the pilot's Tapo allows two), and
+    # the mapper opening its own capture while the engine holds one got
+    # refused — 'scene mapping failed: Unable to open source' on a camera
+    # that was demonstrably streaming (detector.cam1: 178 ok, same screen).
+    def _mapper_frame(cam_id: str):
+        d = pipe._decoders.get(cam_id)
+        if d is None:
+            return None
+        f, _seq = d.peek_latest()
+        return f.image if f is not None else None
+
+    mapping_service.frame_source = _mapper_frame
+
     # Cameras start immediately in critical-only mode while one persistent,
     # bounded worker maps missing/stale scenes in the background. This keeps a
     # 100-camera commissioning run from becoming 100 blocking Ollama calls.

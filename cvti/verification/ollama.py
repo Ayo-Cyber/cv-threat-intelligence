@@ -144,8 +144,15 @@ def start_server(models_dir: str | None = None) -> bool:
     # third of the memory; requests beyond 2 queue server-side (slightly
     # higher tail latency, bounded RAM). Every value yields to an explicit
     # env var, so an operator who wants speed over memory can have it.
-    env.setdefault("OLLAMA_NUM_PARALLEL", "2")
-    env.setdefault("OLLAMA_CONTEXT_LENGTH", "8192")
+    #
+    # Low-memory boxes get a leaner profile (4 Sep): the pilot's Windows
+    # machine ran ~6.8 GB free with the model resident and every verify hit
+    # the 360s ceiling — a starved box serving TWO 8K slots is slower than
+    # one small slot serving requests in turn. Our prompts are short and the
+    # capped answers shorter; 4K context loses nothing we send.
+    lean = _low_memory_box()
+    env.setdefault("OLLAMA_NUM_PARALLEL", "1" if lean else "2")
+    env.setdefault("OLLAMA_CONTEXT_LENGTH", "4096" if lean else "8192")
     env.setdefault("OLLAMA_FLASH_ATTENTION", "1")
     env.setdefault("OLLAMA_KV_CACHE_TYPE", "q8_0")
     env.setdefault("OLLAMA_MAX_LOADED_MODELS", "1")
@@ -172,14 +179,33 @@ def start_server(models_dir: str | None = None) -> bool:
         return False
 
 
-def configured_parallel_slots(default: int = 2) -> int:
+LOW_MEMORY_TOTAL_GB = 16.0
+
+
+def _low_memory_box(threshold_gb: float = LOW_MEMORY_TOTAL_GB) -> bool:
+    """True when this machine's TOTAL RAM is at or under the threshold —
+    the boxes where two 8K-context slots starve everything, including
+    themselves. Best-effort: no psutil means assume the roomier default."""
+    try:
+        import psutil
+        return psutil.virtual_memory().total <= threshold_gb * (1024 ** 3)
+    except Exception:  # noqa: BLE001 - a probe must never stop the server
+        log.debug("memory probe unavailable; keeping default Ollama profile",
+                  exc_info=True)
+        return False
+
+
+def configured_parallel_slots(default: int | None = None) -> int:
     """How many requests the local Ollama server actually runs at once.
 
     Ollama exposes no API for this, so the env var is the source of truth:
-    OLLAMA_NUM_PARALLEL when the operator set it, else the 2 that
-    start_server() spawns with (memory policy, 24 Aug). Sizing the gate pool
+    OLLAMA_NUM_PARALLEL when the operator set it, else what start_server()
+    spawns with — 2 normally, 1 on a low-memory box (the same probe, so the
+    gate pool and the server it talks to always agree). Sizing the pool
     beyond this number buys queueing, not throughput.
     """
+    if default is None:
+        default = 1 if _low_memory_box() else 2
     raw = os.environ.get("OLLAMA_NUM_PARALLEL", "").strip()
     try:
         return max(1, int(raw)) if raw else default

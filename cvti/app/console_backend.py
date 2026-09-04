@@ -932,9 +932,11 @@ class ConsoleBackend:
                 "zones": [],
                 "confidence": 1.0,
                 "mapping": {
-                    "status": "ready_reviewed",
+                    # Authored is not reviewed (4 Sep): config text shows as
+                    # awaiting review, so Scene Review tells the truth.
+                    "status": "ready_unreviewed",
                     "provenance": "manual",
-                    "reviewed_by": "site_config",
+                    "reviewed_by": "",
                 },
                 "source_frame_uri": "",
             }

@@ -31,8 +31,13 @@ from cvti.verification.gate import VerificationGate
 
 
 class SlotCountTests(unittest.TestCase):
+    # The default now follows the low-memory probe (4 Sep) — these pin the
+    # ROOMY machine's contract, so the probe is fixed, not inherited from
+    # whatever RAM the test host happens to have (CI runners sit exactly at
+    # the 16GB threshold and flipped these).
     def test_defaults_to_the_two_slots_we_spawn_with(self):
-        with mock.patch.dict(ollama.os.environ, {}, clear=False):
+        with mock.patch.object(ollama, "_low_memory_box", return_value=False), \
+             mock.patch.dict(ollama.os.environ, {}, clear=False):
             ollama.os.environ.pop("OLLAMA_NUM_PARALLEL", None)
             self.assertEqual(ollama.configured_parallel_slots(), 2)
 
@@ -41,7 +46,8 @@ class SlotCountTests(unittest.TestCase):
             self.assertEqual(ollama.configured_parallel_slots(), 4)
 
     def test_garbage_env_falls_back(self):
-        with mock.patch.dict(ollama.os.environ, {"OLLAMA_NUM_PARALLEL": "many"}):
+        with mock.patch.object(ollama, "_low_memory_box", return_value=False), \
+             mock.patch.dict(ollama.os.environ, {"OLLAMA_NUM_PARALLEL": "many"}):
             self.assertEqual(ollama.configured_parallel_slots(), 2)
 
 

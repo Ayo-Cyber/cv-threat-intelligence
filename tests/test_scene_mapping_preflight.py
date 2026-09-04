@@ -183,7 +183,14 @@ def test_mapper_failure_under_strict_policies_still_blocks(tmp_path) -> None:
     assert result.blocked_camera_ids == {"cam_1"}
 
 
-def test_static_camera_context_is_reviewed_and_never_calls_mapper(tmp_path) -> None:
+def test_static_camera_context_runs_the_camera_but_is_not_a_review(tmp_path) -> None:
+    """Rewritten 4 Sep. This pin used to demand ready_reviewed for config
+    text — and it kept passing after #91's demotion only because scene_map
+    re-stamped the badge on every prepare (the bug this rewrite documents).
+    The completed doctrine: authored context RUNS the camera (never blocked,
+    even under require_reviewed — an operator who typed a description said
+    'watch this') and the mapper is not called over the author's head, but
+    the reviewed badge comes only from a person approving THIS camera."""
     mapper = RecordingMapper()
     service = FullAgentMapperService(tmp_path / "out", mapper)
     camera = _camera(
@@ -196,7 +203,8 @@ def test_static_camera_context_is_reviewed_and_never_calls_mapper(tmp_path) -> N
     result = service.prepare([camera], "require_reviewed")
 
     assert result.blocked_camera_ids == set()
-    assert result.statuses["cam_1"]["status"] == "ready_reviewed"
+    assert result.statuses["cam_1"]["status"] == "ready_unreviewed"
+    assert result.statuses["cam_1"]["reviewed_by"] in ("", None)
     assert result.contexts["cam_1"]["expected_actors"] == [
         "drivers",
         "security staff",
