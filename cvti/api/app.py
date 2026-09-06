@@ -31,6 +31,37 @@ def _error(status: int, code: str, message: str, detail: dict | None = None) -> 
                                            "detail": detail or {}}})
 
 
+def register_index(app: FastAPI, *, mock: bool = False) -> None:
+    """A self-describing root, so hitting the base URL isn't a bare 404.
+
+    GET / and GET /api/v1 return the API's name, version, where the docs live,
+    and the live endpoint list — no auth, no data, just discovery.
+    """
+    def _payload() -> dict:
+        paths = sorted({
+            r.path for r in app.routes
+            if getattr(r, "methods", None) and r.path.startswith(API_PREFIX)
+        })
+        return {
+            "name": "Argus Engine API",
+            "version": app.version,
+            "mock": mock,
+            "status": "ok",
+            "docs": "/docs",
+            "openapi": "/openapi.json",
+            "websocket": f"{API_PREFIX}/stream",
+            "endpoints": paths,
+        }
+
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return _payload()
+
+    @app.get(API_PREFIX, include_in_schema=False)
+    async def api_root():
+        return _payload()
+
+
 def create_app(*, db_path: str = "runs/site/events.db",
                site_path: str = "configs/site_live.json") -> FastAPI:
     app = FastAPI(title="Argus Engine API", version="0.2.0")
@@ -194,6 +225,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
             except Exception:  # noqa: BLE001
                 log.debug("websocket close after error also failed", exc_info=True)
 
+    register_index(app, mock=False)
     return app
 
 

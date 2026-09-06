@@ -79,6 +79,16 @@ class RealApiTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"{PREFIX}/events").status_code, 401)
         self.assertEqual(self.client.get(f"{PREFIX}/system/health").status_code, 401)
 
+    def test_index_is_self_describing_and_needs_no_auth(self):
+        for path in ("/", PREFIX):
+            r = self.client.get(path)
+            self.assertEqual(r.status_code, 200, path)
+            body = r.json()
+            self.assertEqual(body["name"], "Argus Engine API")
+            self.assertEqual(body["docs"], "/docs")
+            self.assertFalse(body["mock"])
+            self.assertIn(f"{PREFIX}/system/health", body["endpoints"])
+
     def test_sign_in_bad_password(self):
         r = self.client.post(f"{PREFIX}/auth/session",
                              json={"username": "ayo", "password": "wrong"})
@@ -170,6 +180,11 @@ class MockApiTests(unittest.TestCase):
 
     def test_mock_requires_a_token_too(self):
         self.assertEqual(self.client.get(f"{PREFIX}/events").status_code, 401)
+
+    def test_mock_index_says_it_is_mock(self):
+        body = self.client.get("/").json()
+        self.assertTrue(body["mock"])
+        self.assertEqual(body["docs"], "/docs")
 
 
 if __name__ == "__main__":
