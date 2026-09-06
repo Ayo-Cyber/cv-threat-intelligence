@@ -18,7 +18,7 @@ import time
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from cvti.api.app import API_PREFIX, _iso, _send
+from cvti.api.app import API_PREFIX, _iso, _send, register_index
 from cvti.api.tokens import TokenStore
 
 _CAMERAS = [
@@ -141,4 +141,5 @@ def create_mock_app() -> FastAPI:
         except WebSocketDisconnect:
             return
 
+    register_index(app, mock=True)
     return app
