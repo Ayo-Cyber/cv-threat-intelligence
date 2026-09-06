@@ -54,3 +54,8 @@ urllib3==2.6.3
 webencodings==0.5.1
 yt-dlp==2025.10.14
 zipp==3.23.0
+
+# --- API control plane (cvti.api) ---
+fastapi==0.128.8
+uvicorn[standard]==0.39.0
+httpx==0.28.1
