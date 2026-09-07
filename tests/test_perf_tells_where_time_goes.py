@@ -79,6 +79,7 @@ class WiringTests(unittest.TestCase):
         d.sustainable_fps = 30.0
         d._ingest_limited = False
         d.stream_width = d.stream_height = 0
+        d.display_fps = 0.0          # ingest_status() -> _effective_fps() reads it
         d._observe_ingest(0.020, stride=1)
         snap = BOARD.snapshot()
         self.assertIn("wire-decode-cam", snap.get("decode", {}))
