@@ -261,6 +261,15 @@ class StreamDecoder:
             else:
                 log.info("[decode %s] ingest recovered — full sampling rate restored",
                          self.camera_id)
+        # The same verdict the log line carries, into the file the customer
+        # actually sends us. Whether this machine sustains the rate asked of it
+        # is what separates "the box is too slow" from "the camera is pacing
+        # us" — and decode's raw milliseconds cannot tell them apart, because
+        # at the live edge grab() waits for the source (see the docstring).
+        try:
+            BOARD.note("decode", self.camera_id, **self.ingest_status())
+        except Exception:  # noqa: BLE001 - a metric must never stop a decoder
+            log.debug("ingest note dropped for %s", self.camera_id, exc_info=True)
 
     def ingest_status(self) -> dict:
         out = {

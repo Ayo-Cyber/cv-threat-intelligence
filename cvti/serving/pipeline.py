@@ -479,7 +479,10 @@ class MultiStreamPipeline:
                 batch_ms = (time.perf_counter() - t0) * 1000.0
                 self._detect_ms_total += batch_ms
                 from cvti.serving.perf import BOARD
-                BOARD.observe("detect_batch", "engine", batch_ms)
+                # units=len(batch): one observation, N frames' worth of work.
+                # Without it per-frame detection cost reads as the whole batch's
+                # and the readout ranks detection ~4x its true share.
+                BOARD.observe("detect_batch", "engine", batch_ms, units=len(batch))
                 for frame, result in zip(batch, results):
                     self.on_result(frame, result)
                 self.batches += 1
