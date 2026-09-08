@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-electron/
+test-results/
+playwright-report/
+*.tsbuildinfo
+public/demo/*.mp4
+public/demo/*-frame.jpg
+__pycache__/

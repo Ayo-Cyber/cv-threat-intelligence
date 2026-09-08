@@ -1,0 +1,36 @@
+{
+  "name": "argus-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "electron:compile": "tsc -p electron/tsconfig.json && node scripts/preload.cjs",
+    "desktop": "npm run electron:compile && concurrently -k -s first \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && node scripts/launch.cjs\"",
+    "build": "tsc -b && vite build && npm run electron:compile",
+    "start": "node scripts/launch.cjs --production",
+    "test": "vitest run",
+    "test:ui": "playwright test",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "lucide-react": "1.43.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.5.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.1",
+    "concurrently": "10.0.5",
+    "electron": "44.2.0",
+    "prettier": "3.9.6",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "5.0.0",
+    "wait-on": "9.1.0"
+  }
+}
