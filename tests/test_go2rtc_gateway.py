@@ -135,12 +135,16 @@ class FallbackTests(unittest.TestCase):
         dead = mock.MagicMock()
         dead.poll.return_value = 1                     # exited immediately
         with tempfile.TemporaryDirectory() as tmp:
+            # A real file, not a patched os.stat: g2r.os IS the global os
+            # module, and patching stat there breaks pathlib's mkdir on 3.11
+            # — which is exactly how this test failed on CI while passing on
+            # a 3.9 dev box (8 Sep). Mock at the seam, never the stdlib.
+            fake_bin = Path(tmp) / "go2rtc"
+            fake_bin.write_text("#!/bin/sh\n")
             gw = Go2rtcGateway(CAMS, tmp)
-            with mock.patch.object(g2r, "go2rtc_binary", return_value="/x/go2rtc"), \
-                 mock.patch.object(g2r.os, "chmod"), \
-                 mock.patch.object(g2r.os, "stat") as st, \
+            with mock.patch.object(g2r, "go2rtc_binary",
+                                   return_value=str(fake_bin)), \
                  mock.patch.object(g2r.subprocess, "Popen", return_value=dead):
-                st.return_value.st_mode = 0o755
                 self.assertFalse(gw.start(wait_ready_s=0.5))
         self.assertIn("not ready", gw.disabled_reason)
         self.assertFalse(gw.alive())
