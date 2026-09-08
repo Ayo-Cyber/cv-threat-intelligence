@@ -50,7 +50,9 @@ class HwDecodeTests(unittest.TestCase):
         import inspect
         from cvti.serving import capture
         src = inspect.getsource(capture.open_capture)
-        self.assertIn("cv2.CAP_FFMPEG, hw", src)
+        # hw params now travel merged with the single-thread decode ask (7 Sep)
+        self.assertIn("params = hw + live_params", src)
+        self.assertIn("cv2.CAP_FFMPEG, params", src)
         self.assertIn("retrying software", src)   # broken-driver fallback stays
 
 

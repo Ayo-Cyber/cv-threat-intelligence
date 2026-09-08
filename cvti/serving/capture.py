@@ -63,6 +63,26 @@ def _hw_decode_params(cv2) -> list:
     return []          # ancient OpenCV: software decode, as before
 
 
+def _live_decode_params(cv2) -> list:
+    """Single-threaded decode for LIVE sources (7 Sep, found by the latency
+    baseline's first run).
+
+    OpenCV defaults the FFmpeg decoder to thread_count = CPU count, and
+    H.264 frame-threading is a pipeline: output is delayed ~one frame per
+    thread. On an 11-core dev Mac that measured 810ms of standing latency on
+    a 15fps stream (11 x 66.7ms — the arithmetic is exact); on the pilot's
+    4-core box it is ~250ms baked into every frame, alert evidence included.
+    A camera stream is one frame at a time — the throughput frame-threading
+    buys is worthless here, and the latency it costs is the product's whole
+    complaint. threads=1 measured 810 -> 145ms p50; each extra thread adds
+    exactly one frame period. Offline work keeps the default: an eval run
+    wants throughput, and nobody is waiting at the glass.
+    """
+    if hasattr(cv2, "CAP_PROP_N_THREADS"):
+        return [cv2.CAP_PROP_N_THREADS, 1]
+    return []          # older OpenCV: no such knob, keep the old behaviour
+
+
 def open_capture(source: Any, *, low_latency: bool = True):
     """Open `source` with the right backend and the least buffering.
 
@@ -73,6 +93,7 @@ def open_capture(source: Any, *, low_latency: bool = True):
 
     src = int(source) if str(source).isdigit() else source
     hw = _hw_decode_params(cv2)
+    live_params = _live_decode_params(cv2) if low_latency else []
 
     if isinstance(src, int):
         # Webcam. DirectShow on Windows: MSMF can take seconds to open and
@@ -89,13 +110,16 @@ def open_capture(source: Any, *, low_latency: bool = True):
         if low_latency:
             # setdefault so an operator's explicit env var always wins.
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", _FFMPEG_LIVE_OPTS)
-        cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG, hw) if hw \
+        params = hw + live_params
+        cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG, params) if params \
             else cv2.VideoCapture(src, cv2.CAP_FFMPEG)
-        if hw and not cap.isOpened():
+        if params and not cap.isOpened():
             # ANY should fall back internally; if a broken driver still
-            # refuses the open, software decode beats no camera.
+            # refuses the open, software decode beats no camera. Retry keeps
+            # the single-thread ask — it is a latency fix, not an accelerator.
             log.warning("hw-accelerated open failed for %s; retrying software", src)
-            cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
+            cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG, live_params) if live_params \
+                else cv2.VideoCapture(src, cv2.CAP_FFMPEG)
     else:
         # A file: same free decode upgrade (demo clips are video too).
         cap = cv2.VideoCapture(src, cv2.CAP_ANY, hw) if hw else cv2.VideoCapture(src)
