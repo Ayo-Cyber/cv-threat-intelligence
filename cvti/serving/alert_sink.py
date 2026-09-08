@@ -271,6 +271,13 @@ class AlertSink:
         self.db_path = self.root / "events.db"
         self.notifier = notifier or ConsoleNotifier()
         self.save_evidence = save_evidence
+        # W1.6: camera_id -> full-resolution JPEG bytes | None. When detection
+        # rides a camera's substream, evidence frames are substream-sized; this
+        # callable (the gateway's mainstream snapshot) lets each alert also
+        # carry ONE frame at the camera's full resolution. Best-effort and
+        # None-safe by contract — evidence never waits on it and never fails
+        # because of it.
+        self.full_frame_provider = None
         self._lock = threading.Lock()
         self._db = sqlite3.connect(self.db_path, check_same_thread=False)
         self._db.executescript(_SCHEMA)
@@ -681,6 +688,13 @@ class AlertSink:
             # across the window (field report, 30 Aug).
             "clip_fps": float((alert.payload or {}).get("clip_fps") or 0.0) or None,
         }
+        if self.full_frame_provider is not None:
+            try:
+                full = self.full_frame_provider(alert.camera_id)
+                if full:
+                    (ev_dir / "evidence_full.jpg").write_bytes(full)
+            except Exception:  # noqa: BLE001 - an extra frame must never cost the alert
+                log.debug("full-frame evidence fetch failed", exc_info=True)
         (ev_dir / "event.json").write_text(json.dumps(event, indent=2))
 
         with self._lock:

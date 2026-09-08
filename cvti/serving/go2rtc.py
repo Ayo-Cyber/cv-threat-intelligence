@@ -107,11 +107,21 @@ class Go2rtcGateway:
         taken: set = set()
         # {camera_id: (stream_name, source)} for every restreamable camera.
         self.streams: dict = {}
+        # {camera_id: (sub_stream_name, detect_source)} — W1.6. A camera may
+        # name its SUBSTREAM as `detect_source`: detection decodes those cheap
+        # pixels while the mainstream keeps serving the wall (WebRTC
+        # passthrough) and the full-resolution evidence snapshot. Never a
+        # blanket downscale — the substream is the camera's own second encode.
+        self.detect_streams: dict = {}
         for cam in cameras:
             src = cam.get("source")
             if src is None or not restreamable(src):
                 continue
             self.streams[cam["id"]] = (_sanitize(cam["id"], taken), str(src))
+            sub = cam.get("detect_source")
+            if sub and restreamable(sub) and str(sub) != str(src):
+                self.detect_streams[cam["id"]] = (
+                    _sanitize(f"{cam['id']}_sub", taken), str(sub))
         self.api_port = 0
         self.rtsp_port = 0
         self.webrtc_port = 0
@@ -134,7 +144,10 @@ class Go2rtcGateway:
             "rtsp": {"listen": f"127.0.0.1:{self.rtsp_port}"},
             "webrtc": {"listen": f"127.0.0.1:{self.webrtc_port}"},
             "log": {"level": "info"},
-            "streams": {name: src for name, src in self.streams.values()},
+            "streams": {
+                **{name: src for name, src in self.streams.values()},
+                **{name: src for name, src in self.detect_streams.values()},
+            },
         }
 
     def write_config(self) -> Path:
@@ -214,15 +227,67 @@ class Go2rtcGateway:
         return self._proc is not None and self._proc.poll() is None
 
     def restream_url(self, camera_id: str) -> str | None:
-        """The localhost RTSP URL the decoder opens instead of the camera —
-        or None (not a gateway camera / gateway down): caller uses the
-        original source. None is the fallback, never an exception."""
+        """The localhost RTSP URL the DETECTION decoder opens instead of the
+        camera — or None (not a gateway camera / gateway down): caller uses
+        the original source. None is the fallback, never an exception.
+
+        A camera with a `detect_source` gets its SUBSTREAM here (W1.6):
+        detection wants cheap pixels; the mainstream stays reserved for the
+        wall and the evidence snapshot."""
         if not self.alive():
             return None
-        entry = self.streams.get(camera_id)
+        entry = self.detect_streams.get(camera_id) or self.streams.get(camera_id)
         if entry is None:
             return None
         return f"rtsp://127.0.0.1:{self.rtsp_port}/{entry[0]}"
+
+    def wall_stream_name(self, camera_id: str) -> str | None:
+        """The MAINSTREAM's go2rtc name — what a WebRTC wall tile plays."""
+        entry = self.streams.get(camera_id)
+        return entry[0] if entry else None
+
+    def snapshot_jpeg(self, camera_id: str, timeout: float = 2.0) -> bytes | None:
+        """One full-resolution mainstream frame, on demand (W1.6 evidence).
+
+        When detection rides the substream, alert evidence would otherwise be
+        360p. go2rtc can hand back a mainstream frame without the engine
+        decoding that stream at all. Only answers for cameras where detection
+        is NOT already seeing the mainstream — everyone else's evidence is
+        already full-resolution. Best-effort by contract: None, never a raise.
+        """
+        if camera_id not in self.detect_streams or not self.alive():
+            return None
+        name = self.wall_stream_name(camera_id)
+        if name is None:
+            return None
+        try:
+            url = f"http://127.0.0.1:{self.api_port}/api/frame.jpeg?src={name}"
+            with urllib.request.urlopen(url, timeout=timeout) as r:
+                data = r.read()
+            return data if data[:2] == b"\xff\xd8" else None
+        except OSError:
+            return None
+
+    def write_descriptor(self) -> Path | None:
+        """stream_gateway.json beside frames.json — how the API learns the
+        wall can speak WebRTC (W1.4). Written only while the gateway is up;
+        removed on stop, so a stale file never advertises a dead gateway."""
+        if not self.alive():
+            return None
+        doc = {
+            "api_port": self.api_port,
+            "rtsp_port": self.rtsp_port,
+            "webrtc_port": self.webrtc_port,
+            "streams": {cam_id: name for cam_id, (name, _s) in self.streams.items()},
+            "generated_at": time.time(),
+        }
+        target = self.output_dir / "stream_gateway.json"
+        try:
+            target.write_text(json.dumps(doc, indent=1))
+            return target
+        except OSError:
+            log.debug("stream_gateway.json write failed", exc_info=True)
+            return None
 
     def api_streams(self) -> dict | None:
         """go2rtc's own view of its streams (consumer counts included), for
@@ -241,6 +306,7 @@ class Go2rtcGateway:
         return {
             "running": self.alive(),
             "streams": len(self.streams),
+            "detect_substreams": len(self.detect_streams),
             "rtsp_port": self.rtsp_port if self.alive() else None,
             "api_port": self.api_port if self.alive() else None,
             "restarts": self.restarts,
@@ -256,6 +322,10 @@ class Go2rtcGateway:
                 pass
 
     def stop(self) -> None:
+        try:
+            (self.output_dir / "stream_gateway.json").unlink()
+        except OSError:
+            pass                       # absent already — nothing advertised
         with self._lock:
             proc, self._proc = self._proc, None
         if proc is not None and proc.poll() is None:
