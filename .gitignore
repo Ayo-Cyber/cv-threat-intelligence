@@ -127,3 +127,7 @@ tests/e2e/out/
 # ultralytics download into a read-only directory (pilot crash loop, 29 Aug).
 !models/yolov8n.pt
 !models/yolov8n-pose.pt
+
+# Vendored runtimes (Ollama, go2rtc) are fetched by scripts/fetch_*.{sh,bat}
+# at build time and must never enter history — binaries, and gigabytes.
+vendor/

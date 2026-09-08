@@ -87,6 +87,12 @@ _plat = {"win32": "windows", "darwin": "darwin"}.get(sys.platform, "linux")
 if os.path.isdir(os.path.join(ROOT, "vendor", "ollama", _plat)):
     datas += _tree(f"vendor/ollama/{_plat}", f"vendor/ollama/{_plat}")
 
+# The go2rtc stream gateway (W1), if scripts/fetch_go2rtc.* has run. One ~9 MB
+# static binary; the engine degrades to direct decode without it, so its
+# absence never breaks a build — only removes the gateway from that bundle.
+if os.path.isdir(os.path.join(ROOT, "vendor", "go2rtc", _plat)):
+    datas += _tree(f"vendor/go2rtc/{_plat}", f"vendor/go2rtc/{_plat}")
+
 # Self-contained playback demo (clips + recorded alerts), if built
 # (packaging/build_demo_data.py) — lets the app demo itself anywhere.
 if os.path.isdir(os.path.join(ROOT, "packaging", "demo_data")):
