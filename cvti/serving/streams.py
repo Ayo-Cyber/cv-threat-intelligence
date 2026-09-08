@@ -153,9 +153,18 @@ class StreamDecoder:
     def __init__(self, camera_id: str, source: int | str, *, target_fps: float = 5.0,
                  reconnect: bool = True, reconnect_backoff: float = 1.0,
                  loop_files: bool = True, offline_grace_seconds: float = DEFAULT_OFFLINE_GRACE,
-                 on_state_change=None, view_only: bool = False) -> None:
+                 on_state_change=None, view_only: bool = False,
+                 fallback_source: int | str | None = None) -> None:
         self.camera_id = camera_id
         self.source = source
+        # W1.3: when `source` is the go2rtc restream, this is the camera's own
+        # URL. A gateway that dies must cost this camera a reconnect, never
+        # its coverage — after two straight failed reopens the decoder swaps
+        # to the fallback and says so. One-way on purpose: flapping between a
+        # half-alive gateway and the camera is worse than settling on the
+        # camera; a gateway recovery is picked up on the next engine start.
+        self.fallback_source = fallback_source
+        self.fell_back = False
         self.target_fps = target_fps
         # A view-only camera streams glass and runs NO detection (4 Sep, pilot):
         # the flag rides here so link/ingest status can say so honestly.
@@ -313,6 +322,9 @@ class StreamDecoder:
                 # means its stream bursts (HLS), not that anything is wrong.
                 "stale_dropped": self.stale_dropped,
                 "ingest": self.ingest_status(),
+                # Running, but on the camera's own URL because the gateway
+                # went away — coverage held, the upgrade did not (W1.3).
+                "gateway_fallback": self.fell_back,
                 "attempts": list(self.attempt_history)}
 
     def _is_live(self) -> bool:
@@ -398,6 +410,24 @@ class StreamDecoder:
                                         f"unreachable for {self.time_in_state:.0f}s")
                     self.attempt_history.append(
                         {"at": time.time(), "attempt": attempt, "backoff": backoff})
+                    if (self.fallback_source is not None and not self.fell_back
+                            and attempt >= 2):
+                        # The restream is refusing us while the camera itself
+                        # may be fine — go direct. Logged as a warning: the
+                        # gateway's death is a support fact, not a mystery.
+                        log.warning("[decode %s] restream unreachable after %d "
+                                    "attempts — falling back to the camera's "
+                                    "own source", self.camera_id, attempt)
+                        self.source = self.fallback_source
+                        self.fell_back = True
+                        self.playout = (PlayoutBuffer(rate=self.target_fps)
+                                        if self._is_live() else None)
+                        self._governor = (PushGovernor()
+                                          if self.playout is not None else None)
+                        cap.release()
+                        cap = self._open()
+                        attempt = 0
+                        continue
                     log.warning("[decode %s] stream dropped; reopening in %.0fs (attempt %d)",
                                 self.camera_id, backoff, attempt)
                     cap.release()
@@ -487,3 +517,4 @@ class StreamDecoder:
     @property
     def alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+

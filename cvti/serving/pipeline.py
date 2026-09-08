@@ -285,8 +285,13 @@ class MultiStreamPipeline:
                  camera_states: dict[str, Any] | None = None, alert_queue: Any = None,
                  publisher: Any = None, on_link_change=None,
                  publish_fps: float = 24.0,
-                 view_only: set[str] | None = None) -> None:
+                 view_only: set[str] | None = None,
+                 fallback_sources: dict | None = None) -> None:
         self.sources = sources
+        # W1.3: camera_id -> the camera's OWN url, for cameras whose `source`
+        # is the go2rtc restream. A dead gateway costs a reconnect, not
+        # coverage: the decoder swaps to this after two failed reopens.
+        self.fallback_sources = fallback_sources or {}
         self.weights = weights
         self.target_fps = target_fps
         self.tick_seconds = tick_seconds
@@ -352,7 +357,8 @@ class MultiStreamPipeline:
             # decode at detection rate as before.
             self._decoders[cam_id] = StreamDecoder(
                 cam_id, src, target_fps=(1.0 if vo else self.target_fps),
-                on_state_change=self.on_link_change, view_only=vo).start()
+                on_state_change=self.on_link_change, view_only=vo,
+                fallback_source=self.fallback_sources.get(cam_id)).start()
         if self.smooth_publish:
             import threading as _th
             self._smooth_thread = _th.Thread(target=self._smooth_publish_loop,
@@ -785,10 +791,36 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             sources[str(c.get("id"))] = c["source"]
     queue = AlertQueue()
 
+    # The go2rtc stream gateway (W1.3): every network camera opened ONCE by a
+    # tool whose only job is streams, the engine reading the local restream —
+    # and, for a camera with a `detect_source`, the cheap substream. An
+    # upgrade, never a requirement: no binary / refused launch / site opt-out
+    # ("stream_gateway": false) leaves every camera exactly where it is today,
+    # and the fallback map below covers a gateway that dies mid-run.
+    from cvti.serving.go2rtc import Go2rtcGateway
+    from cvti.serving.onboarding import get_site_meta
+    gateway = Go2rtcGateway(site.get("cameras") or [], output_dir)
+    _gw_fallbacks: dict = {}
+    if get_site_meta(site_config_path).get("stream_gateway", True):
+        if gateway.start():
+            for _cid in list(sources):
+                _r = gateway.restream_url(_cid)
+                if _r is not None:
+                    _gw_fallbacks[_cid] = sources[_cid]   # the camera's own URL
+                    sources[_cid] = _r
+            gateway.write_descriptor()                    # W1.4: the API reads this
+    else:
+        gateway.disabled_reason = "disabled in the site file"
+        log.info("[go2rtc] %s", gateway.disabled_reason)
+
     # Confirmed alerts are persisted (SQLite + evidence bundle) and notified,
     # instead of only printed. sink.handle is the gate's verdict callback.
     from cvti.serving.alert_sink import AlertSink, build_notifier
     sink = AlertSink(output_dir, notifier=build_notifier(notify))
+    # W1.6: when detection rides a substream, the sink can still attach one
+    # full-resolution mainstream frame per alert — go2rtc hands it over
+    # without the engine decoding that stream at all.
+    sink.full_frame_provider = gateway.snapshot_jpeg
 
     save_dir = Path(output_dir) / "gate"
     # Feedback loop: give the gate this site's recent operator-labeled examples for
@@ -858,7 +890,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                conf=conf, device=device, half=half, camera_states=states,
                                alert_queue=queue, publisher=publisher,
                                on_link_change=_on_link_change, publish_fps=publish_fps,
-                               view_only=view_only_ids)
+                               view_only=view_only_ids,
+                               fallback_sources=_gw_fallbacks)
 
     def _fast_path(alert) -> None:
         """Two-tier alerting (EP-06-T4): criticals are shown provisionally the
@@ -1155,6 +1188,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                     # Detection -> operator-visible latency per priority tier.
                     # "Criticals alert in under a second" carries its measurement.
                     "alert_latency": sink.latency_stats(),
+                    # W1.5: the gateway is a component like any other — running
+                    # or not, and when not, WHY. Decoders that fell back to
+                    # their camera's own URL already say so per-camera in
+                    # cameras[].gateway_fallback.
+                    "stream_gateway": gateway.status(),
                     "heartbeat": heartbeat.status() if heartbeat else {"enabled": False}})
         return doc
 
@@ -1403,6 +1441,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         _mapping_stop.set()
         _esc_stop.set()
         pipe.stop()
+        gateway.stop()
         if va_runner is not None:
             va_runner.stop()
             if va_runner.dropped or va_runner.failed:
