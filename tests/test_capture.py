@@ -46,12 +46,50 @@ class BackendSelectionTest(unittest.TestCase):
 
     def test_network_streams_always_use_ffmpeg(self):
         # Since 3 Sep the open also requests GPU decode (ANY negotiates and
-        # falls back to software by itself) — free on capable machines.
+        # falls back to software by itself); since 7 Sep it also pins the
+        # software decoder to ONE thread — see the single-thread tests below.
         for platform in ("win32", "darwin", "linux"):
             cv2, _ = self._open("rtsp://cam/1", platform)
             cv2.VideoCapture.assert_called_with(
                 "rtsp://cam/1", cv2.CAP_FFMPEG,
-                [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])
+                [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
+                 cv2.CAP_PROP_N_THREADS, 1])
+
+    def test_live_decode_is_single_threaded(self):
+        """OpenCV defaults the decoder to thread_count = CPU count, and H.264
+        frame-threading delays output ~one frame per thread: 810ms standing
+        latency on an 11-core dev Mac at 15fps, ~250ms on the pilot's 4-core
+        box — on every frame, alert evidence included. Found 7 Sep by the
+        latency baseline's first run; threads=1 measured 810 -> 145ms p50."""
+        cv2, _ = self._open("rtsp://cam/1", "win32")
+        args = cv2.VideoCapture.call_args[0]
+        params = args[2]
+        idx = params.index(cv2.CAP_PROP_N_THREADS)
+        self.assertEqual(params[idx + 1], 1)
+
+    def test_files_keep_default_decode_threading(self):
+        """Offline work (eval over clips) wants throughput, and nobody is
+        waiting at the glass — the eval harness must not get slower."""
+        cv2, _ = self._open("/clips/a.mp4", "darwin")
+        for call in cv2.VideoCapture.call_args_list:
+            for arg in call[0]:
+                if isinstance(arg, list):
+                    self.assertNotIn(cv2.CAP_PROP_N_THREADS, arg)
+
+    def test_old_opencv_without_the_knob_still_opens(self):
+        """The single-thread ask is an optimisation, never a requirement."""
+        cap = mock.MagicMock()
+        cap.isOpened.return_value = True
+        fake_cv2 = mock.MagicMock()
+        fake_cv2.VideoCapture.return_value = cap
+        fake_cv2.CAP_FFMPEG = 1900
+        fake_cv2.CAP_PROP_BUFFERSIZE = 38
+        del fake_cv2.CAP_PROP_N_THREADS          # an OpenCV from before the knob
+        with mock.patch.dict(sys.modules, {"cv2": fake_cv2}):
+            capture.open_capture("rtsp://cam/1")
+        fake_cv2.VideoCapture.assert_called_with(
+            "rtsp://cam/1", fake_cv2.CAP_FFMPEG,
+            [fake_cv2.CAP_PROP_HW_ACCELERATION, fake_cv2.VIDEO_ACCELERATION_ANY])
 
     def test_live_sources_request_a_one_frame_buffer(self):
         # The queue IS the latency: deeper on Windows, which is why the same
