@@ -149,6 +149,12 @@ jobs:
       - name: Fetch Ollama runtime (Windows)
         if: runner.os == 'Windows'
         run: scripts\fetch_ollama.bat
+      - name: Fetch go2rtc gateway (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: bash scripts/fetch_go2rtc.sh
+      - name: Fetch go2rtc gateway (Windows)
+        if: runner.os == 'Windows'
+        run: scripts\fetch_go2rtc.bat
 
       - name: Build (macOS)
         if: runner.os == 'macOS'
