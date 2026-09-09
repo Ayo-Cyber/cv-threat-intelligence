@@ -1,0 +1,78 @@
+# Pilot-class perf lane — the replica box we don't own.
+#
+# GitHub's windows-latest runner is 4 vCPU / 16 GB Windows: a near spec-match
+# to the pilot's machine (Martins: 16 GB, ~4-core Windows). This lane runs the
+# measured-claims tooling there ON DEMAND, so the numbers that used to wait on
+# a hardware purchase come from a free runner instead:
+#   - tools/detect_bench.py       -> the W2 ">=2x ONNX vs torch-CPU" claim
+#   - tools/latency_baseline.py   -> the W1 glass-to-glass number
+#
+# HONESTY NOTE (read before quoting these numbers): CI Xeon cores are not the
+# pilot's consumer CPU, the runner is virtualized, and there is no GPU for
+# DirectML — so this lane proves DIRECTION and rough magnitude. Absolute field
+# numbers still come from a pilot Diagnose zip (tools/perf_readout.py).
+name: Perf (pilot-class runner)
+
+on:
+  workflow_dispatch:
+    inputs:
+      frames:
+        description: "frames per bench measurement"
+        default: "60"
+
+jobs:
+  bench:
+    runs-on: windows-latest      # 4 vCPU / 16 GB — pilot-class by accident
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps (CPU torch + requirements)
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.8.0 torchvision==0.23.0
+          pip install -r requirements.txt
+          # Same headless swap as the test job, same reason.
+          pip uninstall -y opencv-python
+          pip install "opencv-python-headless==4.13.0.92"
+          # The Windows accelerator the product actually ships with:
+          pip install "onnxruntime-directml==1.19.2"
+
+      - name: Export ONNX models
+        run: python scripts/export_onnx.py
+
+      - name: Detection bench (W2 claim)
+        run: |
+          python tools/detect_bench.py --frames "${{ github.event.inputs.frames || '60' }}" \
+            --json > detect_bench.json
+          python tools/detect_bench.py --frames "${{ github.event.inputs.frames || '60' }}"
+
+      - name: Glass-to-glass latency baseline (W1 claim)
+        # ffmpeg feeds the synthetic camera; choco is preinstalled on the runner.
+        run: |
+          choco install ffmpeg -y --no-progress
+          export PATH="$PATH:/c/ProgramData/chocolatey/bin"
+          python tools/latency_baseline.py --json > latency_baseline.json || {
+            echo "latency baseline failed on this runner — uploading the log, not a number"
+            cat latency_baseline.json || true
+            exit 1
+          }
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pilot-class-perf-${{ github.run_number }}
+          path: |
+            detect_bench.json
+            latency_baseline.json
+          if-no-files-found: warn
