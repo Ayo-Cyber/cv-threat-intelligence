@@ -95,3 +95,28 @@ exercised by the next real release.
 
 Privacy policy, DPIA, ToS, DPA template, professional indemnity insurance.
 External; gates the pilot absolutely. Not engineering work.
+
+## W6 — KPI evaluation data still to source · *manifest live, three rows SMOKE*
+
+**Status:** first real-gate scorecard run 9 Sep 2026 (committed at
+`runs/eval/kpi/scorecard.md`); rows below their n floors and the sources
+earmarked to fill them:
+
+- **person / intrusion / loitering** (21/20/16 of 73): VIRAT Ground 2.0
+  (event annotations — the honest filler; big staged download, check disk),
+  PETS 2007 loitering scenarios, more fetcher passes. Kaggle
+  `ibrahimarif31/ucf-crime-with-fence-climbing` (4 GB) for intrusion —
+  Ayo said keep in backlog, don't pull yet (9 Sep).
+- **DCSASS categories already on disk but unmapped** (`data/staging/dcsass`):
+  Robbery/Burglary/Vandalism segments could deepen row 9 for free.
+
+**Unblocks:** disk headroom + one word from Ayo.
+
+## W6 — kipshidze shoplifting set is invisible to Stage 1 · *needs eyeballs*
+
+**Status:** found by the first real-gate run. 92 shoplifting clips; only 9%
+ever produced a detector CANDIDATE — not gate strictness, the
+concealment/pose stage never fires on that footage style. Twenty minutes of
+watching a handful of clips decides whether it is a detector blind spot
+(serious, W3/W5-adjacent) or a data quirk (staging, angle, thefts past the
+30s analysis cap). Until then the row's number carries the set honestly.

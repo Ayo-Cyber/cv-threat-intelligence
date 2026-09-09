@@ -99,10 +99,21 @@ class ContaminationGuard(unittest.TestCase):
                              f"training-split clip leaked into the manifest: "
                              f"{clip.path}")
 
-    def test_robbery_and_burglary_score_as_suspicious_not_theft(self):
+    def test_footage_scores_against_a_question_it_can_match(self):
+        """Robbery, Burglary AND Stealing (outdoor property theft) score as
+        row 9's class. The first real-gate run proved the cost of getting
+        this wrong: 100% candidates, 93% gate rejections — the gate was
+        answering a shoplifting question about bike theft, and the row
+        measured the manifest instead of the model."""
         self.assertEqual(kpi.UCF_KPI_KINDS["Robbery"], "suspicious")
         self.assertEqual(kpi.UCF_KPI_KINDS["Burglary"], "suspicious")
+        self.assertEqual(kpi.UCF_KPI_KINDS["Stealing"], "suspicious")
         self.assertEqual(kpi.UCF_KPI_KINDS["Shoplifting"], "theft")
+
+    def test_camnuvem_robbery_scores_as_suspicious(self):
+        for clip in kpi.collect_clips():
+            if "camnuvem" in clip.source and clip.is_threat:
+                self.assertEqual(clip.kind, "suspicious", clip.path)
 
 
 class FreezeTests(unittest.TestCase):

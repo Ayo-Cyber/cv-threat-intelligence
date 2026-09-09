@@ -1,7 +1,7 @@
 {
  "version": 1,
- "built_at": 1788952980.583853,
- "digest": "d55cb2f51b1a1745",
+ "built_at": 1788959581.420556,
+ "digest": "e56b42776bd164b8",
  "rows": {
   "false_positive": {
    "sn": 2,
@@ -9,12 +9,552 @@
    "target": 0.05,
    "metric": "fpr",
    "positives": 0,
-   "negatives": 80,
+   "negatives": 170,
    "n_floor": 73,
    "publishable": true,
    "clips": [
     {
      "path": "data/test_clips/empty_warehouse.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_001.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_002.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_003.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_004.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_005.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_006.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_007.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_008.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_009.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_010.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_011.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_012.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_013.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_014.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_015.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_016.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_017.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_018.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_019.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_020.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_021.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_022.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_023.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_024.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_025.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_026.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_027.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_028.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_029.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_030.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_031.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_032.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_033.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_034.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_035.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_036.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_037.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_038.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_039.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_040.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_041.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_042.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_043.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_044.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_045.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_046.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_047.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_048.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_049.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_050.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_051.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_052.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_053.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_054.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_055.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_056.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_057.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_058.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_059.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_060.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_061.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_062.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_063.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_064.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_065.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_066.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_067.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_068.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_069.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_070.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_071.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_072.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_073.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_074.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_075.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_076.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_077.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_078.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_079.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_080.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_081.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_082.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_083.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_084.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_085.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_086.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_087.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_088.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_089.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_kip_090.mp4",
      "is_threat": false,
      "kind": "",
      "source": "local-clips"
@@ -500,44 +1040,941 @@
    "name": "Person Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 0,
+   "positives": 21,
    "negatives": 0,
    "n_floor": 73,
    "publishable": false,
-   "clips": []
+   "clips": [
+    {
+     "path": "data/test_clips/person_01.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_02.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_03.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_04.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_05.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_06.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_07.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_08.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_09.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_10.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_11.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_12.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_13.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_14.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_16.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_18.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_19.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_20.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_21.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_22.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_23.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    }
+   ]
   },
   "intrusion": {
    "sn": 6,
    "name": "Intrusion Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 0,
+   "positives": 20,
    "negatives": 0,
    "n_floor": 73,
    "publishable": false,
-   "clips": []
+   "clips": [
+    {
+     "path": "data/test_clips/intrusion_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_03.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_05.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_06.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_07.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_08.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_09.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_10.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_11.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_13.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_14.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_17.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_19.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_20.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_21.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_22.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_23.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_24.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/intrusion_25.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "test_clips/kpi"
+    }
+   ]
   },
   "loitering": {
    "sn": 7,
    "name": "Loitering Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 0,
+   "positives": 16,
    "negatives": 0,
    "n_floor": 73,
    "publishable": false,
-   "clips": []
+   "clips": [
+    {
+     "path": "data/test_clips/loitering_01.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_03.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_04.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_05.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_06.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_07.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_08.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_09.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_10.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_12.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_13.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_14.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_15.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_16.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_17.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_18.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    }
+   ]
   },
   "theft": {
    "sn": 8,
    "name": "Theft Detection",
    "target": 0.9,
    "metric": "recall",
-   "positives": 12,
+   "positives": 155,
    "negatives": 0,
    "n_floor": 35,
-   "publishable": false,
+   "publishable": true,
    "clips": [
+    {
+     "path": "data/test_clips/theft_kip_001.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_002.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_003.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_004.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_005.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_006.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_007.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_008.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_009.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_010.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_011.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_012.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_013.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_014.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_015.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_016.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_017.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_018.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_019.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_020.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_021.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_022.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_023.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_024.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_025.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_026.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_027.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_028.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_029.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_030.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_031.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_032.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_033.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_034.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_035.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_036.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_037.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_038.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_039.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_040.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_041.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_042.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_043.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_044.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_045.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_046.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_047.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_048.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_049.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_050.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_051.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_052.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_053.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_054.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_055.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_056.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_057.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_058.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_059.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_060.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_061.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_062.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_063.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_064.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_065.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_066.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_067.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_068.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_069.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_070.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_071.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_072.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_073.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_074.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_075.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_076.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_077.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_078.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_079.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_080.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_081.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_082.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_083.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_084.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_085.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_086.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_087.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_088.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_089.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_090.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_091.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_kip_092.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
     {
      "path": "data/test_clips/theft_shop_01.mp4",
      "is_threat": true,
@@ -557,58 +1994,364 @@
      "source": "local-clips"
     },
     {
-     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/19.mp4",
+     "path": "data/ucf_crime/Shoplifting/Shoplifting001_x264_10.mp4",
      "is_threat": true,
      "kind": "theft",
-     "source": "camnuvem-test"
+     "source": "ucf-crime/Shoplifting"
     },
     {
-     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/226.mp4",
+     "path": "data/ucf_crime/Shoplifting/Shoplifting001_x264_11.mp4",
      "is_threat": true,
      "kind": "theft",
-     "source": "camnuvem-test"
+     "source": "ucf-crime/Shoplifting"
     },
     {
-     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/275.mp4",
+     "path": "data/ucf_crime/Shoplifting/Shoplifting001_x264_12.mp4",
      "is_threat": true,
      "kind": "theft",
-     "source": "camnuvem-test"
+     "source": "ucf-crime/Shoplifting"
     },
     {
-     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/339.mp4",
+     "path": "data/ucf_crime/Shoplifting/Shoplifting001_x264_13.mp4",
      "is_threat": true,
      "kind": "theft",
-     "source": "camnuvem-test"
+     "source": "ucf-crime/Shoplifting"
     },
     {
-     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/345.mp4",
+     "path": "data/ucf_crime/Shoplifting/Shoplifting001_x264_14.mp4",
      "is_threat": true,
      "kind": "theft",
-     "source": "camnuvem-test"
+     "source": "ucf-crime/Shoplifting"
     },
     {
-     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/40.mp4",
+     "path": "data/ucf_crime/Shoplifting/Shoplifting001_x264_15.mp4",
      "is_threat": true,
      "kind": "theft",
-     "source": "camnuvem-test"
+     "source": "ucf-crime/Shoplifting"
     },
     {
-     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",
+     "path": "data/ucf_crime/Shoplifting/Shoplifting001_x264_9.mp4",
      "is_threat": true,
      "kind": "theft",
-     "source": "camnuvem-test"
+     "source": "ucf-crime/Shoplifting"
     },
     {
-     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/43.mp4",
+     "path": "data/ucf_crime/Shoplifting/Shoplifting005_x264_12.mp4",
      "is_threat": true,
      "kind": "theft",
-     "source": "camnuvem-test"
+     "source": "ucf-crime/Shoplifting"
     },
     {
-     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/477.mp4",
+     "path": "data/ucf_crime/Shoplifting/Shoplifting005_x264_13.mp4",
      "is_threat": true,
      "kind": "theft",
-     "source": "camnuvem-test"
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting005_x264_14.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting006_x264_18.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting006_x264_19.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting006_x264_26.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting006_x264_27.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting006_x264_31.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting007_x264_3.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting007_x264_4.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting007_x264_5.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting007_x264_6.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting009_x264_29.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting009_x264_30.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting009_x264_31.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting010_x264_12.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting010_x264_13.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting010_x264_14.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting010_x264_25.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting010_x264_26.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting010_x264_29.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting010_x264_30.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_10.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_11.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_12.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_13.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_14.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_15.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_16.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_17.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_18.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_19.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_20.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_21.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_23.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_24.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_25.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_26.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_3.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_4.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_5.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_6.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_7.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_8.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting013_x264_9.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting016_x264_15.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting016_x264_16.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting016_x264_17.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting016_x264_18.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting016_x264_19.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting016_x264_20.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting016_x264_21.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
+    },
+    {
+     "path": "data/ucf_crime/Shoplifting/Shoplifting016_x264_22.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "ucf-crime/Shoplifting"
     }
    ]
   },
@@ -617,7 +2360,7 @@
    "name": "Suspicious Activity",
    "target": 0.9,
    "metric": "recall",
-   "positives": 105,
+   "positives": 174,
    "negatives": 0,
    "n_floor": 35,
    "publishable": true,
@@ -651,6 +2394,420 @@
      "is_threat": true,
      "kind": "violence",
      "source": "local-clips"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/19.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/226.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/275.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/339.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/345.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/40.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/43.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/477.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_10.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_11.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_12.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_13.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_14.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_15.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_16.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_17.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_18.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_19.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_20.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_21.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_22.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_23.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_24.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing002_x264_9.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing003_x264_27.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing003_x264_28.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing003_x264_29.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing006_x264_26.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing006_x264_27.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing006_x264_28.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing006_x264_29.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing006_x264_30.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing006_x264_31.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing007_x264_22.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing007_x264_23.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing007_x264_24.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing007_x264_25.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing007_x264_26.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing007_x264_27.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_18.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_19.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_20.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_21.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_22.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_23.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_24.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_25.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_26.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_27.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_28.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_29.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_30.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing008_x264_31.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_12.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_19.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_20.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_21.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_22.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_23.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_24.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_25.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_26.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_27.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_28.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_29.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_30.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing009_x264_31.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
+    },
+    {
+     "path": "data/ucf_crime/Stealing/Stealing010_x264_29.mp4",
+     "is_threat": true,
+     "kind": "suspicious",
+     "source": "ucf-crime/Stealing"
     },
     {
      "path": "data/ucf_crime/Fighting/Fighting002_x264.mp4",
