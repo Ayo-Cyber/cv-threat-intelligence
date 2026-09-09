@@ -34,15 +34,36 @@ VerdictHandler = Callable[[QueuedAlert, Any], None]
 # verify. The camera is unreachable — that IS the observation.
 BYPASS_DETECTORS: set[str] = {"presence", "camera_offline"}
 
+# The measured tier (bakeoff + per-rule breakdown, manifest e56b4277, 9 Sep 2026):
+# 'violence' fired on 0 of 170 normal clips, while the VLM rejected 12 of its 79
+# true positives — the judge only subtracts there, and it costs ~12s on the one
+# alert where seconds matter most. Unlike the weapons rollback above, this entry
+# is evidence-based re-entry: runs/eval/kpi/bakeoff_summary.json holds the data.
+# A site file can veto or replace it with "verify_bypass": [...] — an empty list
+# restores full gating; the deterministic set above always applies regardless.
+MEASURED_BYPASS: set[str] = {"violence"}
+
+
+def bypass_from_site(site: dict) -> set[str] | None:
+    """The site file's "verify_bypass" list, or None to accept MEASURED_BYPASS."""
+    raw = site.get("verify_bypass")
+    return None if raw is None else {str(d) for d in raw}
+
 
 class GatePool:
     def __init__(self, queue: AlertQueue, *, gate_factory: Callable[[], Any],
                  workers: int = 1, min_interval: float = 0.0,
                  on_verdict: VerdictHandler | None = None,
-                 examples_provider: Callable[[str, str], list] | None = None) -> None:
+                 examples_provider: Callable[[str, str], list] | None = None,
+                 bypass: set[str] | None = None) -> None:
         self.queue = queue
         self.gate_factory = gate_factory
         self.workers = max(1, workers)
+        # Effective bypass tier: the deterministic set is never removable (there
+        # is nothing for a VLM to judge there); the measured tier yields to an
+        # explicit site-file choice.
+        self.bypass = BYPASS_DETECTORS | (MEASURED_BYPASS if bypass is None
+                                          else set(bypass))
         self.min_interval = min_interval
         self.on_verdict = on_verdict or self._default_verdict
         # feedback loop: (camera, rule) -> recent operator-labeled examples for the gate
@@ -90,9 +111,14 @@ class GatePool:
     @staticmethod
     def _bypass(candidate: Any, alert: QueuedAlert) -> Any:
         from cvti.contracts import VerificationResult
+        det = getattr(candidate, "detector", "")
+        why = ("deterministic detector, auto-confirmed (no VLM needed)"
+               if det in BYPASS_DETECTORS else
+               "measured-clean tier, auto-confirmed (0 false alarms on the eval "
+               "normals; the VLM only rejected true positives here)")
         return VerificationResult(
             confirmed=True, confidence=0.99,
-            reason=f"{getattr(candidate, 'title', alert.rule_name)} — deterministic detector, auto-confirmed (no VLM needed).",
+            reason=f"{getattr(candidate, 'title', alert.rule_name)} — {why}.",
             alert_priority=alert.priority, timestamp=time.time(), raw_response="bypass")
 
     def _worker(self) -> None:
@@ -108,7 +134,7 @@ class GatePool:
                 self._active += 1
                 try:
                     candidate = p.get("candidate")
-                    if getattr(candidate, "detector", "") in BYPASS_DETECTORS:
+                    if getattr(candidate, "detector", "") in self.bypass:
                         result = self._bypass(candidate, alert)   # deterministic -> instant
                     else:
                         examples = None
