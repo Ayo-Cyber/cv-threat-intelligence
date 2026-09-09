@@ -1,35 +1,20 @@
 {
- "generated_at": 1788959521.546325,
+ "generated_at": 1788961623.048526,
  "gate": "ollama",
  "smoke": false,
  "digest": "e56b42776bd164b8",
  "rows": [
   {
-   "sn": 2,
-   "name": "False Positive Rate",
-   "metric": "fpr",
-   "target": 0.05,
-   "n": 170,
-   "hits": 8,
-   "rate": 0.0471,
-   "wilson": [
-    0.024,
-    0.0901
-   ],
-   "verdict": "NOT MET",
-   "publishable": true
-  },
-  {
    "sn": 8,
    "name": "Theft Detection",
    "metric": "recall",
    "target": 0.9,
-   "n": 224,
-   "hits": 39,
-   "rate": 0.1741,
+   "n": 155,
+   "hits": 34,
+   "rate": 0.2194,
    "wilson": [
-    0.1301,
-    0.2291
+    0.1614,
+    0.2909
    ],
    "verdict": "NOT MET",
    "publishable": true
@@ -39,12 +24,12 @@
    "name": "Suspicious Activity",
    "metric": "recall",
    "target": 0.9,
-   "n": 105,
-   "hits": 66,
-   "rate": 0.6286,
+   "n": 174,
+   "hits": 85,
+   "rate": 0.4885,
    "wilson": [
-    0.5331,
-    0.7149
+    0.4153,
+    0.5622
    ],
    "verdict": "NOT MET",
    "publishable": true
