@@ -68,7 +68,11 @@ with open(_version_file, "w") as _vf:
     _vf.write(APP_VERSION)
 datas.append((_version_file, "."))
 
-for pattern, dest in (("models/*.pt", "models"), ("configs/*.json", "configs"),
+# models/*.onnx: the W2 exports (scripts/export_onnx.py, run by CI before this
+# spec). The .pt files STILL ship — the ONNX path falls back to torch when
+# anything is off, and a fallback that is not in the bundle is a lie.
+for pattern, dest in (("models/*.pt", "models"), ("models/*.onnx", "models"),
+                      ("configs/*.json", "configs"),
                       ("configs/*.yaml", "configs"), ("prompts/*.txt", "prompts"),
                       ("schemas/*.json", "schemas")):
     import glob as _glob

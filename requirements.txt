@@ -55,6 +55,16 @@ webencodings==0.5.1
 yt-dlp==2025.10.14
 zipp==3.23.0
 
+# --- ONNX detection (W2): same YOLO weights on whatever accelerator the box
+# has. onnxruntime-directml carries the DirectML EP for Windows iGPUs (the
+# pilot's case); everywhere else plain onnxruntime. 1.19.2: the last line that
+# still supports the 3.9 dev floor — and its opset ceiling (21) is why
+# scripts/export_onnx.py pins opset 17. onnx/onnxslim serve the export step.
+onnxruntime==1.19.2; sys_platform != "win32"
+onnxruntime-directml==1.19.2; sys_platform == "win32"
+onnx==1.19.1
+onnxslim==0.1.96
+
 # --- API control plane (cvti.api) ---
 fastapi==0.128.8
 uvicorn[standard]==0.39.0

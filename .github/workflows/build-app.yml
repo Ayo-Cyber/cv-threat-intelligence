@@ -155,6 +155,8 @@ jobs:
       - name: Fetch go2rtc gateway (Windows)
         if: runner.os == 'Windows'
         run: scripts\fetch_go2rtc.bat
+      - name: Export detectors to ONNX (W2)
+        run: python scripts/export_onnx.py
 
       - name: Build (macOS)
         if: runner.os == 'macOS'
