@@ -1,0 +1,17 @@
+{
+ "theft": {
+  "n": 40,
+  "hits": 11,
+  "not_in_checkpoints": 0
+ },
+ "suspicious": {
+  "n": 40,
+  "hits": 16,
+  "not_in_checkpoints": 0
+ },
+ "false_positive": {
+  "n": 40,
+  "hits": 3,
+  "not_in_checkpoints": 0
+ }
+}

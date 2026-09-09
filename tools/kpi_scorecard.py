@@ -44,6 +44,11 @@ def main() -> int:
                     help="comma-separated row keys (default: all)")
     ap.add_argument("--smoke", action="store_true",
                     help="3 clips per row — wiring check only, always SMOKE")
+    ap.add_argument("--sample", type=int, default=0,
+                    help="bakeoff mode: a seeded, source-stratified sample of N "
+                         "clips per row — identical across models by "
+                         "construction, so verdict models compete on the exact "
+                         "same footage. Never publishable.")
     ap.add_argument("--manifest", default="")
     args = ap.parse_args()
 
@@ -72,16 +77,30 @@ def main() -> int:
                  for c in row_doc["clips"]]
         if args.smoke:
             clips = clips[:3]
+        elif args.sample:
+            from cvti.eval.kpi import stratified_sample
+            clips = stratified_sample(clips, args.sample, manifest["digest"])
         if not clips:
             scored.append(score_row(row_doc, []))
             continue
+        # Checkpoints are per (row, gate, MODEL): a challenger must never
+        # resume the incumbent's verdicts. The incumbent keeps its legacy key
+        # so tonight's full-row runs stay resumable.
+        import re as _re
+        if args.gate == "ollama" and args.gate_model != "gemma3:4b":
+            slug = _re.sub(r"[^A-Za-z0-9]+", "_", args.gate_model)
+            run_key = f"{row.key}-{args.gate}-{slug}"
+        else:
+            run_key = f"{row.key}-{args.gate}"
+        if args.sample:
+            run_key += f"-s{args.sample}"
         harness = EvalHarness(detectors=row.detectors, gate=gate,
-                              out_dir=str(OUT),
-                              run_key=f"{row.key}-{args.gate}")
+                              out_dir=str(OUT), run_key=run_key)
         results = harness.run(clips, progress=True)
         s = score_row(row_doc, results)
-        if args.smoke:
-            s["verdict"] = "SMOKE (subset run)"
+        if args.smoke or args.sample:
+            s["verdict"] = ("SMOKE (subset run)" if args.smoke
+                            else f"BAKEOFF SUBSET (n={len(clips)})")
             s["publishable"] = False
         scored.append(s)
 
@@ -90,8 +109,10 @@ def main() -> int:
     text = banner + render_scorecard(scored, manifest["digest"])
     doc = {"generated_at": time.time(), "gate": args.gate,
            "smoke": args.smoke, "digest": manifest["digest"], "rows": scored}
-    (OUT / "scorecard.json").write_text(json.dumps(doc, indent=1))
-    (OUT / "scorecard.md").write_text("```\n" + text + "\n```\n")
+    stem = "scorecard" if not args.sample else \
+        f"bakeoff_{args.gate_model.replace(':', '_').replace('.', '_')}"
+    (OUT / f"{stem}.json").write_text(json.dumps(doc, indent=1))
+    (OUT / f"{stem}.md").write_text("```\n" + text + "\n```\n")
     print(text)
     print(f"\nwritten: {OUT.relative_to(ROOT)}/scorecard.{{json,md}}")
     return 0

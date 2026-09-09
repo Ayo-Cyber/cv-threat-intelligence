@@ -260,6 +260,28 @@ def score_row(row_doc: dict, results: list) -> dict:
             "publishable": floor_ok}
 
 
+def stratified_sample(clips: list, n: int, seed: str) -> list:
+    """A seeded, source-stratified pick of n clips — the bakeoff's fairness
+    primitive: every verdict model judges the SAME footage, reruns reproduce
+    it, and no source dominates just because it is large."""
+    import random
+    from collections import defaultdict
+    by_src = defaultdict(list)
+    for c in clips:
+        by_src[c.source].append(c)
+    rng = random.Random(seed)
+    srcs = sorted(by_src)
+    for src in srcs:
+        rng.shuffle(by_src[src])
+    picked, i = [], 0
+    while len(picked) < n and any(by_src.values()):
+        src = srcs[i % len(srcs)]
+        if by_src[src]:
+            picked.append(by_src[src].pop())
+        i += 1
+    return picked
+
+
 def render_scorecard(scored: list, digest: str) -> str:
     lines = [
         "KPI SCORECARD — measured on the frozen manifest "

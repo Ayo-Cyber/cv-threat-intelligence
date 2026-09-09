@@ -1,0 +1,77 @@
+{
+ "what": "verdict-model bakeoff on identical seeded 40-clip/row stratified subsets",
+ "manifest_digest": "e56b42776bd164b8",
+ "sample_per_row": 40,
+ "ram_resident": {
+  "gemma3:4b": "~3.9 GB",
+  "moondream": "~2.2 GB",
+  "qwen2.5vl:7b": "5.6 GB (measured, ollama ps)"
+ },
+ "rows": {
+  "false_positive": {
+   "gemma3:4b": {
+    "n": 40,
+    "conf": 3,
+    "cand": 12,
+    "mean_s": 8.182608695652174
+   },
+   "moondream": {
+    "n": 40,
+    "conf": 12,
+    "cand": 12,
+    "mean_s": 5.6575
+   },
+   "qwen2.5vl:7b": {
+    "n": 40,
+    "conf": 0,
+    "cand": 12,
+    "mean_s": 10.705000000000002
+   }
+  },
+  "theft": {
+   "gemma3:4b": {
+    "n": 40,
+    "conf": 11,
+    "cand": 22,
+    "mean_s": 5.3
+   },
+   "moondream": {
+    "n": 40,
+    "conf": 22,
+    "cand": 22,
+    "mean_s": 2.795
+   },
+   "qwen2.5vl:7b": {
+    "n": 40,
+    "conf": 0,
+    "cand": 22,
+    "mean_s": 8.772499999999999
+   }
+  },
+  "suspicious": {
+   "gemma3:4b": {
+    "n": 40,
+    "conf": 16,
+    "cand": 37,
+    "mean_s": 15.315000000000003
+   },
+   "moondream": {
+    "n": 40,
+    "conf": 36,
+    "cand": 37,
+    "mean_s": 6.725000000000001
+   },
+   "qwen2.5vl:7b": {
+    "n": 40,
+    "conf": 16,
+    "cand": 36,
+    "mean_s": 18.332500000000003
+   }
+  }
+ },
+ "notes": [
+  "gemma3:4b subset numbers come from bakeoff_gemma3_4b_baseline.json (exact subset); its s/clip is approximated from full-row checkpoints matched by basename",
+  "moondream confirmed 70/71 candidates shown to it \u2014 a pass-through, not a judge",
+  "one qwen suspicious clip hit a 4096-token context overflow; judged unconfirmed (<=1/120 verdicts affected)"
+ ]
+}
