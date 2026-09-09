@@ -131,3 +131,7 @@ tests/e2e/out/
 # Vendored runtimes (Ollama, go2rtc) are fetched by scripts/fetch_*.{sh,bat}
 # at build time and must never enter history — binaries, and gigabytes.
 vendor/
+
+# W2 ONNX exports are build products (scripts/export_onnx.py) — regenerated
+# from the tracked .pt weights at build time, never committed.
+models/*.onnx
