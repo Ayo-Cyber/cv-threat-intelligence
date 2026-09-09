@@ -1,0 +1,1258 @@
+{
+ "version": 1,
+ "built_at": 1788952980.583853,
+ "digest": "d55cb2f51b1a1745",
+ "rows": {
+  "false_positive": {
+   "sn": 2,
+   "name": "False Positive Rate",
+   "target": 0.05,
+   "metric": "fpr",
+   "positives": 0,
+   "negatives": 80,
+   "n_floor": 73,
+   "publishable": true,
+   "clips": [
+    {
+     "path": "data/test_clips/empty_warehouse.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_street_01.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/normal_street_02.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "local-clips"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_003_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_018_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_033_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_034_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_041_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_051_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_059_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_067_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_070_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_100_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_150_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_175_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_182_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_189_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_196_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_203_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_217_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_224_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_247_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_289_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_312_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_317_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_352_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_360_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_365_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_401_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/normal/Normal_Videos_417_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_015_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_050_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_100_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_129_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_150_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_246_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_247_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_248_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_251_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_289_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_310_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_312_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_317_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_345_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_352_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_360_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_365_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_401_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_417_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_439_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_452_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_453_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_478_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_576_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_597_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_603_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_606_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_621_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_634_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_641_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_656_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_696_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_704_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_722_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_745_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_758_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_781_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_798_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_801_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_828_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_831_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_877_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_881_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_885_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_892_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_905_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_912_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_913_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_914_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    },
+    {
+     "path": "data/ucf_crime/Normal_Videos_event/Normal_Videos_929_x264.mp4",
+     "is_threat": false,
+     "kind": "",
+     "source": "ucf-crime/normal"
+    }
+   ]
+  },
+  "person": {
+   "sn": 5,
+   "name": "Person Detection",
+   "target": 0.95,
+   "metric": "recall",
+   "positives": 0,
+   "negatives": 0,
+   "n_floor": 73,
+   "publishable": false,
+   "clips": []
+  },
+  "intrusion": {
+   "sn": 6,
+   "name": "Intrusion Detection",
+   "target": 0.95,
+   "metric": "recall",
+   "positives": 0,
+   "negatives": 0,
+   "n_floor": 73,
+   "publishable": false,
+   "clips": []
+  },
+  "loitering": {
+   "sn": 7,
+   "name": "Loitering Detection",
+   "target": 0.95,
+   "metric": "recall",
+   "positives": 0,
+   "negatives": 0,
+   "n_floor": 73,
+   "publishable": false,
+   "clips": []
+  },
+  "theft": {
+   "sn": 8,
+   "name": "Theft Detection",
+   "target": 0.9,
+   "metric": "recall",
+   "positives": 12,
+   "negatives": 0,
+   "n_floor": 35,
+   "publishable": false,
+   "clips": [
+    {
+     "path": "data/test_clips/theft_shop_01.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_shop_02.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_yt_01.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/19.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/226.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/275.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/339.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/345.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/40.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/404.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/43.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "camnuvem-test"
+    },
+    {
+     "path": "CamNuvem Robbery Dataset/videos/samples/test/theft/477.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "camnuvem-test"
+    }
+   ]
+  },
+  "suspicious": {
+   "sn": 9,
+   "name": "Suspicious Activity",
+   "target": 0.9,
+   "metric": "recall",
+   "positives": 105,
+   "negatives": 0,
+   "n_floor": 35,
+   "publishable": true,
+   "clips": [
+    {
+     "path": "data/test_clips/stabbing_event.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/violence_04.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/violence_09.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/violence_13.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/violence_suspected.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting002_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting003_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting004_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting005_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting006_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting007_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting008_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting009_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting010_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting011_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting012_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting013_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting014_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting015_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting016_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting017_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting018_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting019_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting020_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting021_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting022_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting023_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting024_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting025_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting026_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting027_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting028_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting029_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting030_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting031_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting032_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting033_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting034_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting035_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting036_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting037_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting038_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting039_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting040_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting041_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting042_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting043_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting044_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting045_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting046_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting047_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting048_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting049_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting050_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Fighting/Fighting051_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Fighting"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault001_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault002_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault003_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault004_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault005_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault006_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault007_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault008_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault009_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault010_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault011_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault012_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault013_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault014_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault015_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault016_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault017_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault018_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault019_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault020_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault022_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault023_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault024_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault025_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault026_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault027_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault028_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault029_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault030_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault031_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault032_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault033_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault034_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault035_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault036_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault037_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault038_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault039_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault040_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault041_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault042_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault044_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault045_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault046_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault047_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault048_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault049_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault050_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault051_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    },
+    {
+     "path": "data/ucf_crime/Assault/Assault052_x264.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "ucf-crime/Assault"
+    }
+   ]
+  }
+ }
+}
