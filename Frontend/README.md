@@ -3,12 +3,16 @@
 Electron + React + TypeScript replacement UI, developed alongside the existing
 Python/Qt console. The old console and its backend are not replaced or removed.
 
+All UI revamp sources, Electron entry points, adapter, tests and UI documentation
+are under `Frontend/` (formerly `desktop/`). The default runtime data directory
+remains `runs/desktop/` so existing accounts and evidence continue to load.
+
 ## Run on this Mac
 
 From the repository root:
 
 ```sh
-cd desktop
+cd Frontend
 npm ci
 ../.venv/bin/python scripts/prepare_demo.py
 npm run desktop
@@ -39,7 +43,7 @@ ARGUS_DB=runs/my_desktop_test/events.db \
 npm run desktop
 ```
 
-Paths above are relative to the repository, not `desktop/`. The real backend
+Paths above are relative to the repository, not `Frontend/`. The real backend
 persists camera/rule changes to the selected site. Use a copy of your site config
 for experiments. Do not run the old Qt console and this app against the same
 camera/engine simultaneously. Previewing cameras is distinct from monitoring.
@@ -60,6 +64,41 @@ Python executable and Electron profile paths. On Windows the default virtualenv
 path is `.venv/Scripts/python.exe`; Windows native execution is not yet verified.
 
 ## What is connected
+
+### Zones and account access
+
+Zones now opens the camera dialog full-screen. The frame and drawing overlay fit
+both available width and height without cropping or changing aspect ratio. Drag
+a rectangle (default) or select the polygon tool; saved coordinates remain in
+original camera pixels. Unsaved drawings prompt before closing or switching tabs.
+Drawing requires a readable camera frame, not a running detector. Start monitoring
+after saving to test loitering alerts.
+
+Existing installations offer **Forgot password?** and **Create account** at login.
+Forgot password displays a Terminal/PowerShell command for the exact selected
+database. Run it as the OS user who owns the account database, choose the existing
+username, confirm RESET, and enter the new password twice (hidden, 12+ characters).
+The command is interactive and never takes passwords as arguments. It preserves
+all users, roles, evidence and camera settings; revokes only the selected user's
+sessions, clears their lockout, and appends recovery entries to the audit log.
+This trusts local OS access, not email verification; protect the computer's OS
+account. Recovery cannot be invoked from renderer IPC or the network API.
+
+Default workspace example, from the repository root:
+
+```sh
+./.venv/bin/python Frontend/scripts/recover_account.py --db runs/desktop/events.db
+```
+
+For a fresh-test workspace use `--db runs/desktop_fresh_test/events.db`. No reset
+has been performed on your behalf. Sign in after running the command yourself.
+
+On an existing site, **Create account** directs you to an owner; it does not grant
+unauthenticated access. A signed-in owner creates accounts under **Settings >
+Users**, choosing Operator, Installer or Owner. Granting Owner requires a second
+confirmation. The destructive legacy account-override method remains inaccessible
+through the Electron bridge. First-run owner setup is unchanged. Native Windows
+verification remains outstanding.
 
 - Real login/first-owner setup and existing backend authorization.
 - Camera wall and engine start/stop, with separate preview and monitoring states.

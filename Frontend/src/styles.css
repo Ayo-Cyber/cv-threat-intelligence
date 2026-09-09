@@ -1689,12 +1689,43 @@ dd {
   border-radius: 4px;
   overflow: hidden;
 }
+.account-help {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.account-help .actions {
+  flex-wrap: wrap;
+}
+.account-help .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.account-help textarea {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.account-list {
+  list-style: none;
+  padding: 0;
+}
+.account-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
 .zone-canvas > img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
   pointer-events: none;
+  position: absolute;
+  inset: 0;
 }
 .zone-canvas svg {
   position: absolute;
@@ -1727,6 +1758,83 @@ dd {
   paint-order: stroke;
   stroke: #102018;
   stroke-width: 3px;
+}
+.drawer.drawer-expanded {
+  width: 100%;
+  height: 100dvh;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.drawer-expanded .drawer-head {
+  margin-bottom: 8px;
+  flex: 0 0 auto;
+}
+.drawer-expanded .detail-tabs {
+  margin-bottom: 10px;
+  flex: 0 0 auto;
+}
+.drawer-expanded > fieldset {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.zone-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+.zone-workspace {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.zone-tools {
+  flex: 0 0 auto;
+}
+.zone-stage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #171b1e;
+  overflow: hidden;
+}
+.zone-canvas {
+  flex: none;
+}
+.zone-properties {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 4px 12px;
+}
+.zone-properties .form-row {
+  display: block;
+}
+@media (max-width: 700px) {
+  .drawer.drawer-expanded {
+    padding: 10px;
+  }
+  .zone-editor {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(130px, 30%);
+    gap: 10px;
+  }
+  .zone-properties .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .zone-properties label {
+    margin: 8px 0;
+  }
 }
 .segmented {
   display: flex;

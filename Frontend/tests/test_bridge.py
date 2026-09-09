@@ -18,6 +18,12 @@ class Backend:
         return [{'evidence_dir': '/safe/event'}]
 
 class DispatchTests(unittest.TestCase):
+    def test_never_exposes_destructive_owner_override(self):
+        with self.assertRaises(ValueError):
+            bridge.dispatch(Backend(), 'create_owner_override', ['new', 'Long-Password-2026'])
+    def test_signed_out_cannot_create_additional_accounts(self):
+        with self.assertRaises(PermissionError):
+            bridge.dispatch(Backend(), 'add_user', ['new', 'Long-Password-2026', 'owner'])
     def test_pre_auth_read(self):
         self.assertFalse(bridge.dispatch(Backend(), 'auth_state', [])['signed_in'])
     def test_requires_login(self):

@@ -5,7 +5,7 @@ export type View =
 export type Point = [number, number];
 export interface Zone {
   name: string;
-  points: Point[];
+  polygon: Point[];
   dwell_alert_seconds: number;
   kind?: string;
 }

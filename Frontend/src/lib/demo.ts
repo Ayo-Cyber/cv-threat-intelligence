@@ -131,8 +131,18 @@ export function createDemo(
         Array.isArray(saved.cameras) &&
         saved.scenes &&
         Array.isArray(saved.events)
-      )
+      ) {
+        // Upgrade coordinates persisted by the first browser prototype.
+        for (const zones of Object.values(saved.zones || {}) as Json[][]) {
+          for (const zone of zones) {
+            if (!zone.polygon && Array.isArray(zone.points)) {
+              zone.polygon = zone.points;
+              delete zone.points;
+            }
+          }
+        }
         state = saved;
+      }
     }
   } catch {
     /* Invalid demo data starts a fresh review workspace. */
@@ -227,7 +237,7 @@ export function createDemo(
           result = state.zones[id] || [];
           break;
         case "add_zone": {
-          const z = { name: a, points: b, dwell_alert_seconds: c };
+          const z = { name: a, polygon: b, dwell_alert_seconds: c };
           state.zones[id] = [
             ...(state.zones[id] || []).filter((z) => z.name !== a),
             z,

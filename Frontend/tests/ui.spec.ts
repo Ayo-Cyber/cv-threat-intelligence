@@ -104,6 +104,42 @@ test("detector switches and English rules survive reopening", async ({
     page.getByText("A person is carrying a ladder.", { exact: true }),
   ).toBeVisible();
 });
+test("existing backend polygon zones render without monitoring", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.evaluate(async () => {
+    const { initialDemo } = await import("/src/lib/demo.ts");
+    const state = initialDemo();
+    state.zones["Loading Bay"] = [
+      {
+        name: "Existing zone",
+        polygon: [
+          [0, 0],
+          [400, 0],
+          [400, 300],
+          [0, 300],
+        ],
+        dwell_alert_seconds: 5,
+      },
+    ];
+    localStorage.setItem("argus.desktop.demo.v1", JSON.stringify(state));
+  });
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Configure Loading Bay", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Zones", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Remove Existing zone" }),
+  ).toBeVisible();
+  await expect(page.locator(".saved-zone")).toHaveAttribute(
+    "points",
+    "0,0 400,0 400,300 0,300",
+  );
+  expect(errors).toEqual([]);
+});
 test("rectangle zoning saves original image points", async ({ page }) => {
   await page
     .getByRole("button", { name: "Configure Loading Bay", exact: true })
@@ -130,10 +166,98 @@ test("rectangle zoning saves original image points", async ({ page }) => {
     () =>
       JSON.parse(localStorage.getItem("argus.desktop.demo.v1")!).zones[
         "Loading Bay"
-      ][0].points,
+      ][0].polygon,
   );
   expect(points).toHaveLength(4);
   expect(points[2][0]).toBeGreaterThan(points[0][0]);
+});
+test("zone workspace fits the entire image and protects unsaved drawings", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page
+    .getByRole("button", { name: "Configure Loading Bay", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Zones", exact: true }).click();
+  const canvas = page.getByRole("img", { name: "Zone drawing canvas" });
+  await expect(canvas).toBeVisible();
+  await expect
+    .poll(async () => (await page.getByRole("dialog").boundingBox())!.width)
+    .toBeGreaterThan(1400);
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 1024, height: 768 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    await expect
+      .poll(async () => {
+        const box = (await canvas.boundingBox())!;
+        const ratio = await page
+          .locator(".zone-canvas > img")
+          .evaluate(
+            (img: HTMLImageElement) => img.naturalWidth / img.naturalHeight,
+          );
+        return (
+          box.y >= 0 &&
+          box.y + box.height <= size.height &&
+          box.x >= 0 &&
+          box.x + box.width <= size.width &&
+          Math.abs(box.width / box.height - ratio) < 0.01
+        );
+      })
+      .toBe(true);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "Draw rectangle" }).click();
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.move(box.x + 10, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 10, box.y + box.height + 10);
+  await page.mouse.up();
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.keyboard.press("Escape");
+  await expect(canvas).toBeVisible();
+  await page.getByLabel("Zone name", { exact: true }).fill("Bottom edge");
+  await page.getByRole("button", { name: "Save zone", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Remove Bottom edge" }),
+  ).toBeVisible();
+  const height = await page
+    .locator(".zone-canvas > img")
+    .evaluate((img: HTMLImageElement) => img.naturalHeight);
+  const polygon = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("argus.desktop.demo.v1")!).zones[
+        "Loading Bay"
+      ][0].polygon,
+  );
+  expect(polygon[2][1]).toBe(height - 1);
+  await page.screenshot({ path: "test-results/zones-fullscreen.png" });
+  await page.getByRole("button", { name: "Close details" }).click();
+  await page
+    .getByRole("button", { name: "Configure Forecourt ATM", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Zones", exact: true }).click();
+  await expect(canvas).toBeVisible();
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect
+      .poll(async () => {
+        const bounds = (await canvas.boundingBox())!;
+        return (
+          bounds.y + bounds.height <= viewport.height &&
+          Math.abs(bounds.width / bounds.height - 16 / 9) < 0.01
+        );
+      })
+      .toBe(true);
+    await page.screenshot({
+      path: `test-results/zones-landscape-${viewport.width}.png`,
+    });
+  }
 });
 test("incident review persists a false alarm decision", async ({ page }) => {
   await page.getByRole("button", { name: /SAMPLE ATM interference/ }).click();

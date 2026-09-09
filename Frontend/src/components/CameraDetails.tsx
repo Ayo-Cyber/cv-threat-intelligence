@@ -27,7 +27,9 @@ export default function CameraDetails({
   notify,
   editable = true,
   onDirtyChange,
+  onTabChange,
 }: {
+  onTabChange?: (tab: string) => void;
   editable?: boolean;
   camera: Camera;
   api: Transport;
@@ -48,10 +50,11 @@ export default function CameraDetails({
   const [areas, setAreas] = useState<Json[]>([]);
   const [english, setEnglish] = useState<Json>({});
   const [dirty, setDirty] = useState(false);
+  const [zoneDirty, setZoneDirty] = useState(false);
   const [presets, setPresets] = useState<Json>({});
   useEffect(() => {
-    onDirtyChange?.(dirty || Boolean(question.trim()));
-  }, [dirty, question, onDirtyChange]);
+    onDirtyChange?.(dirty || zoneDirty || Boolean(question.trim()));
+  }, [dirty, zoneDirty, question, onDirtyChange]);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -142,7 +145,18 @@ export default function CameraDetails({
             role="tab"
             aria-selected={key === tab}
             className={key === tab ? "active" : ""}
-            onClick={() => setTab(key)}
+            onClick={() => {
+              if (key === tab) return;
+              if (
+                key !== tab &&
+                zoneDirty &&
+                !confirm("Discard unsaved zone drawing?")
+              )
+                return;
+              setZoneDirty(false);
+              setTab(key);
+              onTabChange?.(key);
+            }}
           >
             {label}
           </button>
@@ -551,6 +565,7 @@ export default function CameraDetails({
               <ZoneEditor
                 camera={camera}
                 api={api}
+                onDirtyChange={setZoneDirty}
                 onSaved={() => {
                   void onChange();
                   notify("Zone configuration saved");
