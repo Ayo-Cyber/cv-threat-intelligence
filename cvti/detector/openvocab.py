@@ -40,6 +40,24 @@ WEIGHTS_DEFAULT = "models/yolov8s-worldv2.pt"
 # tunes this number with measurements instead of vibes.
 MIN_SCORE = 0.30
 
+# Worn-garment phrases get a HIGHER floor. Measured on the attribute manifest
+# (10 Sep): every false fire — three "cap"s on bare heads, one "hoodie" on a
+# held backpack — scored 0.31-0.39, while real cap/hoodie hits scored
+# 0.58-0.77. The cause is structural: a "person wearing X" phrase part-matches
+# any person, inflating scores on X-less people. Object and person phrases
+# keep MIN_SCORE — their true positives live down at 0.30-0.36 and a global
+# raise would trade real recall for the same fix.
+WORN_MIN_SCORE = 0.45
+_WORN = re.compile(
+    r"\b(wear\w*|cap|hat|hood\w*|helmet|glasses|sunglasses|scarf|glove\w*|"
+    r"jacket|coat|vest|uniform|shirt|trousers|shorts|skirt|dress|dressed)\b",
+    re.IGNORECASE)
+
+
+def floor_for(phrase: str) -> float:
+    """The score floor a detection of `phrase` must clear."""
+    return WORN_MIN_SCORE if _WORN.search(phrase or "") else MIN_SCORE
+
 # --- routing ---------------------------------------------------------------
 # Behaviour/interaction/time words: ANY of these keeps the rule on the VLM
 # path. Gerunds are matched as words so "building" (noun) does not trip
@@ -166,7 +184,8 @@ class OpenVocabDetector:
             return None
         t0 = time.monotonic()
         try:
-            res = self._model.predict(frame, device=self.device, conf=self.min_score,
+            res = self._model.predict(frame, device=self.device,
+                                      conf=min(self.min_score, MIN_SCORE),
                                       imgsz=self.imgsz, verbose=False)[0]
         except Exception as exc:  # noqa: BLE001 - inference failure is an unanswered cycle
             self.load_error = str(exc)[:200]
@@ -182,6 +201,8 @@ class OpenVocabDetector:
             cls_i = int(boxes.cls[i])
             name = names[cls_i] if isinstance(names, dict) else names[cls_i]
             score = float(boxes.conf[i])
+            if score < floor_for(str(name)):
+                continue
             x1, y1, x2, y2 = (float(v) for v in boxes.xyxy[i][:4])
             out.append({"phrase": str(name), "score": score,
                         "box": (x1, y1, x2, y2)})

@@ -72,7 +72,7 @@ def main() -> int:
              [a for a in phrases
               if any(a in c for c in doc["clips"])]      # only labeled attrs
 
-    from cvti.detector.openvocab import OpenVocabDetector
+    from cvti.detector.openvocab import OpenVocabDetector, floor_for
     det = OpenVocabDetector()
 
     per_clip, ms = [], []
@@ -105,7 +105,7 @@ def main() -> int:
             label = r["labels"][a]
             if label is None:
                 continue
-            hit = r["scores"][a] >= det.min_score
+            hit = r["scores"][a] >= floor_for(phrases[a])
             if label and hit:
                 tp += 1
             elif label and not hit:
@@ -135,7 +135,7 @@ def main() -> int:
               f"{r['tp']:>3} {r['fp']:>3} {r['fn']:>3} {r['tn']:>3}")
     print(f"\nhallucinated attributes (fp on absent-labeled clips): {halluc_total}")
     print(f"latency: median {med:.0f}ms per frame over {len(ms)} calls "
-          f"(SLO <100ms) — floor {det.min_score}")
+          f"(SLO <100ms) — floors: object {det.min_score}, worn 0.45")
 
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "scorecard.json").write_text(json.dumps(

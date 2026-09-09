@@ -212,6 +212,29 @@ class FloorTest(unittest.TestCase):
         self.assertAlmostEqual(OpenVocabDetector(
             model_factory=lambda w: _FakeWorldModel()).min_score, 0.30)
 
+    def test_worn_garment_phrases_carry_the_higher_floor(self):
+        from cvti.detector.openvocab import WORN_MIN_SCORE, floor_for
+        self.assertAlmostEqual(WORN_MIN_SCORE, 0.45)
+        for phrase in ("person wearing a cap", "person wearing a hoodie",
+                       "person in a red jacket"):
+            self.assertAlmostEqual(floor_for(phrase), 0.45, phrase)
+        for phrase in ("backpack", "bus", "person"):
+            self.assertAlmostEqual(floor_for(phrase), 0.30, phrase)
+
+    def test_a_marginal_worn_score_is_filtered_a_solid_one_kept(self):
+        # The measured failure mode: bare heads scoring 0.31-0.39 on "cap"
+        # while real caps score 0.58+. The per-phrase floor kills the former.
+        rows = [(0, 0.36, 1, 1, 5, 5), (0, 0.74, 10, 10, 60, 60)]
+        det = OpenVocabDetector(model_factory=lambda w: _FakeWorldModel(rows))
+        out = det.detect(_frame(), ["person wearing a cap"])
+        self.assertEqual([d["score"] for d in out], [0.74])
+
+    def test_object_phrases_keep_their_low_floor(self):
+        rows = [(0, 0.32, 1, 1, 5, 5)]
+        det = OpenVocabDetector(model_factory=lambda w: _FakeWorldModel(rows))
+        out = det.detect(_frame(), ["backpack"])
+        self.assertEqual(len(out), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
