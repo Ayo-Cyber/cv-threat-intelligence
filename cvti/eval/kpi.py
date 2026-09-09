@@ -109,7 +109,12 @@ def row_for_kind(kind: str) -> KpiRow | None:
 # dataset's legal vocabulary.)
 UCF_KPI_KINDS = {
     "Shoplifting": "theft",
-    "Stealing": "theft",
+    # Stealing moved theft -> suspicious after the first real-gate run (9 Sep):
+    # its segments are outdoor property theft — bikes, cars, forecourts. The
+    # detectors got candidates on 100% of them and the gate, asked row 8's
+    # concealment-shaped question, rejected 93% — correctly. Scoring footage
+    # against a question it cannot match measures the manifest, not the model.
+    "Stealing": "suspicious",
     "Robbery": "suspicious",
     "Burglary": "suspicious",
     "Fighting": "violence",
@@ -145,9 +150,12 @@ def collect_clips() -> list[EvalClip]:
                                           "test_clips/kpi"))
                     break
 
-    for c in _camnuvem_clips():                   # theft + normal, held out
+    # CamNuvem positives are armed STORE ROBBERY — force and confrontation,
+    # row 9's class, not row 8's concealment question (1/9 confirmed under it
+    # in the first real run, for exactly that reason). Normals stay normals.
+    for c in _camnuvem_clips():
         clips.append(EvalClip(c.path, c.is_threat,
-                              "theft" if c.is_threat else "",
+                              "suspicious" if c.is_threat else "",
                               c.source, c.expects))
 
     if UCF_CRIME.exists():                        # per-category, KPI mapping
