@@ -86,7 +86,8 @@ class EvalHarness:
                  dedup_like_production: bool = True,
                  dedup_cooldown_s: float = 60.0,
                  out_dir: str = "runs/eval", run_key: str = "default",
-                 bypass: set | tuple | None = None) -> None:
+                 bypass: set | tuple | None = None,
+                 presence_dwell_s: float = 0.0) -> None:
         self.config = config
         self.baseline = baseline
         self.weights = weights
@@ -104,6 +105,13 @@ class EvalHarness:
             self.bypass = BYPASS_DETECTORS | MEASURED_BYPASS
         else:
             self.bypass = set(bypass)
+        # The presence lane (KPI rows 5-7): "presence" in `detectors` attaches
+        # a full-frame zone monitor, so person/intrusion clips score "did the
+        # detector+tracker see the person". presence_dwell_s > 0 is the
+        # LOITERING row: zone states only reach the rules engine once a track
+        # has dwelt that long (the production dwell threshold, scaled to the
+        # eval's max_seconds_per_clip window).
+        self.presence_dwell_s = presence_dwell_s
         # Dense crowds need more pixels: at 640 the person detector resolves only
         # 0-2 individuals in a packed scene, starving any count-based detector.
         self.imgsz = imgsz
@@ -187,14 +195,52 @@ class EvalHarness:
             except Exception as exc:  # noqa: BLE001
                 log.warning(f"[eval] video-action model unavailable ({str(exc)[:70]}) — skipping", exc_info=True)
 
+    def _presence_monitor(self):
+        """A fresh full-frame zone monitor for one clip.
+
+        Presence in production is zone geometry a customer draws; the eval has
+        no per-clip zones, so the whole frame IS the zone — the row measures
+        whether detector+tracker+dwell see the person, which is exactly the
+        deterministic part the bypass tier ships. Loitering (dwell > 0) only
+        emits states once a track crosses the threshold, so a passer-by is not
+        a loiterer."""
+        import numpy as np
+        from cvti.retail.zones import RetailZoneMonitor, ZoneSpec
+        spec = ZoneSpec(
+            name="frame",
+            polygon=np.array([[0, 0], [100000, 0], [100000, 100000],
+                              [0, 100000]]),
+            kind="restricted",
+            dwell_alert_seconds=(self.presence_dwell_s or None),
+        )
+        monitor = RetailZoneMonitor([spec])
+        if not self.presence_dwell_s:
+            return monitor
+
+        class _LoiterOnly:
+            """Zone states pass only once their dwell crossed the threshold."""
+
+            def __init__(self, inner):
+                self._inner = inner
+
+            def update(self, detections, timestamp):
+                return [s for s in self._inner.update(detections, timestamp)
+                        if getattr(s, "loitering", False)]
+
+        return _LoiterOnly(monitor)
+
     def _state_for(self, clip: EvalClip):
         from cvti.rules.customization import CustomizationEngine
         from cvti.serving.camera import PerCameraState
         engine = CustomizationEngine(self.config, baseline_path=self.baseline)
-        kwargs = {d: True for d in self.detectors}
+        zone_monitor = (self._presence_monitor()
+                        if "presence" in self.detectors else None)
+        # "presence" is not a PerCameraState flag — it IS the zone monitor.
+        kwargs = {d: True for d in self.detectors if d != "presence"}
         return PerCameraState(clip.name, engine, pose_model=self._pose,
                               weapon_model=self._weapon,
                               video_action_model=self._video,
+                              zone_monitor=zone_monitor,
                               scene_context=_scene_context_for(clip),
                               **kwargs)
 

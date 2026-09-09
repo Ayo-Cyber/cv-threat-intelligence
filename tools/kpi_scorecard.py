@@ -94,8 +94,10 @@ def main() -> int:
             run_key = f"{row.key}-{args.gate}"
         if args.sample:
             run_key += f"-s{args.sample}"
+        from cvti.eval.kpi import presence_harness_kwargs
         harness = EvalHarness(detectors=row.detectors, gate=gate,
-                              out_dir=str(OUT), run_key=run_key)
+                              out_dir=str(OUT), run_key=run_key,
+                              **presence_harness_kwargs(row.key, row.detectors))
         results = harness.run(clips, progress=True)
         s = score_row(row_doc, results)
         if args.smoke or args.sample:

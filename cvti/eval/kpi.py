@@ -131,6 +131,21 @@ KPI_LOCAL_PREFIXES = (
 )
 
 
+def presence_harness_kwargs(row_key: str, detectors: tuple) -> dict:
+    """Extra EvalHarness kwargs for the presence lane (KPI rows 5-7).
+
+    Presence rows need the eval rules config that fires on the presence
+    detector, and the LOITERING row needs the dwell threshold: 20s inside the
+    harness's 30s per-clip window — long enough that a passer-by never
+    qualifies, short enough that a cut dwell-window clip can prove itself."""
+    if "presence" not in detectors:
+        return {}
+    kw = {"config": "configs/eval/presence_rows_v1.json"}
+    if row_key == "loitering":
+        kw["presence_dwell_s"] = 20.0
+    return kw
+
+
 def collect_clips() -> list[EvalClip]:
     """Every KPI-scoreable clip on this machine, labeled by source layout."""
     from cvti.eval.dataset import _camnuvem_clips, _local_clips, UCF_CRIME
@@ -148,6 +163,20 @@ def collect_clips() -> list[EvalClip]:
                 if p.name.startswith(prefix):
                     clips.append(EvalClip(str(p), is_threat, kind,
                                           "test_clips/kpi"))
+                    break
+
+    # Cut event clips from annotated corpora (fetch_virat.py cut, PETS):
+    # data/eval_clips/<source>/<kind>_*.mp4 — the directory names the source,
+    # the filename prefix names the kind, both born from the annotations.
+    ec = ROOT / "data" / "eval_clips"
+    if ec.exists():
+        for p in sorted(ec.glob("*/*.mp4")):
+            if str(p) in seen:
+                continue
+            for prefix, is_threat, kind in KPI_LOCAL_PREFIXES:
+                if p.name.startswith(prefix):
+                    clips.append(EvalClip(str(p), is_threat, kind,
+                                          p.parent.name))
                     break
 
     # CamNuvem positives are armed STORE ROBBERY — force and confrontation,
