@@ -1,0 +1,53 @@
+{
+ "generated_at": 1788965126.717686,
+ "gate": "ollama",
+ "smoke": false,
+ "digest": "e56b42776bd164b8",
+ "rows": [
+  {
+   "sn": 2,
+   "name": "False Positive Rate",
+   "metric": "fpr",
+   "target": 0.05,
+   "n": 40,
+   "hits": 12,
+   "rate": 0.3,
+   "wilson": [
+    0.1807,
+    0.4543
+   ],
+   "verdict": "BAKEOFF SUBSET (n=40)",
+   "publishable": false
+  },
+  {
+   "sn": 8,
+   "name": "Theft Detection",
+   "metric": "recall",
+   "target": 0.9,
+   "n": 40,
+   "hits": 22,
+   "rate": 0.55,
+   "wilson": [
+    0.3983,
+    0.6929
+   ],
+   "verdict": "BAKEOFF SUBSET (n=40)",
+   "publishable": false
+  },
+  {
+   "sn": 9,
+   "name": "Suspicious Activity",
+   "metric": "recall",
+   "target": 0.9,
+   "n": 40,
+   "hits": 36,
+   "rate": 0.9,
+   "wilson": [
+    0.7695,
+    0.9604
+   ],
+   "verdict": "BAKEOFF SUBSET (n=40)",
+   "publishable": false
+  }
+ ]
+}
