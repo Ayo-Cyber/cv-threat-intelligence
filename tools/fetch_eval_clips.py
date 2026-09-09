@@ -52,6 +52,35 @@ QUERIES = {
         "brawl caught on cctv store",
         "street fight surveillance camera footage",
     ],
+    # --- KPI-sheet rows (W6, 9 Sep): filenames carry the row label, so a
+    # downloaded clip is born manifest-ready (cvti/eval/kpi.py prefixes). ---
+    "loitering": [
+        "person loitering outside store cctv footage",
+        "man standing outside shop for long time security camera",
+        "loitering caught on security camera",
+        "person waiting lingering cctv night footage",
+    ],
+    "intrusion": [
+        "trespasser climbing fence cctv",
+        "intruder backyard security camera footage",
+        "person jumping fence caught on camera",
+        "break in attempt cctv footage",
+    ],
+    "person": [
+        "pedestrians walking street cctv footage",
+        "people walking shop entrance security camera",
+        "sidewalk foot traffic surveillance footage",
+    ],
+    "suspicious": [
+        "burglary caught on cctv",
+        "attempted robbery security footage",
+        "vandalism caught on security camera",
+    ],
+    "normal": [
+        "quiet street cctv footage nothing happening",
+        "empty parking lot security camera timelapse",
+        "shop interior normal day cctv",
+    ],
 }
 
 
