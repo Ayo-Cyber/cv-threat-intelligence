@@ -4,7 +4,7 @@ docs/api-v1.md is the frozen agreement between the engine and its clients.
 "Frozen" is enforceable only if drift is mechanical to catch, so:
 
   1. every route the FastAPI app actually serves appears in the contract;
-  2. every backend operation Demi's shipped UI invokes (desktop/bridge.py
+  2. every backend operation Demi's shipped UI invokes (Frontend/bridge.py
      METHODS — the de-facto client surface) has a row in the contract;
   3. the generated docs/openapi.json matches the implemented app.
 
@@ -49,7 +49,7 @@ class ImplementedRoutesAppearInTheContract(unittest.TestCase):
 
 class TheClientSurfaceIsFullyMapped(unittest.TestCase):
     def test_every_bridge_method_has_a_contract_row(self):
-        bridge = (ROOT / "desktop" / "bridge.py").read_text()
+        bridge = (ROOT / "Frontend" / "bridge.py").read_text()
         m = re.search(r"METHODS = set\('([^']+)'", bridge)
         self.assertIsNotNone(m, "bridge METHODS moved — update this test")
         methods = set(m.group(1).split())

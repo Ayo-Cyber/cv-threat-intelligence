@@ -8,7 +8,7 @@ mid-build. Both sides code against this file; when the halves meet, they fit.*
 **Provenance.** The read-side below shipped in #102/#103 as "contract v0.2",
 which until this file existed only in code comments. The write-side is derived
 from the 67 backend operations Demi's shipped UI actually invokes
-(`desktop/bridge.py` METHODS — his bridge's own docstring says to replace it
+(`Frontend/bridge.py` METHODS — his bridge's own docstring says to replace it
 with this API). A consistency test holds this document equal to both sources:
 every implemented route must appear here, and every bridge method must have a
 mapped endpoint here.
