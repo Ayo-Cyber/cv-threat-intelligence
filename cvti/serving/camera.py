@@ -544,8 +544,13 @@ class PerCameraState:
             if bbox is None and boxes:
                 bbox = max(boxes.values(),
                            key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+            # Evidence upgrade: full frames give the gate context; a zoomed
+            # crop of the flagged subject gives it hands and held objects —
+            # its own rejections say "no people visible" on full CCTV frames.
+            from cvti.verification.frame_select import append_subject_crop
+            evidence = append_subject_crop(frames or [image], image, bbox)
             out.append(_to_queued(self.camera_id, a, timestamp, zone,
-                                  frames or [image], self.scene_context,
+                                  evidence, self.scene_context,
                                   clip_frames=clip_frames, clip_fps=clip_fps,
                                   bbox=bbox))
         return out

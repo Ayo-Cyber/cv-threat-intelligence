@@ -100,3 +100,58 @@ def select_evidence_frames(recent: list[np.ndarray], rule_name: str,
     return ([recent[i] for i in chosen],
             {"strategy": "motion_peak_span", "count": len(chosen),
              "selected_indices": chosen, "anchor_index": anchor, "buffer_len": len(recent)})
+
+
+# ---------------------------------------------------------------------------
+# Subject crop: the second half of the evidence upgrade (W5, 9 Sep 2026).
+# A person in full-frame CCTV is often <50px tall — the gate's own rejections
+# say "no people are visible" on clips where the detector tracked someone. A
+# zoomed crop of the flagged subject, appended AFTER the full frames, lets the
+# VLM inspect hands and held objects without losing scene context.
+
+_CROP_MARGIN = 0.40      # context around the box, as a fraction of its size
+_CROP_MIN_SIDE = 320     # upscale small crops so the VLM gets real pixels
+
+
+def subject_crop(frame: np.ndarray, bbox: Any,
+                 *, margin: float = _CROP_MARGIN,
+                 min_side: int = _CROP_MIN_SIDE) -> np.ndarray | None:
+    """A zoomed view of `bbox` (x1, y1, x2, y2) with context margin.
+
+    Returns None when the box is degenerate or the crop fails — evidence then
+    stays full-frame-only, which is the old behaviour."""
+    try:
+        import cv2
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = (float(v) for v in bbox[:4])
+        bw, bh = x2 - x1, y2 - y1
+        if bw <= 2 or bh <= 2:
+            return None
+        mx, my = bw * margin, bh * margin
+        cx1 = max(0, int(x1 - mx)); cy1 = max(0, int(y1 - my))
+        cx2 = min(w, int(x2 + mx)); cy2 = min(h, int(y2 + my))
+        if cx2 - cx1 < 4 or cy2 - cy1 < 4:
+            return None
+        crop = frame[cy1:cy2, cx1:cx2]
+        side = min(crop.shape[0], crop.shape[1])
+        if side < min_side:
+            scale = min_side / side
+            crop = cv2.resize(crop, (int(crop.shape[1] * scale),
+                                     int(crop.shape[0] * scale)),
+                              interpolation=cv2.INTER_CUBIC)
+        return crop
+    except Exception as exc:  # noqa: BLE001 - a failed crop must never cost the alert
+        log.debug("subject crop failed; sending full frames only", exc_info=True)
+        return None
+
+
+def append_subject_crop(frames: list[np.ndarray], moment: np.ndarray,
+                        bbox: Any) -> list[np.ndarray]:
+    """Evidence list = full frames + (when a subject is boxed) a zoomed crop.
+
+    `moment` is the frame the rule fired on — the bbox belongs to IT, not to
+    the buffered evidence frames, so the crop is always cut from the moment."""
+    if bbox is None:
+        return frames
+    crop = subject_crop(moment, bbox)
+    return frames if crop is None else frames + [crop]
