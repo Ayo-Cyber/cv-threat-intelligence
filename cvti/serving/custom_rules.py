@@ -169,8 +169,10 @@ def annotate_hit(frame, hit: dict, person_boxes: list | None = None):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
         return evidence, None
 
-    if target not in LOCATED_TARGETS:
+    if target not in LOCATED_TARGETS and not hit.get("grounded"):
         # Tag, don't point: the sighting is real, its coordinates are not.
+        # (A GROUNDED hit is the exception — its box came from an actual
+        # detector (W3 open-vocab), so even an object claim gets drawn.)
         return _tag_only()
     x1 = int(round(box[0] / 1000.0 * width))
     y1 = int(round(box[1] / 1000.0 * height))
@@ -181,6 +183,14 @@ def annotate_hit(frame, hit: dict, person_boxes: list | None = None):
     if x2 <= x1 or y2 <= y1:
         return frame, None
     area_frac = ((x2 - x1) * (y2 - y1)) / float(width * height)
+    if hit.get("grounded"):
+        # Detector coordinates: no re-grounding, no whole-frame suspicion —
+        # a bus legitimately fills a frame, and the score already gated it.
+        evidence = frame.copy()
+        cv2.rectangle(evidence, (x1, y1), (x2, y2), colour, 2)
+        cv2.putText(evidence, label, (x1 + 3, max(14, y1 - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1, cv2.LINE_AA)
+        return evidence, (x1, y1, x2, y2)
     if target == "person" and person_boxes is not None:
         grounded = ground_person_box((x1, y1, x2, y2), person_boxes)
         if grounded is None:
@@ -232,7 +242,15 @@ class CustomRuleScanner:
                  interval: float = 12.0, cooldown: float = 90.0,
                  site_config_path: str | None = None,
                  frame_source=None, context_provider=None,
-                 boxes_source=None) -> None:
+                 boxes_source=None, openvocab=None) -> None:
+        # W3 router: object/attribute rules are answered by a grounded
+        # open-vocab detector (real boxes, ms) instead of the VLM;
+        # scene/behaviour rules keep the VLM path unchanged. None = build
+        # the default OpenVocabDetector lazily on the first object rule;
+        # if it cannot load (weights/CLIP missing on an offline box) those
+        # rules fall back to the VLM — never blind, visibly degraded.
+        self.openvocab = openvocab
+        self._openvocab_broken = False
         # boxes_source(camera_id) -> [(track_id, x1, y1, x2, y2), ...] pixel
         # person boxes from the engine's tracker: the grounded WHERE for a
         # person claim's evidence box (the VLM's own coordinates only pick
@@ -372,7 +390,7 @@ class CustomRuleScanner:
                 return
             dead_since.pop(c["id"], None)
         try:
-            hits = self._check(c, frame)
+            hits = self._check_all(c, frame)
             self._record(c, hits)
         except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
             log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
@@ -464,6 +482,21 @@ class CustomRuleScanner:
         entry = self._status.setdefault(cam["id"], {"scans": 0, "hits": 0, "errors": 0})
         entry["scans"] += 1
         entry["rules"] = len(_rules_for(cam))
+        # Which engine answers which sentence (W3): the Rules panel can say
+        # "cap rule: YOLO-World, 60ms" vs "climbing rule: VLM" — and show
+        # when the detector is degraded and object rules ride the VLM.
+        obj_rules, scene_rules = self._split_rules(cam)
+        routing = {"yolo-world": sorted(t["name"] for t in obj_rules),
+                   "vlm": sorted(t["name"] for t in scene_rules)}
+        if self.openvocab is not None and not self._openvocab_broken:
+            try:
+                routing["detector"] = self.openvocab.status()
+            except Exception:  # noqa: BLE001 - status is best-effort
+                log.debug("openvocab status failed", exc_info=True)
+        elif obj_rules:
+            routing["detector"] = {"loaded": False,
+                                   "note": "unavailable — object rules on the VLM"}
+        entry["routing"] = routing
         # Open incidents, so the Rules panel can say "ongoing: hoodie, 12 min"
         # instead of the operator wondering why the alerts went quiet.
         entry["ongoing"] = [
@@ -561,9 +594,88 @@ class CustomRuleScanner:
         context = self.context_provider(cam_id) if self.context_provider else None
         return render_scene_context(context)
 
-    def _check(self, cam: dict, frame) -> list[dict]:
+    # --- W3 router: which engine answers which sentence -------------------
+
+    def _split_rules(self, cam: dict) -> tuple[list[dict], list[dict]]:
+        """(object/attribute rules, scene/behaviour rules) for a camera."""
+        from cvti.detector.openvocab import route_rule
+        obj, scene = [], []
+        for t in _rules_for(cam):
+            (obj if route_rule(t["description"]) == "openvocab"
+             else scene).append(t)
+        return obj, scene
+
+    def _ensure_openvocab(self):
+        """The detector, built lazily; None (forever) if it cannot load."""
+        if self._openvocab_broken:
+            return None
+        if self.openvocab is None:
+            try:
+                from cvti.detector.openvocab import OpenVocabDetector
+                self.openvocab = OpenVocabDetector()
+            except Exception as exc:  # noqa: BLE001 - fall back to the VLM path
+                log.warning(f"openvocab detector unavailable ({str(exc)[:120]}); "
+                            "object rules stay on the VLM", exc_info=True)
+                self._openvocab_broken = True
+                return None
+        return self.openvocab
+
+    def _check_all(self, cam: dict, frame) -> list[dict]:
+        """Route every rule to its engine; one merged hit list out.
+
+        The detector answering is the fast path; when it can't (weights or
+        CLIP missing, inference error) its rules ride the VLM call that
+        cycle — visibly (status says which engine answered), never silently.
+        """
+        obj_rules, scene_rules = self._split_rules(cam)
+        hits: list[dict] = []
+        if obj_rules:
+            grounded = self._openvocab_hits(cam, frame, obj_rules)
+            if grounded is None:
+                scene_rules = scene_rules + obj_rules   # fallback, this cycle
+            else:
+                hits.extend(grounded)
+        if scene_rules:
+            hits.extend(self._check(cam, frame, threats=scene_rules))
+        return hits
+
+    def _openvocab_hits(self, cam: dict, frame, rules: list[dict]) -> list[dict] | None:
+        """Grounded answers for object/attribute rules, or None to fall back."""
+        det = self._ensure_openvocab()
+        if det is None:
+            return None
+        from cvti.detector.openvocab import _phrase_for
+        phrase_by_rule = {t["name"]: _phrase_for(t["description"]) for t in rules}
+        dets = det.detect(frame, list(phrase_by_rule.values()))
+        if dets is None:
+            return None
+        h, w = frame.shape[:2]
+        hits = []
+        for t in rules:
+            phrase = phrase_by_rule[t["name"]]
+            best = max((d for d in dets if d["phrase"] == phrase),
+                       key=lambda d: d["score"], default=None)
+            if best is None:
+                continue
+            x1, y1, x2, y2 = best["box"]
+            target = ("person" if re.search(r"\b(person|people|someone|man|woman|"
+                                            r"guy|anyone|somebody)\b",
+                                            phrase, re.IGNORECASE) else "object")
+            hits.append({
+                "name": t["name"],
+                "reason": f'"{phrase}" detected — YOLO-World score {best["score"]:.2f}',
+                "confidence": float(best["score"]),
+                # annotate_hit speaks 0-1000-normalized boxes; grounded=True
+                # tells it these are DETECTOR coordinates: draw them as-is.
+                "box": (int(x1 / w * 1000), int(y1 / h * 1000),
+                        int(x2 / w * 1000), int(y2 / h * 1000)),
+                "target": target, "grounded": True, "engine": "yolo-world",
+            })
+        return hits
+
+    def _check(self, cam: dict, frame, threats: list[dict] | None = None) -> list[dict]:
         import cv2
-        threats = _rules_for(cam)
+        threats = _rules_for(cam) if threats is None else threats
         if not threats:
             return []
         lines = "\n".join(f'- {t["name"]}: {t["description"]}' for t in threats)
@@ -709,7 +821,8 @@ class CustomRuleScanner:
         result = VerificationResult(
             confirmed=True, confidence=float(hit.get("confidence", 0.9)),
             reason=reason,
-            alert_priority="high", timestamp=time.time(), raw_response="custom-vlm")
+            alert_priority="high", timestamp=time.time(),
+            raw_response=f"custom-{hit.get('engine', 'vlm')}")
         self.sink.handle(alert, result)
 
     def stop(self) -> None:

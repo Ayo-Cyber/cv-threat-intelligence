@@ -232,7 +232,14 @@ class AnnotationTests(unittest.TestCase):
         moving = [[(1, 10, 10, 50, 60)],            # where the person WAS (scan)
                   [(1, 120, 40, 180, 95)]]          # where they are at emit
 
-        scanner = CustomRuleScanner([CAM], sink=Sink(), model="gemma3:4b",
+        # A scene-routed sentence: this test is about the VLM path's box
+        # timing, and since W3 an attribute sentence ("wearing a hoodie")
+        # routes to the open-vocab detector instead and never asks the VLM.
+        cam = {"id": "front", "source": "x",
+               "custom_threats": [{"name": "hoodie",
+                                   "description": "someone hiding their face "
+                                                  "while sneaking around"}]}
+        scanner = CustomRuleScanner([cam], sink=Sink(), model="gemma3:4b",
                                     frame_source=lambda cid: np.zeros(
                                         (100, 200, 3), dtype=np.uint8),
                                     boxes_source=lambda cid: moving.pop(0))
@@ -240,7 +247,7 @@ class AnnotationTests(unittest.TestCase):
                         return_value='{"threats": [{"name": "hoodie", "reason": '
                                      '"hood up", "confidence": 0.9, "target": '
                                      '"person", "box": [50, 50, 300, 700]}]}'):
-            scanner._timed_scan(CAM, {}, {})
+            scanner._timed_scan(cam, {}, {})
         self.assertEqual(emitted["alert"].payload["bbox"], (10, 10, 50, 60),
                          "the evidence box must match the scanned frame's moment")
 
