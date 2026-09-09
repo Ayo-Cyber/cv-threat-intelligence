@@ -120,3 +120,15 @@ concealment/pose stage never fires on that footage style. Twenty minutes of
 watching a handful of clips decides whether it is a detector blind spot
 (serious, W3/W5-adjacent) or a data quirk (staging, angle, thefts past the
 30s analysis cap). Until then the row's number carries the set honestly.
+
+## Kipshidze Stage-1 blindness: open-vocab is NOT the fix (measured 10 Sep)
+Probe: YOLO-World with concealment phrases ("person putting an item into a
+bag" etc.) over the 92 kip theft clips + 90 kip normals, 5 frames each
+(runs/eval/attr/kip_openvocab_probe.json). Result: 100% theft candidates but
+79-88% of NORMALS fire too — a static phrase matches "person near bag", not
+the act. The discriminating signal is temporal; that is video-action's job,
+and its kip blindness is a training-domain gap. The theft lever remains the
+video-action retrain on domain data (GPU hours, cloud) — not more W3.
+Also worth raising with the customer: kip is staged eye-level phone-style
+footage; whether it belongs in the SIGNED theft row is a definition question
+(real shop CCTV is ceiling-mounted, where Stage-1 already proposes).
