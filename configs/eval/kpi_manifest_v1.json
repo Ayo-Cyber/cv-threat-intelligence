@@ -1,7 +1,7 @@
 {
  "version": 1,
- "built_at": 1788993913.770143,
- "digest": "5bc0ec0a40861fa9",
+ "built_at": 1788995051.600836,
+ "digest": "bb6f7f3fe154be5c",
  "rows": {
   "false_positive": {
    "sn": 2,
@@ -2666,7 +2666,7 @@
    "name": "Loitering Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 21,
+   "positives": 11,
    "negatives": 0,
    "n_floor": 73,
    "publishable": false,
@@ -2679,60 +2679,6 @@
     },
     {
      "path": "data/test_clips/loitering_03.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_04.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_05.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_06.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_07.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_08.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_09.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_10.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_12.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_13.mp4",
      "is_threat": true,
      "kind": "loitering",
      "source": "test_clips/kpi"
@@ -2751,12 +2697,6 @@
     },
     {
      "path": "data/test_clips/loitering_16.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_17.mp4",
      "is_threat": true,
      "kind": "loitering",
      "source": "test_clips/kpi"

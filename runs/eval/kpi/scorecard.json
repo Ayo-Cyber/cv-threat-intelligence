@@ -1,9 +1,69 @@
 {
- "generated_at": 1788961623.048526,
+ "generated_at": 1788995170.1534941,
  "gate": "ollama",
  "smoke": false,
- "digest": "e56b42776bd164b8",
+ "digest": "bb6f7f3fe154be5c",
  "rows": [
+  {
+   "sn": 2,
+   "name": "False Positive Rate",
+   "metric": "fpr",
+   "target": 0.05,
+   "n": 170,
+   "hits": 8,
+   "rate": 0.0471,
+   "wilson": [
+    0.024,
+    0.0901
+   ],
+   "verdict": "NOT MET",
+   "publishable": true
+  },
+  {
+   "sn": 5,
+   "name": "Person Detection",
+   "metric": "recall",
+   "target": 0.95,
+   "n": 102,
+   "hits": 75,
+   "rate": 0.7353,
+   "wilson": [
+    0.6423,
+    0.8112
+   ],
+   "verdict": "NOT MET",
+   "publishable": true
+  },
+  {
+   "sn": 6,
+   "name": "Intrusion Detection",
+   "metric": "recall",
+   "target": 0.95,
+   "n": 165,
+   "hits": 98,
+   "rate": 0.5939,
+   "wilson": [
+    0.5177,
+    0.6659
+   ],
+   "verdict": "NOT MET",
+   "publishable": true
+  },
+  {
+   "sn": 7,
+   "name": "Loitering Detection",
+   "metric": "recall",
+   "target": 0.95,
+   "n": 11,
+   "hits": 3,
+   "rate": 0.2727,
+   "wilson": [
+    0.0975,
+    0.5656
+   ],
+   "verdict": "SMOKE (n too small)",
+   "publishable": false
+  },
   {
    "sn": 8,
    "name": "Theft Detection",
@@ -24,12 +84,12 @@
    "name": "Suspicious Activity",
    "metric": "recall",
    "target": 0.9,
-   "n": 174,
-   "hits": 85,
-   "rate": 0.4885,
+   "n": 173,
+   "hits": 84,
+   "rate": 0.4855,
    "wilson": [
-    0.4153,
-    0.5622
+    0.4122,
+    0.5595
    ],
    "verdict": "NOT MET",
    "publishable": true
