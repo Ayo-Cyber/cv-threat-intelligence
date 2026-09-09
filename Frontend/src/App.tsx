@@ -49,6 +49,7 @@ import Setup from "./components/Setup";
 import FeedSwitcher from "./components/FeedSwitcher";
 import HierarchyReview from "./components/HierarchyReview";
 import SettingsPanel from "./components/SettingsPanel";
+import { AccountHelp } from "./components/AccountAccess";
 
 const blank: Workspace = {
   cameras: [],
@@ -449,6 +450,7 @@ export default function App() {
                   </button>
                 </form>
               )}
+              {window.argusDesktop && ws.auth.configured && <AccountHelp />}
             </div>
           ) : (
             <>
@@ -929,6 +931,7 @@ export default function App() {
                   api={api}
                   mode={mode}
                   site={ws.site}
+                  auth={ws.auth}
                   onChange={refresh}
                   notify={setToast}
                 />
@@ -978,6 +981,7 @@ export default function App() {
       )}
       {currentCamera && selected && (
         <Drawer
+          expanded={selected.tab === "zones"}
           title={currentCamera.id}
           subtitle="CAMERA INTELLIGENCE"
           onClose={() => {
@@ -996,6 +1000,7 @@ export default function App() {
             api={api}
             stream={stream(currentCamera.id)}
             initialTab={selected.tab}
+            onTabChange={(tab) => setSelected({ id: currentCamera.id, tab })}
             onChange={refresh}
             notify={setToast}
             onDirtyChange={setCameraDirty}

@@ -1,6 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { createDemo } from "../src/lib/demo";
+import { createDemo, initialDemo } from "../src/lib/demo";
 describe("isolated demo transport", () => {
+  it("loads previously saved demo points as backend polygons", async () => {
+    const state = initialDemo();
+    const polygon = [
+      [0, 0],
+      [100, 0],
+      [100, 100],
+    ];
+    const saved = {
+      ...state,
+      zones: {
+        "Loading Bay": [
+          { name: "Old demo", points: polygon, dwell_alert_seconds: 5 },
+        ],
+      },
+    };
+    const api = createDemo({
+      getItem: () => JSON.stringify(saved),
+      setItem: () => {},
+    });
+    expect(
+      (await api.invoke("list_zones", ["Loading Bay"]))[0].polygon,
+    ).toEqual(polygon);
+  });
   it("persists detector configuration independently of engine data", async () => {
     const data = new Map<string, string>();
     const storage = {
@@ -34,7 +57,7 @@ describe("isolated demo transport", () => {
       5,
     ]);
     expect(
-      (await a.invoke("list_zones", ["Loading Bay"]))[0].points[2],
+      (await a.invoke("list_zones", ["Loading Bay"]))[0].polygon[2],
     ).toEqual([120, 120]);
   });
   it("preserves a review result", async () => {

@@ -34,6 +34,11 @@ Everything else: [docs/README.md](docs/README.md)
 
 ## Download the desktop app
 
+The new Electron + React + TypeScript UI is developed in [Frontend/](Frontend/README.md).
+It uses the existing Python backend and remains an incremental replacement for
+the legacy console. For local source runs, use `cd Frontend`, `npm run build`,
+then `npm start` after installing the documented dependencies.
+
 Installers for macOS, Windows and Linux are on the
 [Releases page](https://github.com/Ayo-Cyber/cv-threat-intelligence/releases).
 

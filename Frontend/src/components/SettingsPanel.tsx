@@ -1,17 +1,20 @@
 import { useEffect, useState } from "react";
 import { Save, RefreshCw, ShieldCheck } from "lucide-react";
-import type { Json, Mode, Transport } from "../lib/types";
+import type { Auth, Json, Mode, Transport } from "../lib/types";
+import { UsersPanel } from "./AccountAccess";
 import { Badge, Notice, Spinner } from "./common";
 export default function SettingsPanel({
   api,
   mode,
   site,
+  auth,
   onChange,
   notify,
 }: {
   api: Transport;
   mode: Mode;
   site: Json;
+  auth: Auth;
   onChange: () => Promise<void>;
   notify: (s: string) => void;
 }) {
@@ -52,6 +55,7 @@ export default function SettingsPanel({
   }
   return (
     <div className="settings-layout">
+      {mode === "engine" && <UsersPanel api={api} auth={auth} />}
       {error && <Notice error>{error}</Notice>}
       <section className="settings-section">
         <div>

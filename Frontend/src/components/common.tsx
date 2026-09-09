@@ -50,11 +50,13 @@ export function Notice({
   );
 }
 export function Drawer({
+  expanded = false,
   title,
   subtitle,
   children,
   onClose,
 }: {
+  expanded?: boolean;
   title: string;
   subtitle?: string;
   children: React.ReactNode;
@@ -101,7 +103,7 @@ export function Drawer({
       }}
     >
       <section
-        className="drawer"
+        className={`drawer ${expanded ? "drawer-expanded" : ""}`}
         ref={panel}
         role="dialog"
         aria-modal="true"

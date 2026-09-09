@@ -181,7 +181,27 @@ function invoke(method: string, args: unknown[]) {
 app.whenReady().then(() => {
   ipcMain.handle("engine:environment", (event) => {
     if (event.sender !== window?.webContents) throw new Error("Unknown caller");
+    const python =
+      process.env.ARGUS_PYTHON ||
+      path.join(
+        root,
+        ".venv",
+        process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
+      );
+    const quote = (value: string) =>
+      process.platform === "win32"
+        ? "'" + value.replaceAll("'", "''") + "'"
+        : "'" + value.replaceAll("'", "'\"'\"'") + "'";
+    const recovery = [
+      python,
+      path.join(root, "Frontend/scripts/recover_account.py"),
+      "--db",
+      path.resolve(root, process.env.ARGUS_DB || "runs/desktop/events.db"),
+    ];
     return {
+      recovery_command:
+        (process.platform === "win32" ? "& " : "") +
+        recovery.map(quote).join(" "),
       repo: root,
       site: process.env.ARGUS_SITE_CONFIG || "configs/site_live.json",
       db: process.env.ARGUS_DB || "runs/desktop/events.db",

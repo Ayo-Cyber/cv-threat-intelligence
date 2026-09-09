@@ -4,7 +4,7 @@
 
 User approved the charcoal/off-white prototype and asked for its implementation
 with Electron, React and TypeScript, retaining existing operator workflows.
-Implementation is confined to `desktop/`; the Python detection pipeline and
+Implementation is confined to `Frontend/`; the Python detection pipeline and
 existing Qt/WebChannel console remain the fallback while migration proceeds.
 
 The working tree was moved under `Desktop/Career/CV Threat Intelligence`.
@@ -27,6 +27,12 @@ Git worktree references were repaired. Existing edits to `configs/site_live.json
 | Setup/settings    | Six-step flow, verifier checks, notification test, retention | No unsolicited model downloads/notifications                                         |
 | Security boundary | Explicit IPC allowlist, auth and backend permissions         | Python dispatch tests and native IPC smoke                                           |
 
+Follow-up: the UI module is now `Frontend/`. Zones uses a full-screen,
+aspect-preserving workspace with bottom-edge and discard-guard tests. Login has
+terminal-only password recovery guidance, and owners can list/create accounts
+under Settings > Users. Recovery preserves other users and evidence. Native tests
+exercise new operator login and reject unauthorized account creation.
+
 ## Still required before retiring the old console
 
 1. Full end-to-end acceptance with real camera feeds and the selected VLM:
@@ -38,7 +44,7 @@ Git worktree references were repaired. Existing edits to `configs/site_live.json
    unauthorized native calls are rejected, not silently performed.
 4. Extend draft recovery across app restarts and unfinished zone drawings. Scene
    drafts are protected from periodic refresh, and closing a camera panel with
-   unsaved scene/English-rule edits requires discard confirmation.
+   unsaved scene/English-rule/zone edits requires discard confirmation.
 5. Full camera onboarding for vendor credential forms, discovery result variations,
    Windows webcam behavior, and keyboard-only precise zone editing.
 6. Operator acceptance of large-site layouts and 100-camera performance; virtualize
@@ -55,16 +61,22 @@ fixture, never an AI verdict. Inconclusive is not classified as a real incident.
 
 ## Publication scope
 
-Branch `feat/electron-desktop-ui` was created on Ayo's `main` at `7900c69`.
-Only `desktop/` is included. Existing local camera configuration edits, the
+The original UI landed via PR #109. This follow-up branch,
+`feat/frontend-module-zones-accounts`, starts from Ayo's `main` at `8888bf6`.
+It moves `desktop/` to `Frontend/`, includes the zone/account fixes, and updates
+the root README. Existing local camera configuration edits, the
 virtual environment, node_modules, generated build outputs and recordings are
 excluded. This is an incremental migration PR, not a replacement for the old
 console or a signed release. The EarthCam registry is reused without changing
 its URLs or overwriting site configuration during publication.
 
+Verification on the follow-up base: build, 12 frontend unit tests, 12 Python
+adapter/recovery tests, 9 browser workflow tests and native Electron smoke.
+Default runtime data stays in `runs/desktop/` to retain existing accounts.
+
 ## Next work for Ayo's agent
 
-Start with `desktop/README.md`, inspect `src/lib/types.ts`, `electron/main.ts`,
+Start with `Frontend/README.md`, inspect `src/lib/types.ts`, `electron/main.ts`,
 `bridge.py`, and the tests. Keep the demo transport isolated. Do not replace the
 canonical scene store with frontend state or auto-approve mappings without evidence.
 Preserve site/area/camera boundaries and the downweighted temporal-witness role of
