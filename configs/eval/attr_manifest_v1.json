@@ -1,0 +1,319 @@
+{
+ "what": "W3 attribute manifest \u2014 open-vocab router acceptance set",
+ "labeled": "by human review of per-clip contact sheets, 10 Sep 2026",
+ "note": "kipshidze staged eye-level footage: the exact set Stage 1 is blind to, and the attribute variety (caps, backpacks, masks, bare heads) the router must answer. hoodie/bus positives arrive from the fetcher as attr_* clips and are appended with their own labels.",
+ "phrases": {
+  "person": "person",
+  "cap": "person wearing a cap",
+  "backpack": "backpack",
+  "mask": "person wearing a face mask",
+  "hoodie": "person wearing a hoodie",
+  "bus": "bus"
+ },
+ "clips": [
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-1.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-10.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-11.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-12.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-13.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-14.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-15.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-16.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-17.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-18.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-19.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-2.mp4",
+   "person": true,
+   "cap": true,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-20.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-21.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-22.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-23.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-24.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-25.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-26.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "mask": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-27.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "mask": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-28.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "mask": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-29.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-3.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-30.mp4",
+   "person": true,
+   "cap": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-1.mp4",
+   "person": false,
+   "cap": false,
+   "backpack": false,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-10.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-11.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-12.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-13.mp4",
+   "person": false,
+   "cap": false,
+   "backpack": false,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-14.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-15.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-16.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "mask": true,
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-17.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": true,
+   "label_note": "corrected 10 Sep: first labeled absent from a distant mid-frame; frame 175 shows the backpack plainly \u2014 the detector caught a labeling error",
+   "bus": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-18.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-19.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-2.mp4",
+   "person": true,
+   "cap": false,
+   "backpack": false,
+   "bus": false,
+   "hoodie": false
+  },
+  {
+   "path": "data/test_clips/attr_bus_01.mp4",
+   "bus": true
+  },
+  {
+   "path": "data/test_clips/attr_bus_02.mp4",
+   "bus": true
+  },
+  {
+   "path": "data/test_clips/attr_bus_06.mp4",
+   "bus": true
+  },
+  {
+   "path": "data/test_clips/attr_bus_07.mp4",
+   "bus": true
+  },
+  {
+   "path": "data/test_clips/attr_cap_01.mp4",
+   "person": true,
+   "cap": true
+  },
+  {
+   "path": "data/test_clips/attr_hoodie_02.mp4",
+   "person": true,
+   "hoodie": true,
+   "label_note": "distant figure, hood up \u2014 small-subject stress case"
+  }
+ ],
+ "excluded_fetches": "attr_bus_03/04/05, attr_cap_03..07, attr_hoodie_03..07: news studios, press conferences, unverifiable subjects, duplicates \u2014 the fetcher's EYEBALL warning doing its job"
+}

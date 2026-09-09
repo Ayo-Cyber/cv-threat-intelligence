@@ -1,0 +1,881 @@
+{
+ "generated_at": 1788978729.111028,
+ "manifest": "/Users/atunraseayomide/Documents/GitHub/cv-threat-intelligence/configs/eval/attr_manifest_v1.json",
+ "frames_per_clip": 5,
+ "floor": 0.3,
+ "median_ms": 52.7,
+ "rows": [
+  {
+   "attr": "person",
+   "phrase": "person",
+   "tp": 35,
+   "fp": 0,
+   "fn": 1,
+   "tn": 2,
+   "precision": 1.0,
+   "recall": 0.9722222222222222,
+   "precision_lo": 0.901,
+   "recall_lo": 0.858
+  },
+  {
+   "attr": "cap",
+   "phrase": "person wearing a cap",
+   "tp": 2,
+   "fp": 0,
+   "fn": 1,
+   "tn": 34,
+   "precision": 1.0,
+   "recall": 0.6666666666666666,
+   "precision_lo": 0.342,
+   "recall_lo": 0.208
+  },
+  {
+   "attr": "backpack",
+   "phrase": "backpack",
+   "tp": 15,
+   "fp": 0,
+   "fn": 0,
+   "tn": 20,
+   "precision": 1.0,
+   "recall": 1.0,
+   "precision_lo": 0.796,
+   "recall_lo": 0.796
+  },
+  {
+   "attr": "mask",
+   "phrase": "person wearing a face mask",
+   "tp": 0,
+   "fp": 0,
+   "fn": 4,
+   "tn": 0,
+   "precision": null,
+   "recall": 0.0,
+   "precision_lo": 0.0,
+   "recall_lo": 0.0
+  },
+  {
+   "attr": "hoodie",
+   "phrase": "person wearing a hoodie",
+   "tp": 1,
+   "fp": 0,
+   "fn": 0,
+   "tn": 20,
+   "precision": 1.0,
+   "recall": 1.0,
+   "precision_lo": 0.207,
+   "recall_lo": 0.207
+  },
+  {
+   "attr": "bus",
+   "phrase": "bus",
+   "tp": 4,
+   "fp": 0,
+   "fn": 0,
+   "tn": 36,
+   "precision": 1.0,
+   "recall": 1.0,
+   "precision_lo": 0.51,
+   "recall_lo": 0.51
+  }
+ ],
+ "clips": [
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-1.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.515,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-10.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.349,
+    "cap": 0.0,
+    "backpack": 0.612,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-11.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.541,
+    "cap": 0.0,
+    "backpack": 0.572,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-12.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.523,
+    "cap": 0.0,
+    "backpack": 0.423,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-13.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.467,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-14.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.458,
+    "cap": 0.0,
+    "backpack": 0.427,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-15.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.418,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-16.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.509,
+    "cap": 0.0,
+    "backpack": 0.303,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-17.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.599,
+    "cap": 0.0,
+    "backpack": 0.442,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-18.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.708,
+    "cap": 0.0,
+    "backpack": 0.544,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-19.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.572,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-2.mp4",
+   "labels": {
+    "person": true,
+    "cap": true,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.391,
+    "cap": 0.742,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-20.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.568,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-21.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.446,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-22.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.514,
+    "cap": 0.0,
+    "backpack": 0.441,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-23.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.549,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-24.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.424,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-25.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.491,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-26.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": true,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.626,
+    "cap": 0.0,
+    "backpack": 0.584,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-27.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": true,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.557,
+    "cap": 0.0,
+    "backpack": 0.483,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-28.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": true,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.433,
+    "cap": 0.0,
+    "backpack": 0.524,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-29.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.499,
+    "cap": 0.0,
+    "backpack": 0.363,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-3.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.46,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/shoplifting/shoplifting-30.mp4",
+   "labels": {
+    "person": true,
+    "cap": true,
+    "backpack": null,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.505,
+    "cap": 0.773,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-1.mp4",
+   "labels": {
+    "person": false,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.0,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-10.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.598,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-11.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.363,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-12.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.0,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-13.mp4",
+   "labels": {
+    "person": false,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.0,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-14.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.463,
+    "cap": 0.0,
+    "backpack": 0.475,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-15.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.593,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-16.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": true,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.567,
+    "cap": 0.0,
+    "backpack": 0.746,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-17.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": true,
+    "mask": null,
+    "hoodie": null,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.364,
+    "cap": 0.0,
+    "backpack": 0.641,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-18.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.546,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-19.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.437,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/staging/shoplifting_kip/normal/normal-2.mp4",
+   "labels": {
+    "person": true,
+    "cap": false,
+    "backpack": false,
+    "mask": null,
+    "hoodie": false,
+    "bus": false
+   },
+   "scores": {
+    "person": 0.438,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/test_clips/attr_bus_01.mp4",
+   "labels": {
+    "person": null,
+    "cap": null,
+    "backpack": null,
+    "mask": null,
+    "hoodie": null,
+    "bus": true
+   },
+   "scores": {
+    "person": 0.0,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.906
+   }
+  },
+  {
+   "path": "data/test_clips/attr_bus_02.mp4",
+   "labels": {
+    "person": null,
+    "cap": null,
+    "backpack": null,
+    "mask": null,
+    "hoodie": null,
+    "bus": true
+   },
+   "scores": {
+    "person": 0.0,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.895
+   }
+  },
+  {
+   "path": "data/test_clips/attr_bus_06.mp4",
+   "labels": {
+    "person": null,
+    "cap": null,
+    "backpack": null,
+    "mask": null,
+    "hoodie": null,
+    "bus": true
+   },
+   "scores": {
+    "person": 0.0,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.82
+   }
+  },
+  {
+   "path": "data/test_clips/attr_bus_07.mp4",
+   "labels": {
+    "person": null,
+    "cap": null,
+    "backpack": null,
+    "mask": null,
+    "hoodie": null,
+    "bus": true
+   },
+   "scores": {
+    "person": 0.0,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.675
+   }
+  },
+  {
+   "path": "data/test_clips/attr_cap_01.mp4",
+   "labels": {
+    "person": true,
+    "cap": true,
+    "backpack": null,
+    "mask": null,
+    "hoodie": null,
+    "bus": null
+   },
+   "scores": {
+    "person": 0.511,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.0,
+    "bus": 0.0
+   }
+  },
+  {
+   "path": "data/test_clips/attr_hoodie_02.mp4",
+   "labels": {
+    "person": true,
+    "cap": null,
+    "backpack": null,
+    "mask": null,
+    "hoodie": true,
+    "bus": null
+   },
+   "scores": {
+    "person": 0.548,
+    "cap": 0.0,
+    "backpack": 0.0,
+    "mask": 0.0,
+    "hoodie": 0.581,
+    "bus": 0.0
+   }
+  }
+ ]
+}
