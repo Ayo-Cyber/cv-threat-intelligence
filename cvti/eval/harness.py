@@ -85,7 +85,8 @@ class EvalHarness:
                  max_candidates_per_clip: int = 0,
                  dedup_like_production: bool = True,
                  dedup_cooldown_s: float = 60.0,
-                 out_dir: str = "runs/eval", run_key: str = "default") -> None:
+                 out_dir: str = "runs/eval", run_key: str = "default",
+                 bypass: set | tuple | None = None) -> None:
         self.config = config
         self.baseline = baseline
         self.weights = weights
@@ -94,6 +95,15 @@ class EvalHarness:
         self.video_model = video_model
         self.detectors = detectors
         self.gate = gate                      # None = Stage 1 only
+        # Same bypass tier the engine ships (gate_pool): a bypassed detector's
+        # candidate counts as confirmed WITHOUT a gate call, so the scorecard
+        # measures the system as deployed, not the pre-tier one. Pass an
+        # explicit set (e.g. set()) to measure a different tiering.
+        if bypass is None:
+            from cvti.serving.gate_pool import BYPASS_DETECTORS, MEASURED_BYPASS
+            self.bypass = BYPASS_DETECTORS | MEASURED_BYPASS
+        else:
+            self.bypass = set(bypass)
         # Dense crowds need more pixels: at 640 the person detector resolves only
         # 0-2 individuals in a packed scene, starving any count-based detector.
         self.imgsz = imgsz
@@ -286,6 +296,9 @@ class EvalHarness:
 
     def _confirm(self, alert: Any) -> bool:
         payload = alert.payload or {}
+        candidate = payload.get("candidate")
+        if getattr(candidate, "detector", "") in self.bypass:
+            return True   # engine parity: gate_pool auto-confirms this tier
         try:
             verdict = self.gate.verify(payload.get("frames"), payload.get("candidate"),
                                        payload.get("scene"))

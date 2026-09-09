@@ -641,7 +641,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
     from cvti.serving.alert_queue import AlertQueue
     from cvti.serving.camera import build_camera_states, load_site_config
-    from cvti.serving.gate_pool import GatePool
+    from cvti.serving.gate_pool import GatePool, bypass_from_site
     from cvti.verification.gate import MOCK_GATE_BANNER, VerificationGate, assert_engine_gate_allowed
 
     # Before anything expensive loads: a mock gate confirms every alert without
@@ -872,6 +872,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                   provider=gate_provider, device=device),
         on_verdict=sink.handle,
         examples_provider=_examples_provider,
+        bypass=bypass_from_site(site),
     ).start()
 
     # The UI reads frames from here instead of opening every stream a second time
