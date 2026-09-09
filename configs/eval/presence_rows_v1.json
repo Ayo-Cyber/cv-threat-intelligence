@@ -1,0 +1,11 @@
+{
+  "_comment": "KPI rows 5-7 (person / intrusion / loitering) eval rules. These rows measure the PRESENCE lane: person detector -> ByteTrack -> full-frame zone monitor -> this rule. The presence detector is deterministic and rides the gate's bypass tier, so the row's number is the detector+tracker's, not a VLM's. Loitering additionally requires the zone monitor's dwell threshold (the harness's presence_dwell_s) before a state is emitted at all.",
+  "use_case_id": "eval_presence_rows_v1",
+  "rules": [
+    {
+      "name": "person_present",
+      "trigger": { "detector": "presence" },
+      "priority": "medium"
+    }
+  ]
+}
