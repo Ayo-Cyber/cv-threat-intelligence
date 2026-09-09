@@ -286,12 +286,21 @@ class MultiStreamPipeline:
                  publisher: Any = None, on_link_change=None,
                  publish_fps: float = 24.0,
                  view_only: set[str] | None = None,
-                 fallback_sources: dict | None = None) -> None:
+                 fallback_sources: dict | None = None,
+                 detector_backend: str = "torch") -> None:
         self.sources = sources
         # W1.3: camera_id -> the camera's OWN url, for cameras whose `source`
         # is the go2rtc restream. A dead gateway costs a reconnect, not
         # coverage: the decoder swaps to this after two failed reopens.
         self.fallback_sources = fallback_sources or {}
+        # W2: torch | auto | onnx — how start() picks the detection backend.
+        # torch by default ON PURPOSE: eval, tests, and the bare CLI construct
+        # this class directly and must behave exactly as always; only run_site
+        # (the shipped engine) passes the site file's choice, which defaults
+        # to auto. A backend change is a site decision, never a side effect of
+        # which test exported an .onnx first.
+        self.detector_backend = detector_backend
+        self.detector_info: dict = {}
         self.weights = weights
         self.target_fps = target_fps
         self.tick_seconds = tick_seconds
@@ -334,10 +343,23 @@ class MultiStreamPipeline:
         self._detect_ms_total = 0.0
 
     def start(self) -> None:
-        from ultralytics import YOLO
-
-        from cvti.detector.core import resolve_weights
-        self._model = YOLO(resolve_weights(self.weights))
+        # W2: the detector loads through the accelerator selector — .onnx on
+        # the provider this box offers when torch would be CPU-bound, torch
+        # exactly as before everywhere else. detector_info says which and why;
+        # health carries it.
+        from cvti.detector.accel import load_detector
+        self._model, self.detector_info = load_detector(
+            self.weights, backend=self.detector_backend, device=self.device)
+        if self.detector_info["backend"] == "onnx":
+            # The ONNX session owns acceleration; handing torch's device to
+            # ultralytics here would re-trigger its own provider ideas (CoreML
+            # on mps — ruled out) and half is a torch-CUDA concept.
+            self.device, self.half = "cpu", False
+            log.info("[detect] onnx backend: %s on %s",
+                     self.detector_info["weights"].rsplit("/", 1)[-1],
+                     self.detector_info["provider"])
+        elif self.detector_info.get("reason"):
+            log.info("[detect] torch backend (%s)", self.detector_info["reason"])
         # For the per-camera detector path we also need core.py's Detection list
         # (weapons/violence/theft), built from the same shared-model result.
         self._names = self._model.names
@@ -799,6 +821,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # and the fallback map below covers a gateway that dies mid-run.
     from cvti.serving.go2rtc import Go2rtcGateway
     from cvti.serving.onboarding import get_site_meta
+    from cvti.detector.accel import backend_from_site
+    _detector_backend = backend_from_site(get_site_meta(site_config_path))
     gateway = Go2rtcGateway(site.get("cameras") or [], output_dir)
     _gw_fallbacks: dict = {}
     if get_site_meta(site_config_path).get("stream_gateway", True):
@@ -891,7 +915,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                alert_queue=queue, publisher=publisher,
                                on_link_change=_on_link_change, publish_fps=publish_fps,
                                view_only=view_only_ids,
-                               fallback_sources=_gw_fallbacks)
+                               fallback_sources=_gw_fallbacks,
+                               detector_backend=_detector_backend)
 
     def _fast_path(alert) -> None:
         """Two-tier alerting (EP-06-T4): criticals are shown provisionally the
@@ -1138,6 +1163,10 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     def _gate_reachable(stats: dict):
         return gate_reachable(stats)
 
+    def _detector_health() -> dict:
+        from cvti.detector.accel import detector_health
+        return detector_health(pipe.detector_info, pipe._model)
+
     def _build_health() -> dict:
         """The /health document (EP-04-T1): six signal classes, one status.
         Written to gate_health.json for the app, served over HTTP by the
@@ -1193,6 +1222,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                     # their camera's own URL already say so per-camera in
                     # cameras[].gateway_fallback.
                     "stream_gateway": gateway.status(),
+                    # W2: which backend detection runs on, on what provider,
+                    # and when it is not the accelerator — why not.
+                    "detector": _detector_health(),
                     "heartbeat": heartbeat.status() if heartbeat else {"enabled": False}})
         return doc
 
