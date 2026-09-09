@@ -38,7 +38,9 @@ detector has flagged a possible event. That detector is frequently WRONG — it 
 on normal activity. Your job is to catch its mistakes, not to agree with it.
 
 You are shown one or more camera frames from the SAME short event (a brief sequence in
-time) — use the motion across them to decide for yourself what is happening.
+time) — use the motion across them to decide for yourself what is happening. When more
+than one image is attached, the FINAL image may be a zoomed crop of the flagged person —
+use it to inspect hands, held objects, and what they are doing up close.
 
 Scene context:
 - Environment: {environment_type}
@@ -50,6 +52,7 @@ The detector's UNRELIABLE hypothesis (treat as a claim to be disproven, NOT a fa
 - Claimed detection: {title}
 - Person tracked: {person_id}
 - Object involved: {object_label}
+- What the detector measured: {reasons}
 
 Question: {question}
 
@@ -84,6 +87,8 @@ event. Your job is to PASS REAL THREATS THROUGH to a human reviewer and filter o
 OBVIOUS false alarms. Missing a real threat is much worse than passing on a scene the human
 glances at and dismisses — so when in doubt, confirm.
 You are shown one or more frames from the SAME short event (a brief sequence in time).
+When more than one image is attached, the FINAL image may be a zoomed crop of the flagged
+person — use it to inspect hands, held objects, and what they are doing up close.
 
 Scene context:
 - Environment: {environment_type}
@@ -95,6 +100,7 @@ The detector's report (usually right; you are just catching its occasional mista
 - Detection: {title}
 - Person tracked: {person_id}
 - Object involved: {object_label}
+- What the detector measured: {reasons}
 
 Question: {question}
 
@@ -413,6 +419,8 @@ class VerificationGate:
             title=alert.title,
             person_id=alert.person_id if alert.person_id is not None else "unknown",
             object_label=alert.object_label or "unknown",
+            reasons=("; ".join(str(r) for r in (alert.reasons or [])[:4])
+                     or "nothing recorded"),
             question=getattr(alert, "question", None) or _build_question(
                 alert.rule_name, environment_type, getattr(alert, "detector", ""),
                 self.sensitivity),
