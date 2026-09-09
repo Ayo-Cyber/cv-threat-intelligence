@@ -1,7 +1,7 @@
 {
  "version": 1,
- "built_at": 1788959581.420556,
- "digest": "e56b42776bd164b8",
+ "built_at": 1788995051.600836,
+ "digest": "bb6f7f3fe154be5c",
  "rows": {
   "false_positive": {
    "sn": 2,
@@ -1040,10 +1040,10 @@
    "name": "Person Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 21,
+   "positives": 102,
    "negatives": 0,
    "n_floor": 73,
-   "publishable": false,
+   "publishable": true,
    "clips": [
     {
      "path": "data/test_clips/person_01.mp4",
@@ -1170,6 +1170,492 @@
      "is_threat": true,
      "kind": "person",
      "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/eval_clips/pets2006/person_pets2006_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "pets2006"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010000_06_000728_000762_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010000_07_000827_000860_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010001_00_000019_000065_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010001_03_000537_000563_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010001_05_000649_000684_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010001_06_000685_000722_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010001_08_000826_000893_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010001_09_000921_000952_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010001_10_000962_001005_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010002_01_000123_000148_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010002_02_000174_000204_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010002_03_000236_000261_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010002_04_000307_000350_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010002_06_000441_000467_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010002_07_000522_000547_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_00_000000_000108_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_01_000111_000137_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_02_000165_000202_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_03_000219_000259_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_06_000526_000560_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_08_000739_000778_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_09_000779_000861_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_10_000901_000934_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_11_000956_000982_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_12_001009_001057_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010003_14_001127_001190_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010004_00_000064_000100_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010004_01_000163_000188_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010004_02_000191_000237_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010004_03_000239_000277_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010004_06_000547_000715_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010004_07_000729_000809_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010004_08_000811_000920_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010005_00_000048_000075_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010005_01_000085_000164_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010005_02_000177_000203_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010005_03_000215_000270_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010005_05_000397_000430_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010005_07_000535_000584_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010005_08_000647_000693_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010200_02_000349_000398_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010200_03_000470_000567_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010200_04_000568_000620_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010200_05_000658_000700_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010200_07_000748_000837_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010200_09_000886_000915_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010200_10_000923_000959_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010201_00_000000_000053_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010201_01_000125_000152_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010201_02_000167_000197_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010201_04_000374_000469_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010201_05_000499_000527_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010202_02_000161_000189_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010202_03_000313_000355_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010203_02_000347_000397_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010203_03_000400_000435_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010203_04_000457_000511_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010203_07_000775_000869_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010204_06_000913_000939_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010205_04_000545_000576_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010206_00_000007_000035_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010206_02_000414_000439_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010206_03_000546_000580_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010206_04_000720_000767_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010206_05_000797_000823_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010207_01_000712_000752_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010207_02_000790_000816_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010207_04_000929_000954_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010207_05_001013_001038_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010207_06_001064_001097_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010207_07_001195_001260_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010207_08_001308_001332_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010207_09_001484_001510_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010207_10_001549_001596_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010208_00_000000_000049_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010208_02_000150_000180_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010208_05_000591_000631_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010208_06_000671_000744_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010208_07_000768_000791_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/person_VIRAT_S_010208_09_000857_000886_00.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "virat"
     }
    ]
   },
@@ -1178,10 +1664,10 @@
    "name": "Intrusion Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 20,
+   "positives": 165,
    "negatives": 0,
    "n_floor": 73,
-   "publishable": false,
+   "publishable": true,
    "clips": [
     {
      "path": "data/test_clips/intrusion_01.mp4",
@@ -1302,6 +1788,876 @@
      "is_threat": true,
      "kind": "intrusion",
      "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010000_06_000728_000762_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010000_06_000728_000762_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010000_06_000728_000762_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010000_07_000827_000860_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_00_000019_000065_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_00_000019_000065_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_00_000019_000065_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_03_000537_000563_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_05_000649_000684_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_05_000649_000684_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_06_000685_000722_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_06_000685_000722_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_08_000826_000893_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_08_000826_000893_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_08_000826_000893_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_09_000921_000952_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_09_000921_000952_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_09_000921_000952_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_10_000962_001005_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_10_000962_001005_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010001_10_000962_001005_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_01_000123_000148_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_02_000174_000204_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_02_000174_000204_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_03_000236_000261_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_04_000307_000350_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_04_000307_000350_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_04_000307_000350_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_06_000441_000467_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_07_000522_000547_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010002_07_000522_000547_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_00_000000_000108_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_00_000000_000108_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_00_000000_000108_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_01_000111_000137_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_02_000165_000202_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_02_000165_000202_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_02_000165_000202_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_03_000219_000259_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_06_000526_000560_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_06_000526_000560_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_08_000739_000778_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_08_000739_000778_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_08_000739_000778_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_09_000779_000861_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_09_000779_000861_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_09_000779_000861_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_10_000901_000934_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_10_000901_000934_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_11_000956_000982_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_11_000956_000982_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_12_001009_001057_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_12_001009_001057_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_12_001009_001057_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010003_14_001127_001190_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_00_000064_000100_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_00_000064_000100_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_01_000163_000188_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_01_000163_000188_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_02_000191_000237_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_02_000191_000237_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_03_000239_000277_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_03_000239_000277_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_06_000547_000715_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_06_000547_000715_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_06_000547_000715_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_07_000729_000809_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_07_000729_000809_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_07_000729_000809_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_08_000811_000920_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_08_000811_000920_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010004_08_000811_000920_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_00_000048_000075_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_01_000085_000164_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_01_000085_000164_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_01_000085_000164_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_02_000177_000203_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_03_000215_000270_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_03_000215_000270_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_03_000215_000270_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_05_000397_000430_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_07_000535_000584_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_07_000535_000584_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_07_000535_000584_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_08_000647_000693_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_08_000647_000693_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010005_08_000647_000693_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_02_000349_000398_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_02_000349_000398_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_03_000470_000567_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_04_000568_000620_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_04_000568_000620_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_04_000568_000620_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_05_000658_000700_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_05_000658_000700_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_05_000658_000700_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_07_000748_000837_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_07_000748_000837_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_07_000748_000837_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_09_000886_000915_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010200_10_000923_000959_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010201_00_000000_000053_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010201_01_000125_000152_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010201_02_000167_000197_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010201_02_000167_000197_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010201_04_000374_000469_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010201_04_000374_000469_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010201_04_000374_000469_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010201_05_000499_000527_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010202_02_000161_000189_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010202_03_000313_000355_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010203_02_000347_000397_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010203_03_000400_000435_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010203_04_000457_000511_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010203_07_000775_000869_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010203_07_000775_000869_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010203_07_000775_000869_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010204_06_000913_000939_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010205_04_000545_000576_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010206_00_000007_000035_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010206_02_000414_000439_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010206_03_000546_000580_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010206_03_000546_000580_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010206_03_000546_000580_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010206_04_000720_000767_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010206_05_000797_000823_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_01_000712_000752_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_02_000790_000816_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_04_000929_000954_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_05_001013_001038_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_06_001064_001097_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_07_001195_001260_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_08_001308_001332_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_09_001484_001510_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_10_001549_001596_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_10_001549_001596_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010207_10_001549_001596_02.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010208_00_000000_000049_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010208_02_000150_000180_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010208_02_000150_000180_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010208_05_000591_000631_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010208_05_000591_000631_01.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010208_06_000671_000744_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010208_07_000768_000791_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/intrusion_VIRAT_S_010208_09_000857_000886_00.mp4",
+     "is_threat": true,
+     "kind": "intrusion",
+     "source": "virat"
     }
    ]
   },
@@ -1310,7 +2666,7 @@
    "name": "Loitering Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 16,
+   "positives": 11,
    "negatives": 0,
    "n_floor": 73,
    "publishable": false,
@@ -1323,60 +2679,6 @@
     },
     {
      "path": "data/test_clips/loitering_03.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_04.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_05.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_06.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_07.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_08.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_09.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_10.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_12.mp4",
-     "is_threat": true,
-     "kind": "loitering",
-     "source": "test_clips/kpi"
-    },
-    {
-     "path": "data/test_clips/loitering_13.mp4",
      "is_threat": true,
      "kind": "loitering",
      "source": "test_clips/kpi"
@@ -1400,16 +2702,40 @@
      "source": "test_clips/kpi"
     },
     {
-     "path": "data/test_clips/loitering_17.mp4",
+     "path": "data/test_clips/loitering_18.mp4",
      "is_threat": true,
      "kind": "loitering",
      "source": "test_clips/kpi"
     },
     {
-     "path": "data/test_clips/loitering_18.mp4",
+     "path": "data/eval_clips/pets2006/loitering_pets2006_00.mp4",
      "is_threat": true,
      "kind": "loitering",
-     "source": "test_clips/kpi"
+     "source": "pets2006"
+    },
+    {
+     "path": "data/eval_clips/virat/loitering_VIRAT_S_010003_00_000000_000108_00.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/loitering_VIRAT_S_010004_06_000547_000715_00.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/loitering_VIRAT_S_010004_08_000811_000920_00.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "virat"
+    },
+    {
+     "path": "data/eval_clips/virat/loitering_VIRAT_S_010200_03_000470_000567_00.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "virat"
     }
    ]
   },
@@ -2360,7 +3686,7 @@
    "name": "Suspicious Activity",
    "target": 0.9,
    "metric": "recall",
-   "positives": 174,
+   "positives": 173,
    "negatives": 0,
    "n_floor": 35,
    "publishable": true,
@@ -3093,12 +4419,6 @@
     },
     {
      "path": "data/ucf_crime/Fighting/Fighting049_x264.mp4",
-     "is_threat": true,
-     "kind": "violence",
-     "source": "ucf-crime/Fighting"
-    },
-    {
-     "path": "data/ucf_crime/Fighting/Fighting050_x264.mp4",
      "is_threat": true,
      "kind": "violence",
      "source": "ucf-crime/Fighting"
