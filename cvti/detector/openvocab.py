@@ -66,7 +66,10 @@ _ATTRIBUTE = re.compile(
     r"\b("
     r"wear\w*|carry\w*|hold\w*|with a|with an|in a|dressed|"
     r"red|blue|green|white|black|yellow|orange|grey|gray|brown|pink|purple|"
-    r"cap|hat|hood\w*|helmet|mask|glasses|sunglasses|scarf|glove\w*|"
+    # 'mask' deliberately absent: measured 0/4 recall on the attribute
+    # manifest (10 Sep) — a face mask is too small a feature for the
+    # world model at CCTV resolution, so mask rules stay with the VLM.
+    r"cap|hat|hood\w*|helmet|glasses|sunglasses|scarf|glove\w*|"
     r"backpack|bag|handbag|suitcase|luggage|box|package|parcel|umbrella|"
     r"ladder|tool\w*|crowbar|"
     r"jacket|coat|vest|uniform|shirt|trousers|shorts|skirt|dress|"

@@ -54,6 +54,22 @@ QUERIES = {
     ],
     # --- KPI-sheet rows (W6, 9 Sep): filenames carry the row label, so a
     # downloaded clip is born manifest-ready (cvti/eval/kpi.py prefixes). ---
+    # W3 attribute-manifest fillers: clips whose LOOK is the label. The
+    # attribute must be plainly visible; the manifest labels are then human-
+    # verified from contact sheets before any number is quoted.
+    "attr_hoodie": [
+        "person wearing hoodie walking street cctv footage",
+        "man in hoodie surveillance camera footage",
+        "hooded person walking security camera",
+    ],
+    "attr_cap": [
+        "man wearing baseball cap store cctv",
+        "person with cap walking surveillance footage",
+    ],
+    "attr_bus": [
+        "city bus arriving at stop street camera footage",
+        "bus passing street surveillance camera",
+    ],
     "loitering": [
         "person loitering outside store cctv footage",
         "man standing outside shop for long time security camera",
