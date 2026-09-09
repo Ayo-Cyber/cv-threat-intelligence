@@ -42,6 +42,18 @@ def _shelf_zone() -> ZoneSpec:
     )
 
 
+def _wide_zone() -> ZoneSpec:
+    # The whole 1000x1000 frame: room for two people to stand FAR apart while
+    # both inside — the inheritance-distance tests need that separation.
+    return ZoneSpec(
+        name="wide",
+        polygon=np.array([[0, 0], [1000, 0], [1000, 1000], [0, 1000]]),
+        anchors=(sv.Position.BOTTOM_CENTER,),
+        kind="shelf",
+        dwell_alert_seconds=60.0,
+    )
+
+
 def test_presence_detection() -> None:
     monitor = RetailZoneMonitor([_shelf_zone()])
     # Person whose bottom-center (x=100) is inside the left shelf.
@@ -69,15 +81,71 @@ def test_dwell_accumulates_and_alerts() -> None:
 
 
 def test_dwell_resets_on_leave() -> None:
+    # An absence LONGER than the production grace is a genuine exit: the
+    # dwell restarts. (Sub-grace absences are bridged — the sticky tests.)
     monitor = RetailZoneMonitor([_shelf_zone()])
+    grace = RetailZoneMonitor.DWELL_GRACE_DEFAULT
     inside = _person([80, 100, 120, 400], tracker_id=1)
     outside = _person([780, 100, 820, 400], tracker_id=1)
     monitor.update(inside, timestamp=0.0)
     monitor.update(inside, timestamp=4.0)            # dwell = 4s
-    monitor.update(outside, timestamp=5.0)           # left the zone -> forget
-    back = monitor.update(inside, timestamp=6.0)[0]  # re-entered -> dwell restarts at 0
+    monitor.update(outside, timestamp=5.0)           # left the zone
+    monitor.update(outside, timestamp=5.0 + grace + 0.6)   # stayed away past grace
+    back = monitor.update(inside, timestamp=6.0 + grace)[0]  # -> dwell restarts
     assert abs(back.dwell_seconds["shelf"] - 0.0) < 1e-6, back.dwell_seconds
-    print("PASS dwell resets when a track leaves and re-enters")
+    print("PASS dwell resets when a track leaves for longer than the grace")
+
+
+def test_production_default_grace_is_on() -> None:
+    # Every engine construction site builds RetailZoneMonitor() bare — the
+    # default IS the field behaviour. 0.0 meant one dropped frame reset a
+    # 60s loiter timer (the pre-10-Sep field bug).
+    assert RetailZoneMonitor([_shelf_zone()]).dwell_grace_seconds == \
+        RetailZoneMonitor.DWELL_GRACE_DEFAULT == 2.5
+    print("PASS production default grace is 2.5s")
+
+
+def test_id_switch_inherits_the_dwell_clock() -> None:
+    """ByteTrack loses an occluded person and returns them under a NEW id.
+
+    New id used to mean a fresh timer — a loiterer standing still through one
+    occlusion was never reported. A new track in the same zone, at the spot a
+    track just vanished from, inherits its entry time."""
+    monitor = RetailZoneMonitor([_shelf_zone()])
+    monitor.update(_person([80, 100, 120, 400], tracker_id=5), timestamp=0.0)
+    monitor.update(_person([80, 100, 120, 400], tracker_id=5), timestamp=50.0)
+    # occlusion: one absent second, then the tracker hands back id 9 SAME spot
+    s = monitor.update(_person([82, 102, 122, 402], tracker_id=9),
+                       timestamp=51.0)[0]
+    assert s.dwell_seconds["shelf"] >= 50.0, s.dwell_seconds
+    print("PASS an id switch does not restart the loiter clock")
+
+
+def test_inheritance_needs_the_same_spot() -> None:
+    # A DIFFERENT person arriving elsewhere in the zone must start at zero —
+    # inheritance is for occlusion re-identification, not zone hand-me-downs.
+    monitor = RetailZoneMonitor([_wide_zone()])
+    monitor.update(_person([80, 100, 120, 400], tracker_id=5), timestamp=0.0)
+    monitor.update(_person([80, 100, 120, 400], tracker_id=5), timestamp=50.0)
+    s = monitor.update(_person([400, 100, 440, 400], tracker_id=9),
+                       timestamp=51.0)[0]
+    assert s.dwell_seconds["wide"] < 1.0, s.dwell_seconds
+    print("PASS a new person far away starts their own clock")
+
+
+def test_a_consumed_donor_cannot_seed_two_heirs() -> None:
+    monitor = RetailZoneMonitor([_shelf_zone()])
+    monitor.update(_person([80, 100, 120, 400], tracker_id=5), timestamp=0.0)
+    monitor.update(_person([80, 100, 120, 400], tracker_id=5), timestamp=50.0)
+    first = monitor.update(_person([80, 100, 120, 400], tracker_id=9),
+                           timestamp=51.0)[0]
+    assert first.dwell_seconds["shelf"] >= 50.0
+    # id churns AGAIN immediately: 9 -> 12 inherits from 9 (which now holds
+    # the clock), not from the long-gone 5 twice over.
+    second = monitor.update(_person([80, 100, 120, 400], tracker_id=12),
+                            timestamp=52.0)[0]
+    assert second.dwell_seconds["shelf"] >= 51.0
+    print("PASS the dwell clock survives repeated id churn")
 
 
 def test_untracked_detection_has_no_dwell() -> None:

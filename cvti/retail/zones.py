@@ -152,9 +152,19 @@ class RetailZoneMonitor:
     track *enters* a zone and resets the moment it leaves.
     """
 
-    def __init__(self, zones: list[ZoneSpec], dwell_grace_seconds: float = 0.0) -> None:
+    # Production default (10 Sep 2026): every engine construction site ran at
+    # 0.0 — one dropped frame reset a 60s loiter timer — while only the CLI
+    # demo passed 1.5. At the detect cadence (~4fps) 2.5s tolerates ~10 absent
+    # frames; against a 60s threshold it cannot fabricate a loiterer, it only
+    # stops real ones being forgotten mid-dwell.
+    DWELL_GRACE_DEFAULT = 2.5
+
+    def __init__(self, zones: list[ZoneSpec],
+                 dwell_grace_seconds: float | None = None) -> None:
         self.zones = zones
-        self.dwell_grace_seconds = dwell_grace_seconds
+        self.dwell_grace_seconds = (self.DWELL_GRACE_DEFAULT
+                                    if dwell_grace_seconds is None
+                                    else dwell_grace_seconds)
         self._sv_zones: dict[str, sv.PolygonZone] = {
             z.name: sv.PolygonZone(polygon=z.polygon, triggering_anchors=z.anchors)
             for z in zones
@@ -165,6 +175,12 @@ class RetailZoneMonitor:
         # (tracker_id, zone_name) -> last timestamp the track was actually in the zone.
         # Lets dwell survive brief gaps (boundary jitter, 1-frame track loss) up to grace.
         self._last_in_zone: dict[tuple[int, str], float] = {}
+        # (tracker_id, zone_name) -> last box centre while in the zone. When the
+        # tracker loses a person behind an occlusion it hands back a NEW id —
+        # new id meant new timer, and the loiterer was forgotten mid-dwell. A
+        # new track appearing in the same zone within the grace window, at the
+        # spot a track just vanished from, INHERITS that track's entry time.
+        self._last_pos: dict[tuple[int, str], tuple[float, float, float]] = {}
 
     def update(self, detections: sv.Detections, timestamp: float) -> list[PersonZoneState]:
         n = len(detections)
@@ -189,8 +205,16 @@ class RetailZoneMonitor:
                     continue
                 key = (tid, name)
                 current_keys.add(key)
-                entered = self._entered_at.setdefault(key, timestamp)
+                if key not in self._entered_at:
+                    inherited = self._inherit_entry(key, bbox, timestamp,
+                                                    current_keys)
+                    self._entered_at[key] = (timestamp if inherited is None
+                                             else inherited)
+                entered = self._entered_at[key]
                 self._last_in_zone[key] = timestamp
+                cx = (bbox[0] + bbox[2]) / 2.0
+                cy = (bbox[1] + bbox[3]) / 2.0
+                self._last_pos[key] = (cx, cy, float(bbox[2] - bbox[0]))
                 dwell = max(0.0, timestamp - entered)
                 state.dwell_seconds[name] = dwell
                 threshold = self._spec_by_name[name].dwell_alert_seconds
@@ -208,8 +232,40 @@ class RetailZoneMonitor:
             if timestamp - last > self.dwell_grace_seconds:
                 del self._entered_at[key]
                 self._last_in_zone.pop(key, None)
+                self._last_pos.pop(key, None)
 
         return states
+
+    def _inherit_entry(self, key: tuple[int, str], bbox: tuple,
+                       timestamp: float, current_keys: set) -> float | None:
+        """A vanished track's entry time, if this NEW track is standing where
+        it stood.
+
+        ByteTrack hands an occluded person back under a fresh id; without this
+        the loiter timer restarted from zero every time. The donor must be the
+        SAME zone, absent from this frame, gone for at most the grace window,
+        and its last centre within ~one body-width of the new box — i.e. the
+        person visibly never left the spot. The donor is consumed so one
+        vanished track cannot seed two heirs."""
+        _, zone = key
+        cx = (bbox[0] + bbox[2]) / 2.0
+        cy = (bbox[1] + bbox[3]) / 2.0
+        width = max(1.0, float(bbox[2] - bbox[0]))
+        best_key, best_dist = None, None
+        for old_key, (ox, oy, ow) in self._last_pos.items():
+            if old_key == key or old_key[1] != zone or old_key in current_keys:
+                continue
+            if timestamp - self._last_in_zone.get(old_key, 0.0) > self.dwell_grace_seconds:
+                continue
+            dist = ((cx - ox) ** 2 + (cy - oy) ** 2) ** 0.5
+            if dist <= 1.2 * max(width, ow) and (best_dist is None or dist < best_dist):
+                best_key, best_dist = old_key, dist
+        if best_key is None:
+            return None
+        entered = self._entered_at.get(best_key)
+        for store in (self._entered_at, self._last_in_zone, self._last_pos):
+            store.pop(best_key, None)
+        return entered
 
     def annotate(
         self,
