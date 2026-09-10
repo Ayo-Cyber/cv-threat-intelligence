@@ -23,6 +23,13 @@ import sys
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    # A frozen app must NEVER pip-install at runtime. Without this, a missing
+    # optional dep (onnxruntime absent from the 1.8.8 Windows bundle) sent
+    # ultralytics' AutoUpdate off downloading wheels INSIDE the installed app
+    # at engine start — minutes of 100% CPU that read as "the engine is not
+    # starting" (Windows diagnostics, 10 Sep). Missing dep = clean fallback,
+    # visibly, never a runtime pip.
+    os.environ.setdefault("YOLO_AUTOINSTALL", "False")
     if getattr(sys, "frozen", False):
         os.chdir(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)))
     from cvti.serving.pipeline import main

@@ -155,6 +155,23 @@ jobs:
       - name: Fetch go2rtc gateway (Windows)
         if: runner.os == 'Windows'
         run: scripts\fetch_go2rtc.bat
+      # runs/ is gitignored, so a fresh CI checkout has NO VideoMAE weights —
+      # the spec's conditional silently skipped them and every installer ever
+      # built by CI shipped WITHOUT the video-action (theft) detector. Field
+      # diagnostics (10 Sep) surfaced it: "video-action detector configured
+      # but its model failed to load". The weights live on a non-v release tag
+      # (weights-videomae-b0.889) precisely so this step can fetch them.
+      - name: Fetch the VideoMAE video-action weights
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download weights-videomae-b0.889 --repo "$GITHUB_REPOSITORY"             --pattern "videomae-b0.889.zip" --output videomae.zip
+          mkdir -p runs/video_finetune
+          unzip -q videomae.zip -d runs/video_finetune
+          test -f runs/video_finetune/videomae/model.safetensors
+          rm videomae.zip
+
       - name: Export detectors to ONNX (W2)
         run: python scripts/export_onnx.py
 

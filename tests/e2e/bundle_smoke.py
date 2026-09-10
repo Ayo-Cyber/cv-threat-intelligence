@@ -47,6 +47,17 @@ def main(engine: str) -> int:
     tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
 
     problems = []
+    # The two silent bundle-rot failures the 10 Sep field diagnostics exposed —
+    # both were GREEN here while broken in every installer:
+    # 1. a lazily-imported dep missing from the bundle sends ultralytics'
+    #    AutoUpdate pip-installing at engine start (reads as "engine not
+    #    starting" in the field);
+    # 2. gitignored model weights silently absent -> a detector "configured
+    #    but failed to load" -> theft detection off on every install.
+    if "attempting AutoUpdate" in tail or "attempting AutoUpdate" in (proc.stdout or ""):
+        problems.append("the bundle is missing a dependency badly enough that "
+                        "ultralytics tried to PIP-INSTALL at runtime — a frozen "
+                        "app must never do that (collect the dep in argus.spec)")
     health = tmp / "gate_health.json"
     if not health.exists():
         problems.append("the engine never wrote /health")
@@ -57,6 +68,10 @@ def main(engine: str) -> int:
             problems.append("health reports no cameras")
         elif not any(c.get("state") == "connected" for c in cams):
             problems.append(f"no camera ever connected: {[c.get('state') for c in cams]}")
+        for reason in doc.get("reasons") or []:
+            if "failed to load" in str(reason):
+                problems.append(f"a configured detector could not load its "
+                                f"model inside the bundle: {reason}")
 
     frames = tmp / "frames.json"
     if not frames.exists():

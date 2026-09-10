@@ -148,8 +148,14 @@ class GatePool:
                         # How long the alert sat in the queue before a worker
                         # picked it up — on a starved box this, not inference,
                         # is usually the real "verification is slow".
-                        BOARD.observe("verify_wait", alert.camera_id,
-                                      max(0.0, (time.time() - alert.timestamp) * 1000.0))
+                        # Wall clock comes from the payload's enqueued_at:
+                        # alert.timestamp is often the FRAME time (seconds into
+                        # a stream), and now-minus-frame-time printed epoch-sized
+                        # waits in the field perf report (10 Sep diagnostics).
+                        _enq = p.get("enqueued_at") or None
+                        if _enq:
+                            BOARD.observe("verify_wait", alert.camera_id,
+                                          max(0.0, (time.time() - _enq) * 1000.0))
                         _t0 = time.monotonic()
                         result = gate.verify(p.get("frames"), candidate, p.get("scene"),
                                              examples=examples)
