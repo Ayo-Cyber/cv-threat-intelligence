@@ -103,9 +103,13 @@ class WiringTests(unittest.TestCase):
         queue = AlertQueue()
         queue.add(QueuedAlert(camera_id="wire-gate-cam", rule_name="r",
                               priority="high", title="t",
-                              timestamp=time.time() - 0.5,     # sat 500ms queued
+                              timestamp=time.time() - 0.5,
+                              # wall-clock queue entry: verify_wait reads
+                              # enqueued_at, never alert.timestamp — frame
+                              # times printed epoch-sized waits in the field
                               payload={"candidate": Cand(), "frames": [],
-                                       "scene": {}}))
+                                       "scene": {},
+                                       "enqueued_at": time.time() - 0.5}))
         done = []
         pool = GatePool(queue, gate_factory=SlowGate, workers=1,
                         on_verdict=lambda a, r: done.append(1)).start()

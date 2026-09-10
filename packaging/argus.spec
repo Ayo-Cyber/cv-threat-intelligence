@@ -140,11 +140,21 @@ app_a = Analysis(
 # ---------------------------------------------------------------------------
 # The engine. Everything the pipeline imports lazily or via strings.
 # ---------------------------------------------------------------------------
+# onnxruntime is imported LAZILY inside ultralytics' autobackend, so
+# PyInstaller's static analysis never sees it — the 1.8.8 Windows bundle
+# shipped WITHOUT it, the engine could not load the W2 ONNX path, and
+# ultralytics' AutoUpdate tried to pip-install into the frozen app at every
+# start (field diagnostics, 10 Sep). collect_all drags the package AND its
+# native DLLs (incl. the DirectML provider on Windows) into the bundle.
+from PyInstaller.utils.hooks import collect_all as _collect_all
+_ort_datas, _ort_bins, _ort_hidden = _collect_all("onnxruntime")
+
 engine_a = Analysis(
     [os.path.join(ROOT, "packaging", "engine_entry.py")],
     pathex=[ROOT],
-    datas=[],                      # shared datas ride with the app Analysis
-    hiddenimports=[
+    datas=_ort_datas,              # shared datas ride with the app Analysis
+    binaries=_ort_bins,
+    hiddenimports=_ort_hidden + [
         "cvti.serving.pipeline",
         # ultralytics internals reached by name
         "ultralytics", "ultralytics.models.yolo", "ultralytics.models.yolo.detect",
