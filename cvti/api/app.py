@@ -156,7 +156,18 @@ def create_app(*, db_path: str = "runs/site/events.db",
                      limit: int = Query(50, ge=1, le=200),
                      cursor: Optional[int] = Query(None),
                      camera: Optional[str] = Query(None),
-                     priority: Optional[str] = Query(None)):
+                     priority: Optional[str] = Query(None),
+                     q: Optional[str] = Query(None)):
+        # `GET /events?q=` is the contract's search row — the backend method
+        # (search_events) enforces view_alerts itself, like every write row.
+        if q:
+            from cvti.security.permissions import PermissionDenied
+            try:
+                return app.state.backend_host.call(principal, "search_events",
+                                                   query=q, limit=limit)
+            except PermissionDenied as exc:
+                return _error(403, "forbidden", str(exc),
+                              {"permission": exc.permission})
         return sources.read_events(app.state.db_path, limit=limit, cursor=cursor,
                                    camera=camera, priority=priority)
 
@@ -222,6 +233,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
         await _send(ws, "triage", sources.read_triage(db))
         last_id = sources.max_event_id(db)
         last_health_gen = (sources.read_health(db).get("generated_at"))
+        last_reviews = sources.review_states(db)
         try:
             while True:
                 await asyncio.sleep(1.0)
@@ -233,6 +245,16 @@ def create_app(*, db_path: str = "runs/site/events.db",
                         if int(ev["id"].removeprefix("evt_")) > last_id:
                             await _send(ws, "alert.new", ev)
                     last_id = newest
+                # settled/relabeled alerts (the contract's alert.update promise):
+                # an ack/resolve or a fast-path verdict settling changes the
+                # review column — push the full refreshed event for each change.
+                reviews = sources.review_states(db)
+                for eid, state in reviews.items():
+                    if last_reviews.get(eid, "") != state and eid <= last_id:
+                        got = sources.read_event(db, f"evt_{eid}")
+                        if got is not None:
+                            await _send(ws, "alert.update", got)
+                last_reviews = reviews
                 # health refresh
                 doc = sources.read_health(db)
                 if doc.get("generated_at") != last_health_gen:
@@ -246,6 +268,27 @@ def create_app(*, db_path: str = "runs/site/events.db",
                 await ws.close()
             except Exception:  # noqa: BLE001
                 log.debug("websocket close after error also failed", exc_info=True)
+
+    # ---- W4 write-side: every remaining contract row, one table ----------
+    from cvti.api.writes import _ApiBackend, register_writes
+    host = _ApiBackend(site_path=app.state.site_path, db_path=app.state.db_path)
+    app.state.backend_host = host
+    register_writes(app, host, require_principal, API_PREFIX, _error)
+
+    @app.get(f"{API_PREFIX}/events/{{event_id}}/clip")
+    async def event_clip(event_id: str, principal=Depends(require_principal)):
+        got = sources.read_event(app.state.db_path, event_id)
+        if got is None:
+            return _error(404, "not_found", f"no such event '{event_id}'")
+        from cvti.security.permissions import PermissionDenied
+        try:
+            return host.call(principal, "event_clip",
+                             evidence_dir=got.get("evidence", {}).get("dir")
+                             if isinstance(got.get("evidence"), dict)
+                             else got.get("evidence_dir"))
+        except PermissionDenied as exc:
+            return _error(403, "forbidden", str(exc),
+                          {"permission": exc.permission})
 
     register_index(app, mock=False)
     return app

@@ -173,6 +173,26 @@ def read_event(db_path: str, event_id: str) -> dict | None:
     return _to_api_event(dict(row)) if row else None
 
 
+def review_states(db_path: str, limit: int = 300) -> dict[int, str]:
+    """id -> review label for the most recent events — the alert.update diff.
+
+    A change in an event's review column (operator ack/resolve, or the fast
+    path settling a provisional verdict in place) is exactly what a WS client
+    cannot see from alert.new alone; the stream loop diffs this map and emits
+    alert.update for rows that changed."""
+    if not Path(db_path).exists():
+        return {}
+    try:
+        con = _connect(db_path)
+        rows = con.execute(
+            "SELECT id, review FROM events ORDER BY id DESC LIMIT ?",
+            (limit,)).fetchall()
+        con.close()
+        return {int(r[0]): (r[1] or "") for r in rows}
+    except sqlite3.OperationalError:
+        return {}
+
+
 def read_triage(db_path: str) -> dict:
     """Counts for the triage header: to-review, total, and a priority split."""
     if not Path(db_path).exists():
