@@ -185,10 +185,12 @@ def review_states(db_path: str, limit: int = 300) -> dict[int, str]:
     try:
         con = _connect(db_path)
         rows = con.execute(
-            "SELECT id, review FROM events ORDER BY id DESC LIMIT ?",
+            "SELECT id, review, reason FROM events ORDER BY id DESC LIMIT ?",
             (limit,)).fetchall()
         con.close()
-        return {int(r[0]): (r[1] or "") for r in rows}
+        # review AND reason: an async enrichment (annotate_event) changes only
+        # the reason — that must reach WS clients as alert.update too.
+        return {int(r[0]): f"{r[1] or ''}|{len(r[2] or '')}" for r in rows}
     except sqlite3.OperationalError:
         return {}
 

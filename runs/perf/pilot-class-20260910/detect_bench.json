@@ -1,0 +1,20 @@
+Loading models\yolov8n.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.30.0 with CPUExecutionProvider
+{
+  "provider": "CPUExecutionProvider",
+  "rows": {
+    "b1": {
+      "torch_cpu_ms": 79.2,
+      "onnx_ms": 79.3,
+      "speedup": 1.0
+    },
+    "b4": {
+      "torch_cpu_ms": 62.0,
+      "onnx_ms": 60.1,
+      "speedup": 1.03
+    }
+  },
+  "best_speedup": 1.03,
+  "meets_2x": false,
+  "criterion_measurable_here": false
+}

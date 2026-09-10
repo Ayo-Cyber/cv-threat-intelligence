@@ -494,6 +494,36 @@ class VerificationGate:
         self._latency_ema = (elapsed if self._latency_ema is None
                              else 0.3 * elapsed + 0.7 * self._latency_ema)
 
+    def describe(self, frame: Any, alert: "CandidateAlert") -> str:
+        """A 1-2 sentence English description of a BYPASSED alert's evidence.
+
+        The bypass tier fires deterministic/measured-clean alerts instantly —
+        no VLM gating — which also means no English 'what the model saw'. This
+        runs AFTER the alert has already fired (W5 async enrichment): its
+        output annotates the event via alert.update, and its failure costs
+        nothing but the description. Never confuse it with verification: it
+        cannot reject, demote, or delay anything.
+        """
+        prompt = (
+            "You are annotating a CONFIRMED security alert for the operator's "
+            "record. In one or two short sentences, describe what is happening "
+            "in the image(s): who is visible, where they are, what they are "
+            f"doing. The alert was: {getattr(alert, 'title', alert.rule_name)}. "
+            "Plain text only — no JSON, no preamble."
+        )
+        frames = frame if isinstance(frame, list) else [frame]
+        frames_bytes = [_encode_frame(f) for f in frames if f is not None]
+        if not frames_bytes:
+            return ""
+        try:
+            raw = self._call_provider(prompt, frames_bytes, alert)
+        except Exception:  # noqa: BLE001 - enrichment is strictly best-effort
+            log.debug("describe() call failed; alert stays unannotated",
+                      exc_info=True)
+            return ""
+        text = (raw or "").strip().strip('"')
+        return text[:400]
+
     def _call_provider(self, prompt: str, frames_bytes: list[bytes], alert: Any) -> str:
         max_tokens = self.MAX_TOKENS_COT if self.cot else self.MAX_TOKENS_JSON
         started = time.monotonic()

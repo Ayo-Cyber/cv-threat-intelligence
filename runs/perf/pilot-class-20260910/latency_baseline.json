@@ -1,0 +1,22 @@
+{
+  "source": "synthetic",
+  "transport": "mjpeg (multipart/x-mixed-replace)",
+  "camera_to_engine_ms": {
+    "count": 302,
+    "p50_ms": 146.4,
+    "p95_ms": 173.5,
+    "max_ms": 292.5,
+    "mean_ms": 147.4
+  },
+  "glass_to_glass_ms": {
+    "count": 304,
+    "p50_ms": 179.0,
+    "p95_ms": 207.4,
+    "max_ms": 412.4,
+    "mean_ms": 182.7
+  },
+  "wall_overhead_p50_ms": 32.6,
+  "client_fps": 15.2,
+  "perf_report": "runs\\latency_baseline\\perf_report.json",
+  "slo_ms": 300
+}
