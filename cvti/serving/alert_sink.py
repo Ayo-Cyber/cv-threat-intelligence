@@ -530,9 +530,9 @@ class AlertSink:
             log.warning("[gate unavailable] %s :: %s — %s",
                         alert.camera_id, alert.rule_name, result.error)
         if not result.confirmed:
-            return
+            return None
         try:
-            self._persist(alert, result)
+            return self._persist(alert, result)
         except Exception as exc:  # noqa: BLE001 - persistence must not kill the gate
             log.error(f"[alert-sink error] {str(exc)[:140]}", exc_info=True)
 
@@ -651,7 +651,33 @@ class AlertSink:
         elif frames:
             self._write_clip(ev_dir / "clip.mp4", frames)
 
-    def _persist(self, alert: Any, result: Any) -> None:
+    def annotate_event(self, event_id: int, description: str) -> bool:
+        """Append a late-arriving English description to a stored event.
+
+        The async enrichment path (W5): bypassed alerts fire instantly with a
+        mechanical reason; the VLM's description arrives afterwards and lands
+        here. The API's stream loop watches the reason column, so this UPDATE
+        is what becomes the client's alert.update. Never touches review,
+        priority, or evidence — it adds words, nothing else."""
+        if not description:
+            return False
+        try:
+            with self._lock:
+                row = self._db.execute(
+                    "SELECT reason FROM events WHERE id=?", (event_id,)).fetchone()
+                if row is None:
+                    return False
+                base = (row[0] or "").split(" · TrueSight:")[0]
+                self._db.execute(
+                    "UPDATE events SET reason=? WHERE id=?",
+                    (f"{base} · TrueSight: {description}", event_id))
+                self._db.commit()
+            return True
+        except Exception:  # noqa: BLE001 - annotation must never cost anything
+            log.debug("event annotation failed for id %s", event_id, exc_info=True)
+            return False
+
+    def _persist(self, alert: Any, result: Any) -> int | None:
         ts = time.time()
         iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ts))
         stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(ts))
@@ -722,6 +748,7 @@ class AlertSink:
             # Routed to the channels this alert's rule names; registers escalation
             # if nobody acknowledges it in time.
             self._dispatch(event, event_id)
+        return event_id
 
     def _write_video_clip(self, path: Path, jpeg_frames: list, src_fps: float,
                           container_fps: int = 24) -> None:

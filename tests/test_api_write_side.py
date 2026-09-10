@@ -158,12 +158,16 @@ class AlertUpdateDiffTest(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         db = tmp / "events.db"
         con = sqlite3.connect(db)
-        con.execute("CREATE TABLE events (id INTEGER PRIMARY KEY, review TEXT)")
-        con.execute("INSERT INTO events (id, review) VALUES (1, NULL), (2, 'ack')")
+        con.execute("CREATE TABLE events (id INTEGER PRIMARY KEY, review TEXT, "
+                    "reason TEXT)")
+        con.execute("INSERT INTO events (id, review, reason) VALUES "
+                    "(1, NULL, NULL), (2, 'ack', 'seen')")
         con.commit(); con.close()
         from cvti.api.sources import review_states
         states = review_states(str(db))
-        self.assertEqual(states, {1: "", 2: "ack"})
+        # review AND reason length: an enrichment that only extends the reason
+        # must still change the state string (that IS alert.update's trigger)
+        self.assertEqual(states, {1: "|0", 2: "ack|4"})
 
     def test_no_db_is_an_empty_map_not_a_crash(self):
         from cvti.api.sources import review_states

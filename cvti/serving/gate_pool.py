@@ -55,7 +55,8 @@ class GatePool:
                  workers: int = 1, min_interval: float = 0.0,
                  on_verdict: VerdictHandler | None = None,
                  examples_provider: Callable[[str, str], list] | None = None,
-                 bypass: set[str] | None = None) -> None:
+                 bypass: set[str] | None = None,
+                 enrich_bypassed: bool = True) -> None:
         self.queue = queue
         self.gate_factory = gate_factory
         self.workers = max(1, workers)
@@ -64,6 +65,16 @@ class GatePool:
         # explicit site-file choice.
         self.bypass = BYPASS_DETECTORS | (MEASURED_BYPASS if bypass is None
                                           else set(bypass))
+        # W5 async enrichment: a bypassed alert fires instantly but carries no
+        # English description. When the queue is IDLE, a worker describes the
+        # newest bypassed alerts after the fact and the sink annotates the
+        # stored event (delivered to clients as alert.update). Strictly
+        # best-effort and strictly second-class: a pending verification always
+        # wins the worker, and a full deque just forgets the oldest job.
+        self.enrich_bypassed = enrich_bypassed
+        from collections import deque as _deque
+        self._enrich_jobs: _deque = _deque(maxlen=16)
+        self.enriched = 0
         self.min_interval = min_interval
         self.on_verdict = on_verdict or self._default_verdict
         # feedback loop: (camera, rule) -> recent operator-labeled examples for the gate
@@ -121,12 +132,39 @@ class GatePool:
             reason=f"{getattr(candidate, 'title', alert.rule_name)} — {why}.",
             alert_priority=alert.priority, timestamp=time.time(), raw_response="bypass")
 
+    def _enrich_one(self, gate: Any) -> bool:
+        """Describe ONE bypassed alert while the verification queue is idle.
+
+        Returns False when there was nothing to do (the worker sleeps as
+        before). Runs on the worker's own gate; any failure is logged at
+        debug and the job is simply dropped — enrichment must never page,
+        never gate, never keep a worker from real verdicts."""
+        if not self.enrich_bypassed or not self._enrich_jobs:
+            return False
+        describe = getattr(gate, "describe", None)
+        annotate = getattr(self.on_verdict, "__self__", None)
+        annotate = getattr(annotate, "annotate_event", None)
+        if describe is None or annotate is None:
+            self._enrich_jobs.clear()
+            return False
+        event_id, frames, candidate = self._enrich_jobs.popleft()
+        try:
+            text = describe(frames, candidate)
+            if text:
+                annotate(event_id, text)
+                self.enriched += 1
+        except Exception:  # noqa: BLE001 - best-effort by contract
+            log.debug("bypass enrichment failed for event %s", event_id,
+                      exc_info=True)
+        return True
+
     def _worker(self) -> None:
         gate = self.gate_factory()
         while not self._stop.is_set():
             batch = self.queue.drain(max_per_drain=1)
             if not batch:
-                self._stop.wait(0.05)
+                if not self._enrich_one(gate):
+                    self._stop.wait(0.05)
                 continue
             for alert in batch:
                 # payload = {"candidate": CandidateAlert, "frames": [...], "scene": {...}}
@@ -188,7 +226,11 @@ class GatePool:
                     result = None
                 finally:
                     self._active -= 1
-                self.on_verdict(alert, result)
+                event_id = self.on_verdict(alert, result)
+                if (self.enrich_bypassed and event_id
+                        and getattr(result, "raw_response", "") == "bypass"):
+                    self._enrich_jobs.append(
+                        (event_id, p.get("frames"), p.get("candidate")))
                 if self.min_interval:
                     self._stop.wait(self.min_interval)
 

@@ -873,6 +873,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         on_verdict=sink.handle,
         examples_provider=_examples_provider,
         bypass=bypass_from_site(site),
+        # site kill switch, same shape as the tier's: "enrich_bypassed": false
+        enrich_bypassed=bool(site.get("enrich_bypassed", True)),
     ).start()
 
     # The UI reads frames from here instead of opening every stream a second time
