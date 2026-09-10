@@ -1,0 +1,14 @@
+{
+ "person": {
+  "n": 102,
+  "at640": 75,
+  "recovered_at_1280": 7,
+  "projected": 82
+ },
+ "intrusion": {
+  "n": 165,
+  "at640": 98,
+  "recovered_at_1280": 17,
+  "projected": 115
+ }
+}
