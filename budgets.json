@@ -1,0 +1,69 @@
+{
+  "_comment": "The v1.9 acceptance backbone (charter SLO table). Every number here is either MEASURED (with its evidence file) or explicitly unmeasured with its venue named. tools/budget_check.py asserts the measurable ones and fails CI/soak on regression \u2014 a budget without an enforcer is a wish.",
+  "budgets": {
+    "glass_to_glass_p50_ms": {
+      "target": 300,
+      "direction": "max",
+      "owner": "W1",
+      "evidence": "runs/perf/pilot-class-20260910/latency_baseline.json",
+      "evidence_key": "glass_to_glass_ms.p50_ms",
+      "measured": 179.0,
+      "venue": "pilot-class windows-latest (CI perf lane)"
+    },
+    "detect_speedup_vs_torch_cpu": {
+      "target": 2.0,
+      "direction": "min",
+      "owner": "W2",
+      "measured": null,
+      "venue": "DirectML-capable Windows box \u2014 first v1.8.9 field Diagnose zip; CI has no GPU (bench reports criterion_measurable_here=false)"
+    },
+    "object_rule_answer_ms": {
+      "target": 100,
+      "direction": "max",
+      "owner": "W3",
+      "evidence": "runs/eval/attr/scorecard.json",
+      "evidence_key": "median_ms",
+      "measured": 53.0,
+      "venue": "dev CPU over real CCTV frames"
+    },
+    "verify_verdict_p95_s_capable": {
+      "target": 30,
+      "direction": "max",
+      "owner": "W5",
+      "measured": null,
+      "venue": "field Diagnose zip on a capable box (v1.8.9+)"
+    },
+    "verify_verdict_p95_s_minspec": {
+      "target": 90,
+      "direction": "max",
+      "owner": "W5",
+      "measured": null,
+      "venue": "field Diagnose zip on the pilot 4-core box (v1.8.9+)"
+    },
+    "alert_on_screen_s": {
+      "target": 2,
+      "direction": "max",
+      "owner": "sink",
+      "measured": null,
+      "venue": "soak run (engine event ts -> events.db row ts)",
+      "evidence": "runs/soak/soak_report.json",
+      "evidence_key": "alert_on_screen_p95_s"
+    },
+    "english_rule_live_s": {
+      "target": 15,
+      "direction": "max",
+      "owner": "scanner",
+      "measured": null,
+      "venue": "soak run (rule write -> first scan covering it)"
+    },
+    "silent_failures": {
+      "target": 0,
+      "direction": "max",
+      "owner": "W7",
+      "measured": null,
+      "venue": "soak run (engine exit + health reasons + log ERROR scan)",
+      "evidence": "runs/soak/soak_report.json",
+      "evidence_key": "silent_failures"
+    }
+  }
+}
