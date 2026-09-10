@@ -1,0 +1,56 @@
+# The W7 soak — hours of real engine on the pilot-class runner, verdict by
+# budgets.json. GitHub caps jobs at 6h, so the standard run is 5h; the full
+# 12h story is two of these back to back (or the ~$2.50 cloud-VM recipe in
+# the W7 notes) — a regression that takes >5h to show is rare enough that
+# the 5h gate catches what matters per release.
+name: Soak (pilot-class runner)
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "soak duration in minutes"
+        default: "300"
+
+jobs:
+  soak:
+    runs-on: windows-latest        # 4 vCPU / 16 GB — pilot-class
+    timeout-minutes: 355
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install deps (CPU torch + requirements)
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.8.0 torchvision==0.23.0
+          pip install -r requirements.txt psutil
+          pip uninstall -y opencv-python
+          pip install "opencv-python-headless==4.13.0.92"
+      - name: ffmpeg (the looped camera)
+        run: |
+          choco install ffmpeg -y --no-progress
+          echo "/c/ProgramData/chocolatey/bin" >> "$GITHUB_PATH"
+      - name: Soak
+        run: |
+          python tests/e2e/soak.py \
+            --minutes "${{ github.event.inputs.minutes || '300' }}" \
+            --out runs/soak
+      - name: Assert the budgets
+        run: python tools/budget_check.py --evidence runs/soak
+      - name: Upload soak evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-${{ github.run_number }}
+          path: |
+            runs/soak/soak_report.json
+            runs/soak/engine.log
+            runs/soak/gate_health.json
+          if-no-files-found: warn

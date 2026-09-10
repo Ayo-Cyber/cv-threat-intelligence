@@ -1706,6 +1706,7 @@ class ConsoleBackend:
             return {"running": True, "pid": self._monitor.pid, "already": True}
         self._monitor_should_run = True
         self._restarts = 0
+        self._crash_looped = False
         self._monitor = self._spawn_engine()
         self._start_watchdog()
         return {"running": True, "pid": self._monitor.pid}
@@ -1736,11 +1737,35 @@ class ConsoleBackend:
                     started = time.time()
                     if self._restarts < max_restarts:
                         self._restarts += 1
-                        log.info(f"[watchdog] engine exited unexpectedly — restarting "
-                              f"({self._restarts}/{max_restarts})")
+                        # Exponential backoff (W7): a crash-looping engine used
+                        # to respawn every 3s — five failures in fifteen
+                        # seconds, each one thrashing the box (model loads,
+                        # Ollama bring-up) and making the NEXT crash likelier.
+                        # 3s -> 6 -> 12 -> 24 -> 48 gives a transient cause
+                        # (port in use, camera rebooting) time to clear.
+                        delay = min(3 * (2 ** (self._restarts - 1)), 60)
+                        log.warning(
+                            f"[watchdog] engine exited unexpectedly (code "
+                            f"{self._last_exit_code}) — restart "
+                            f"{self._restarts}/{max_restarts} in {delay}s")
+                        deadline = time.time() + delay
+                        while (time.time() < deadline
+                               and getattr(self, "_monitor_should_run", False)):
+                            time.sleep(0.5)
+                        if not getattr(self, "_monitor_should_run", False):
+                            break
                         self._monitor = self._spawn_engine()
                     else:
-                        log.info("[watchdog] engine died too many times — giving up")
+                        # The circuit breaker LATCHES and says why — a
+                        # monitoring product must never fail into silence
+                        # (the pilot's black-wall day, 29 Aug).
+                        log.error(
+                            f"[watchdog] engine crash loop: {max_restarts} "
+                            f"unexpected exits, last code "
+                            f"{self._last_exit_code} — GIVING UP. "
+                            "monitoring_status carries the exit code and the "
+                            "log tail; the Diagnose bundle has the rest.")
+                        self._crash_looped = True
                         self._monitor_should_run = False
 
         self._watchdog = threading.Thread(target=loop, name="engine-watchdog", daemon=True)
@@ -1759,6 +1784,11 @@ class ConsoleBackend:
         self._close_engine_log()
         return {"running": False}
 
+    @property
+    def crash_looped(self) -> bool:
+        """The watchdog's circuit breaker latched: N unexpected exits."""
+        return bool(getattr(self, "_crash_looped", False))
+
     def monitoring_status(self) -> dict:
         """Running or not — and when not, WHY, on screen.
 
@@ -1773,6 +1803,10 @@ class ConsoleBackend:
         if not running and self._monitor is not None:
             out["exit_code"] = self._monitor.poll()
             out["gave_up"] = not getattr(self, "_monitor_should_run", False)
+            # the latched breaker is its own named state: 'stopped' can mean
+            # the operator clicked Stop; 'crash_looped' never does
+            out["crash_looped"] = self.crash_looped
+            out["restarts"] = getattr(self, "_restarts", 0)
             out["log_path"], out["last_error"] = self._engine_log_tail()
         # A PID is not monitoring. The engine proves it is working by writing
         # gate_health.json every few seconds; a process that exists but has
