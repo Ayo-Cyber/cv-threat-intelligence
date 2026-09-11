@@ -22,6 +22,7 @@ from urllib import request as urlrequest
 import cv2
 
 from cvti.contracts import LOCAL_VLM_MODEL, CandidateAlert, VerificationResult
+from cvti.verification.vlm_slot import VLMBusy
 
 from cvti.logging_setup import get_logger
 
@@ -347,6 +348,12 @@ class VerificationGate:
     LOCAL_MAX_RETRIES = 1
     TIMEOUT_FLOOR_S = 90.0
     TIMEOUT_CEIL_S = 360.0
+    # Frames per verdict on a LOCAL model (11 Sep pilot): the vision tower
+    # pays per image, so a CPU box gets two — one full frame for context plus
+    # the LAST image, which is where the evidence builder appends the zoomed
+    # subject crop that decides appearance verdicts (W5). Site override:
+    # "gate_max_frames".
+    LOCAL_MAX_FRAMES = 2
     # Conventional API-key env var per provider.
     DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY",
                        "ollama": "OLLAMA_API_KEY"}
@@ -362,8 +369,18 @@ class VerificationGate:
         min_confidence: float = 0.35,
         sensitivity: str = "balanced",
         fail_visible: bool | None = None,
+        max_frames: int | None = None,
+        slot_mode: str = "wait",
     ) -> None:
         self.provider = provider
+        # How many evidence frames go to the MODEL (evidence on disk stays
+        # complete). None = derive: local providers get LOCAL_MAX_FRAMES —
+        # every extra image multiplies vision-tower time on a CPU box, and
+        # the 11 Sep pilot needed >360s per multi-frame verdict. 0 = no cap.
+        self.max_frames = max_frames
+        # "wait" holds the process-wide VLM slot; "skip" raises VLMBusy when
+        # it's taken (the self-test's gate — a probe should yield, not queue).
+        self.slot_mode = slot_mode if slot_mode in ("wait", "skip") else "wait"
         self.cot = cot
         # Configurable, because a low-stakes deployment drowning in unverified
         # alerts may reasonably choose otherwise. Default is fail-visible.
@@ -431,12 +448,30 @@ class VerificationGate:
             prompt += mem
 
         frames = frame if isinstance(frame, list) else [frame]
+        cap = self.max_frames
+        if cap is None:
+            cap = self.LOCAL_MAX_FRAMES if self.provider in ("ollama", "local") else 0
+        if cap and len(frames) > cap:
+            # The LAST image always survives the cap — evidence builders
+            # append the zoomed subject crop there, and it is the frame that
+            # decides appearance verdicts. The rest sample the window evenly.
+            head, tail = frames[:-1], frames[-1]
+            k = cap - 1
+            if k <= 0:
+                frames = [tail]
+            elif k == 1:
+                frames = [head[len(head) // 2], tail]
+            else:
+                step = (len(head) - 1) / (k - 1)
+                frames = [head[round(i * step)] for i in range(k)] + [tail]
         frames_bytes = [_encode_frame(f) for f in frames]
 
         try:
             raw_response = self._call_provider(prompt, frames_bytes, alert)
         except UnsupportedProvider:
             raise                       # a config bug, not a transport blip
+        except VLMBusy:
+            raise                       # a skipped cycle, not a transport failure
         except Exception as exc:  # noqa: BLE001 - transport failure is not a verdict
             log.warning("gate transport failed; alert will be surfaced UNVERIFIED", exc_info=True)
             # Ollama down, model not pulled, request timed out. Previously this
@@ -549,7 +584,8 @@ class VerificationGate:
             raw_response = _call_ollama(prompt, frames_bytes, self.model, self.api_key_env,
                                         base_url=self.base_url, max_tokens=max_tokens,
                                         max_retries=self.LOCAL_MAX_RETRIES,
-                                        timeout=self.transport_timeout())
+                                        timeout=self.transport_timeout(),
+                                        slot_mode=self.slot_mode)
         else:
             raise UnsupportedProvider(f"Unsupported provider: {self.provider}")
 
@@ -581,7 +617,8 @@ def _mock_response(alert: CandidateAlert) -> str:
 
 def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env: str,
                  base_url: str = "", max_tokens: int | None = None,
-                 max_retries: int = 3, timeout: float = 360.0) -> str:
+                 max_retries: int = 3, timeout: float = 360.0,
+                 slot_mode: str = "wait") -> str:
     """Verify via a LOCAL Ollama server — offline, on-device (the edge gate path).
 
     Ollama exposes an OpenAI-compatible API at localhost:11434 and ignores auth, so we
@@ -602,6 +639,7 @@ def _call_ollama(prompt: str, frames_bytes: list[bytes], model: str, api_key_env
         max_tokens=max_tokens,
         max_retries=max_retries,
         timeout=timeout,
+        slot_mode=slot_mode,
     )
 
 

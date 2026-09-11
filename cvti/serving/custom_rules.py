@@ -18,6 +18,7 @@ import threading
 import time
 from pathlib import Path
 from cvti.logging_setup import get_logger
+from cvti.verification.vlm_slot import VLMBusy
 
 log = get_logger(__name__)
 
@@ -397,6 +398,11 @@ class CustomRuleScanner:
         try:
             hits = self._check_all(c, frame)
             self._record(c, hits)
+        except VLMBusy as exc:
+            # Not an error: the verifier holds the local VLM. A yielded scan
+            # is an OUTCOME — record it like the no-frames skip above.
+            self._record_skip(c, f"verifier busy — scan yielded ({str(exc)[:80]})")
+            return
         except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
             log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
             self._record(c, None, error=str(exc)[:200])
@@ -747,10 +753,13 @@ class CustomRuleScanner:
         # every ~12s anyway, and alert verifies must never find every Ollama
         # slot held by a scan that is being patient. A failed cycle is what
         # the adaptive backoff and the heartbeat file are for.
+        # slot_mode="skip": the scanner reruns every ~12s, so when a verify
+        # holds the local VLM this cycle simply yields instead of piling a
+        # third request onto a saturated CPU (11 Sep pilot collapse).
         raw = call_openai_compatible(prompt=prompt, frame_bytes=buf.tobytes(), model=self.model,
                                      api_key_env="OLLAMA_API_KEY", api_base_url=self.base_url,
                                      require_key=False, max_tokens=320,
-                                     max_retries=0, timeout=120.0)
+                                     max_retries=0, timeout=120.0, slot_mode="skip")
         m = re.search(r"\{.*\}", raw or "", re.S)
         if not m:
             return []

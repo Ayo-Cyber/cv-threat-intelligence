@@ -51,6 +51,17 @@ def bypass_from_site(site: dict) -> set[str] | None:
 
 
 class GatePool:
+    # Circuit breaker (11 Sep pilot collapse): each transport timeout burns the
+    # gate's FULL ceiling (up to 360s) of saturated CPU, and on a box where the
+    # model can never answer in time, every queued alert pays it again — 16
+    # alerts were waiting behind verdicts that were never going to land. After
+    # BREAKER_AFTER consecutive transport failures the pool stops calling the
+    # model: pending alerts surface UNVERIFIED instantly (fail-visible, same as
+    # a timeout, minus the six minutes) and detection gets its CPU back. After
+    # the cooldown ONE probe verify goes through; success closes the breaker.
+    BREAKER_AFTER = 2
+    BREAKER_COOLDOWN_S = 600.0
+
     def __init__(self, queue: AlertQueue, *, gate_factory: Callable[[], Any],
                  workers: int = 1, min_interval: float = 0.0,
                  on_verdict: VerdictHandler | None = None,
@@ -104,6 +115,12 @@ class GatePool:
         # verdict is the model thinking, a slow median is a saturated gate.
         from collections import deque
         self._latencies: deque = deque(maxlen=50)
+        # breaker state (guarded by _breaker_lock: workers race on it)
+        self._breaker_lock = threading.Lock()
+        self._consec_transport = 0
+        self._breaker_opened_at = 0.0
+        self._breaker_probing = False
+        self.breaker_trips = 0
 
     def start(self) -> "GatePool":
         for i in range(self.workers):
@@ -132,6 +149,62 @@ class GatePool:
             reason=f"{getattr(candidate, 'title', alert.rule_name)} — {why}.",
             alert_priority=alert.priority, timestamp=time.time(), raw_response="bypass")
 
+    # ---- circuit breaker ---------------------------------------------------
+
+    def _breaker_blocks(self) -> bool:
+        """True when this verify should NOT reach the model.
+
+        Closed -> False. Open -> True until the cooldown elapses, then exactly
+        one worker gets through as the half-open probe; everyone else keeps
+        getting blocked until that probe reports back.
+        """
+        with self._breaker_lock:
+            if self._consec_transport < self.BREAKER_AFTER:
+                return False
+            if time.time() - self._breaker_opened_at < self.BREAKER_COOLDOWN_S:
+                return True
+            if self._breaker_probing:
+                return True
+            self._breaker_probing = True    # this caller is the probe
+            return False
+
+    def _breaker_note(self, result: Any) -> None:
+        """Feed a verdict's outcome back into the breaker."""
+        transport_failed = bool(result is not None and getattr(result, "errored", False)
+                                and str(getattr(result, "error", "")).startswith("transport:"))
+        with self._breaker_lock:
+            self._breaker_probing = False
+            if not transport_failed:
+                if self._consec_transport >= self.BREAKER_AFTER:
+                    log.warning("[gate breaker] closed — the model is answering again")
+                self._consec_transport = 0
+                self._breaker_opened_at = 0.0
+                return
+            self._consec_transport += 1
+            if self._consec_transport >= self.BREAKER_AFTER:
+                self._breaker_opened_at = time.time()
+                self.breaker_trips += 1
+                log.error(
+                    "[gate breaker] OPEN after %d consecutive transport failures — "
+                    "verification paused for %.0fs; alerts surface UNVERIFIED "
+                    "instantly instead of each burning a full timeout",
+                    self._consec_transport, self.BREAKER_COOLDOWN_S)
+
+    def _breaker_open(self) -> bool:
+        with self._breaker_lock:
+            return self._consec_transport >= self.BREAKER_AFTER
+
+    def _breaker_result(self, candidate: Any, alert: QueuedAlert) -> Any:
+        """The instant fail-visible verdict handed out while the breaker is open."""
+        from cvti.contracts import VerificationResult
+        from cvti.verification.gate import UNVERIFIED_REASON
+        return VerificationResult(
+            confirmed=True, confidence=0.0,
+            reason=UNVERIFIED_REASON,
+            alert_priority=alert.priority, timestamp=time.time(), raw_response="",
+            error=(f"breaker: open after {self._consec_transport} consecutive "
+                   "transport failures — verify skipped, alert surfaced unverified"))
+
     def _enrich_one(self, gate: Any) -> bool:
         """Describe ONE bypassed alert while the verification queue is idle.
 
@@ -140,6 +213,10 @@ class GatePool:
         debug and the job is simply dropped — enrichment must never page,
         never gate, never keep a worker from real verdicts."""
         if not self.enrich_bypassed or not self._enrich_jobs:
+            return False
+        if self._breaker_open():
+            # No opportunistic VLM work while the model can't even answer
+            # verdicts — enrichment would burn the same doomed timeout.
             return False
         describe = getattr(gate, "describe", None)
         annotate = getattr(self.on_verdict, "__self__", None)
@@ -194,12 +271,16 @@ class GatePool:
                         if _enq:
                             BOARD.observe("verify_wait", alert.camera_id,
                                           max(0.0, (time.time() - _enq) * 1000.0))
-                        _t0 = time.monotonic()
-                        result = gate.verify(p.get("frames"), candidate, p.get("scene"),
-                                             examples=examples)
-                        _dur = time.monotonic() - _t0
-                        self._latencies.append(_dur)
-                        BOARD.observe("verify_infer", alert.camera_id, _dur * 1000.0)
+                        if self._breaker_blocks():
+                            result = self._breaker_result(candidate, alert)
+                        else:
+                            _t0 = time.monotonic()
+                            result = gate.verify(p.get("frames"), candidate, p.get("scene"),
+                                                 examples=examples)
+                            _dur = time.monotonic() - _t0
+                            self._latencies.append(_dur)
+                            BOARD.observe("verify_infer", alert.camera_id, _dur * 1000.0)
+                            self._breaker_note(result)
                     if result is not None and getattr(result, "errored", False):
                         # No verdict was reached. The alert was surfaced
                         # UNVERIFIED — that is delivery working, not the gate.
@@ -218,6 +299,8 @@ class GatePool:
                         else:
                             self.rejected += 1
                 except Exception as exc:  # noqa: BLE001 - a gate error must not kill the worker
+                    with self._breaker_lock:
+                        self._breaker_probing = False   # a crashed probe must not wedge the breaker
                     self.errors += 1
                     self._health.failed(exc, log, f"verifying {alert.rule_name}")
                     self.last_error = f"{alert.camera_id}::{alert.rule_name} — {str(exc)[:160]}"
@@ -267,4 +350,9 @@ class GatePool:
                 "last_success_at": self.last_success_at,
                 "median_latency_s": self.median_latency_s(),
                 "last_error": self.last_error, "last_error_at": self.last_error_at,
-                "deduped": self.queue.dropped_duplicates, "pending": self.queue.pending_count}
+                "deduped": self.queue.dropped_duplicates, "pending": self.queue.pending_count,
+                "breaker": {"open": self._breaker_open(),
+                            "consecutive_transport_failures": self._consec_transport,
+                            "opened_at": self._breaker_opened_at,
+                            "trips": self.breaker_trips,
+                            "cooldown_s": self.BREAKER_COOLDOWN_S}}
