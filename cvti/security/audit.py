@@ -44,9 +44,13 @@ ALERT_RESOLUTION = "alert_resolution"
 EVIDENCE_EXPORT = "evidence_export"
 PURGE = "purge"
 ROLE_CHANGE = "role_change"
+# The pilot-phase login-screen escape hatch (replace all accounts with a
+# fresh owner). It has always been recorded; naming it stops the
+# 'unrecognised action' warning from crying wolf over a designed event.
+ACCOUNTS_OVERRIDE = "accounts_override_via_login"
 
 ACTIONS = (LOGIN, FOOTAGE_ACCESS, CONFIG_CHANGE, ALERT_RESOLUTION,
-           EVIDENCE_EXPORT, PURGE, ROLE_CHANGE)
+           EVIDENCE_EXPORT, PURGE, ROLE_CHANGE, ACCOUNTS_OVERRIDE)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit (

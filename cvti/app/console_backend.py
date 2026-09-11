@@ -788,6 +788,25 @@ class ConsoleBackend:
         out = self._save_custom_rules(camera_id, cam, rules)
         self.audit.record(self.current_user.username, "config_change",
                           f"camera:{camera_id}", detail={"custom_rule_added": question[:120]})
+        # Say which engine will answer, at the moment of writing (W3): an
+        # appearance sentence goes to the grounded detector — which needs
+        # subjects near the camera — while behaviour stays with the VLM.
+        # Dublin, 10 Sep: a hoodie rule on a far 360p street camera sat
+        # silent for good physical reasons nobody had told the author about.
+        try:
+            from cvti.detector.openvocab import route_rule
+            if isinstance(out, dict) and out.get("ok"):
+                engine = ("yolo-world" if route_rule(question) == "openvocab"
+                          else "vlm")
+                out["routing"] = engine
+                if engine == "yolo-world":
+                    out["routing_note"] = (
+                        "appearance rule — answered by the grounded detector "
+                        "in ~50ms, but it needs subjects reasonably close to "
+                        "the camera (roughly 80+ pixels tall); on far "
+                        "wide-angle cameras it may honestly never fire")
+        except Exception:  # noqa: BLE001 - the note must never break the save
+            log.debug("routing note failed", exc_info=True)
         return out
 
     def remove_custom_rule(self, camera_id: str, question: str) -> dict:

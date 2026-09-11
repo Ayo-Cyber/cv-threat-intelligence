@@ -47,6 +47,16 @@ def main(engine: str) -> int:
     tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
 
     problems = []
+    # W8: offline object rules need both halves IN the bundle — the world
+    # weights and the CLIP checkpoint the engine pre-seeds into ~/.cache/clip.
+    # Absence here is v1.8.8's silent-rot class again; fail loudly instead.
+    bundle_dir = engine.parent
+    for rel in (Path("models") / "yolov8s-worldv2.pt",
+                Path("vendor") / "clip" / "ViT-B-32.pt"):
+        # macOS .app keeps resources beside the binary; onedir keeps them flat
+        cands = [bundle_dir / rel, bundle_dir / "_internal" / rel]
+        if not any(c.exists() for c in cands):
+            problems.append(f"open-vocab weights missing from the bundle: {rel}")
     # The two silent bundle-rot failures the 10 Sep field diagnostics exposed —
     # both were GREEN here while broken in every installer:
     # 1. a lazily-imported dep missing from the bundle sends ultralytics'

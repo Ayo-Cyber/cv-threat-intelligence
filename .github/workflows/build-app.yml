@@ -172,6 +172,19 @@ jobs:
           test -f runs/video_finetune/videomae/model.safetensors
           rm videomae.zip
 
+      - name: Fetch the open-vocab weights (YOLO-World + CLIP)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download weights-openvocab-v1 --repo "$GITHUB_REPOSITORY"             --pattern "yolov8s-worldv2.pt" --output models/yolov8s-worldv2.pt
+          mkdir -p vendor/clip
+          gh release download weights-openvocab-v1 --repo "$GITHUB_REPOSITORY"             --pattern "ViT-B-32.pt" --output vendor/clip/ViT-B-32.pt
+          test -f models/yolov8s-worldv2.pt && test -f vendor/clip/ViT-B-32.pt
+          # the text-encoder package itself (pure python + BPE vocab data);
+          # collect_all("clip") in the spec drags it into the bundle
+          pip install "git+https://github.com/ultralytics/CLIP.git"
+
       - name: Export detectors to ONNX (W2)
         run: python scripts/export_onnx.py
 

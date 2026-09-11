@@ -360,6 +360,11 @@ class CustomRuleScanner:
             # the engine already decoded this stream — just look at it
             frame = self.frame_source(c["id"])
             if frame is None:
+                # Dublin, 10 Sep: the camera spent 7 minutes reconnecting and
+                # the Rules panel showed a frozen 'model answered none' from
+                # before the drop — the truth existed and was not on screen.
+                # A skipped scan is an OUTCOME; record it like one.
+                self._record_skip(c, "camera gave no frames")
                 return
             self._capture_boxes(c["id"])
         else:
@@ -474,6 +479,27 @@ class CustomRuleScanner:
             except Exception as exc:  # noqa: BLE001
                 log.debug("releasing a capture failed during teardown", exc_info=True)
                 pass
+
+    def _record_skip(self, cam: dict, why: str) -> None:
+        """Heartbeat for a scan that could not run — visibly, with its reason.
+
+        Does not count as a scan or an error: the model was never asked. The
+        Rules panel gets 'skipped — camera gave no frames · 42s ago' instead
+        of a frozen last outcome from before the camera dropped."""
+        entry = self._status.setdefault(cam["id"], {"scans": 0, "hits": 0,
+                                                    "errors": 0})
+        entry["skips"] = entry.get("skips", 0) + 1
+        entry["last_skip_at"] = time.time()
+        entry["last_outcome"] = f"skipped — {why}"
+        if self.status_path is not None:
+            try:
+                tmp = self.status_path.with_suffix(".tmp")
+                tmp.write_text(json.dumps({"generated_at": time.time(),
+                                           "interval_s": self.interval,
+                                           "cameras": self._status}))
+                tmp.replace(self.status_path)
+            except OSError:
+                log.debug("english-rules status write failed", exc_info=True)
 
     def _record(self, cam: dict, hits, error: str | None = None) -> None:
         """One line of truth per camera per cycle, flushed to status_path."""
