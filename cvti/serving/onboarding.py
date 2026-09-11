@@ -96,7 +96,17 @@ def list_cameras(site_path: str | Path) -> list[dict]:
     return load_site(site_path).get("cameras", [])
 
 
-_AREA_KEYS = {"id", "name", "site_type", "area_type", "expected_actors", "note"}
+DEFAULT_ORGANIZATION_ID = "organization--default"
+DEFAULT_BRANCH_ID = "branch--default"
+
+
+class HierarchyConflict(ValueError):
+    pass
+
+
+_AREA_KEYS = {
+    "id", "name", "branch_id", "site_type", "area_type", "expected_actors", "note",
+}
 
 
 def _write_site(site_path: str | Path, data: dict) -> None:
@@ -118,6 +128,11 @@ def _validated_area(area: dict) -> dict:
     if not area_id or not name:
         raise ValueError("area id and name must not be empty")
     result = {"id": area_id, "name": name}
+    if "branch_id" in area:
+        branch_id = str(area["branch_id"]).strip()
+        if not branch_id:
+            raise ValueError("area branch_id must not be empty")
+        result["branch_id"] = branch_id
     for key in ("site_type", "area_type", "note"):
         if key in area:
             result[key] = str(area[key]).strip()
@@ -146,8 +161,11 @@ def normalized_areas(site_path: str | Path) -> list[dict]:
     by_id = {area["id"]: {**area, "implicit": False, "camera_ids": []}
              for area in explicit}
     for camera in data.get("cameras", []):
+        explicit_area_id = str(camera.get("area_id", "")).strip()
         area_id = camera_area_id(camera)
         if area_id not in by_id:
+            if explicit_area_id:
+                continue
             by_id[area_id] = {
                 "id": area_id,
                 "name": str(camera.get("id", "Camera")),
@@ -158,9 +176,163 @@ def normalized_areas(site_path: str | Path) -> list[dict]:
     return list(by_id.values())
 
 
+def _validated_named_item(value: dict, kind: str) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError(f"{kind} must be an object")
+    item_id = str(value.get("id", "")).strip()
+    name = str(value.get("name", "")).strip()
+    if not item_id or not name:
+        raise ValueError(f"{kind} id and name must not be empty")
+    return {"id": item_id, "name": name}
+
+
+def _normalized_organization(data: dict) -> dict:
+    organization = data.get("organization")
+    if organization is not None:
+        return _validated_named_item(organization, "organization")
+    return {
+        "id": DEFAULT_ORGANIZATION_ID,
+        "name": str(data.get("name", "")).strip() or "My Site",
+    }
+
+
+def normalized_organization(site_path: str | Path) -> dict:
+    """Return the persisted organization or a stable legacy default."""
+    return _normalized_organization(load_site(site_path))
+
+
+def _normalized_branches(data: dict) -> list[dict]:
+    if "branches" not in data:
+        return [{"id": DEFAULT_BRANCH_ID, "name": "Main branch"}]
+    branches = []
+    seen = set()
+    for value in data.get("branches", []):
+        branch = _validated_named_item(value, "branch")
+        if branch["id"] in seen:
+            raise ValueError(f"duplicate branch id: {branch['id']}")
+        seen.add(branch["id"])
+        branches.append(branch)
+    return branches
+
+
+def normalized_branches(site_path: str | Path) -> list[dict]:
+    """Return validated branches or the stable legacy default branch."""
+    return _normalized_branches(load_site(site_path))
+
+
+def normalized_hierarchy(site_path: str | Path) -> dict:
+    """Build the location tree without changing the persisted site config."""
+    data = load_site(site_path)
+    legacy = "branches" not in data
+    branches = _normalized_branches(data)
+    branch_ids = {branch["id"] for branch in branches}
+    branch_nodes = [{**branch, "areas": []} for branch in branches]
+    branch_by_id = {branch["id"]: branch for branch in branch_nodes}
+
+    areas = normalized_areas(site_path)
+    area_by_id = {area["id"]: area for area in areas}
+    cameras_by_area = {area["id"]: [] for area in areas}
+    unassigned_cameras = []
+    for value in data.get("cameras", []):
+        camera = dict(value)
+        area_id = camera_area_id(camera)
+        area = area_by_id.get(area_id)
+        if area is None:
+            unassigned_cameras.append(camera)
+            continue
+        branch_id = area.get("branch_id")
+        if not branch_id and legacy:
+            branch_id = DEFAULT_BRANCH_ID
+        camera["area_id"] = area_id
+        if branch_id in branch_ids:
+            camera["branch_id"] = branch_id
+        else:
+            camera.pop("branch_id", None)
+        cameras_by_area[area_id].append(camera)
+
+    unassigned_areas = []
+    for area in areas:
+        branch_id = area.get("branch_id")
+        if not branch_id and legacy:
+            branch_id = DEFAULT_BRANCH_ID
+        node = {**area, "cameras": cameras_by_area[area["id"]]}
+        node.pop("camera_ids", None)
+        if branch_id in branch_by_id:
+            node["branch_id"] = branch_id
+            branch_by_id[branch_id]["areas"].append(node)
+        else:
+            unassigned_areas.append(node)
+
+    return {
+        "organization": _normalized_organization(data),
+        "branches": branch_nodes,
+        "unassigned_areas": unassigned_areas,
+        "unassigned_cameras": unassigned_cameras,
+    }
+
+
+def _materialize_hierarchy(data: dict) -> None:
+    legacy = "branches" not in data
+    data["organization"] = _normalized_organization(data)
+    branches = _normalized_branches(data)
+    data["branches"] = branches
+    branch_ids = {branch["id"] for branch in branches}
+    areas = [_validated_area(area) for area in data.get("areas", [])]
+    if legacy:
+        for area in areas:
+            area.setdefault("branch_id", DEFAULT_BRANCH_ID)
+    for area in areas:
+        branch_id = area.get("branch_id")
+        if branch_id and branch_id not in branch_ids:
+            raise ValueError(f"unknown branch: {branch_id}")
+    data["areas"] = areas
+
+
+def set_organization(site_path: str | Path, organization: dict) -> dict:
+    prepared = _validated_named_item(organization, "organization")
+    data = load_site(site_path)
+    _materialize_hierarchy(data)
+    data["organization"] = prepared
+    _write_site(site_path, data)
+    return prepared
+
+
+def upsert_branch(site_path: str | Path, branch: dict) -> list[dict]:
+    prepared = _validated_named_item(branch, "branch")
+    data = load_site(site_path)
+    _materialize_hierarchy(data)
+    branches = [item for item in data["branches"] if item["id"] != prepared["id"]]
+    branches.append(prepared)
+    data["branches"] = branches
+    _write_site(site_path, data)
+    return branches
+
+
+def remove_branch(site_path: str | Path, branch_id: str) -> list[dict]:
+    branch_id = str(branch_id).strip()
+    if not branch_id:
+        raise ValueError("branch id must not be empty")
+    data = load_site(site_path)
+    _materialize_hierarchy(data)
+    if branch_id not in {branch["id"] for branch in data["branches"]}:
+        raise ValueError(f"unknown branch: {branch_id}")
+    if any(area.get("branch_id") == branch_id for area in data["areas"]):
+        raise HierarchyConflict("branch contains areas")
+    data["branches"] = [
+        branch for branch in data["branches"] if branch["id"] != branch_id
+    ]
+    _write_site(site_path, data)
+    return data["branches"]
+
+
 def upsert_area(site_path: str | Path, area: dict) -> list[dict]:
     data = load_site(site_path)
+    _materialize_hierarchy(data)
     prepared = _validated_area(area)
+    prepared.setdefault("branch_id", DEFAULT_BRANCH_ID)
+    known_branches = {branch["id"] for branch in data["branches"]}
+    if prepared["branch_id"] not in known_branches:
+        raise ValueError(f"unknown branch: {prepared['branch_id']}")
     areas = [item for item in data.get("areas", [])
              if str(item.get("id", "")) != prepared["id"]]
     areas.append(prepared)
