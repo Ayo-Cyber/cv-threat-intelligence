@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_LOCATIONS,
+  ASSIGN_LATER,
   UNASSIGNED_BRANCH,
   areaOptions,
   branchOptions,
+  decodeLocationId,
   filterCameras,
   hierarchyPreferenceKey,
+  locationIdToken,
   loadWallFilterPreference,
   reconcileAreaSelection,
+  reconcileBranchSelection,
   saveWallFilterPreference,
 } from "../src/lib/hierarchy";
 import type { Camera, Hierarchy } from "../src/lib/types";
@@ -116,8 +120,8 @@ describe("hierarchy selectors", () => {
   it("orders configured branches first and virtual Unassigned last", () => {
     expect(branchOptions(cameras, hierarchy)).toEqual([
       { id: ALL_LOCATIONS, name: "All branches", count: 4 },
-      { id: "ikeja", name: "Ikeja Outlet", count: 1 },
-      { id: "lekki", name: "Lekki Outlet", count: 1 },
+      { id: locationIdToken("ikeja"), name: "Ikeja Outlet", count: 1 },
+      { id: locationIdToken("lekki"), name: "Lekki Outlet", count: 1 },
       { id: UNASSIGNED_BRANCH, name: "Unassigned", count: 2 },
     ]);
   });
@@ -125,7 +129,7 @@ describe("hierarchy selectors", () => {
   it("returns only areas in the selected branch with live counts", () => {
     expect(areaOptions(cameras, hierarchy, "ikeja")).toEqual([
       { id: ALL_LOCATIONS, name: "All areas", count: 1 },
-      { id: "checkout", name: "Checkout", count: 1 },
+      { id: locationIdToken("checkout"), name: "Checkout", count: 1 },
     ]);
     expect(areaOptions(cameras, hierarchy, UNASSIGNED_BRANCH)).toEqual([
       { id: ALL_LOCATIONS, name: "All areas", count: 2 },
@@ -157,20 +161,20 @@ describe("hierarchy selectors", () => {
       setItem: (key: string, value: string) => values.set(key, value),
     };
     saveWallFilterPreference(storage, "ayo", {
-      branchId: "ikeja",
-      areaId: "checkout",
+      branchId: locationIdToken("ikeja"),
+      areaId: locationIdToken("checkout"),
     });
     saveWallFilterPreference(storage, "demi", {
-      branchId: "lekki",
-      areaId: "stockroom",
+      branchId: locationIdToken("lekki"),
+      areaId: locationIdToken("stockroom"),
     });
     expect(loadWallFilterPreference(storage, "ayo")).toEqual({
-      branchId: "ikeja",
-      areaId: "checkout",
+      branchId: locationIdToken("ikeja"),
+      areaId: locationIdToken("checkout"),
     });
     expect(loadWallFilterPreference(storage, "demi")).toEqual({
-      branchId: "lekki",
-      areaId: "stockroom",
+      branchId: locationIdToken("lekki"),
+      areaId: locationIdToken("stockroom"),
     });
   });
 
@@ -181,6 +185,89 @@ describe("hierarchy selectors", () => {
         "ayo",
       ),
     ).toEqual({ branchId: ALL_LOCATIONS, areaId: ALL_LOCATIONS });
+  });
+
+  it("keeps backend IDs all and unassigned distinct from virtual options", () => {
+    const collidingHierarchy: Hierarchy = {
+      organization: { id: "all", name: "all" },
+      branches: [
+        {
+          id: "all",
+          name: "all",
+          areas: [
+            {
+              id: "unassigned",
+              name: "unassigned",
+              branch_id: "all",
+              cameras: [],
+            },
+          ],
+        },
+        {
+          id: "unassigned",
+          name: "unassigned",
+          areas: [
+            {
+              id: "all",
+              name: "all",
+              branch_id: "unassigned",
+              cameras: [],
+            },
+          ],
+        },
+      ],
+      unassigned_cameras: [],
+    };
+    const collidingCameras: Camera[] = [
+      { id: "configured-all", source: "one", area_id: "unassigned" },
+      { id: "configured-unassigned", source: "two", area_id: "all" },
+      { id: "virtual-unassigned", source: "three" },
+    ];
+
+    const options = branchOptions(collidingCameras, collidingHierarchy);
+    expect(options.map((option) => option.id)).toEqual([
+      ALL_LOCATIONS,
+      locationIdToken("all"),
+      locationIdToken("unassigned"),
+      UNASSIGNED_BRANCH,
+    ]);
+    expect(new Set(options.map((option) => option.id)).size).toBe(4);
+    expect(
+      filterCameras(
+        collidingCameras,
+        collidingHierarchy,
+        locationIdToken("all"),
+        locationIdToken("unassigned"),
+        "",
+      ).map((camera) => camera.id),
+    ).toEqual(["configured-all"]);
+    expect(
+      filterCameras(
+        collidingCameras,
+        collidingHierarchy,
+        UNASSIGNED_BRANCH,
+        ALL_LOCATIONS,
+        "",
+      ).map((camera) => camera.id),
+    ).toEqual(["virtual-unassigned"]);
+    expect(
+      areaOptions(
+        collidingCameras,
+        collidingHierarchy,
+        locationIdToken("all"),
+      ).map((option) => option.id),
+    ).toEqual([ALL_LOCATIONS, locationIdToken("unassigned")]);
+  });
+
+  it("round-trips arbitrary backend IDs and reconciles encoded branches", () => {
+    const backendId = "all:%/north";
+    expect(decodeLocationId(locationIdToken(backendId))).toBe(backendId);
+    expect(reconcileBranchSelection(hierarchy, locationIdToken("ikeja"))).toBe(
+      locationIdToken("ikeja"),
+    );
+    expect(
+      reconcileBranchSelection(hierarchy, locationIdToken("missing")),
+    ).toBe(ALL_LOCATIONS);
   });
 });
 
@@ -314,11 +401,44 @@ describe("camera onboarding hierarchy", () => {
         mode: "engine",
         areas: [],
         hierarchy,
+        authorized: true,
         onAdded: async () => {},
       } as any),
     );
     expect(markup).toContain("Select a branch");
     expect(markup).toContain("Assign later");
     expect(markup).not.toContain("Select an area");
+  });
+
+  it("uses unique encoded options when branch IDs collide with virtual choices", () => {
+    const colliding = {
+      ...hierarchy,
+      branches: [
+        { id: "all", name: "all", areas: [] },
+        { id: "assign-later", name: "Assign later branch", areas: [] },
+        { id: "unassigned", name: "unassigned", areas: [] },
+      ],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AddCamera, {
+        api: { invoke: async () => ({ ok: true }) },
+        mode: "engine",
+        hierarchy: colliding,
+        authorized: true,
+        onAdded: async () => {},
+      }),
+    );
+    const optionValues = Array.from(
+      markup.matchAll(/<option value="([^"]*)"/g),
+      (match) => match[1],
+    );
+    expect(optionValues).toEqual([
+      "",
+      locationIdToken("all"),
+      locationIdToken("assign-later"),
+      locationIdToken("unassigned"),
+      ASSIGN_LATER,
+    ]);
+    expect(new Set(optionValues).size).toBe(optionValues.length);
   });
 });

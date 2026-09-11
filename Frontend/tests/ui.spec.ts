@@ -1,9 +1,158 @@
 import { test, expect } from "@playwright/test";
+
+async function mountEngine(
+  page: import("@playwright/test").Page,
+  permissions: string[],
+  rejectBranchCreate = false,
+) {
+  await page.addInitScript(
+    ({ initialPermissions, rejectBranch }) => {
+      const state = {
+        permissions: initialPermissions,
+        calls: [] as string[],
+        rejectBranch,
+      };
+      (window as any).__argusTest = state;
+      const camera = {
+        id: "camera-1",
+        source: "0",
+        area_id: "area-1",
+        branch_id: "branch-1",
+      };
+      const hierarchy = {
+        organization: { id: "org-1", name: "Test Organization" },
+        branches: [
+          {
+            id: "branch-1",
+            name: "Test Branch",
+            areas: [
+              {
+                id: "area-1",
+                name: "Test Area",
+                branch_id: "branch-1",
+                cameras: [camera],
+              },
+            ],
+          },
+        ],
+        unassigned_cameras: [],
+      };
+      (window as any).argusDesktop = {
+        invoke: async (method: string) => {
+          state.calls.push(method);
+          if (method === "auth_state")
+            return {
+              configured: true,
+              signed_in: true,
+              username: "mounted-user",
+              role: "custom",
+              permissions: [...state.permissions],
+            };
+          if (method === "list_cameras") return [camera];
+          if (method === "list_events") return [];
+          if (method === "list_areas")
+            return [{ id: "area-1", name: "Test Area" }];
+          if (method === "hierarchy") return hierarchy;
+          if (method === "get_site")
+            return { name: "Test Site", notify: "console" };
+          if (method === "monitoring_status") return { running: false };
+          if (method === "english_rules_status") return { available: false };
+          if (method === "feed_sources") return { active: "", sources: [] };
+          if (method === "gate_status") return { ready: false };
+          if (method === "use_case_templates") return {};
+          if (method === "camera_stream")
+            return { kind: "mjpeg", url: "http://127.0.0.1:9/frame" };
+          if (method === "create_branch" && state.rejectBranch)
+            throw Object.assign(
+              new Error("Forbidden (requires configure_cameras)"),
+              {
+                status: 403,
+                code: "forbidden",
+                permission: "configure_cameras",
+                detail: { permission: "configure_cameras" },
+              },
+            );
+          return { ok: true };
+        },
+        subscribe: () => () => {},
+        environment: async () => ({}),
+      };
+    },
+    { initialPermissions: permissions, rejectBranch: rejectBranchCreate },
+  );
+  await page.reload();
+  await page.getByRole("button", { name: "Local engine", exact: true }).click();
+  await expect(
+    page.getByText("Backend connected", { exact: true }),
+  ).toBeVisible();
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "Every camera. One clear picture." }),
   ).toBeVisible();
+});
+
+test("operator sees hierarchy without camera setup mutation entry points", async ({
+  page,
+}) => {
+  await mountEngine(page, ["view_live"]);
+  await page.getByRole("button", { name: "Cameras", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Add camera", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(
+    page.getByText("Test Organization", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Site setup", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Add branch", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("permission revocation closes camera onboarding and prevents invocation", async ({
+  page,
+}) => {
+  await mountEngine(page, ["view_live", "configure_cameras"]);
+  await page.getByRole("button", { name: "Cameras", exact: true }).click();
+  await page.getByRole("button", { name: "Add camera", exact: true }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Connect a camera" }),
+  ).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__argusTest.permissions = ["view_live"];
+  });
+  await expect(
+    page.getByRole("dialog", { name: "Connect a camera" }),
+  ).toHaveCount(0, { timeout: 12_000 });
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__argusTest.calls.filter(
+          (method: string) => method === "add_camera",
+        ).length,
+    ),
+  ).toBe(0);
+});
+
+test("structured branch 403 leaves mounted hierarchy unchanged", async ({
+  page,
+}) => {
+  await mountEngine(page, ["view_live", "configure_cameras"], true);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByLabel("New branch", { exact: true }).fill("Blocked Branch");
+  await page.getByRole("button", { name: "Add branch", exact: true }).click();
+  await expect(
+    page.getByText("Forbidden (requires configure_cameras)", { exact: true }),
+  ).toBeVisible();
+  const branchName = page.locator(".location-branch-head input");
+  await expect(branchName).toHaveCount(1);
+  await expect(branchName).toHaveValue("Test Branch");
+  await expect(branchName).not.toHaveValue("Blocked Branch");
 });
 test("overview, real media and responsive layout", async ({ page }) => {
   const errors: string[] = [];

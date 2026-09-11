@@ -1,19 +1,24 @@
 import { useState } from "react";
 import { Plus, Search, CheckCircle2 } from "lucide-react";
 import type { Hierarchy, Json, Mode, Transport } from "../lib/types";
+import {
+  ASSIGN_LATER,
+  decodeLocationId,
+  locationIdToken,
+} from "../lib/hierarchy";
 import { Notice, Spinner } from "./common";
-
-const ASSIGN_LATER = "assign-later";
 
 export default function AddCamera({
   api,
   mode,
   hierarchy,
+  authorized,
   onAdded,
 }: {
   api: Transport;
   mode: Mode;
   hierarchy: Hierarchy;
+  authorized: boolean;
   onAdded: () => Promise<void>;
 }) {
   const [id, setId] = useState("");
@@ -24,10 +29,16 @@ export default function AddCamera({
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const [found, setFound] = useState<Json[]>([]);
-  const selectedBranch = hierarchy.branches.find((item) => item.id === branch);
+  const selectedBranch = hierarchy.branches.find(
+    (item) => item.id === decodeLocationId(branch),
+  );
   const placementReady =
     branch === ASSIGN_LATER || Boolean(selectedBranch && area);
   async function action(kind: string) {
+    if (!authorized) {
+      setError("Forbidden (requires configure_cameras)");
+      return;
+    }
     setBusy(true);
     setError("");
     setResult("");
@@ -46,7 +57,8 @@ export default function AddCamera({
           {
             id: id.trim(),
             source: source.trim(),
-            area_id: branch === ASSIGN_LATER ? undefined : area,
+            area_id:
+              branch === ASSIGN_LATER ? undefined : decodeLocationId(area),
           },
         ]);
         await onAdded();
@@ -68,7 +80,7 @@ export default function AddCamera({
       {error && <Notice error>{error}</Notice>}
       <button
         className="button"
-        disabled={busy || mode === "demo"}
+        disabled={!authorized || busy || mode === "demo"}
         onClick={() => void action("discover")}
       >
         <Search size={16} />
@@ -132,7 +144,7 @@ export default function AddCamera({
           >
             <option value="">Select a branch</option>
             {hierarchy.branches.map((item) => (
-              <option value={item.id} key={item.id}>
+              <option value={locationIdToken(item.id)} key={item.id}>
                 {item.name}
               </option>
             ))}
@@ -149,7 +161,7 @@ export default function AddCamera({
             >
               <option value="">Select an area</option>
               {selectedBranch.areas.map((item) => (
-                <option value={item.id} key={item.id}>
+                <option value={locationIdToken(item.id)} key={item.id}>
                   {item.name}
                 </option>
               ))}
@@ -166,14 +178,14 @@ export default function AddCamera({
           <button
             className="button"
             type="button"
-            disabled={busy || !source || mode === "demo"}
+            disabled={!authorized || busy || !source || mode === "demo"}
             onClick={() => void action("test")}
           >
             Test connection
           </button>
           <button
             className="button primary"
-            disabled={busy || !id || !source || !placementReady}
+            disabled={!authorized || busy || !id || !source || !placementReady}
           >
             {busy ? <Spinner /> : <Plus size={16} />}Add camera
           </button>

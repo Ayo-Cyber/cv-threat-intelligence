@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MapPin, Plus, Save, Trash2 } from "lucide-react";
 import type { Auth, Camera, Hierarchy, Mode, Transport } from "../lib/types";
+import { decodeLocationId, locationIdToken } from "../lib/hierarchy";
 import { Notice, Spinner } from "./common";
 
 export default function LocationManager({
@@ -30,10 +31,12 @@ export default function LocationManager({
   const [branchNames, setBranchNames] = useState<Record<string, string>>({});
   const [branchName, setBranchName] = useState("");
   const [areaName, setAreaName] = useState("");
-  const [areaBranch, setAreaBranch] = useState(hierarchy.branches[0]?.id || "");
+  const [areaBranch, setAreaBranch] = useState(
+    hierarchy.branches[0] ? locationIdToken(hierarchy.branches[0].id) : "",
+  );
   const [cameraId, setCameraId] = useState(cameras[0]?.id || "");
   const [cameraBranch, setCameraBranch] = useState(
-    hierarchy.branches[0]?.id || "",
+    hierarchy.branches[0] ? locationIdToken(hierarchy.branches[0].id) : "",
   );
   const [cameraArea, setCameraArea] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,10 +55,22 @@ export default function LocationManager({
   }, [hierarchyNameSignature]);
 
   useEffect(() => {
-    if (!hierarchy.branches.some((branch) => branch.id === areaBranch))
-      setAreaBranch(hierarchy.branches[0]?.id || "");
-    if (!hierarchy.branches.some((branch) => branch.id === cameraBranch)) {
-      setCameraBranch(hierarchy.branches[0]?.id || "");
+    if (
+      !hierarchy.branches.some(
+        (branch) => branch.id === decodeLocationId(areaBranch),
+      )
+    )
+      setAreaBranch(
+        hierarchy.branches[0] ? locationIdToken(hierarchy.branches[0].id) : "",
+      );
+    if (
+      !hierarchy.branches.some(
+        (branch) => branch.id === decodeLocationId(cameraBranch),
+      )
+    ) {
+      setCameraBranch(
+        hierarchy.branches[0] ? locationIdToken(hierarchy.branches[0].id) : "",
+      );
       setCameraArea("");
     }
     if (!cameras.some((camera) => camera.id === cameraId))
@@ -64,8 +79,9 @@ export default function LocationManager({
 
   const placementAreas = useMemo(
     () =>
-      hierarchy.branches.find((branch) => branch.id === cameraBranch)?.areas ||
-      [],
+      hierarchy.branches.find(
+        (branch) => branch.id === decodeLocationId(cameraBranch),
+      )?.areas || [],
     [cameraBranch, hierarchy.branches],
   );
 
@@ -294,7 +310,7 @@ export default function LocationManager({
                         .replace(/[^a-z0-9]+/g, "-")
                         .replace(/^-|-$/g, ""),
                       name: areaName.trim(),
-                      branch_id: areaBranch,
+                      branch_id: decodeLocationId(areaBranch),
                     },
                   ],
                   "Area created",
@@ -318,7 +334,7 @@ export default function LocationManager({
                   onChange={(event) => setAreaBranch(event.target.value)}
                 >
                   {hierarchy.branches.map((branch) => (
-                    <option value={branch.id} key={branch.id}>
+                    <option value={locationIdToken(branch.id)} key={branch.id}>
                       {branch.name}
                     </option>
                   ))}
@@ -339,7 +355,7 @@ export default function LocationManager({
                 event.preventDefault();
                 void run(
                   "assign_camera_area",
-                  [cameraId, cameraArea],
+                  [cameraId, decodeLocationId(cameraArea)],
                   "Camera location updated",
                 );
               }}
@@ -369,7 +385,7 @@ export default function LocationManager({
                   }}
                 >
                   {hierarchy.branches.map((branch) => (
-                    <option value={branch.id} key={branch.id}>
+                    <option value={locationIdToken(branch.id)} key={branch.id}>
                       {branch.name}
                     </option>
                   ))}
@@ -384,7 +400,7 @@ export default function LocationManager({
                 >
                   <option value="">Select area</option>
                   {placementAreas.map((area) => (
-                    <option value={area.id} key={area.id}>
+                    <option value={locationIdToken(area.id)} key={area.id}>
                       {area.name}
                     </option>
                   ))}

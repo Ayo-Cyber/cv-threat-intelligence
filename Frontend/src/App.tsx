@@ -54,12 +54,12 @@ import CameraStream from "./components/CameraStream";
 import { applyPushEvent } from "./lib/push";
 import {
   ALL_LOCATIONS,
-  UNASSIGNED_BRANCH,
   areaOptions,
   branchOptions,
   filterCameras,
   loadWallFilterPreference,
   reconcileAreaSelection,
+  reconcileBranchSelection,
   saveWallFilterPreference,
 } from "./lib/hierarchy";
 
@@ -123,6 +123,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const generation = useRef(0);
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const canConfigureCameras = ws.auth.permissions.includes("configure_cameras");
   const refresh = useCallback(async () => {
     const current = generation.current;
     const auth = await api.invoke("auth_state");
@@ -194,6 +195,11 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toast]);
   useEffect(() => {
+    if (canConfigureCameras) return;
+    if (add) setAdd(false);
+    if (view === "setup") setView("settings");
+  }, [add, canConfigureCameras, view]);
+  useEffect(() => {
     if (!ws.auth.signed_in || !ws.auth.username) {
       setPreferenceUser("");
       setBranch(ALL_LOCATIONS);
@@ -213,11 +219,8 @@ export default function App() {
     });
   }, [area, branch, preferenceUser, ws.auth.signed_in, ws.auth.username]);
   useEffect(() => {
-    const validBranch =
-      branch === ALL_LOCATIONS ||
-      branch === UNASSIGNED_BRANCH ||
-      ws.hierarchy.branches.some((item) => item.id === branch);
-    if (!validBranch) {
+    const compatibleBranch = reconcileBranchSelection(ws.hierarchy, branch);
+    if (compatibleBranch !== branch) {
       setBranch(ALL_LOCATIONS);
       setArea(ALL_LOCATIONS);
       return;
@@ -279,6 +282,9 @@ export default function App() {
   };
   const configure = (c: Camera, tab = "scene") =>
     setSelected({ id: c.id, tab });
+  const openCameraOnboarding = () => {
+    if (canConfigureCameras) setAdd(true);
+  };
   return (
     <div className="app-shell">
       <aside className={`sidebar ${nav ? "mobile-open" : ""}`}>
@@ -561,15 +567,15 @@ export default function App() {
                           : "Start monitoring"}
                     </button>
                   ) : ["cameras", "rules"].includes(view) &&
-                    ws.auth.permissions.includes("configure_cameras") ? (
+                    canConfigureCameras ? (
                     <button
                       className="button primary"
-                      onClick={() => setAdd(true)}
+                      onClick={openCameraOnboarding}
                     >
                       <Plus size={16} />
                       Add camera
                     </button>
-                  ) : view === "settings" ? (
+                  ) : view === "settings" && canConfigureCameras ? (
                     <button className="button" onClick={() => choose("setup")}>
                       <Layers size={16} />
                       Site setup
@@ -1025,7 +1031,8 @@ export default function App() {
                   api={api}
                   mode={mode}
                   cameras={ws.cameras}
-                  onAdd={() => setAdd(true)}
+                  canConfigureCameras={canConfigureCameras}
+                  onAdd={openCameraOnboarding}
                   onConfigure={configure}
                   onChange={refresh}
                   onFinish={() => choose("watch")}
@@ -1099,7 +1106,7 @@ export default function App() {
           <IncidentDetails event={currentEvent} api={api} onChange={refresh} />
         </Drawer>
       )}
-      {add && (
+      {add && canConfigureCameras && (
         <Drawer
           title="Connect a camera"
           subtitle="CAMERA SETUP"
@@ -1109,6 +1116,7 @@ export default function App() {
             api={api}
             mode={mode}
             hierarchy={ws.hierarchy}
+            authorized={canConfigureCameras}
             onAdded={async () => {
               await refresh();
               setAdd(false);
