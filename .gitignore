@@ -135,3 +135,4 @@ vendor/
 # W2 ONNX exports are build products (scripts/export_onnx.py) — regenerated
 # from the tracked .pt weights at build time, never committed.
 models/*.onnx
+data/staging/
