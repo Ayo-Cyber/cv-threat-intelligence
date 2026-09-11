@@ -1945,3 +1945,7 @@ fieldset:disabled {
     transition: none !important;
   }
 }
+
+.camera-media .stream-hidden {
+  display: none;
+}

@@ -62,13 +62,28 @@ export interface Workspace {
   english: Json;
   auth: Auth;
 }
+export type StreamDescriptor =
+  | {
+      kind: "webrtc";
+      url: string;
+      ws?: string;
+      mjpeg_fallback?: string | null;
+    }
+  | { kind: "mjpeg"; url: string };
+export type PushEvent = {
+  type: "health" | "triage" | "alert.new" | "alert.update";
+  data: unknown;
+};
 export interface Transport {
   invoke<T = any>(method: string, args?: unknown[]): Promise<T>;
+  subscribe?(listener: (event: PushEvent) => void): () => void;
 }
+
 declare global {
   interface Window {
     argusDesktop?: {
       invoke<T = any>(method: string, args?: unknown[]): Promise<T>;
+      subscribe(listener: (event: PushEvent) => void): () => void;
       environment(): Promise<Json>;
     };
   }

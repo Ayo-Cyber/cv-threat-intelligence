@@ -17,11 +17,11 @@ import {
   type Transport,
 } from "../lib/types";
 import { Badge, CameraMedia, Notice, Spinner, Toggle } from "./common";
+import CameraStream from "./CameraStream";
 import ZoneEditor from "./ZoneEditor";
 export default function CameraDetails({
   camera,
   api,
-  stream,
   initialTab = "scene",
   onChange,
   notify,
@@ -33,7 +33,6 @@ export default function CameraDetails({
   editable?: boolean;
   camera: Camera;
   api: Transport;
-  stream?: string;
   initialTab?: string;
   onChange: () => Promise<void>;
   notify: (s: string) => void;
@@ -179,8 +178,10 @@ export default function CameraDetails({
                       src={scene.source_frame_uri}
                       alt="Frame used for scene mapping"
                     />
+                  ) : camera.demo_video ? (
+                    <CameraMedia camera={camera} paused />
                   ) : (
-                    <CameraMedia camera={camera} stream={stream} paused />
+                    <CameraStream camera={camera} api={api} active />
                   )}
                 </div>
                 <div className="context-status">

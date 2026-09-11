@@ -50,6 +50,8 @@ import FeedSwitcher from "./components/FeedSwitcher";
 import HierarchyReview from "./components/HierarchyReview";
 import SettingsPanel from "./components/SettingsPanel";
 import { AccountHelp } from "./components/AccountAccess";
+import CameraStream from "./components/CameraStream";
+import { applyPushEvent } from "./lib/push";
 
 const blank: Workspace = {
   cameras: [],
@@ -93,7 +95,6 @@ export default function App() {
     localStorage.getItem("argus.theme") === "dark",
   );
   const [nav, setNav] = useState(false);
-  const [live, setLive] = useState<Json>({});
   const [selected, setSelected] = useState<{ id: string; tab: string } | null>(
     null,
   );
@@ -134,7 +135,6 @@ export default function App() {
     setWs(blank);
     setLoading(true);
     setError("");
-    setLive({});
     setSelected(null);
     setEventId(null);
     let active = true;
@@ -160,6 +160,13 @@ export default function App() {
       clearInterval(timer);
     };
   }, [refresh]);
+  useEffect(() => {
+    if (!api.subscribe) return;
+    return api.subscribe((event) => {
+      setWs((current) => applyPushEvent(current, event));
+      setLastSync(new Date());
+    });
+  }, [api]);
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     localStorage.setItem("argus.theme", dark ? "dark" : "light");
@@ -190,21 +197,9 @@ export default function App() {
       setBusy(false);
     }
   }
-  async function connectFeeds() {
-    const r = await action("live_start", [Math.max(ws.cameras.length, 1)]);
-    if (r) setLive(r);
-  }
   async function toggleMonitoring() {
-    if (mode === "engine" && !ws.monitor.running)
-      await api.invoke("live_stop").catch(() => {});
-    setLive({});
     await action(ws.monitor.running ? "stop_monitoring" : "start_monitoring");
-    if (mode === "engine") await connectFeeds();
   }
-  const stream = (id: string) =>
-    live.port
-      ? `http://127.0.0.1:${live.port}/stream/${encodeURIComponent(id)}?token=${encodeURIComponent(live.token || "")}`
-      : undefined;
   const cameras = ws.cameras.filter(
     (c) =>
       (area === "all" || c.area_id === area) &&
@@ -527,10 +522,7 @@ export default function App() {
                   {mode === "engine" && (
                     <FeedSwitcher
                       api={api}
-                      onChange={async () => {
-                        setLive({});
-                        await refresh();
-                      }}
+                      onChange={refresh}
                       disabled={!ws.auth.permissions.includes("configure_site")}
                     />
                   )}{" "}
@@ -613,27 +605,25 @@ export default function App() {
                               </option>
                             ))}
                           </select>
-                          {mode === "engine" && (
-                            <button
-                              className="icon-button"
-                              title="Connect camera feeds"
-                              onClick={() => void connectFeeds()}
-                              disabled={busy}
-                            >
-                              <RefreshCw size={17} />
-                            </button>
-                          )}
                         </div>
                       </div>
                       <div className="camera-grid">
                         {cameras.map((c) => (
                           <article className="camera-tile" key={c.id}>
-                            <CameraMedia
-                              camera={c}
-                              stream={stream(c.id)}
-                              paused={!ws.monitor.running}
-                              onOpen={() => configure(c)}
-                            />
+                            {mode === "demo" ? (
+                              <CameraMedia
+                                camera={c}
+                                paused={!ws.monitor.running}
+                                onOpen={() => configure(c)}
+                              />
+                            ) : (
+                              <CameraStream
+                                camera={c}
+                                api={api}
+                                active
+                                onOpen={() => configure(c)}
+                              />
+                            )}
                             <div className="camera-caption">
                               <div>
                                 <strong>{c.id}</strong>
@@ -998,7 +988,6 @@ export default function App() {
             }
             camera={currentCamera}
             api={api}
-            stream={stream(currentCamera.id)}
             initialTab={selected.tab}
             onTabChange={(tab) => setSelected({ id: currentCamera.id, tab })}
             onChange={refresh}
