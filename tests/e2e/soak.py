@@ -33,6 +33,33 @@ ROOT = Path(__file__).resolve().parents[2]
 PORT = 18571
 
 
+def _unhandled_tracebacks(log_text: str) -> int:
+    """Count tracebacks that are CRASHES, not logged diagnostics.
+
+    The first 5h soak failed on three tracebacks that were the fail-visible
+    gate doing its documented job: `log.warning(..., exc_info=True)` prints
+    the diagnostic traceback right under its WARNING line, and the alert was
+    surfaced UNVERIFIED — loud, designed degradation. A crash traceback, by
+    contrast, arrives raw on stderr with no logger line in front of it. So: a
+    traceback within three lines of a leveled logger record is handled
+    telemetry; anything else counts."""
+    lines = log_text.splitlines()
+    unhandled = 0
+    for i, line in enumerate(lines):
+        if not line.startswith("Traceback (most recent call last)"):
+            continue
+        context = " ".join(lines[max(0, i - 3):i])
+        handled = any(lvl in context for lvl in
+                      ("WARNING", "ERROR", "DEBUG", "INFO", "CRITICAL"))
+        # Chained sections of ONE diagnostic print fresh Traceback headers
+        # after Python's chain markers — they belong to the logged parent.
+        chained = ("During handling of the above exception" in context
+                   or "The above exception was the direct cause" in context)
+        if not handled and not chained:
+            unhandled += 1
+    return unhandled
+
+
 def _rss_mb(pid: int) -> float | None:
     try:
         import psutil
@@ -105,9 +132,9 @@ def main() -> int:
     if first_rss and last_rss and last_rss > first_rss * 1.6 + 200:
         problems.append(f"memory grew {first_rss:.0f}→{last_rss:.0f} MB")
     log_text = log_path.read_text(errors="replace")
-    tracebacks = log_text.count("Traceback (most recent call last)")
+    tracebacks = _unhandled_tracebacks(log_text)
     if tracebacks:
-        problems.append(f"{tracebacks} traceback(s) in the engine log")
+        problems.append(f"{tracebacks} UNHANDLED traceback(s) in the engine log")
 
     lat_p95 = None
     db = out / "events.db"

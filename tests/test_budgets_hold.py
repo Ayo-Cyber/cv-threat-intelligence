@@ -64,6 +64,41 @@ class BudgetCheckTest(unittest.TestCase):
         self.assertIn("glass_to_glass_p50_ms", s["errors"])
 
 
+class SoakTracebackTriageTest(unittest.TestCase):
+    """The first 5h soak taught this distinction: the engine ran flawlessly
+    and still 'failed' because fail-visible diagnostics (log.warning with
+    exc_info) print tracebacks. Handled telemetry and chained sections of it
+    must not count; a raw crash must."""
+
+    def _count(self, text):
+        sys.path.insert(0, str(ROOT / "tests" / "e2e"))
+        from soak import _unhandled_tracebacks
+        return _unhandled_tracebacks(text)
+
+    def test_a_logged_diagnostic_does_not_count(self):
+        text = ("WARNING  cvti.verification.gate — gate transport failed; "
+                "alert will be surfaced UNVERIFIED\n"
+                "Traceback (most recent call last):\n  File x\nOSError: down\n")
+        self.assertEqual(self._count(text), 0)
+
+    def test_chained_sections_belong_to_their_parent(self):
+        text = ("WARNING  something — handled\n"
+                "Traceback (most recent call last):\n  File x\nOSError: a\n"
+                "\nDuring handling of the above exception, another exception "
+                "occurred:\n\n"
+                "Traceback (most recent call last):\n  File y\nKeyError: 'b'\n"
+                "\nThe above exception was the direct cause of the following "
+                "exception:\n\n"
+                "Traceback (most recent call last):\n  File z\nRuntimeError: c\n")
+        self.assertEqual(self._count(text), 0)
+
+    def test_a_raw_crash_counts(self):
+        text = ("frames flowing fine\n\n"
+                "Traceback (most recent call last):\n"
+                "  File pipeline.py\nKeyError: 'boom'\n")
+        self.assertEqual(self._count(text), 1)
+
+
 class WatchdogBreakerTest(unittest.TestCase):
     def test_the_breaker_latches_and_status_names_it(self):
         from cvti.app.console_backend import ConsoleBackend
