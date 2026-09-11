@@ -259,7 +259,11 @@ def normalized_hierarchy(site_path: str | Path) -> dict:
 
     unassigned_areas = []
     for area in areas:
-        if area.get("implicit") and area["id"] in unresolved_area_ids:
+        if (
+            area.get("implicit")
+            and area["id"] in unresolved_area_ids
+            and not cameras_by_area[area["id"]]
+        ):
             continue
         branch_id = area.get("branch_id")
         if not branch_id and legacy:

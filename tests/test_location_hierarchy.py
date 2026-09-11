@@ -178,6 +178,34 @@ class LocationHierarchyTests(unittest.TestCase):
             "camera_ids": ["cam1"],
         }])
 
+    def test_unresolved_area_id_does_not_hide_colliding_implicit_camera(self):
+        site = self.write_site({
+            "cameras": [
+                {
+                    "id": "bad",
+                    "source": "0",
+                    "area_id": "camera--good",
+                    "branch_id": "stale",
+                },
+                {"id": "good", "source": "1"},
+            ],
+        })
+
+        hierarchy = onboarding.normalized_hierarchy(site)
+
+        self.assertEqual(
+            [camera["id"] for camera in hierarchy["unassigned_cameras"]],
+            ["bad"],
+        )
+        self.assertEqual(
+            [area["id"] for area in hierarchy["branches"][0]["areas"]],
+            ["camera--good"],
+        )
+        self.assertEqual(
+            hierarchy["branches"][0]["areas"][0]["cameras"][0]["id"],
+            "good",
+        )
+
     def test_set_organization_persists_normalized_hierarchy(self):
         site = self.write_site({
             "name": "Plant One",
