@@ -21,7 +21,8 @@ mapped endpoint here.
   `GET /` and `/api/v1` (discovery) and the first-run endpoints marked PUBLIC.
 - **Errors**: `{"error": {"code", "message", "detail"}}` with the HTTP status.
   `401` unauthenticated · `403` carries the MISSING PERMISSION'S NAME in
-  `detail.permission` · `404` unknown id · `503` engine not running.
+  `detail.permission` · `400` invalid payload · `404` unknown id ·
+  `409` hierarchy conflict · `503` engine not running.
 - **Permissions** are the existing vocabulary (`cvti/security/permissions.py`):
   each endpoint enforces exactly the permission its backing ConsoleBackend
   method already enforces — the API adds transport, never a second permission
@@ -56,6 +57,30 @@ mapped endpoint here.
 | `apply_template` | `POST /site/templates/{name}/apply` | configure_cameras | shipped |
 | `approve_site_context` | `POST /site/context/approve` | configure_cameras | shipped |
 | `send_test_notification` | `POST /site/notifications/test` | configure_site | shipped |
+
+### Organization hierarchy
+
+| Bridge method | Endpoint | Permission | Status |
+|---|---|---|---|
+| `organization` | `GET /organization` | view_live | shipped |
+| `update_organization` | `PUT /organization` (body: `{organization: {id, name}}`) | configure_site | shipped |
+| `list_branches` | `GET /branches` | view_live | shipped |
+| `create_branch` | `POST /branches` (body: `{branch: {id, name}}`) | configure_cameras | shipped |
+| `update_branch` | `PUT /branches/{id}` (body: `{branch: {name}}`; path id is authoritative) | configure_cameras | shipped |
+| `remove_branch` | `DELETE /branches/{id}` | configure_cameras | shipped |
+| `hierarchy` | `GET /hierarchy` | view_live | shipped |
+
+`GET /hierarchy` returns
+`{organization, branches: [{id, name, areas: [{..., branch_id, cameras}]}], unassigned_areas, unassigned_cameras}`.
+Camera objects in both `/hierarchy` and `/cameras` redact credentials from
+`source`. Flat camera reads include their normalized `area_id` and the
+area-derived `branch_id` when resolved; area reads include `branch_id`.
+
+Legacy site files remain read-only during hierarchy reads. They receive a
+stable virtual organization and main branch, legacy cameras receive derived
+single-camera areas, and every camera remains visible. The first hierarchy
+write materializes those defaults. Deleting an unknown branch returns `404`;
+deleting a branch that still contains areas returns `409 conflict`.
 
 ### Cameras
 

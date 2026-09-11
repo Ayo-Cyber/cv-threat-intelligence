@@ -116,6 +116,18 @@ ROUTES: list[R] = [
     R("approve_site_context", "POST", "/site/context/approve",
       body={"context": "context"}),
     R("send_test_notification", "POST", "/site/notifications/test"),
+    # --- organization hierarchy ---
+    R("organization", "GET", "/organization"),
+    R("update_organization", "PUT", "/organization",
+      body={"organization": "organization"}),
+    R("list_branches", "GET", "/branches"),
+    R("create_branch", "POST", "/branches",
+      body={"branch": "branch"}, status=201),
+    R("update_branch", "PUT", "/branches/{branch_id}",
+      path_map={"branch_id": "branch_id"}, body={"branch": "branch"}),
+    R("remove_branch", "DELETE", "/branches/{branch_id}",
+      path_map={"branch_id": "branch_id"}),
+    R("hierarchy", "GET", "/hierarchy"),
     # --- cameras ---
     R("add_camera", "POST", "/cameras", body={"camera": "camera"}, status=201),
     R("remove_camera", "DELETE", "/cameras/{camera_id}",
@@ -215,6 +227,7 @@ def register_writes(app, host: _ApiBackend, require_principal,
     `require_principal` is the app's bearer dependency; `error` its JSON error
     envelope. Handlers are generated, so each row stays one line of truth."""
     from cvti.security.permissions import PermissionDenied
+    from cvti.serving.onboarding import HierarchyConflict
 
     def _make(route: R):
         async def handler(request: Request, principal=None):
@@ -252,6 +265,8 @@ def register_writes(app, host: _ApiBackend, require_principal,
                 return error(400, "bad_request", str(exc))
             except (KeyError, LookupError) as exc:
                 return error(404, "not_found", str(exc))
+            except HierarchyConflict as exc:
+                return error(409, "conflict", str(exc))
             except ValueError as exc:
                 return error(400, "bad_request", str(exc))
             # Backends signal domain failure as {"ok": False, "error": ...}

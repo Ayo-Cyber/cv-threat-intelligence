@@ -1,8 +1,8 @@
 """The Argus Engine API app (FastAPI).
 
-Read-only surface + auth + live WebSocket, per API contract v0.2. Auth is
-bearer-token against the account store; data comes from cvti.api.sources.
-Write/config endpoints are intentionally absent until the contract freezes.
+Read and configuration surface + auth + live WebSocket, per the frozen API
+contract. Auth is bearer-token against the account store; engine data comes
+from cvti.api.sources and configuration routes use the ConsoleBackend table.
 """
 
 from __future__ import annotations

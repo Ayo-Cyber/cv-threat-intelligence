@@ -1011,7 +1011,81 @@ class ConsoleBackend:
 
     def list_areas(self) -> list[dict]:
         self._require(perms.VIEW_LIVE)
-        return onboarding.normalized_areas(self.site_path)
+        areas = onboarding.normalized_areas(self.site_path)
+        hierarchy = onboarding.normalized_hierarchy(self.site_path)
+        branch_by_area = {
+            area["id"]: branch["id"]
+            for branch in hierarchy["branches"]
+            for area in branch["areas"]
+        }
+        return [
+            {**area, **(
+                {"branch_id": branch_by_area[area["id"]]}
+                if area["id"] in branch_by_area else {}
+            )}
+            for area in areas
+        ]
+
+    def organization(self) -> dict:
+        self._require(perms.VIEW_LIVE)
+        return onboarding.normalized_organization(self.site_path)
+
+    def update_organization(self, organization: dict) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        updated = onboarding.set_organization(self.site_path, organization)
+        self.audit.record(
+            self.current_user.username, "config_change",
+            f"organization:{updated['id']}", detail={"organization": "updated"},
+        )
+        return updated
+
+    def list_branches(self) -> list[dict]:
+        self._require(perms.VIEW_LIVE)
+        return onboarding.normalized_branches(self.site_path)
+
+    def create_branch(self, branch: dict) -> list[dict]:
+        self._require(perms.CONFIGURE_CAMERAS)
+        branches = onboarding.upsert_branch(self.site_path, branch)
+        self.audit.record(
+            self.current_user.username, "config_change",
+            f"branch:{branch.get('id', '')}", detail={"branch": "created"},
+        )
+        return branches
+
+    def update_branch(self, branch_id: str, branch: dict) -> list[dict]:
+        self._require(perms.CONFIGURE_CAMERAS)
+        if branch_id not in {
+            item["id"] for item in onboarding.normalized_branches(self.site_path)
+        }:
+            raise LookupError(f"unknown branch: {branch_id}")
+        if not isinstance(branch, dict):
+            raise ValueError("branch must be an object")
+        branches = onboarding.upsert_branch(
+            self.site_path, {**branch, "id": branch_id}
+        )
+        self.audit.record(
+            self.current_user.username, "config_change", f"branch:{branch_id}",
+            detail={"branch": "updated"},
+        )
+        return branches
+
+    def remove_branch(self, branch_id: str) -> list[dict]:
+        self._require(perms.CONFIGURE_CAMERAS)
+        if branch_id not in {
+            item["id"] for item in onboarding.normalized_branches(self.site_path)
+        }:
+            raise LookupError(f"unknown branch: {branch_id}")
+        branches = onboarding.remove_branch(self.site_path, branch_id)
+        self.audit.record(
+            self.current_user.username, "config_change", f"branch:{branch_id}",
+            detail={"branch": "removed"},
+        )
+        return branches
+
+    def hierarchy(self) -> dict:
+        self._require(perms.VIEW_LIVE)
+        from cvti.api.sources import read_hierarchy
+        return read_hierarchy(self.site_path)
 
     def create_area(self, area: dict) -> dict:
         self._require(perms.CONFIGURE_CAMERAS)
