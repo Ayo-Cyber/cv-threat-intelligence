@@ -1011,20 +1011,7 @@ class ConsoleBackend:
 
     def list_areas(self) -> list[dict]:
         self._require(perms.VIEW_LIVE)
-        areas = onboarding.normalized_areas(self.site_path)
-        hierarchy = onboarding.normalized_hierarchy(self.site_path)
-        branch_by_area = {
-            area["id"]: branch["id"]
-            for branch in hierarchy["branches"]
-            for area in branch["areas"]
-        }
-        return [
-            {**area, **(
-                {"branch_id": branch_by_area[area["id"]]}
-                if area["id"] in branch_by_area else {}
-            )}
-            for area in areas
-        ]
+        return onboarding.normalized_areas(self.site_path)
 
     def organization(self) -> dict:
         self._require(perms.VIEW_LIVE)

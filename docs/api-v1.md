@@ -20,14 +20,14 @@ mapped endpoint here.
   The WebSocket takes `?token=`. No unauthenticated route exists except
   `GET /` and `/api/v1` (discovery) and the first-run endpoints marked PUBLIC.
 - **Errors**: `{"error": {"code", "message", "detail"}}` with the HTTP status.
-  `401` unauthenticated · `403` carries the MISSING PERMISSION'S NAME in
-  `detail.permission` · `400` invalid payload · `404` unknown id ·
-  `409` hierarchy conflict · `503` engine not running.
+  `401` unauthenticated; `403` carries the MISSING PERMISSION'S NAME in
+  `detail.permission`; `400` invalid payload; `404` unknown id;
+  `409` hierarchy conflict; `503` engine not running.
 - **Permissions** are the existing vocabulary (`cvti/security/permissions.py`):
   each endpoint enforces exactly the permission its backing ConsoleBackend
   method already enforces — the API adds transport, never a second permission
   model. The permission column below names it.
-- **Status**: `shipped` = implemented today · `pending` = frozen here, not yet built.
+- **Status**: `shipped` = implemented today; `pending` = frozen here, not yet built.
   (W4 shipped the full write-side on 10 Sep 2026 — every row below is live.) Shapes of pending endpoints follow the backing
   method's current return value unless a Shape note says otherwise.
 
@@ -72,9 +72,10 @@ mapped endpoint here.
 
 `GET /hierarchy` returns
 `{organization, branches: [{id, name, areas: [{..., branch_id, cameras}]}], unassigned_areas, unassigned_cameras}`.
-Camera objects in both `/hierarchy` and `/cameras` redact credentials from
-`source`. Flat camera reads include their normalized `area_id` and the
-area-derived `branch_id` when resolved; area reads include `branch_id`.
+Camera objects in `/hierarchy` redact credentials from both `source` and
+`detect_source`; `/cameras` redacts its returned `source`. Flat camera reads
+include their normalized `area_id` and area-derived `branch_id` when resolved.
+The frozen `/areas` response remains flat and does not depend on branch metadata.
 
 Legacy site files remain read-only during hierarchy reads. They receive a
 stable virtual organization and main branch, legacy cameras receive derived

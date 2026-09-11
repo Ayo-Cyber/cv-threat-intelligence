@@ -193,6 +193,15 @@ class TheBackendPermissionModelIsTheOnlyOne(unittest.TestCase):
         removed = self.client.delete("/api/v1/branches/ikeja", headers=self.owner)
         self.assertEqual(removed.status_code, 200, removed.text)
         self.assertNotIn("ikeja", {branch["id"] for branch in removed.json()})
+        audit = self.client.get("/api/v1/audit", headers=self.owner).json()
+        branch_mutations = {
+            entry["detail"]["branch"]: entry["actor"]
+            for entry in audit
+            if entry.get("target") == "branch:ikeja"
+        }
+        self.assertEqual(branch_mutations, {
+            "created": "ayo", "updated": "ayo", "removed": "ayo",
+        })
 
     def test_owner_can_create_branch_area_and_read_hierarchy(self):
         made = self.client.post(
@@ -220,6 +229,28 @@ class TheBackendPermissionModelIsTheOnlyOne(unittest.TestCase):
         self.assertEqual(refused.status_code, 403, refused.text)
         self.assertEqual(refused.json()["error"]["detail"]["permission"],
                          "configure_cameras")
+
+    def test_operator_cannot_update_or_delete_branch(self):
+        made = self.client.post(
+            "/api/v1/branches", headers=self.owner,
+            json={"branch": {"id": "ikeja", "name": "Ikeja"}},
+        )
+        self.assertEqual(made.status_code, 201, made.text)
+        updated = self.client.put(
+            "/api/v1/branches/ikeja", headers=self.operator,
+            json={"branch": {"name": "Ikeja Mall"}},
+        )
+        removed = self.client.delete(
+            "/api/v1/branches/ikeja", headers=self.operator,
+        )
+        for response in (updated, removed):
+            self.assertEqual(response.status_code, 403, response.text)
+            self.assertEqual(
+                response.json()["error"]["detail"]["permission"],
+                "configure_cameras",
+            )
+        branches = self.client.get("/api/v1/branches", headers=self.owner).json()
+        self.assertIn({"id": "ikeja", "name": "Ikeja"}, branches)
 
     def test_nonempty_branch_delete_returns_409(self):
         self.client.post(
@@ -263,15 +294,21 @@ class TheBackendPermissionModelIsTheOnlyOne(unittest.TestCase):
         self.assertEqual(camera["branch_id"], "branch--default")
         self.assertNotIn("secret", camera["source"])
 
-    def test_legacy_areas_endpoint_includes_resolved_branch_id(self):
+    def test_legacy_areas_endpoint_preserves_its_frozen_flat_shape(self):
         site = Path(self.app.state.site_path)
         site.write_text(
-            '{"name":"Legacy","cameras":['
-            '{"id":"cam1","source":"demo"}]}'
+            '{"name":"Legacy","branches":['
+            '{"id":"same","name":"One"},{"id":"same","name":"Two"}],'
+            '"cameras":[{"id":"cam1","source":"demo"}]}'
         )
         areas = self.client.get("/api/v1/areas", headers=self.owner)
         self.assertEqual(areas.status_code, 200, areas.text)
-        self.assertEqual(areas.json()[0]["branch_id"], "branch--default")
+        self.assertEqual(areas.json(), [{
+            "id": "camera--cam1",
+            "name": "cam1",
+            "implicit": True,
+            "camera_ids": ["cam1"],
+        }])
 
     def test_malformed_hierarchy_does_not_hide_flat_camera_reads(self):
         site = Path(self.app.state.site_path)
@@ -289,12 +326,15 @@ class TheBackendPermissionModelIsTheOnlyOne(unittest.TestCase):
         site.write_text(
             '{"name":"Legacy","cameras":['
             '{"id":"cam1","source":"rtsp://user:secret@example.test/live",'
+            '"detect_source":"rtsp://detector:othersecret@example.test/sub",'
             '"area":"Paint floor"}]}'
         )
         tree = self.client.get("/api/v1/hierarchy", headers=self.operator)
         self.assertEqual(tree.status_code, 200, tree.text)
         camera = tree.json()["branches"][0]["areas"][0]["cameras"][0]
-        self.assertNotIn("secret", camera["source"])
+        self.assertEqual(camera["source"], "rtsp://***@example.test/live")
+        self.assertEqual(camera["detect_source"],
+                         "rtsp://***@example.test/sub")
 
 
 class AlertUpdateDiffTest(unittest.TestCase):

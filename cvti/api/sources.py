@@ -117,7 +117,9 @@ def read_hierarchy(site_path: str) -> dict:
     )
     for cameras in camera_groups:
         for camera in cameras:
-            camera["source"] = redact_credentials(str(camera.get("source", "")))
+            for field in ("source", "detect_source"):
+                if field in camera:
+                    camera[field] = redact_credentials(str(camera[field]))
     return hierarchy
 
 
