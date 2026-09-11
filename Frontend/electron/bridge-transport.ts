@@ -1,6 +1,22 @@
 type LegacyInvoke = (method: string, args: unknown[]) => Promise<any>;
 type LoadStream = (url: string) => Promise<Response>;
 
+export function bridgeCameraId(requestUrl: string) {
+  try {
+    const url = new URL(requestUrl);
+    const cameraId = decodeURIComponent(url.pathname.slice(1));
+    if (
+      url.protocol !== "argus-stream:" ||
+      url.hostname !== "camera" ||
+      !cameraId
+    )
+      throw new Error();
+    return cameraId;
+  } catch {
+    throw new Error("Invalid bridge stream request.");
+  }
+}
+
 export function createBridgeTransport(
   legacyInvoke: LegacyInvoke,
   loadStream: LoadStream,

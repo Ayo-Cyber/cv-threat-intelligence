@@ -13,6 +13,7 @@ describe("API readiness request bounds", () => {
     child.killed = false;
     child.kill = vi.fn(() => true);
     let signal: AbortSignal | undefined;
+    let attempt = 0;
 
     await startOwnedApi({
       python: "python",
@@ -23,7 +24,10 @@ describe("API readiness request bounds", () => {
       spawn: (() => child) as any,
       fetch: (async (_url: string, init?: RequestInit) => {
         signal = init?.signal ?? undefined;
-        return new Response("ok");
+        if (attempt++ === 0) throw new Error("port free");
+        return new Response(
+          JSON.stringify({ name: "Argus Engine API", status: "ok" }),
+        );
       }) as any,
     });
 

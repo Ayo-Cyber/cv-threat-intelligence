@@ -9,6 +9,7 @@ export async function connectWhep(
   video: HTMLVideoElement,
   url: string,
   signal: AbortSignal,
+  onTrack?: () => void,
 ): Promise<RTCPeerConnection> {
   const endpoint = new URL(url);
   if (
@@ -26,8 +27,10 @@ export async function connectWhep(
   try {
     peer.addTransceiver("video", { direction: "recvonly" });
     peer.ontrack = (event) => {
+      if (signal.aborted) return;
       video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
       void video.play().catch(() => {});
+      onTrack?.();
     };
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
@@ -57,6 +60,7 @@ export async function resolveCameraStream({
   api,
   video,
   signal,
+  onWebRtcTrack,
   connect = connectWhep,
 }: {
   cameraId: string;
@@ -64,6 +68,7 @@ export async function resolveCameraStream({
   api: Pick<Transport, "invoke">;
   video: HTMLVideoElement;
   signal: AbortSignal;
+  onWebRtcTrack?: () => void;
   connect?: typeof connectWhep;
 }): Promise<ResolvedCameraStream> {
   if (!active) return { kind: "inactive" };
@@ -75,7 +80,7 @@ export async function resolveCameraStream({
   try {
     return {
       kind: "webrtc",
-      peer: await connect(video, descriptor.url, signal),
+      peer: await connect(video, descriptor.url, signal, onWebRtcTrack),
     };
   } catch (error) {
     if (signal.aborted) throw error;

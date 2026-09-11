@@ -54,7 +54,7 @@ const operations: Record<string, Operation> = {
   test: {
     method: "POST",
     path: fixed("/cameras/probe"),
-    body: ([url]) => ({ url }),
+    body: ([source]) => ({ source }),
   },
   discover_cameras: { method: "GET", path: fixed("/cameras/discovery") },
   detect_subnet: { method: "GET", path: fixed("/cameras/discovery/subnet") },

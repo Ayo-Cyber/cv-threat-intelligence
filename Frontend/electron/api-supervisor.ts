@@ -37,6 +37,20 @@ export async function startOwnedApi({
   timeoutMs = 30_000,
   onStderr,
 }: StartOptions): Promise<OwnedApi> {
+  const baseUrl = `http://127.0.0.1:${port}/api/v1`;
+  let portOccupied = false;
+  try {
+    await fetch(baseUrl, {
+      signal: AbortSignal.timeout(Math.min(1000, timeoutMs)),
+    });
+    portOccupied = true;
+  } catch {
+    /* Connection refusal or timeout means the requested port is available. */
+  }
+  if (portOccupied)
+    throw new Error(
+      `ARGUS_API_PORT port ${port} is already in use; choose a free port before starting Argus.`,
+    );
   const process = spawn(
     python,
     [
@@ -59,34 +73,57 @@ export async function startOwnedApi({
     },
   );
   if (onStderr) process.stderr.on("data", onStderr);
-  const baseUrl = `http://127.0.0.1:${port}/api/v1`;
   const started = now();
   let exit: Error | undefined;
   process.once("error", (error) => {
     exit = error;
   });
   process.once("exit", (code) => {
-    if (code !== null && code !== 0)
-      exit = new Error(`Argus API exited during startup (code ${code})`);
+    exit = new Error(
+      code === null
+        ? "Argus API exited during startup."
+        : `Argus API exited during startup (code ${code})`,
+    );
   });
   while (now() - started < timeoutMs) {
     if (exit) throw exit;
+    const remaining = Math.max(1, timeoutMs - (now() - started));
+    let response: Response | undefined;
     try {
-      const remaining = Math.max(1, timeoutMs - (now() - started));
-      const response = await fetch(baseUrl, {
+      response = await fetch(baseUrl, {
         signal: AbortSignal.timeout(Math.min(1000, remaining)),
       });
-      if (response.ok)
-        return {
-          baseUrl,
-          process,
-          async stop() {
-            if (process.exitCode === null && !process.killed)
-              process.kill("SIGTERM");
-          },
-        };
     } catch {
-      // The server socket is not listening yet.
+      /* The spawned server socket is not listening yet. */
+    }
+    if (exit || process.exitCode !== null || process.killed)
+      throw exit ?? new Error("Owned Argus API process exited during startup.");
+    if (response?.ok) {
+      let identity: any;
+      try {
+        identity = await response.json();
+      } catch {
+        identity = undefined;
+      }
+      if (identity?.name !== "Argus Engine API" || identity?.status !== "ok") {
+        if (process.exitCode === null && !process.killed)
+          process.kill("SIGTERM");
+        throw new Error(
+          `Service on port ${port} is not the owned Argus Engine API. Check runs/desktop/frontend.log.`,
+        );
+      }
+      if (exit || process.exitCode !== null || process.killed)
+        throw (
+          exit ?? new Error("Owned Argus API process exited during startup.")
+        );
+      return {
+        baseUrl,
+        process,
+        async stop() {
+          if (process.exitCode === null && !process.killed)
+            process.kill("SIGTERM");
+        },
+      };
     }
     await sleep(250);
   }

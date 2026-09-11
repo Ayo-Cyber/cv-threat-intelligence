@@ -6,7 +6,7 @@ import fs from "node:fs";
 import readline from "node:readline";
 import { ArgusApiClient } from "./api-client.js";
 import { startOwnedApi, type OwnedApi } from "./api-supervisor.js";
-import { createBridgeTransport } from "./bridge-transport.js";
+import { bridgeCameraId, createBridgeTransport } from "./bridge-transport.js";
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -258,10 +258,11 @@ async function ensureApi() {
 app.whenReady().then(() => {
   if (transport === "bridge")
     void protocol.handle("argus-stream", (request) => {
-      const url = new URL(request.url);
-      if (url.hostname !== "camera")
+      try {
+        return bridgeTransport.load(bridgeCameraId(request.url));
+      } catch {
         return new Response("Invalid stream request", { status: 400 });
-      return bridgeTransport.load(decodeURIComponent(url.pathname.slice(1)));
+      }
     });
   ipcMain.handle("engine:environment", (event) => {
     if (event.sender !== window?.webContents) throw new Error("Unknown caller");

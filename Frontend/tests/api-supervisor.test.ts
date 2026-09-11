@@ -23,8 +23,13 @@ describe("owned API supervision", () => {
     const spawn = vi.fn(() => owned);
     const fetch = vi
       .fn()
+      .mockRejectedValueOnce(new Error("port free"))
       .mockRejectedValueOnce(new Error("starting"))
-      .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }));
+      .mockResolvedValueOnce(
+        new Response('{"name":"Argus Engine API","status":"ok"}', {
+          status: 200,
+        }),
+      );
     const sleep = vi.fn(async () => {});
 
     const api = await startOwnedApi({
@@ -56,7 +61,7 @@ describe("owned API supervision", () => {
       ],
       expect.objectContaining({ cwd: "/repo", stdio: "pipe" }),
     );
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(sleep).toHaveBeenCalledWith(250);
     expect(api.baseUrl).toBe("http://127.0.0.1:8787/api/v1");
 
