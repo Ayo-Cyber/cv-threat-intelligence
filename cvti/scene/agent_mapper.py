@@ -15,6 +15,8 @@ from typing import Any
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
+from cvti.verification import vlm_slot
+
 import cv2
 import numpy as np
 from cvti.contracts import LOCAL_VLM_MODEL
@@ -528,48 +530,9 @@ def read_http_error_body(exc: urlerror.HTTPError) -> str:
         return raw[:400]
 
 
-def call_openai_compatible(
-    prompt: str,
-    frame_bytes: bytes | list[bytes],
-    model: str,
-    api_key_env: str,
-    api_base_url: str,
-    max_retries: int = 3,
-    require_key: bool = True,
-    max_tokens: int | None = None,
-    timeout: float = 360.0,
-) -> str:
-    api_key = os.environ.get(api_key_env, "").strip() if api_key_env else ""
-    if require_key and not api_key:
-        raise RuntimeError(f"Missing API key in environment variable: {api_key_env}")
-
-    # frame_bytes may be a single JPEG or a list of JPEGs (multi-frame verification).
-    frames = frame_bytes if isinstance(frame_bytes, list) else [frame_bytes]
-    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
-    for fb in frames:
-        url = f"data:image/jpeg;base64,{base64.b64encode(fb).decode('ascii')}"
-        content.append({"type": "image_url", "image_url": {"url": url}})
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": content}],
-        "temperature": 0,
-    }
-    # Output budget (latency audit 1 Sep, V1). Every caller knows the shape of
-    # the answer it needs — a verdict JSON, a threat list, a scene context —
-    # and none of them needs an unbounded one. On a CPU box generating ~10
-    # tok/s, an uncapped answer that rambles for 800 tokens IS the missing 80
-    # seconds of gate latency. Ollama's /v1 endpoint maps this to num_predict.
-    if max_tokens is not None:
-        payload["max_tokens"] = int(max_tokens)
-    base = api_base_url.rstrip("/")
-    headers = {
-        "content-type": "application/json",
-        "authorization": f"Bearer {api_key}",
-        # OpenRouter uses these for routing/attribution; ignored by other backends.
-        "http-referer": "https://github.com/DEMILADE07/cv-threat-intelligence",
-        "x-title": "CV Threat Intelligence Agent Mapper",
-    }
-
+def _post_chat_with_retries(base: str, headers: dict, payload: dict,
+                            max_retries: int, timeout: float) -> dict[str, Any]:
+    """POST /chat/completions with the retry/backoff policy; returns the body."""
     body: dict[str, Any] | None = None
     last_error: RuntimeError | None = None
     for attempt in range(max_retries + 1):
@@ -627,6 +590,63 @@ def call_openai_compatible(
 
     if body is None:
         raise last_error or RuntimeError("OpenAI-compatible request failed after retries.")
+    return body
+
+
+def call_openai_compatible(
+    prompt: str,
+    frame_bytes: bytes | list[bytes],
+    model: str,
+    api_key_env: str,
+    api_base_url: str,
+    max_retries: int = 3,
+    require_key: bool = True,
+    max_tokens: int | None = None,
+    timeout: float = 360.0,
+    slot_mode: str = "wait",
+) -> str:
+    api_key = os.environ.get(api_key_env, "").strip() if api_key_env else ""
+    if require_key and not api_key:
+        raise RuntimeError(f"Missing API key in environment variable: {api_key_env}")
+
+    # frame_bytes may be a single JPEG or a list of JPEGs (multi-frame verification).
+    frames = frame_bytes if isinstance(frame_bytes, list) else [frame_bytes]
+    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for fb in frames:
+        url = f"data:image/jpeg;base64,{base64.b64encode(fb).decode('ascii')}"
+        content.append({"type": "image_url", "image_url": {"url": url}})
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "temperature": 0,
+    }
+    # Output budget (latency audit 1 Sep, V1). Every caller knows the shape of
+    # the answer it needs — a verdict JSON, a threat list, a scene context —
+    # and none of them needs an unbounded one. On a CPU box generating ~10
+    # tok/s, an uncapped answer that rambles for 800 tokens IS the missing 80
+    # seconds of gate latency. Ollama's /v1 endpoint maps this to num_predict.
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
+    base = api_base_url.rstrip("/")
+    headers = {
+        "content-type": "application/json",
+        "authorization": f"Bearer {api_key}",
+        # OpenRouter uses these for routing/attribution; ignored by other backends.
+        "http-referer": "https://github.com/DEMILADE07/cv-threat-intelligence",
+        "x-title": "CV Threat Intelligence Agent Mapper",
+    }
+
+    # Every local VLM caller in the process funnels through here, which makes
+    # this the one place serialization can be enforced: concurrent vision
+    # requests on a CPU box make every one of them miss its deadline (the 11
+    # Sep pilot collapse — verify busy-fraction 1.49, zero verdicts ever).
+    # slot_mode="skip" lets periodic callers yield instead of piling on.
+    # Cloud endpoints are not serialized; their parallelism is not ours.
+    if vlm_slot.is_local(api_base_url):
+        with vlm_slot.slot(slot_mode, who=model):
+            body = _post_chat_with_retries(base, headers, payload, max_retries, timeout)
+    else:
+        body = _post_chat_with_retries(base, headers, payload, max_retries, timeout)
 
     choices = body.get("choices", [])
     if not choices:
