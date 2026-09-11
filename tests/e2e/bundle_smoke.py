@@ -53,8 +53,14 @@ def main(engine: str) -> int:
     bundle_dir = engine.parent
     for rel in (Path("models") / "yolov8s-worldv2.pt",
                 Path("vendor") / "clip" / "ViT-B-32.pt"):
-        # macOS .app keeps resources beside the binary; onedir keeps them flat
-        cands = [bundle_dir / rel, bundle_dir / "_internal" / rel]
+        # Every layout PyInstaller actually produces: plain onedir keeps datas
+        # beside the binary or under _internal; a macOS .app puts the binary in
+        # Contents/MacOS and the datas in Contents/Frameworks (mirrored into
+        # Contents/Resources). The v1.8.10 tag build failed HERE on a green
+        # bundle because only the first two were probed.
+        cands = [bundle_dir / rel, bundle_dir / "_internal" / rel,
+                 bundle_dir.parent / "Frameworks" / rel,
+                 bundle_dir.parent / "Resources" / rel]
         if not any(c.exists() for c in cands):
             problems.append(f"open-vocab weights missing from the bundle: {rel}")
     # The two silent bundle-rot failures the 10 Sep field diagnostics exposed —
