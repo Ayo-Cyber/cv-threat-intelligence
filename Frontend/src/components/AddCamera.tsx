@@ -2,9 +2,11 @@ import { useState } from "react";
 import { Plus, Search, CheckCircle2 } from "lucide-react";
 import type { Hierarchy, Json, Mode, Transport } from "../lib/types";
 import {
-  ASSIGN_LATER,
-  decodeLocationId,
-  locationIdToken,
+  UNASSIGNED_BRANCH,
+  decodeLocationSelection,
+  encodeLocationSelection,
+  locationIdSelection,
+  type LocationSelection,
 } from "../lib/hierarchy";
 import { Notice, Spinner } from "./common";
 
@@ -23,17 +25,18 @@ export default function AddCamera({
 }) {
   const [id, setId] = useState("");
   const [source, setSource] = useState("");
-  const [branch, setBranch] = useState("");
-  const [area, setArea] = useState("");
+  const [branch, setBranch] = useState<LocationSelection | null>(null);
+  const [area, setArea] = useState<LocationSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const [found, setFound] = useState<Json[]>([]);
   const selectedBranch = hierarchy.branches.find(
-    (item) => item.id === decodeLocationId(branch),
+    (item) => branch?.kind === "id" && item.id === branch.id,
   );
   const placementReady =
-    branch === ASSIGN_LATER || Boolean(selectedBranch && area);
+    branch?.kind === "unassigned" ||
+    Boolean(selectedBranch && area?.kind === "id");
   async function action(kind: string) {
     if (!authorized) {
       setError("Forbidden (requires configure_cameras)");
@@ -57,8 +60,7 @@ export default function AddCamera({
           {
             id: id.trim(),
             source: source.trim(),
-            area_id:
-              branch === ASSIGN_LATER ? undefined : decodeLocationId(area),
+            area_id: area?.kind === "id" ? area.id : undefined,
           },
         ]);
         await onAdded();
@@ -136,19 +138,24 @@ export default function AddCamera({
           Branch
           <select
             required
-            value={branch}
+            value={branch ? encodeLocationSelection(branch) : ""}
             onChange={(event) => {
-              setBranch(event.target.value);
-              setArea("");
+              setBranch(decodeLocationSelection(event.target.value) || null);
+              setArea(null);
             }}
           >
             <option value="">Select a branch</option>
             {hierarchy.branches.map((item) => (
-              <option value={locationIdToken(item.id)} key={item.id}>
+              <option
+                value={encodeLocationSelection(locationIdSelection(item.id))}
+                key={item.id}
+              >
                 {item.name}
               </option>
             ))}
-            <option value={ASSIGN_LATER}>Assign later</option>
+            <option value={encodeLocationSelection(UNASSIGNED_BRANCH)}>
+              Assign later
+            </option>
           </select>
         </label>
         {selectedBranch && (
@@ -156,19 +163,24 @@ export default function AddCamera({
             Area
             <select
               required
-              value={area}
-              onChange={(event) => setArea(event.target.value)}
+              value={area ? encodeLocationSelection(area) : ""}
+              onChange={(event) =>
+                setArea(decodeLocationSelection(event.target.value) || null)
+              }
             >
               <option value="">Select an area</option>
               {selectedBranch.areas.map((item) => (
-                <option value={locationIdToken(item.id)} key={item.id}>
+                <option
+                  value={encodeLocationSelection(locationIdSelection(item.id))}
+                  key={item.id}
+                >
                   {item.name}
                 </option>
               ))}
             </select>
           </label>
         )}
-        {branch === ASSIGN_LATER && (
+        {branch?.kind === "unassigned" && (
           <p className="field-note">
             This camera will remain visible under Unassigned until it is placed
             in an area.

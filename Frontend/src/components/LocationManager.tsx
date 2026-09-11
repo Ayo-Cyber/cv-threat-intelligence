@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { MapPin, Plus, Save, Trash2 } from "lucide-react";
 import type { Auth, Camera, Hierarchy, Mode, Transport } from "../lib/types";
-import { decodeLocationId, locationIdToken } from "../lib/hierarchy";
+import {
+  decodeLocationSelection,
+  encodeLocationSelection,
+  locationIdSelection,
+  type LocationSelection,
+} from "../lib/hierarchy";
 import { Notice, Spinner } from "./common";
 
 export default function LocationManager({
@@ -31,14 +36,19 @@ export default function LocationManager({
   const [branchNames, setBranchNames] = useState<Record<string, string>>({});
   const [branchName, setBranchName] = useState("");
   const [areaName, setAreaName] = useState("");
-  const [areaBranch, setAreaBranch] = useState(
-    hierarchy.branches[0] ? locationIdToken(hierarchy.branches[0].id) : "",
+  const [areaBranch, setAreaBranch] = useState<LocationSelection | null>(() =>
+    hierarchy.branches[0]
+      ? locationIdSelection(hierarchy.branches[0].id)
+      : null,
   );
   const [cameraId, setCameraId] = useState(cameras[0]?.id || "");
-  const [cameraBranch, setCameraBranch] = useState(
-    hierarchy.branches[0] ? locationIdToken(hierarchy.branches[0].id) : "",
+  const [cameraBranch, setCameraBranch] = useState<LocationSelection | null>(
+    () =>
+      hierarchy.branches[0]
+        ? locationIdSelection(hierarchy.branches[0].id)
+        : null,
   );
-  const [cameraArea, setCameraArea] = useState("");
+  const [cameraArea, setCameraArea] = useState<LocationSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const hierarchyNameSignature = `${hierarchy.organization.name}|${hierarchy.branches
@@ -57,21 +67,26 @@ export default function LocationManager({
   useEffect(() => {
     if (
       !hierarchy.branches.some(
-        (branch) => branch.id === decodeLocationId(areaBranch),
+        (branch) => areaBranch?.kind === "id" && branch.id === areaBranch.id,
       )
     )
       setAreaBranch(
-        hierarchy.branches[0] ? locationIdToken(hierarchy.branches[0].id) : "",
+        hierarchy.branches[0]
+          ? locationIdSelection(hierarchy.branches[0].id)
+          : null,
       );
     if (
       !hierarchy.branches.some(
-        (branch) => branch.id === decodeLocationId(cameraBranch),
+        (branch) =>
+          cameraBranch?.kind === "id" && branch.id === cameraBranch.id,
       )
     ) {
       setCameraBranch(
-        hierarchy.branches[0] ? locationIdToken(hierarchy.branches[0].id) : "",
+        hierarchy.branches[0]
+          ? locationIdSelection(hierarchy.branches[0].id)
+          : null,
       );
-      setCameraArea("");
+      setCameraArea(null);
     }
     if (!cameras.some((camera) => camera.id === cameraId))
       setCameraId(cameras[0]?.id || "");
@@ -80,7 +95,8 @@ export default function LocationManager({
   const placementAreas = useMemo(
     () =>
       hierarchy.branches.find(
-        (branch) => branch.id === decodeLocationId(cameraBranch),
+        (branch) =>
+          cameraBranch?.kind === "id" && branch.id === cameraBranch.id,
       )?.areas || [],
     [cameraBranch, hierarchy.branches],
   );
@@ -300,6 +316,7 @@ export default function LocationManager({
               className="location-create"
               onSubmit={(event) => {
                 event.preventDefault();
+                if (areaBranch?.kind !== "id") return;
                 void run(
                   "create_area",
                   [
@@ -310,7 +327,7 @@ export default function LocationManager({
                         .replace(/[^a-z0-9]+/g, "-")
                         .replace(/^-|-$/g, ""),
                       name: areaName.trim(),
-                      branch_id: decodeLocationId(areaBranch),
+                      branch_id: areaBranch.id,
                     },
                   ],
                   "Area created",
@@ -330,11 +347,20 @@ export default function LocationManager({
                 Branch
                 <select
                   required
-                  value={areaBranch}
-                  onChange={(event) => setAreaBranch(event.target.value)}
+                  value={areaBranch ? encodeLocationSelection(areaBranch) : ""}
+                  onChange={(event) =>
+                    setAreaBranch(
+                      decodeLocationSelection(event.target.value) || null,
+                    )
+                  }
                 >
                   {hierarchy.branches.map((branch) => (
-                    <option value={locationIdToken(branch.id)} key={branch.id}>
+                    <option
+                      value={encodeLocationSelection(
+                        locationIdSelection(branch.id),
+                      )}
+                      key={branch.id}
+                    >
                       {branch.name}
                     </option>
                   ))}
@@ -353,9 +379,10 @@ export default function LocationManager({
               className="location-create"
               onSubmit={(event) => {
                 event.preventDefault();
+                if (cameraArea?.kind !== "id") return;
                 void run(
                   "assign_camera_area",
-                  [cameraId, decodeLocationId(cameraArea)],
+                  [cameraId, cameraArea.id],
                   "Camera location updated",
                 );
               }}
@@ -378,14 +405,23 @@ export default function LocationManager({
                 Branch
                 <select
                   required
-                  value={cameraBranch}
+                  value={
+                    cameraBranch ? encodeLocationSelection(cameraBranch) : ""
+                  }
                   onChange={(event) => {
-                    setCameraBranch(event.target.value);
-                    setCameraArea("");
+                    setCameraBranch(
+                      decodeLocationSelection(event.target.value) || null,
+                    );
+                    setCameraArea(null);
                   }}
                 >
                   {hierarchy.branches.map((branch) => (
-                    <option value={locationIdToken(branch.id)} key={branch.id}>
+                    <option
+                      value={encodeLocationSelection(
+                        locationIdSelection(branch.id),
+                      )}
+                      key={branch.id}
+                    >
                       {branch.name}
                     </option>
                   ))}
@@ -395,12 +431,21 @@ export default function LocationManager({
                 Area
                 <select
                   required
-                  value={cameraArea}
-                  onChange={(event) => setCameraArea(event.target.value)}
+                  value={cameraArea ? encodeLocationSelection(cameraArea) : ""}
+                  onChange={(event) =>
+                    setCameraArea(
+                      decodeLocationSelection(event.target.value) || null,
+                    )
+                  }
                 >
                   <option value="">Select area</option>
                   {placementAreas.map((area) => (
-                    <option value={locationIdToken(area.id)} key={area.id}>
+                    <option
+                      value={encodeLocationSelection(
+                        locationIdSelection(area.id),
+                      )}
+                      key={area.id}
+                    >
                       {area.name}
                     </option>
                   ))}

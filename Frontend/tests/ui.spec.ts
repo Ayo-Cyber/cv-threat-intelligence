@@ -4,32 +4,36 @@ async function mountEngine(
   page: import("@playwright/test").Page,
   permissions: string[],
   rejectBranchCreate = false,
+  reservedIds = false,
 ) {
   await page.addInitScript(
-    ({ initialPermissions, rejectBranch }) => {
+    ({ initialPermissions, rejectBranch, useReservedIds }) => {
       const state = {
         permissions: initialPermissions,
         calls: [] as string[],
+        invocations: [] as { method: string; args: unknown[] }[],
         rejectBranch,
       };
       (window as any).__argusTest = state;
+      const branchId = useReservedIds ? "virtual:all" : "branch-1";
+      const areaId = useReservedIds ? "id:anything" : "area-1";
       const camera = {
         id: "camera-1",
         source: "0",
-        area_id: "area-1",
-        branch_id: "branch-1",
+        area_id: areaId,
+        branch_id: branchId,
       };
       const hierarchy = {
         organization: { id: "org-1", name: "Test Organization" },
         branches: [
           {
-            id: "branch-1",
-            name: "Test Branch",
+            id: branchId,
+            name: useReservedIds ? "virtual:all" : "Test Branch",
             areas: [
               {
-                id: "area-1",
-                name: "Test Area",
-                branch_id: "branch-1",
+                id: areaId,
+                name: useReservedIds ? "id:anything" : "Test Area",
+                branch_id: branchId,
                 cameras: [camera],
               },
             ],
@@ -38,8 +42,9 @@ async function mountEngine(
         unassigned_cameras: [],
       };
       (window as any).argusDesktop = {
-        invoke: async (method: string) => {
+        invoke: async (method: string, args: unknown[] = []) => {
           state.calls.push(method);
+          state.invocations.push({ method, args });
           if (method === "auth_state")
             return {
               configured: true,
@@ -51,7 +56,12 @@ async function mountEngine(
           if (method === "list_cameras") return [camera];
           if (method === "list_events") return [];
           if (method === "list_areas")
-            return [{ id: "area-1", name: "Test Area" }];
+            return [
+              {
+                id: areaId,
+                name: useReservedIds ? "id:anything" : "Test Area",
+              },
+            ];
           if (method === "hierarchy") return hierarchy;
           if (method === "get_site")
             return { name: "Test Site", notify: "console" };
@@ -78,7 +88,11 @@ async function mountEngine(
         environment: async () => ({}),
       };
     },
-    { initialPermissions: permissions, rejectBranch: rejectBranchCreate },
+    {
+      initialPermissions: permissions,
+      rejectBranch: rejectBranchCreate,
+      useReservedIds: reservedIds,
+    },
   );
   await page.reload();
   await page.getByRole("button", { name: "Local engine", exact: true }).click();
@@ -153,6 +167,54 @@ test("structured branch 403 leaves mounted hierarchy unchanged", async ({
   await expect(branchName).toHaveCount(1);
   await expect(branchName).toHaveValue("Test Branch");
   await expect(branchName).not.toHaveValue("Blocked Branch");
+});
+
+test("reserved-looking hierarchy IDs reach mutations unchanged", async ({
+  page,
+}) => {
+  await mountEngine(page, ["view_live", "configure_cameras"], false, true);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const areaForm = page
+    .locator("form")
+    .filter({ has: page.getByLabel("New area", { exact: true }) });
+  await areaForm.getByLabel("New area", { exact: true }).fill("Exact Area");
+  await areaForm.locator("select").selectOption({
+    label: "virtual:all",
+  });
+  await areaForm.getByRole("button", { name: "Add area", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const invocation = (window as any).__argusTest.invocations.find(
+          (item: { method: string }) => item.method === "create_area",
+        );
+        return invocation?.args?.[0]?.branch_id;
+      }),
+    )
+    .toBe("virtual:all");
+
+  await page.getByRole("button", { name: "Cameras", exact: true }).click();
+  await page.getByRole("button", { name: "Add camera", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "Connect a camera" });
+  await drawer.getByLabel("Camera name", { exact: true }).fill("reserved_cam");
+  await drawer.getByLabel("Camera source", { exact: true }).fill("0");
+  await drawer.locator("select").nth(0).selectOption({
+    label: "virtual:all",
+  });
+  await drawer.locator("select").nth(1).selectOption({
+    label: "id:anything",
+  });
+  await drawer.getByRole("button", { name: "Add camera", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const invocation = (window as any).__argusTest.invocations.find(
+          (item: { method: string }) => item.method === "add_camera",
+        );
+        return invocation?.args?.[0]?.area_id;
+      }),
+    )
+    .toBe("id:anything");
 });
 test("overview, real media and responsive layout", async ({ page }) => {
   const errors: string[] = [];

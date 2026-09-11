@@ -56,11 +56,15 @@ import {
   ALL_LOCATIONS,
   areaOptions,
   branchOptions,
+  decodeLocationSelection,
+  encodeLocationSelection,
   filterCameras,
   loadWallFilterPreference,
   reconcileAreaSelection,
   reconcileBranchSelection,
+  sameLocationSelection,
   saveWallFilterPreference,
+  type LocationSelection,
 } from "./lib/hierarchy";
 
 const blank: Workspace = {
@@ -104,8 +108,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [query, setQuery] = useState("");
-  const [branch, setBranch] = useState(ALL_LOCATIONS);
-  const [area, setArea] = useState(ALL_LOCATIONS);
+  const [branch, setBranch] = useState<LocationSelection>(ALL_LOCATIONS);
+  const [area, setArea] = useState<LocationSelection>(ALL_LOCATIONS);
   const [preferenceUser, setPreferenceUser] = useState("");
   const [filter, setFilter] = useState("open");
   const [dark, setDark] = useState(
@@ -207,26 +211,26 @@ export default function App() {
       return;
     }
     const saved = loadWallFilterPreference(localStorage, ws.auth.username);
-    setBranch(saved.branchId);
-    setArea(saved.areaId);
+    setBranch(saved.branch);
+    setArea(saved.area);
     setPreferenceUser(ws.auth.username);
   }, [ws.auth.signed_in, ws.auth.username]);
   useEffect(() => {
     if (preferenceUser !== ws.auth.username || !ws.auth.signed_in) return;
     saveWallFilterPreference(localStorage, ws.auth.username, {
-      branchId: branch,
-      areaId: area,
+      branch,
+      area,
     });
   }, [area, branch, preferenceUser, ws.auth.signed_in, ws.auth.username]);
   useEffect(() => {
     const compatibleBranch = reconcileBranchSelection(ws.hierarchy, branch);
-    if (compatibleBranch !== branch) {
+    if (!sameLocationSelection(compatibleBranch, branch)) {
       setBranch(ALL_LOCATIONS);
       setArea(ALL_LOCATIONS);
       return;
     }
     const compatibleArea = reconcileAreaSelection(ws.hierarchy, branch, area);
-    if (compatibleArea !== area) setArea(compatibleArea);
+    if (!sameLocationSelection(compatibleArea, area)) setArea(compatibleArea);
   }, [area, branch, ws.hierarchy]);
   async function action(
     method: string,
@@ -670,9 +674,12 @@ export default function App() {
                           </div>
                           <select
                             aria-label="Filter branch"
-                            value={branch}
+                            value={encodeLocationSelection(branch)}
                             onChange={(event) => {
-                              const nextBranch = event.target.value;
+                              const nextBranch = decodeLocationSelection(
+                                event.target.value,
+                              );
+                              if (!nextBranch) return;
                               setBranch(nextBranch);
                               setArea((current) =>
                                 reconcileAreaSelection(
@@ -684,18 +691,33 @@ export default function App() {
                             }}
                           >
                             {wallBranches.map((option) => (
-                              <option key={option.id} value={option.id}>
+                              <option
+                                key={encodeLocationSelection(option.selection)}
+                                value={encodeLocationSelection(
+                                  option.selection,
+                                )}
+                              >
                                 {option.name} ({option.count})
                               </option>
                             ))}
                           </select>
                           <select
                             aria-label="Filter area"
-                            value={area}
-                            onChange={(e) => setArea(e.target.value)}
+                            value={encodeLocationSelection(area)}
+                            onChange={(event) => {
+                              const selection = decodeLocationSelection(
+                                event.target.value,
+                              );
+                              if (selection) setArea(selection);
+                            }}
                           >
                             {wallAreas.map((option) => (
-                              <option key={option.id} value={option.id}>
+                              <option
+                                key={encodeLocationSelection(option.selection)}
+                                value={encodeLocationSelection(
+                                  option.selection,
+                                )}
+                              >
                                 {option.name} ({option.count})
                               </option>
                             ))}

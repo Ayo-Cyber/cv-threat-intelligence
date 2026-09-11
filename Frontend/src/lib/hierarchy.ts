@@ -1,19 +1,56 @@
 import type { Camera, Hierarchy } from "./types";
 
-export const ALL_LOCATIONS = "virtual:all";
-export const UNASSIGNED_BRANCH = "virtual:unassigned";
-export const ASSIGN_LATER = "virtual:assign-later";
-const ID_TOKEN_PREFIX = "id:";
+export type LocationSelection =
+  | Readonly<{ kind: "all" }>
+  | Readonly<{ kind: "unassigned" }>
+  | Readonly<{ kind: "id"; id: string }>;
+
+export const ALL_LOCATIONS: LocationSelection = Object.freeze({ kind: "all" });
+export const UNASSIGNED_BRANCH: LocationSelection = Object.freeze({
+  kind: "unassigned",
+});
 
 export interface LocationOption {
-  id: string;
+  selection: LocationSelection;
   name: string;
   count: number;
 }
 
 export interface WallFilterPreference {
-  branchId: string;
-  areaId: string;
+  branch: LocationSelection;
+  area: LocationSelection;
+}
+
+export function locationIdSelection(id: string): LocationSelection {
+  return { kind: "id", id };
+}
+
+export function encodeLocationSelection(selection: LocationSelection): string {
+  if (selection.kind === "id") return `id:${encodeURIComponent(selection.id)}`;
+  return selection.kind;
+}
+
+export function decodeLocationSelection(
+  value: string,
+): LocationSelection | undefined {
+  if (value === "all") return ALL_LOCATIONS;
+  if (value === "unassigned") return UNASSIGNED_BRANCH;
+  if (!value.startsWith("id:")) return undefined;
+  try {
+    return locationIdSelection(decodeURIComponent(value.slice(3)));
+  } catch {
+    return undefined;
+  }
+}
+
+export function sameLocationSelection(
+  left: LocationSelection,
+  right: LocationSelection,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    (left.kind !== "id" || (right.kind === "id" && left.id === right.id))
+  );
 }
 
 function locationMaps(hierarchy: Hierarchy) {
@@ -33,48 +70,21 @@ function locationMaps(hierarchy: Hierarchy) {
   return areas;
 }
 
-export function locationIdToken(id: string): string {
-  return `${ID_TOKEN_PREFIX}${encodeURIComponent(id)}`;
-}
-
-export function decodeLocationId(token: string): string | undefined {
-  if (!token.startsWith(ID_TOKEN_PREFIX)) return undefined;
-  try {
-    return decodeURIComponent(token.slice(ID_TOKEN_PREFIX.length));
-  } catch {
-    return undefined;
-  }
-}
-
-function selectedBackendId(token: string): string | undefined {
-  const decoded = decodeLocationId(token);
-  if (decoded !== undefined) return decoded;
-  if (token.startsWith("virtual:")) return undefined;
-  return token;
-}
-
 export function filterCameras(
   cameras: Camera[],
   hierarchy: Hierarchy,
-  branchId: string,
-  areaId: string,
+  branch: LocationSelection,
+  area: LocationSelection,
   query: string,
 ): Camera[] {
   const areas = locationMaps(hierarchy);
   const needle = query.trim().toLowerCase();
-  const selectedBranchId = selectedBackendId(branchId);
-  const selectedAreaId = selectedBackendId(areaId);
   return cameras.filter((camera) => {
     const location = camera.area_id ? areas.get(camera.area_id) : undefined;
-    const cameraBranch = location?.branchId ?? UNASSIGNED_BRANCH;
-    if (
-      branchId === UNASSIGNED_BRANCH
-        ? cameraBranch !== UNASSIGNED_BRANCH
-        : branchId !== ALL_LOCATIONS && cameraBranch !== selectedBranchId
-    )
-      return false;
-    if (areaId !== ALL_LOCATIONS && camera.area_id !== selectedAreaId)
-      return false;
+    if (branch.kind === "id" && location?.branchId !== branch.id) return false;
+    if (branch.kind === "unassigned" && location) return false;
+    if (area.kind === "id" && camera.area_id !== area.id) return false;
+    if (area.kind === "unassigned" && location) return false;
     if (!needle) return true;
     return `${camera.id} ${location?.branchName ?? "Unassigned"} ${location?.areaName ?? ""}`
       .toLowerCase()
@@ -86,13 +96,15 @@ export function branchOptions(
   cameras: Camera[],
   hierarchy: Hierarchy,
 ): LocationOption[] {
-  const all = cameras.length;
-  const configured = hierarchy.branches.map((branch) => ({
-    id: locationIdToken(branch.id),
-    name: branch.name,
-    count: filterCameras(cameras, hierarchy, branch.id, ALL_LOCATIONS, "")
-      .length,
-  }));
+  const configured = hierarchy.branches.map((branch) => {
+    const selection = locationIdSelection(branch.id);
+    return {
+      selection,
+      name: branch.name,
+      count: filterCameras(cameras, hierarchy, selection, ALL_LOCATIONS, "")
+        .length,
+    };
+  });
   const unassigned = filterCameras(
     cameras,
     hierarchy,
@@ -101,73 +113,100 @@ export function branchOptions(
     "",
   ).length;
   return [
-    { id: ALL_LOCATIONS, name: "All branches", count: all },
+    { selection: ALL_LOCATIONS, name: "All branches", count: cameras.length },
     ...configured,
-    { id: UNASSIGNED_BRANCH, name: "Unassigned", count: unassigned },
+    {
+      selection: UNASSIGNED_BRANCH,
+      name: "Unassigned",
+      count: unassigned,
+    },
   ];
 }
 
 export function areaOptions(
   cameras: Camera[],
   hierarchy: Hierarchy,
-  branchId: string,
+  branch: LocationSelection,
 ): LocationOption[] {
   const branches =
-    branchId === ALL_LOCATIONS
+    branch.kind === "all"
       ? hierarchy.branches
-      : hierarchy.branches.filter(
-          (branch) => branch.id === selectedBackendId(branchId),
-        );
+      : branch.kind === "id"
+        ? hierarchy.branches.filter((item) => item.id === branch.id)
+        : [];
   const count = filterCameras(
     cameras,
     hierarchy,
-    branchId,
+    branch,
     ALL_LOCATIONS,
     "",
   ).length;
   return [
-    { id: ALL_LOCATIONS, name: "All areas", count },
-    ...branches.flatMap((branch) =>
-      branch.areas.map((area) => ({
-        id: locationIdToken(area.id),
-        name: area.name,
-        count: filterCameras(cameras, hierarchy, branchId, area.id, "").length,
-      })),
+    { selection: ALL_LOCATIONS, name: "All areas", count },
+    ...branches.flatMap((item) =>
+      item.areas.map((area) => {
+        const selection = locationIdSelection(area.id);
+        return {
+          selection,
+          name: area.name,
+          count: filterCameras(cameras, hierarchy, branch, selection, "")
+            .length,
+        };
+      }),
     ),
   ];
 }
 
 export function reconcileAreaSelection(
   hierarchy: Hierarchy,
-  branchId: string,
-  areaId: string,
-): string {
-  if (areaId === ALL_LOCATIONS) return areaId;
-  if (branchId === UNASSIGNED_BRANCH) return ALL_LOCATIONS;
-  const selectedBranchId = selectedBackendId(branchId);
-  const selectedAreaId = selectedBackendId(areaId);
+  branch: LocationSelection,
+  area: LocationSelection,
+): LocationSelection {
+  if (area.kind === "all") return area;
+  if (branch.kind === "unassigned" || area.kind !== "id") return ALL_LOCATIONS;
   const valid = hierarchy.branches.some(
-    (branch) =>
-      (branchId === ALL_LOCATIONS || branch.id === selectedBranchId) &&
-      branch.areas.some((area) => area.id === selectedAreaId),
+    (item) =>
+      (branch.kind === "all" || item.id === branch.id) &&
+      item.areas.some((candidate) => candidate.id === area.id),
   );
-  return valid ? areaId : ALL_LOCATIONS;
+  return valid ? area : ALL_LOCATIONS;
 }
 
 export function reconcileBranchSelection(
   hierarchy: Hierarchy,
-  branchId: string,
-): string {
-  if (branchId === ALL_LOCATIONS || branchId === UNASSIGNED_BRANCH)
-    return branchId;
-  const selectedBranchId = selectedBackendId(branchId);
-  return hierarchy.branches.some((branch) => branch.id === selectedBranchId)
-    ? branchId
+  branch: LocationSelection,
+): LocationSelection {
+  if (branch.kind !== "id") return branch;
+  return hierarchy.branches.some((item) => item.id === branch.id)
+    ? branch
     : ALL_LOCATIONS;
 }
 
 export function hierarchyPreferenceKey(username: string): string {
   return `argus.wall.filters.v1:${encodeURIComponent(username)}`;
+}
+
+function storedSelection(value: unknown): LocationSelection | undefined {
+  if (value && typeof value === "object") {
+    const selection = value as { kind?: unknown; id?: unknown };
+    if (selection.kind === "all") return ALL_LOCATIONS;
+    if (selection.kind === "unassigned") return UNASSIGNED_BRANCH;
+    if (selection.kind === "id" && typeof selection.id === "string")
+      return locationIdSelection(selection.id);
+    return undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  if (value === "all" || value === "virtual:all") return ALL_LOCATIONS;
+  if (value === "unassigned" || value === "virtual:unassigned")
+    return UNASSIGNED_BRANCH;
+  if (value.startsWith("id:")) {
+    try {
+      return locationIdSelection(decodeURIComponent(value.slice(3)));
+    } catch {
+      return undefined;
+    }
+  }
+  return locationIdSelection(value);
 }
 
 export function loadWallFilterPreference(
@@ -178,32 +217,13 @@ export function loadWallFilterPreference(
     const parsed = JSON.parse(
       storage.getItem(hierarchyPreferenceKey(username)) || "null",
     );
-    if (
-      typeof parsed?.branchId === "string" &&
-      typeof parsed?.areaId === "string"
-    )
-      return {
-        branchId:
-          parsed.branchId === "all"
-            ? ALL_LOCATIONS
-            : parsed.branchId === "unassigned"
-              ? UNASSIGNED_BRANCH
-              : parsed.branchId.startsWith("virtual:") ||
-                  decodeLocationId(parsed.branchId) !== undefined
-                ? parsed.branchId
-                : locationIdToken(parsed.branchId),
-        areaId:
-          parsed.areaId === "all"
-            ? ALL_LOCATIONS
-            : parsed.areaId.startsWith("virtual:") ||
-                decodeLocationId(parsed.areaId) !== undefined
-              ? parsed.areaId
-              : locationIdToken(parsed.areaId),
-      };
+    const branch = storedSelection(parsed?.branch ?? parsed?.branchId);
+    const area = storedSelection(parsed?.area ?? parsed?.areaId);
+    if (branch && area) return { branch, area };
   } catch {
     /* Invalid preferences fall back to the complete wall. */
   }
-  return { branchId: ALL_LOCATIONS, areaId: ALL_LOCATIONS };
+  return { branch: ALL_LOCATIONS, area: ALL_LOCATIONS };
 }
 
 export function saveWallFilterPreference(
