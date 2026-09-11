@@ -194,7 +194,11 @@ def _build_one(spec: str) -> Any:
     if spec.startswith("webhook:"):
         return WebhookNotifier(spec[len("webhook:"):])
     if spec.startswith("telegram:"):
-        _, token, chat_id = spec.split(":", 2)
+        # A real bot token CONTAINS a colon (123456789:AAH...), so the chat id
+        # is the piece after the LAST colon — split(':', 2) handed half the
+        # token to chat_id and no message ever left the building. Found the
+        # first time a real token was wired (11 Sep).
+        token, _, chat_id = spec[len("telegram:"):].rpartition(":")
         return TelegramNotifier(token, chat_id)
     if spec == "whatsapp":
         try:
