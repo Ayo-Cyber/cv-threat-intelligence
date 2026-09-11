@@ -56,10 +56,24 @@ def check(evidence_dir: Path | None = None) -> dict:
             continue
         try:
             value = _dig(json.loads(src.read_text()), b["evidence_key"])
-            assert isinstance(value, (int, float))
         except Exception:  # noqa: BLE001 - unreadable evidence is its own failure
             row["status"] = "EVIDENCE_ERROR"
-            row["note"] = f"could not read {b.get('evidence_key')} from {src}"
+            row["note"] = f"could not read {src}"
+            rows.append(row)
+            continue
+        if value is None:
+            # The evidence file exists and is honest about not having this
+            # number (a 5h soak whose fail-visible gate confirmed nothing has
+            # no alert latency to report — null, not a lie). That is
+            # UNMEASURED, never an error: the first green soak failed its
+            # own budget step over exactly this.
+            row["status"] = "UNMEASURED"
+            row["note"] = f"{b['evidence_key']} is null in {Path(src).name}"
+            rows.append(row)
+            continue
+        if not isinstance(value, (int, float)):
+            row["status"] = "EVIDENCE_ERROR"
+            row["note"] = f"{b.get('evidence_key')} is not a number in {src}"
             rows.append(row)
             continue
         row["measured"] = value
