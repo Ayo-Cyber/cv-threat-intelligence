@@ -141,7 +141,12 @@ class LocationHierarchyTests(unittest.TestCase):
                 "name": "Paint floor",
                 "branch_id": "lagos",
             }],
-            "cameras": [{"id": "cam1", "source": "0", "area_id": "missing"}],
+            "cameras": [{
+                "id": "cam1",
+                "source": "0",
+                "area_id": "missing",
+                "branch_id": "stale",
+            }],
         })
 
         hierarchy = onboarding.normalized_hierarchy(site)
@@ -150,10 +155,28 @@ class LocationHierarchyTests(unittest.TestCase):
             [camera["id"] for camera in hierarchy["unassigned_cameras"]],
             ["cam1"],
         )
+        self.assertNotIn("branch_id", hierarchy["unassigned_cameras"][0])
         self.assertEqual(
             [area["id"] for area in hierarchy["branches"][0]["areas"]],
             ["paint"],
         )
+
+    def test_unknown_area_camera_keeps_legacy_implicit_area_listing(self):
+        site = self.write_site({
+            "cameras": [{
+                "id": "cam1",
+                "source": "0",
+                "area_id": "missing",
+                "branch_id": "stale",
+            }],
+        })
+
+        areas = onboarding.normalized_areas(site)
+
+        self.assertEqual(areas, [{
+            "id": "missing", "name": "cam1", "implicit": True,
+            "camera_ids": ["cam1"],
+        }])
 
     def test_set_organization_persists_normalized_hierarchy(self):
         site = self.write_site({

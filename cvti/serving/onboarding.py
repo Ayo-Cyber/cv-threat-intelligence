@@ -161,11 +161,8 @@ def normalized_areas(site_path: str | Path) -> list[dict]:
     by_id = {area["id"]: {**area, "implicit": False, "camera_ids": []}
              for area in explicit}
     for camera in data.get("cameras", []):
-        explicit_area_id = str(camera.get("area_id", "")).strip()
         area_id = camera_area_id(camera)
         if area_id not in by_id:
-            if explicit_area_id:
-                continue
             by_id[area_id] = {
                 "id": area_id,
                 "name": str(camera.get("id", "Camera")),
@@ -231,10 +228,20 @@ def normalized_hierarchy(site_path: str | Path) -> dict:
 
     areas = normalized_areas(site_path)
     area_by_id = {area["id"]: area for area in areas}
+    explicit_area_ids = {
+        str(area.get("id", "")).strip() for area in data.get("areas", [])
+    }
     cameras_by_area = {area["id"]: [] for area in areas}
+    unresolved_area_ids = set()
     unassigned_cameras = []
     for value in data.get("cameras", []):
         camera = dict(value)
+        explicit_area_id = str(camera.get("area_id", "")).strip()
+        if explicit_area_id and explicit_area_id not in explicit_area_ids:
+            unresolved_area_ids.add(explicit_area_id)
+            camera.pop("branch_id", None)
+            unassigned_cameras.append(camera)
+            continue
         area_id = camera_area_id(camera)
         area = area_by_id.get(area_id)
         if area is None:
@@ -252,6 +259,8 @@ def normalized_hierarchy(site_path: str | Path) -> dict:
 
     unassigned_areas = []
     for area in areas:
+        if area.get("implicit") and area["id"] in unresolved_area_ids:
+            continue
         branch_id = area.get("branch_id")
         if not branch_id and legacy:
             branch_id = DEFAULT_BRANCH_ID
