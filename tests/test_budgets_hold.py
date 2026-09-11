@@ -57,6 +57,19 @@ class BudgetCheckTest(unittest.TestCase):
             {"silent_failures": 2, "alert_on_screen_p95_s": 1.4}))
         self.assertIn("silent_failures", check(tmp)["breached"])
 
+    def test_null_evidence_is_unmeasured_not_an_error(self):
+        # The first clean 5h soak failed its budget step because its gate
+        # (deliberately dead) confirmed nothing -> alert latency null. A file
+        # that is honest about lacking a number is UNMEASURED, never a lie.
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "soak_report.json").write_text(json.dumps(
+            {"silent_failures": 0, "alert_on_screen_p95_s": None}))
+        s = check(tmp)
+        by = {r["budget"]: r for r in s["rows"]}
+        self.assertEqual(by["silent_failures"]["status"], "OK")
+        self.assertEqual(by["alert_on_screen_s"]["status"], "UNMEASURED")
+        self.assertEqual(s["errors"], [])
+
     def test_unreadable_evidence_is_its_own_failure(self):
         tmp = Path(tempfile.mkdtemp())
         (tmp / "latency_baseline.json").write_text("{not json")
