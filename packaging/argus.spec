@@ -96,6 +96,9 @@ if os.path.isdir(os.path.join(ROOT, "vendor", "ollama", _plat)):
 # absence never breaks a build — only removes the gateway from that bundle.
 if os.path.isdir(os.path.join(ROOT, "vendor", "go2rtc", _plat)):
     datas += _tree(f"vendor/go2rtc/{_plat}", f"vendor/go2rtc/{_plat}")
+if os.path.isdir(os.path.join(ROOT, "vendor", "clip")):
+    datas += _tree("vendor/clip", "vendor/clip")
+
 
 # Self-contained playback demo (clips + recorded alerts), if built
 # (packaging/build_demo_data.py) — lets the app demo itself anywhere.
@@ -148,6 +151,18 @@ app_a = Analysis(
 # native DLLs (incl. the DirectML provider on Windows) into the bundle.
 from PyInstaller.utils.hooks import collect_all as _collect_all
 _ort_datas, _ort_bins, _ort_hidden = _collect_all("onnxruntime")
+# The W3 open-vocab pair (offline object rules): the clip PACKAGE carries a
+# BPE vocab data file plain hiddenimports would drop — collect_all or the
+# text encoder dies at first tokenize. Its ViT-B/32 checkpoint rides in
+# vendor/clip (CI fetches it) and engine_entry pre-seeds ~/.cache/clip so
+# ultralytics' parameterless clip.load() finds it with no network.
+try:
+    _clip_datas, _clip_bins, _clip_hidden = _collect_all("clip")
+except Exception:                              # dev box without the pkg
+    _clip_datas, _clip_bins, _clip_hidden = [], [], []
+_ort_datas += _clip_datas
+_ort_bins += _clip_bins
+_ort_hidden += _clip_hidden
 
 engine_a = Analysis(
     [os.path.join(ROOT, "packaging", "engine_entry.py")],

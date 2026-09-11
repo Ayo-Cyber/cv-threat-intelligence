@@ -32,5 +32,20 @@ if __name__ == "__main__":
     os.environ.setdefault("YOLO_AUTOINSTALL", "False")
     if getattr(sys, "frozen", False):
         os.chdir(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)))
+        # Offline object rules (W3/W8): ultralytics loads CLIP with a bare
+        # clip.load("ViT-B/32") — no path parameter — so the checkpoint must
+        # sit in ~/.cache/clip. The bundle ships it under vendor/clip; copy
+        # it across once so first use needs no network. Copy, not symlink:
+        # the bundle dir may be replaced by an upgrade while the cache lives on.
+        try:
+            import shutil
+            _src = os.path.join(os.getcwd(), "vendor", "clip", "ViT-B-32.pt")
+            _dst_dir = os.path.join(os.path.expanduser("~"), ".cache", "clip")
+            _dst = os.path.join(_dst_dir, "ViT-B-32.pt")
+            if os.path.exists(_src) and not os.path.exists(_dst):
+                os.makedirs(_dst_dir, exist_ok=True)
+                shutil.copyfile(_src, _dst)
+        except Exception:  # noqa: BLE001 - seeding is best-effort; the rule
+            pass           # falls back to the VLM path, visibly, if it fails
     from cvti.serving.pipeline import main
     main()
