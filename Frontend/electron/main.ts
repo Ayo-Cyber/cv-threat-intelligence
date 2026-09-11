@@ -4,9 +4,13 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import readline from "node:readline";
-import { ArgusApiClient } from "./api-client.js";
+import type { ArgusApiClient } from "./api-client.js";
+import { createOwnedApiClient } from "./api-runtime.js";
 import { startOwnedApi, type OwnedApi } from "./api-supervisor.js";
-import { bridgeCameraId, createBridgeTransport } from "./bridge-transport.js";
+import {
+  createBridgeTransport,
+  registerBridgeStreamProtocol,
+} from "./bridge-transport.js";
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -225,7 +229,7 @@ async function ensureApi() {
       throw new Error("ARGUS_API_PORT must be an integer from 1 to 65535.");
     const logPath = path.join(root, "runs", "desktop", "frontend.log");
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    ownedApi = await startOwnedApi({
+    const owner = await startOwnedApi({
       python,
       root,
       port,
@@ -236,17 +240,19 @@ async function ensureApi() {
         fs.appendFileSync(logPath, data);
       },
     });
-    const client = new ArgusApiClient(ownedApi.baseUrl);
+    ownedApi = owner;
+    const client = createOwnedApiClient(owner);
     client.subscribe((event) =>
       window?.webContents.send("engine:event", event),
     );
-    ownedApi.process.once("exit", () => {
+    owner.onExit(() => {
       if (!exiting) {
         void client.close();
         apiClient = undefined;
-        ownedApi = undefined;
+        if (ownedApi === owner) ownedApi = undefined;
       }
     });
+    owner.assertAlive();
     apiClient = client;
     return client;
   })().finally(() => {
@@ -257,13 +263,7 @@ async function ensureApi() {
 
 app.whenReady().then(() => {
   if (transport === "bridge")
-    void protocol.handle("argus-stream", (request) => {
-      try {
-        return bridgeTransport.load(bridgeCameraId(request.url));
-      } catch {
-        return new Response("Invalid stream request", { status: 400 });
-      }
-    });
+    void registerBridgeStreamProtocol(protocol, bridgeTransport);
   ipcMain.handle("engine:environment", (event) => {
     if (event.sender !== window?.webContents) throw new Error("Unknown caller");
     const python =

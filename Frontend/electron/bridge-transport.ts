@@ -1,5 +1,12 @@
 type LegacyInvoke = (method: string, args: unknown[]) => Promise<any>;
 type LoadStream = (url: string) => Promise<Response>;
+type BridgeStream = { load(cameraId: string): Promise<Response> };
+type ProtocolRegistrar = {
+  handle(
+    scheme: string,
+    handler: (request: Request) => Promise<Response> | Response,
+  ): void;
+};
 
 export function bridgeCameraId(requestUrl: string) {
   try {
@@ -15,6 +22,19 @@ export function bridgeCameraId(requestUrl: string) {
   } catch {
     throw new Error("Invalid bridge stream request.");
   }
+}
+
+export function registerBridgeStreamProtocol(
+  registrar: ProtocolRegistrar,
+  bridge: BridgeStream,
+) {
+  return registrar.handle("argus-stream", (request) => {
+    try {
+      return bridge.load(bridgeCameraId(request.url));
+    } catch {
+      return new Response("Invalid stream request", { status: 400 });
+    }
+  });
 }
 
 export function createBridgeTransport(

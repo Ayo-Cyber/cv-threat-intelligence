@@ -60,6 +60,6 @@ describe("owned API readiness identity", () => {
         fetch: fetch as any,
         sleep: async () => {},
       }),
-    ).rejects.toThrow("Argus API exited during startup (code 1)");
+    ).rejects.toThrow("Argus API exited (code 1)");
   });
 });

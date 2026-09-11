@@ -20,6 +20,9 @@ type StartOptions = {
 export type OwnedApi = {
   baseUrl: string;
   process: ChildProcessWithoutNullStreams;
+  fetch: typeof globalThis.fetch;
+  assertAlive(): void;
+  onExit(listener: (error: Error) => void): () => void;
   stop(): Promise<void>;
 };
 
@@ -51,6 +54,7 @@ export async function startOwnedApi({
     throw new Error(
       `ARGUS_API_PORT port ${port} is already in use; choose a free port before starting Argus.`,
     );
+
   const process = spawn(
     python,
     [
@@ -73,31 +77,80 @@ export async function startOwnedApi({
     },
   );
   if (onStderr) process.stderr.on("data", onStderr);
+
+  const lifecycle = new AbortController();
+  const exitListeners = new Set<(error: Error) => void>();
+  let exitError: Error | undefined;
+  const markExited = (error: Error) => {
+    if (exitError) return;
+    exitError = error;
+    lifecycle.abort(error);
+    for (const listener of exitListeners) listener(error);
+    exitListeners.clear();
+  };
+  process.once("error", markExited);
+  process.once("exit", (code) =>
+    markExited(
+      new Error(
+        code === null
+          ? "Argus API exited."
+          : `Argus API exited (code ${code}).`,
+      ),
+    ),
+  );
+
+  const assertAlive = () => {
+    if (exitError) throw exitError;
+    if (process.exitCode !== null || process.killed) {
+      markExited(new Error("Owned Argus API process is not running."));
+      throw exitError;
+    }
+  };
+  const guardedFetch: typeof globalThis.fetch = async (input, init) => {
+    assertAlive();
+    const signal = init?.signal
+      ? AbortSignal.any([init.signal, lifecycle.signal])
+      : lifecycle.signal;
+    try {
+      const response = await fetch(input, { ...init, signal });
+      assertAlive();
+      return response;
+    } catch (error) {
+      assertAlive();
+      throw error;
+    }
+  };
+  const owned: OwnedApi = {
+    baseUrl,
+    process,
+    fetch: guardedFetch,
+    assertAlive,
+    onExit(listener) {
+      if (exitError) {
+        listener(exitError);
+        return () => {};
+      }
+      exitListeners.add(listener);
+      return () => exitListeners.delete(listener);
+    },
+    async stop() {
+      if (process.exitCode === null && !process.killed) process.kill("SIGTERM");
+    },
+  };
+
   const started = now();
-  let exit: Error | undefined;
-  process.once("error", (error) => {
-    exit = error;
-  });
-  process.once("exit", (code) => {
-    exit = new Error(
-      code === null
-        ? "Argus API exited during startup."
-        : `Argus API exited during startup (code ${code})`,
-    );
-  });
   while (now() - started < timeoutMs) {
-    if (exit) throw exit;
+    assertAlive();
     const remaining = Math.max(1, timeoutMs - (now() - started));
     let response: Response | undefined;
     try {
-      response = await fetch(baseUrl, {
+      response = await guardedFetch(baseUrl, {
         signal: AbortSignal.timeout(Math.min(1000, remaining)),
       });
-    } catch {
-      /* The spawned server socket is not listening yet. */
+    } catch (error) {
+      if (exitError) throw exitError;
     }
-    if (exit || process.exitCode !== null || process.killed)
-      throw exit ?? new Error("Owned Argus API process exited during startup.");
+    assertAlive();
     if (response?.ok) {
       let identity: any;
       try {
@@ -106,28 +159,17 @@ export async function startOwnedApi({
         identity = undefined;
       }
       if (identity?.name !== "Argus Engine API" || identity?.status !== "ok") {
-        if (process.exitCode === null && !process.killed)
-          process.kill("SIGTERM");
+        await owned.stop();
         throw new Error(
           `Service on port ${port} is not the owned Argus Engine API. Check runs/desktop/frontend.log.`,
         );
       }
-      if (exit || process.exitCode !== null || process.killed)
-        throw (
-          exit ?? new Error("Owned Argus API process exited during startup.")
-        );
-      return {
-        baseUrl,
-        process,
-        async stop() {
-          if (process.exitCode === null && !process.killed)
-            process.kill("SIGTERM");
-        },
-      };
+      assertAlive();
+      return owned;
     }
     await sleep(250);
   }
-  if (process.exitCode === null && !process.killed) process.kill("SIGTERM");
+  await owned.stop();
   throw new Error(
     `Argus API did not become ready within ${timeoutMs / 1000} seconds. Check runs/desktop/frontend.log.`,
   );

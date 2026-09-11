@@ -12,6 +12,8 @@
     "start": "node scripts/launch.cjs --production",
     "test": "vitest run",
     "test:ui": "playwright test",
+    "test:camera-stream": "playwright test --config playwright.camera.config.ts",
+    "test:electron:bridge": "playwright test --config playwright.electron.config.ts",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
