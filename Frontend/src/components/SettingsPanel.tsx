@@ -1,13 +1,23 @@
 import { useEffect, useState } from "react";
 import { Save, RefreshCw, ShieldCheck } from "lucide-react";
-import type { Auth, Json, Mode, Transport } from "../lib/types";
+import type {
+  Auth,
+  Camera,
+  Hierarchy,
+  Json,
+  Mode,
+  Transport,
+} from "../lib/types";
 import { UsersPanel } from "./AccountAccess";
 import { Badge, Notice, Spinner } from "./common";
+import LocationManager from "./LocationManager";
 export default function SettingsPanel({
   api,
   mode,
   site,
   auth,
+  hierarchy,
+  cameras,
   onChange,
   notify,
 }: {
@@ -15,6 +25,8 @@ export default function SettingsPanel({
   mode: Mode;
   site: Json;
   auth: Auth;
+  hierarchy: Hierarchy;
+  cameras: Camera[];
   onChange: () => Promise<void>;
   notify: (s: string) => void;
 }) {
@@ -57,6 +69,15 @@ export default function SettingsPanel({
     <div className="settings-layout">
       {mode === "engine" && <UsersPanel api={api} auth={auth} />}
       {error && <Notice error>{error}</Notice>}
+      <LocationManager
+        api={api}
+        mode={mode}
+        auth={auth}
+        hierarchy={hierarchy}
+        cameras={cameras}
+        onChange={onChange}
+        notify={notify}
+      />
       <section className="settings-section">
         <div>
           <h2>Site identity</h2>

@@ -22,6 +22,7 @@ export interface Camera {
   id: string;
   source: string;
   area_id?: string;
+  branch_id?: string;
   area?: string;
   config?: string;
   custom_rules?: { question: string; dwell: number }[];
@@ -29,6 +30,28 @@ export interface Camera {
   demo_video?: string;
   snapshot?: string;
   [key: string]: any;
+}
+export interface Organization {
+  id: string;
+  name: string;
+}
+export interface Area {
+  id: string;
+  name: string;
+  branch_id: string;
+  cameras: Camera[];
+  implicit?: boolean;
+  camera_ids?: string[];
+}
+export interface Branch {
+  id: string;
+  name: string;
+  areas: Area[];
+}
+export interface Hierarchy {
+  organization: Organization;
+  branches: Branch[];
+  unassigned_cameras: Camera[];
 }
 export interface Incident {
   id: string;
@@ -57,6 +80,7 @@ export interface Workspace {
   cameras: Camera[];
   events: Incident[];
   areas: Json[];
+  hierarchy: Hierarchy;
   site: Json;
   monitor: Json;
   english: Json;

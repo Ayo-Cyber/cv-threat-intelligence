@@ -52,11 +52,26 @@ import SettingsPanel from "./components/SettingsPanel";
 import { AccountHelp } from "./components/AccountAccess";
 import CameraStream from "./components/CameraStream";
 import { applyPushEvent } from "./lib/push";
+import {
+  ALL_LOCATIONS,
+  UNASSIGNED_BRANCH,
+  areaOptions,
+  branchOptions,
+  filterCameras,
+  loadWallFilterPreference,
+  reconcileAreaSelection,
+  saveWallFilterPreference,
+} from "./lib/hierarchy";
 
 const blank: Workspace = {
   cameras: [],
   events: [],
   areas: [],
+  hierarchy: {
+    organization: { id: "", name: "" },
+    branches: [],
+    unassigned_cameras: [],
+  },
   site: {},
   monitor: {},
   english: {},
@@ -89,7 +104,9 @@ export default function App() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [query, setQuery] = useState("");
-  const [area, setArea] = useState("all");
+  const [branch, setBranch] = useState(ALL_LOCATIONS);
+  const [area, setArea] = useState(ALL_LOCATIONS);
+  const [preferenceUser, setPreferenceUser] = useState("");
   const [filter, setFilter] = useState("open");
   const [dark, setDark] = useState(
     localStorage.getItem("argus.theme") === "dark",
@@ -100,10 +117,8 @@ export default function App() {
   );
   const [eventId, setEventId] = useState<string | null>(null);
   const [add, setAdd] = useState(false);
-  const [newArea, setNewArea] = useState(false);
-  const [hierarchy, setHierarchy] = useState(false);
+  const [hierarchyReview, setHierarchyReview] = useState(false);
   const [cameraDirty, setCameraDirty] = useState(false);
-  const [areaName, setAreaName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const generation = useRef(0);
@@ -116,18 +131,20 @@ export default function App() {
       setWs({ ...blank, auth });
       return;
     }
-    const [cameras, events, areas, site, monitor, english] = await Promise.all([
-      api.invoke("list_cameras"),
-      auth.permissions.includes("view_alerts")
-        ? api.invoke("list_events", [100])
-        : Promise.resolve([]),
-      api.invoke("list_areas"),
-      api.invoke("get_site"),
-      api.invoke("monitoring_status"),
-      api.invoke("english_rules_status"),
-    ]);
+    const [cameras, events, areas, hierarchy, site, monitor, english] =
+      await Promise.all([
+        api.invoke("list_cameras"),
+        auth.permissions.includes("view_alerts")
+          ? api.invoke("list_events", [100])
+          : Promise.resolve([]),
+        api.invoke("list_areas"),
+        api.invoke("hierarchy"),
+        api.invoke("get_site"),
+        api.invoke("monitoring_status"),
+        api.invoke("english_rules_status"),
+      ]);
     if (current !== generation.current) return;
-    setWs({ cameras, events, areas, site, monitor, english, auth });
+    setWs({ cameras, events, areas, hierarchy, site, monitor, english, auth });
     setLastSync(new Date());
   }, [api]);
   useEffect(() => {
@@ -176,6 +193,38 @@ export default function App() {
     const timer = setTimeout(() => setToast(""), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
+  useEffect(() => {
+    if (!ws.auth.signed_in || !ws.auth.username) {
+      setPreferenceUser("");
+      setBranch(ALL_LOCATIONS);
+      setArea(ALL_LOCATIONS);
+      return;
+    }
+    const saved = loadWallFilterPreference(localStorage, ws.auth.username);
+    setBranch(saved.branchId);
+    setArea(saved.areaId);
+    setPreferenceUser(ws.auth.username);
+  }, [ws.auth.signed_in, ws.auth.username]);
+  useEffect(() => {
+    if (preferenceUser !== ws.auth.username || !ws.auth.signed_in) return;
+    saveWallFilterPreference(localStorage, ws.auth.username, {
+      branchId: branch,
+      areaId: area,
+    });
+  }, [area, branch, preferenceUser, ws.auth.signed_in, ws.auth.username]);
+  useEffect(() => {
+    const validBranch =
+      branch === ALL_LOCATIONS ||
+      branch === UNASSIGNED_BRANCH ||
+      ws.hierarchy.branches.some((item) => item.id === branch);
+    if (!validBranch) {
+      setBranch(ALL_LOCATIONS);
+      setArea(ALL_LOCATIONS);
+      return;
+    }
+    const compatibleArea = reconcileAreaSelection(ws.hierarchy, branch, area);
+    if (compatibleArea !== area) setArea(compatibleArea);
+  }, [area, branch, ws.hierarchy]);
   async function action(
     method: string,
     args: unknown[] = [],
@@ -200,11 +249,21 @@ export default function App() {
   async function toggleMonitoring() {
     await action(ws.monitor.running ? "stop_monitoring" : "start_monitoring");
   }
-  const cameras = ws.cameras.filter(
-    (c) =>
-      (area === "all" || c.area_id === area) &&
-      `${c.id} ${c.area || ""}`.toLowerCase().includes(query.toLowerCase()),
+  const wallCameras = filterCameras(
+    ws.cameras,
+    ws.hierarchy,
+    branch,
+    area,
+    query,
   );
+  const cameraMatches = ws.cameras.filter((camera) =>
+    `${camera.id} ${camera.area || ""}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+  const wallBranches = branchOptions(ws.cameras, ws.hierarchy);
+  const wallAreas = areaOptions(ws.cameras, ws.hierarchy, branch);
+  const hierarchyAreas = ws.hierarchy.branches.flatMap((item) => item.areas);
   const open = ws.events.filter((e) => !resolved(e));
   const events = ws.events.filter(
     (e) =>
@@ -501,7 +560,8 @@ export default function App() {
                           ? "Stop monitoring"
                           : "Start monitoring"}
                     </button>
-                  ) : ["cameras", "rules"].includes(view) ? (
+                  ) : ["cameras", "rules"].includes(view) &&
+                    ws.auth.permissions.includes("configure_cameras") ? (
                     <button
                       className="button primary"
                       onClick={() => setAdd(true)}
@@ -590,25 +650,54 @@ export default function App() {
                     <section className="camera-section">
                       <div className="section-bar">
                         <h2>
-                          Camera wall <span>{cameras.length}</span>
+                          Camera wall <span>{wallCameras.length}</span>
                         </h2>
                         <div className="section-tools">
+                          <div className="search-field wall-search">
+                            <Search size={14} />
+                            <input
+                              aria-label="Search camera wall"
+                              placeholder="Search cameras"
+                              value={query}
+                              onChange={(event) => setQuery(event.target.value)}
+                            />
+                          </div>
+                          <select
+                            aria-label="Filter branch"
+                            value={branch}
+                            onChange={(event) => {
+                              const nextBranch = event.target.value;
+                              setBranch(nextBranch);
+                              setArea((current) =>
+                                reconcileAreaSelection(
+                                  ws.hierarchy,
+                                  nextBranch,
+                                  current,
+                                ),
+                              );
+                            }}
+                          >
+                            {wallBranches.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.name} ({option.count})
+                              </option>
+                            ))}
+                          </select>
                           <select
                             aria-label="Filter area"
                             value={area}
                             onChange={(e) => setArea(e.target.value)}
                           >
-                            <option value="all">All areas</option>
-                            {ws.areas.map((a) => (
-                              <option key={a.id} value={a.id}>
-                                {a.name || a.id}
+                            {wallAreas.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.name} ({option.count})
                               </option>
                             ))}
                           </select>
                         </div>
                       </div>
                       <div className="camera-grid">
-                        {cameras.map((c) => (
+                        {wallCameras.map((c) => (
                           <article className="camera-tile" key={c.id}>
                             {mode === "demo" ? (
                               <CameraMedia
@@ -628,8 +717,9 @@ export default function App() {
                               <div>
                                 <strong>{c.id}</strong>
                                 <small>
-                                  {ws.areas.find((a) => a.id === c.area_id)
-                                    ?.name || "Ungrouped area"}
+                                  {hierarchyAreas.find(
+                                    (item) => item.id === c.area_id,
+                                  )?.name || "Unassigned"}
                                 </small>
                               </div>
                               <button
@@ -644,9 +734,9 @@ export default function App() {
                           </article>
                         ))}
                       </div>
-                      {cameras.length === 0 && (
-                        <Empty title="No cameras yet">
-                          Add a camera to begin setting up this site.
+                      {wallCameras.length === 0 && (
+                        <Empty title="No matching cameras">
+                          Change the branch, area, or search filter.
                         </Empty>
                       )}
                       <div className="wall-footer">
@@ -833,19 +923,15 @@ export default function App() {
                     {mode === "engine" && (
                       <button
                         className="button"
-                        onClick={() => setHierarchy(true)}
+                        onClick={() => setHierarchyReview(true)}
                       >
                         <ScanLine size={16} />
                         Site & area review
                       </button>
                     )}
-                    <button className="button" onClick={() => setNewArea(true)}>
-                      <Layers size={16} />
-                      Create area
-                    </button>
                   </div>
                   <div className="management-list">
-                    {cameras.map((c) => (
+                    {cameraMatches.map((c) => (
                       <article className="management-row" key={c.id}>
                         <img
                           src={c.snapshot}
@@ -888,28 +974,34 @@ export default function App() {
                             )}{" "}
                             {view === "rules" ? "Detectors" : "Zones"}
                           </button>
-                          <button
-                            className="icon-button"
-                            title={`Remove ${c.id}`}
-                            disabled={busy}
-                            onClick={() => {
-                              if (
-                                confirm(`Remove camera ${c.id} from this site?`)
-                              )
-                                void action(
-                                  "remove_camera",
-                                  [c.id],
-                                  "Camera removed",
-                                );
-                            }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {ws.auth.permissions.includes(
+                            "configure_cameras",
+                          ) && (
+                            <button
+                              className="icon-button"
+                              title={`Remove ${c.id}`}
+                              disabled={busy}
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `Remove camera ${c.id} from this site?`,
+                                  )
+                                )
+                                  void action(
+                                    "remove_camera",
+                                    [c.id],
+                                    "Camera removed",
+                                  );
+                              }}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       </article>
                     ))}
                   </div>
-                  {!cameras.length && (
+                  {!cameraMatches.length && (
                     <Empty title="No matching cameras">
                       Add a camera or change the search.
                     </Empty>
@@ -922,6 +1014,8 @@ export default function App() {
                   mode={mode}
                   site={ws.site}
                   auth={ws.auth}
+                  hierarchy={ws.hierarchy}
+                  cameras={ws.cameras}
                   onChange={refresh}
                   notify={setToast}
                 />
@@ -953,17 +1047,17 @@ export default function App() {
           {toast}
         </div>
       )}
-      {hierarchy && (
+      {hierarchyReview && (
         <Drawer
           title="Site & area review"
           subtitle="AGENT MAPPER"
-          onClose={() => setHierarchy(false)}
+          onClose={() => setHierarchyReview(false)}
         >
           <HierarchyReview
             api={api}
             onChange={refresh}
             onCamera={(id) => {
-              setHierarchy(false);
+              setHierarchyReview(false);
               setSelected({ id, tab: "scene" });
             }}
           />
@@ -1014,58 +1108,13 @@ export default function App() {
           <AddCamera
             api={api}
             mode={mode}
-            areas={ws.areas}
+            hierarchy={ws.hierarchy}
             onAdded={async () => {
               await refresh();
               setAdd(false);
               setToast("Camera added");
             }}
           />
-        </Drawer>
-      )}
-      {newArea && (
-        <Drawer
-          title="Create an area"
-          subtitle="SITE ORGANISATION"
-          onClose={() => setNewArea(false)}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void action(
-                "create_area",
-                [
-                  {
-                    id: areaName.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
-                    name: areaName,
-                  },
-                ],
-                "Area created",
-              ).then((r) => {
-                if (r) {
-                  setNewArea(false);
-                  setAreaName("");
-                }
-              });
-            }}
-          >
-            <label>
-              Area name
-              <input
-                required
-                value={areaName}
-                onChange={(e) => setAreaName(e.target.value)}
-                placeholder="Warehouse west"
-              />
-            </label>
-            <button
-              className="button primary"
-              disabled={busy || !areaName.trim()}
-            >
-              <Plus size={16} />
-              Create area
-            </button>
-          </form>
         </Drawer>
       )}
     </div>

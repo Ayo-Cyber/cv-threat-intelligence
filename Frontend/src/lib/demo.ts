@@ -1,11 +1,45 @@
-import type { Camera, Incident, Json, Scene, Transport, Zone } from "./types";
+import type {
+  Area,
+  Branch,
+  Camera,
+  Hierarchy,
+  Incident,
+  Json,
+  Organization,
+  Scene,
+  Transport,
+  Zone,
+} from "./types";
 const KEY = "argus.desktop.demo.v1";
+const MUTATING_METHODS = new Set([
+  "set_site",
+  "create_area",
+  "assign_camera_area",
+  "start_monitoring",
+  "stop_monitoring",
+  "update_scene_context",
+  "approve_scene_context",
+  "add_zone",
+  "remove_zone",
+  "set_camera_rules",
+  "add_custom_rule",
+  "remove_custom_rule",
+  "acknowledge_alert",
+  "resolve_alert",
+  "add_camera",
+  "remove_camera",
+  "mark_configured",
+  "apply_template",
+  "reset_demo",
+]);
 interface DemoState {
+  organization: Organization;
+  branches: Omit<Branch, "areas">[];
   cameras: Camera[];
   events: Incident[];
   scenes: Record<string, Scene>;
   zones: Record<string, Zone[]>;
-  areas: Json[];
+  areas: Omit<Area, "cameras">[];
   site: Json;
   running: boolean;
   configured: boolean;
@@ -18,6 +52,7 @@ export function initialDemo(): DemoState {
       demo_video: "demo/empty_warehouse.mp4",
       snapshot: "demo/empty_warehouse-frame.jpg",
       area_id: "warehouse",
+      branch_id: "lagos-plant",
       area: "Warehouse",
       crowd_formation: true,
     },
@@ -27,6 +62,7 @@ export function initialDemo(): DemoState {
       demo_video: "demo/theft_yt_01.mp4",
       snapshot: "demo/theft_yt_01-frame.jpg",
       area_id: "external",
+      branch_id: "ikeja-outlet",
       area: "External perimeter",
       weapons: true,
     },
@@ -36,6 +72,7 @@ export function initialDemo(): DemoState {
       demo_video: "demo/theft_shop_01.mp4",
       snapshot: "demo/theft_shop_01-frame.jpg",
       area_id: "retail",
+      branch_id: "ikeja-outlet",
       area: "Retail floor",
       concealment: true,
     },
@@ -45,6 +82,7 @@ export function initialDemo(): DemoState {
       demo_video: "demo/normal_street_01.mp4",
       snapshot: "demo/normal_street_01-frame.jpg",
       area_id: "external",
+      branch_id: "ikeja-outlet",
       area: "Public access",
       running: false,
     },
@@ -74,13 +112,26 @@ export function initialDemo(): DemoState {
       }),
   );
   return {
+    organization: { id: "deluxe-paints", name: "Deluxe Paints Nigeria" },
+    branches: [
+      { id: "lagos-plant", name: "Lagos Plant" },
+      { id: "ikeja-outlet", name: "Ikeja Outlet" },
+    ],
     cameras,
     scenes,
     zones: {},
     areas: [
-      { id: "warehouse", name: "Warehouse" },
-      { id: "external", name: "External perimeter" },
-      { id: "retail", name: "Retail floor" },
+      {
+        id: "warehouse",
+        name: "Warehouse",
+        branch_id: "lagos-plant",
+      },
+      {
+        id: "external",
+        name: "External perimeter",
+        branch_id: "ikeja-outlet",
+      },
+      { id: "retail", name: "Retail floor", branch_id: "ikeja-outlet" },
     ],
     site: {
       name: "Deluxe Paints Nigeria",
@@ -119,6 +170,26 @@ export function initialDemo(): DemoState {
     ],
   };
 }
+
+function demoHierarchy(state: DemoState): Hierarchy {
+  const areaIds = new Set(state.areas.map((area) => area.id));
+  return {
+    organization: state.organization,
+    branches: state.branches.map((branch) => ({
+      ...branch,
+      areas: state.areas
+        .filter((area) => area.branch_id === branch.id)
+        .map((area) => ({
+          ...area,
+          cameras: state.cameras.filter((camera) => camera.area_id === area.id),
+        })),
+    })),
+    unassigned_cameras: state.cameras.filter(
+      (camera) => !camera.area_id || !areaIds.has(camera.area_id),
+    ),
+  };
+}
+
 export function createDemo(
   storage?: Pick<Storage, "getItem" | "setItem">,
 ): Transport {
@@ -141,7 +212,31 @@ export function createDemo(
             }
           }
         }
-        state = saved;
+        const branches = saved.branches || state.branches;
+        const defaultBranchByArea = new Map(
+          state.areas.map((area) => [area.id, area.branch_id]),
+        );
+        const areas = (saved.areas || state.areas).map((area: Json) => ({
+          ...area,
+          branch_id:
+            area.branch_id ||
+            defaultBranchByArea.get(area.id) ||
+            branches[0]?.id,
+        }));
+        const branchByArea = new Map(
+          areas.map((area: Json) => [area.id, area.branch_id]),
+        );
+        state = {
+          ...state,
+          ...saved,
+          organization: saved.organization || state.organization,
+          branches,
+          areas,
+          cameras: saved.cameras.map((camera: Camera) => ({
+            ...camera,
+            branch_id: branchByArea.get(camera.area_id || ""),
+          })),
+        };
       }
     }
   } catch {
@@ -172,6 +267,12 @@ export function createDemo(
         case "get_site":
           result = state.site;
           break;
+        case "organization":
+          return structuredClone(state.organization) as T;
+        case "list_branches":
+          return structuredClone(state.branches) as T;
+        case "hierarchy":
+          return structuredClone(demoHierarchy(state)) as T;
         case "set_site":
           state.site = {
             ...state.site,
@@ -363,7 +464,7 @@ export function createDemo(
         default:
           throw new Error("This operation requires a connected Argus engine.");
       }
-      save();
+      if (MUTATING_METHODS.has(method)) save();
       return structuredClone(result) as T;
     },
   };
