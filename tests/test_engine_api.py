@@ -205,6 +205,40 @@ class RealApiTests(unittest.TestCase):
         self.assertTrue(mon["starting"])
         self.assertEqual(mon["phase"], "starting — mapping camera scenes")
 
+    def test_switching_feeds_while_monitoring_restarts_the_engine_as_the_caller(self):
+        # switch_feed works on a background thread, after the API has cleared
+        # its per-request impersonation. The stop/start inside it used to hit
+        # the permission gate as '<anonymous>' and fail every time, so from
+        # Demi's app a feed switch while monitoring left the engine on the old
+        # feed with a permission error in the switcher (12 Sep).
+        import types
+        host = self.app.state.backend_host
+        host._backend = host._build()
+        b = host._backend
+
+        class FakeEngine:
+            def __init__(self): self.alive, self.pid = True, 4242
+            def poll(self): return None if self.alive else 0
+            def terminate(self): self.alive = False
+            def wait(self, timeout=None): return 0
+            def kill(self): self.alive = False
+
+        first, second = FakeEngine(), FakeEngine()
+        b._monitor, b._engine_owned = first, True
+        b._spawn_engine = lambda: second
+        principal = types.SimpleNamespace(username="ayo", role="owner")
+        out = host.call(principal, "switch_feed", key="stage")
+        self.assertTrue(out["ok"], out)
+        deadline = time.time() + 30
+        while time.time() < deadline and host.call(principal, "feed_switch_status")["busy"]:
+            time.sleep(0.1)
+        st = host.call(principal, "feed_switch_status")
+        self.assertIsNone(st["error"], st)
+        self.assertTrue(st["engine_restarted"], st)
+        self.assertFalse(first.alive)              # old engine stopped
+        self.assertIs(b._monitor, second)          # new one running on the new feed
+        b._monitor_should_run = False              # let the watchdog thread exit
+
     def test_monitor_trusts_the_heartbeat_when_nobody_owns_an_engine(self):
         # No Start/Stop has gone through this API (a headless engine from a
         # terminal, say): the heartbeat file still decides, as before.
