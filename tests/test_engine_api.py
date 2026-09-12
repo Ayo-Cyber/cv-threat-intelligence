@@ -170,6 +170,31 @@ class RealApiTests(unittest.TestCase):
         self.assertEqual([c["id"] for c in cams], ["Dublin Street"])
         self.assertEqual(self.client.get(f"{PREFIX}/triage", headers=headers).json()["total"], 1)
 
+    def test_monitor_and_stream_follow_the_engine_owner_not_the_stale_heartbeat(self):
+        # gate_health.json here is fresh, so the heartbeat alone says
+        # "monitoring". The backend that OWNS the engine process says nothing
+        # is running: Stop must read as stopped at once, not up to 30s later
+        # ("I pressed stop monitoring but it didn't stop", 12 Sep), and a tile
+        # must get a retryable 503, not a stale publisher URL.
+        host = self.app.state.backend_host
+        host._backend = host._build()
+        host._backend._engine_owned = True           # what Start/Stop leave behind
+        host._backend._monitor = None
+        headers = self._auth()
+        mon = self.client.get(f"{PREFIX}/monitor", headers=headers).json()
+        self.assertFalse(mon["running"])
+        self.assertEqual(mon["phase"], "stopped")
+        (Path(self._tmp.name) / "frames.json").write_text('{"port": 1, "token": "t"}')
+        r = self.client.get(f"{PREFIX}/cameras/Dublin Street/stream", headers=headers)
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(r.json()["error"]["code"], "engine_unavailable")
+
+    def test_monitor_trusts_the_heartbeat_when_nobody_owns_an_engine(self):
+        # No Start/Stop has gone through this API (a headless engine from a
+        # terminal, say): the heartbeat file still decides, as before.
+        mon = self.client.get(f"{PREFIX}/monitor", headers=self._auth()).json()
+        self.assertTrue(mon["running"])
+
     def test_events_list_and_shape(self):
         r = self.client.get(f"{PREFIX}/events", headers=self._auth())
         body = r.json()

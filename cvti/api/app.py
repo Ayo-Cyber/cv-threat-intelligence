@@ -118,6 +118,12 @@ def create_app(*, db_path: str = "runs/site/events.db",
         host = getattr(app.state, "backend_host", None)
         return host.active_site_path if host is not None else app.state.site_path
 
+    def _engine_alive() -> Optional[bool]:
+        """The engine owner's answer (True/False), or None to let the
+        heartbeat file decide — see _ApiBackend.engine_alive."""
+        host = getattr(app.state, "backend_host", None)
+        return host.engine_alive if host is not None else None
+
     def require_principal(authorization: Optional[str] = Header(default=None)):
         token = None
         if authorization and authorization.lower().startswith("bearer "):
@@ -194,7 +200,13 @@ def create_app(*, db_path: str = "runs/site/events.db",
 
     @app.get(f"{API_PREFIX}/monitor")
     async def monitor(principal=Depends(require_principal)):
-        return sources.monitor_state(_db())
+        state = sources.monitor_state(_db())
+        # The heartbeat file stays fresh for up to 30s after Stop, so the
+        # header kept saying "monitoring" while the operator watched a Stop
+        # that "didn't stop" (12 Sep). The process owner knows at once.
+        if _engine_alive() is False:
+            state.update(running=False, starting=False, phase="stopped")
+        return state
 
     # ---- cameras ------------------------------------------------------------
     @app.get(f"{API_PREFIX}/cameras")
@@ -252,6 +264,13 @@ def create_app(*, db_path: str = "runs/site/events.db",
     # ---- live video (transport descriptor) ----------------------------------
     @app.get(f"{API_PREFIX}/cameras/{{camera_id}}/stream")
     async def stream(camera_id: str, principal=Depends(require_principal)):
+        if _engine_alive() is False:
+            # A publisher file can outlive the engine that wrote it, and every
+            # run listens on a fresh port: a stale URL is a tile stuck on
+            # "fallback stream could not be loaded". A 503 is retryable.
+            return _error(503, "engine_unavailable",
+                          "no live stream — monitoring is stopped",
+                          {"phase": "stopped"})
         out_dir = Path(_db()).parent
         # MJPEG publisher details — the fallback transport, and part of the
         # WebRTC answer so a player can degrade without a second round-trip.

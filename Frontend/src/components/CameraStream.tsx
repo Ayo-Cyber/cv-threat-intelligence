@@ -9,6 +9,8 @@ import type { Camera, Transport } from "../lib/types";
 import { resolveCameraStream, type ResolvedCameraStream } from "../lib/whep";
 import { Empty, Spinner } from "./common";
 
+const RETRY_OFFLINE_MS = 5_000;
+
 type PlayerState =
   | { kind: "loading" }
   | ResolvedCameraStream
@@ -31,6 +33,7 @@ export default function CameraStream({
   });
   const [imageFailed, setImageFailed] = useState(false);
   const [evidence, setEvidence] = useState<MediaEvidence>("none");
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -59,7 +62,7 @@ export default function CameraStream({
             });
         });
     return () => controller.abort();
-  }, [active, api, camera.id]);
+  }, [active, api, camera.id, retry]);
 
   const transport: StreamTransport =
     state.kind === "webrtc"
@@ -76,6 +79,17 @@ export default function CameraStream({
     evidence,
     failed: state.kind === "offline" || imageFailed,
   });
+
+  // A tile resolved its stream once and then sat on the result. Open the wall
+  // before pressing Start monitoring and every tile stayed "offline" until
+  // something remounted it — and each engine run publishes on a new port, so
+  // the stale URL could never come back on its own (12 Sep). While offline,
+  // ask again every few seconds; one small request per tile.
+  useEffect(() => {
+    if (!active || presentation.phase !== "offline") return;
+    const timer = setTimeout(() => setRetry((n) => n + 1), RETRY_OFFLINE_MS);
+    return () => clearTimeout(timer);
+  }, [active, presentation.phase, retry]);
 
   return (
     <div className="camera-media">

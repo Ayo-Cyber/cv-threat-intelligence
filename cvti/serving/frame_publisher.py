@@ -69,6 +69,7 @@ class FramePublisher:
         self._lock = threading.Lock()
         self._server: Any = None
         self._thread: threading.Thread | None = None
+        self._marker: Path | None = None    # <output_dir>/frames.json, ours to remove
         self.port = 0
         self.published = 0
 
@@ -275,7 +276,7 @@ class FramePublisher:
                                         name="frame-publisher", daemon=True)
         self._thread.start()
         if output_dir:                          # so the app can find us
-            p = Path(output_dir) / "frames.json"
+            p = self._marker = Path(output_dir) / "frames.json"
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps({"port": self.port, "token": self.token}))
             try:
@@ -294,3 +295,16 @@ class FramePublisher:
             self._server.shutdown()
             self._server.server_close()
             self._server = None
+        # Like stream_gateway.json: the file existing IS the publisher being
+        # alive. It used to outlive the engine, and every run listens on a new
+        # port — so after Stop the app resolved a dead URL and every tile read
+        # "fallback stream could not be loaded" until something remounted it
+        # (12 Sep). Remove it, and the app gets an honest 503 instead.
+        if self._marker is not None:
+            try:
+                self._marker.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                log.warning("[frames] could not remove %s", self._marker, exc_info=True)
+            self._marker = None
