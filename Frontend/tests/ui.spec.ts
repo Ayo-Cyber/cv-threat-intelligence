@@ -382,6 +382,156 @@ test("rectangle zoning saves original image points", async ({ page }) => {
   expect(points).toHaveLength(4);
   expect(points[2][0]).toBeGreaterThan(points[0][0]);
 });
+
+test("streams-only wall supports filtering, focus, fullscreen, and ordered escape", async ({
+  page,
+}) => {
+  test.slow();
+  await page.getByRole("button", { name: "Open streams wall" }).click();
+
+  const wall = page.getByRole("region", { name: "Streams-only camera wall" });
+  await expect(wall).toBeVisible();
+  await expect(
+    page.locator(".sidebar, .topbar, .activity, .app-footer"),
+  ).toHaveCount(0);
+  await expect(
+    wall.getByText("Deluxe Paints Nigeria", { exact: true }),
+  ).toBeVisible();
+
+  await wall
+    .getByLabel("Wall branch")
+    .selectOption({ label: "Ikeja Outlet (3)" });
+  await wall
+    .getByLabel("Wall area")
+    .selectOption({ label: "External perimeter (2)" });
+  await expect(wall.locator(".streams-tile")).toHaveCount(2);
+  await wall.getByLabel("Search streams").fill("Main Corridor");
+  await expect(wall.locator(".streams-tile")).toHaveCount(1);
+  await expect(wall.getByTitle("Healthy cameras")).toHaveText("1");
+
+  await wall.getByRole("button", { name: "Show 9 cameras" }).click();
+  await expect(
+    wall.getByRole("button", { name: "Show 9 cameras" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await wall.getByRole("button", { name: "Focus Main Corridor" }).click();
+  await expect(wall.locator(".streams-stage")).toHaveClass(/is-focused/);
+
+  await page.evaluate(() => {
+    let fullscreenElement: Element | null = null;
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => fullscreenElement,
+    });
+    Object.defineProperty(Element.prototype, "requestFullscreen", {
+      configurable: true,
+      value: async function () {
+        fullscreenElement = this;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      },
+    });
+    Object.defineProperty(document, "exitFullscreen", {
+      configurable: true,
+      value: async () => {
+        fullscreenElement = null;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      },
+    });
+  });
+  await wall.getByRole("button", { name: "Enter fullscreen" }).click();
+  await expect(wall).toHaveAttribute("data-fullscreen", "true");
+
+  await page.keyboard.press("Escape");
+  await expect(wall.locator(".streams-stage")).not.toHaveClass(/is-focused/);
+  await expect(wall).toHaveAttribute("data-fullscreen", "true");
+  await page.keyboard.press("Escape");
+  await expect(wall).toHaveAttribute("data-fullscreen", "false");
+  await expect(wall).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(wall).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Every camera. One clear picture." }),
+  ).toBeVisible();
+});
+
+test("streams-only toolbar auto-hides without overlap and remains visible while focused", async ({
+  page,
+}) => {
+  test.slow();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "Open streams wall" }).click();
+  const wall = page.getByRole("region", { name: "Streams-only camera wall" });
+  const toolbar = wall.getByRole("toolbar", { name: "Camera wall controls" });
+  await expect(toolbar).toBeVisible();
+  await page.waitForTimeout(3200);
+  await expect(toolbar).toHaveAttribute("data-hidden", "true");
+
+  await page.mouse.move(20, 20);
+  await expect(toolbar).toHaveAttribute("data-hidden", "false");
+  await wall.getByLabel("Search streams").focus();
+  await page.waitForTimeout(3200);
+  await expect(toolbar).toHaveAttribute("data-hidden", "false");
+
+  await expect
+    .poll(() =>
+      wall.locator(".streams-tile .camera-media").evaluateAll((nodes) =>
+        nodes.every((node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.width > 100 && rect.height > 60;
+        }),
+      ),
+    )
+    .toBe(true);
+  await expect
+    .poll(() =>
+      wall.locator(".streams-tile video").evaluateAll((nodes) =>
+        nodes.every((node) => {
+          const video = node as HTMLVideoElement;
+          return (
+            video.readyState >= 2 &&
+            video.videoWidth > 0 &&
+            video.videoHeight > 0
+          );
+        }),
+      ),
+    )
+    .toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    )
+    .toBe(true);
+  await page.screenshot({
+    path: "test-results/streams-wall-desktop.png",
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.mouse.move(10, 120);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    )
+    .toBe(true);
+  const boxes = await wall
+    .locator(".streams-tile .camera-media")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      }),
+    );
+  expect(boxes.every(({ width, height }) => width > 100 && height > 60)).toBe(
+    true,
+  );
+  await page.screenshot({
+    path: "test-results/streams-wall-mobile.png",
+    fullPage: true,
+  });
+});
 test("zone workspace fits the entire image and protects unsaved drawings", async ({
   page,
 }) => {

@@ -23,6 +23,7 @@ import {
   Layers,
   Trash2,
   ScanLine,
+  Maximize2,
 } from "lucide-react";
 import { client } from "./lib/client";
 import {
@@ -51,6 +52,7 @@ import HierarchyReview from "./components/HierarchyReview";
 import SettingsPanel from "./components/SettingsPanel";
 import { AccountHelp } from "./components/AccountAccess";
 import CameraStream from "./components/CameraStream";
+import StreamsWall from "./components/StreamsWall";
 import { applyPushEvent } from "./lib/push";
 import {
   ALL_LOCATIONS,
@@ -123,6 +125,7 @@ export default function App() {
   const [add, setAdd] = useState(false);
   const [hierarchyReview, setHierarchyReview] = useState(false);
   const [cameraDirty, setCameraDirty] = useState(false);
+  const [streamsOnly, setStreamsOnly] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const generation = useRef(0);
@@ -289,6 +292,18 @@ export default function App() {
   const openCameraOnboarding = () => {
     if (canConfigureCameras) setAdd(true);
   };
+  if (streamsOnly && ws.auth.signed_in) {
+    return (
+      <StreamsWall
+        hierarchy={ws.hierarchy}
+        cameras={ws.cameras}
+        api={api}
+        mode={mode}
+        running={Boolean(ws.monitor.running)}
+        onExit={() => setStreamsOnly(false)}
+      />
+    );
+  }
   return (
     <div className="app-shell">
       <aside className={`sidebar ${nav ? "mobile-open" : ""}`}>
@@ -659,9 +674,19 @@ export default function App() {
                   <div className="overview-layout">
                     <section className="camera-section">
                       <div className="section-bar">
-                        <h2>
-                          Camera wall <span>{wallCameras.length}</span>
-                        </h2>
+                        <div className="section-title-action">
+                          <h2>
+                            Camera wall <span>{wallCameras.length}</span>
+                          </h2>
+                          <button
+                            className="icon-button"
+                            aria-label="Open streams wall"
+                            title="Open streams wall"
+                            onClick={() => setStreamsOnly(true)}
+                          >
+                            <Maximize2 size={16} />
+                          </button>
+                        </div>
                         <div className="section-tools">
                           <div className="search-field wall-search">
                             <Search size={14} />
