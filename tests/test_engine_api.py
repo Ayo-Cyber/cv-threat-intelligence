@@ -121,6 +121,14 @@ class RealApiTests(unittest.TestCase):
         self.assertIn("rtsp://***@10.0.0.9/stream1", cams[0]["source"])
         self.assertEqual(cams[0]["state"], "connected")   # merged from health
 
+    def test_sign_out_returns_empty_204_not_crashing_null(self):
+        # DELETE /auth/session is a 204: the body MUST be empty. Returning
+        # JSONResponse(None) wrote "null" against Content-Length 0 and crashed
+        # the uvicorn worker on every logout (12 Sep field). Empty 204 now.
+        r = self.client.delete(f"{PREFIX}/auth/session", headers=self._auth())
+        self.assertEqual(r.status_code, 204)
+        self.assertEqual(r.content, b"")
+
     def test_cameras_presets_is_not_swallowed_by_the_camera_id_route(self):
         # /cameras/presets must resolve to its own route, not fall into
         # /cameras/{camera_id} as camera_id='presets' (the 12 Sep field UI
