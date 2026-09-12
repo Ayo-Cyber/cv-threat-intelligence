@@ -68,6 +68,7 @@ class PersonZoneState:
     zones: list[str] = field(default_factory=list)        # zones currently occupied
     dwell_seconds: dict[str, float] = field(default_factory=dict)
     loitering: bool = False                               # crossed any zone's dwell threshold
+    entered_zones: list[str] = field(default_factory=list)  # zones this track crossed INTO this frame
 
     def label(self) -> str:
         tag = f"#{self.tracker_id}" if self.tracker_id is not None else "#?"
@@ -181,6 +182,23 @@ class RetailZoneMonitor:
         # new track appearing in the same zone within the grace window, at the
         # spot a track just vanished from, INHERITS that track's entry time.
         self._last_pos: dict[tuple[int, str], tuple[float, float, float]] = {}
+        # Zone exits detected on the last update() — a (tracker_id, zone) pair
+        # forgotten after the grace window (a debounced departure, so a
+        # one-frame occlusion is NOT read as leaving-and-re-entering). Drained
+        # by the caller each frame via drain_exits().
+        self._exits: list[tuple[int, str]] = []
+
+    def drain_exits(self) -> list[tuple[int, str]]:
+        """The (tracker_id, zone) pairs that LEFT their zone since the last call.
+
+        Exit is grace-debounced: a track is 'gone' only once it has been absent
+        longer than dwell_grace_seconds, so boundary jitter and brief occlusions
+        never fabricate an exit. Entry, by contrast, is instant (see
+        PersonZoneState.entered_zones) — crossing in is the security event you
+        want the moment it happens; crossing out can afford to be sure."""
+        out = self._exits
+        self._exits = []
+        return out
 
     def update(self, detections: sv.Detections, timestamp: float) -> list[PersonZoneState]:
         n = len(detections)
@@ -210,6 +228,11 @@ class RetailZoneMonitor:
                                                     current_keys)
                     self._entered_at[key] = (timestamp if inherited is None
                                              else inherited)
+                    # A genuinely NEW presence is a zone ENTRY. An inherited
+                    # entry is the same person handed back under a fresh track
+                    # id after an occlusion — not a new crossing, so no entry.
+                    if inherited is None:
+                        state.entered_zones.append(name)
                 entered = self._entered_at[key]
                 self._last_in_zone[key] = timestamp
                 cx = (bbox[0] + bbox[2]) / 2.0
@@ -233,6 +256,7 @@ class RetailZoneMonitor:
                 del self._entered_at[key]
                 self._last_in_zone.pop(key, None)
                 self._last_pos.pop(key, None)
+                self._exits.append(key)   # debounced departure -> a zone EXIT
 
         return states
 

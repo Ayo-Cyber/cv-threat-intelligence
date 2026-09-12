@@ -21,21 +21,59 @@
         "detector": "theft",
         "state": "DEPART"
       },
-      "priority": "high"
+      "priority": "high",
+      "context_requirements": {
+        "environment_types": [
+          "retail_shop",
+          "mall_corridor"
+        ],
+        "zone_roles_any": [
+          "merchandise",
+          "checkout"
+        ],
+        "mode": "enforce"
+      }
     },
     {
       "name": "shoplifting",
       "trigger": {
         "detector": "concealment"
       },
+      "priority": "high",
+      "context_requirements": {
+        "environment_types": [
+          "retail_shop",
+          "mall_corridor"
+        ],
+        "zone_roles_any": [
+          "merchandise",
+          "checkout"
+        ],
+        "mode": "enforce"
+      }
+    },
+    {
+      "name": "entered_demo_floor",
+      "trigger": {
+        "detector": "zone_entry"
+      },
+      "context_filter": "zone == 'demo_floor'",
       "priority": "high"
+    },
+    {
+      "name": "left_demo_floor",
+      "trigger": {
+        "detector": "zone_exit"
+      },
+      "context_filter": "zone == 'demo_floor'",
+      "priority": "low"
     },
     {
       "name": "loitering_demo_floor",
       "trigger": {
         "detector": "presence"
       },
-      "context_filter": "zone == 'demo_floor' and dwell_seconds >= 999999",
+      "context_filter": "zone == 'demo_floor' and dwell_seconds >= 20",
       "priority": "medium"
     }
   ]
