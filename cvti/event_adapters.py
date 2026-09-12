@@ -57,19 +57,34 @@ def zone_states_to_events(zone_states: list[Any], timestamp: float = 0.0) -> lis
     return events
 
 
-def zone_exits_to_events(exits: list[tuple[int, str]], timestamp: float = 0.0) -> list[RawEvent]:
-    """Bridge the monitor's drained (tracker_id, zone) exits into zone_exit events."""
+def zone_exits_to_events(exits: list[Any], timestamp: float = 0.0) -> list[RawEvent]:
+    """Bridge the monitor's drained exits (ZoneExit, or bare (tracker_id, zone)
+    tuples) into zone_exit events.
+
+    The title carries how long they were inside and how they went — "left
+    after 17s" is what an operator acts on; "left" alone is not. A `lost`
+    exit (vanished mid-zone past the lost window) says so, rather than
+    claiming a departure nobody saw."""
     events: list[RawEvent] = []
-    for tid, zone in exits or []:
+    for ex in exits or []:
+        tid, zone = tuple(ex)[:2]
+        dwell = getattr(ex, "dwell_seconds", None)
+        how = getattr(ex, "how", "walked_out")
+        after = f" AFTER {dwell:.0f}S" if dwell is not None else ""
+        title = (f"PERSON LOST FROM VIEW IN ZONE {zone.upper()}{after}" if how == "lost"
+                 else f"PERSON LEFT ZONE {zone.upper()}{after}")
+        extra: dict[str, Any] = {"zone": zone, "how": how}
+        if dwell is not None:
+            extra["dwell_seconds"] = float(dwell)
         events.append(
             RawEvent(
                 detector="zone_exit",
                 active=True,
-                title=f"PERSON LEFT ZONE {zone.upper()}",
+                title=title,
                 level="low",
                 person_id=tid,
                 timestamp=timestamp,
-                extra={"zone": zone},
+                extra=extra,
             )
         )
     return events
