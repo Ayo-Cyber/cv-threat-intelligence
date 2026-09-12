@@ -7,6 +7,7 @@ import readline from "node:readline";
 import type { ArgusApiClient } from "./api-client.js";
 import { createOwnedApiClient, createSmokeStateWriter } from "./api-runtime.js";
 import { startOwnedApi, type OwnedApi } from "./api-supervisor.js";
+import { createSupportLog } from "./support-log.js";
 import {
   createBridgeTransport,
   registerBridgeStreamProtocol,
@@ -228,18 +229,22 @@ async function ensureApi() {
     const port = Number(process.env.ARGUS_API_PORT || 8787);
     if (!Number.isInteger(port) || port < 1 || port > 65535)
       throw new Error("ARGUS_API_PORT must be an integer from 1 to 65535.");
-    const logPath = path.join(root, "runs", "desktop", "frontend.log");
-    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    const logPath =
+      process.env.ARGUS_SUPPORT_LOG ||
+      path.join(root, "runs", "desktop", "frontend.log");
+    const supportLog = createSupportLog(logPath);
+    const writeOutput = (data: Buffer) => {
+      const safe = supportLog.write(data);
+      process.stderr.write(safe);
+    };
     const owner = await startOwnedApi({
       python,
       root,
       port,
       site: process.env.ARGUS_SITE_CONFIG || "configs/site_live.json",
       db: process.env.ARGUS_DB || "runs/desktop/events.db",
-      onStderr: (data) => {
-        process.stderr.write(data);
-        fs.appendFileSync(logPath, data);
-      },
+      onStdout: writeOutput,
+      onStderr: writeOutput,
     });
     ownedApi = owner;
     if (smokeState) {

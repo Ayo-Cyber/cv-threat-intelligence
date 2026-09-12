@@ -32,6 +32,7 @@ class FakePeerConnection {
 
 describe("WHEP streaming", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     FakePeerConnection.instances = [];
   });
@@ -61,7 +62,7 @@ describe("WHEP streaming", () => {
         method: "POST",
         body: "local-offer",
         headers: { "content-type": "application/sdp" },
-        signal: controller.signal,
+        signal: expect.any(AbortSignal),
       }),
     );
     expect(peer.remoteDescription).toEqual({
@@ -129,5 +130,106 @@ describe("WHEP streaming", () => {
     expect(result).toEqual({ kind: "inactive" });
     expect(api.invoke).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("recovers after bounded transient descriptor failures", async () => {
+    const unavailable = Object.assign(new Error("engine starting"), {
+      status: 503,
+    });
+    const api = {
+      invoke: vi
+        .fn()
+        .mockRejectedValueOnce(unavailable)
+        .mockRejectedValueOnce(unavailable)
+        .mockResolvedValueOnce({
+          kind: "mjpeg" as const,
+          url: "http://127.0.0.1:9000/stream/front?token=x",
+        }),
+    };
+    const sleep = vi.fn(async () => {});
+
+    await expect(
+      resolveCameraStream({
+        cameraId: "front",
+        active: true,
+        api,
+        video: {} as HTMLVideoElement,
+        signal: new AbortController().signal,
+        retryDelaysMs: [10, 20],
+        sleep,
+      }),
+    ).resolves.toEqual({
+      kind: "mjpeg",
+      url: "http://127.0.0.1:9000/stream/front?token=x",
+      degraded: false,
+    });
+    expect(sleep).toHaveBeenCalledTimes(2);
+    expect(api.invoke).toHaveBeenCalledTimes(3);
+  });
+
+  it("cancels descriptor retry immediately when the tile becomes inactive", async () => {
+    const controller = new AbortController();
+    const api = {
+      invoke: vi.fn(async () => {
+        throw Object.assign(new Error("engine starting"), { status: 503 });
+      }),
+    };
+    const sleep = vi.fn(
+      (_delay: number, signal: AbortSignal) =>
+        new Promise<void>((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          }),
+        ),
+    );
+    const resolving = resolveCameraStream({
+      cameraId: "front",
+      active: true,
+      api,
+      video: {} as HTMLVideoElement,
+      signal: controller.signal,
+      retryDelaysMs: [1000],
+      sleep,
+    });
+
+    await Promise.resolve();
+    controller.abort();
+
+    await expect(resolving).rejects.toMatchObject({ name: "AbortError" });
+    expect(api.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("times out hung WHEP negotiation and closes its peer", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url, init: RequestInit = {}) =>
+        new Promise((_resolve, reject) =>
+          init.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          ),
+        ),
+      ),
+    );
+    vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+    const controller = new AbortController();
+    const pending = connectWhep(
+      {} as HTMLVideoElement,
+      "http://127.0.0.1:1984/api/webrtc?src=front",
+      controller.signal,
+    );
+    const outcomePromise = pending.then(
+      () => "resolved",
+      (error) => (error as Error).message,
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const outcome = await outcomePromise;
+
+    expect(outcome).toContain("timed out");
+    expect(FakePeerConnection.instances[0].closed).toBe(true);
+    controller.abort();
   });
 });

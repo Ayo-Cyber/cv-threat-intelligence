@@ -17,7 +17,9 @@ mapped endpoint here.
 
 - Base path `/api/v1`. JSON bodies both ways. UTF-8.
 - **Auth**: `Authorization: Bearer <token>` from `POST /auth/session`.
-  The WebSocket takes `?token=`. No unauthenticated route exists except
+  The WebSocket offers `argus.v1` and `argus.token.<token>` in
+  `Sec-WebSocket-Protocol`; credentials are never placed in its URL. No
+  unauthenticated route exists except
   `GET /` and `/api/v1` (discovery) and the first-run endpoints marked PUBLIC.
 - **Errors**: `{"error": {"code", "message", "detail"}}` with the HTTP status.
   `401` unauthenticated; `403` carries the MISSING PERMISSION'S NAME in
@@ -182,7 +184,18 @@ when the go2rtc gateway is up, else `{kind: "mjpeg", url}`. Players switch on
 | — | `GET /system/health` | any | shipped |
 | — | `GET /system/info` | any | shipped |
 
-## WebSocket — `WS /api/v1/stream?token=`
+## WebSocket — `WS /api/v1/stream`
+
+Clients offer the ordered subprotocols `argus.v1` and
+`argus.token.<bearer-token>`. The server selects only `argus.v1`, so the token
+is not echoed and never enters access-log request URLs. The socket requires
+`view_alerts`, revalidates its in-memory token and account on every push-loop
+iteration, and closes with:
+
+- `4401` when the token expires/is revoked, the account is deleted, or its role
+  changes; the client must clear the session and sign in again;
+- `4403` when the authenticated role lacks `view_alerts`; the client keeps the
+  REST session but must not reconnect the alert socket.
 
 Messages are `{type, ts, data}`. On connect the server hydrates with one
 `health` and one `triage` snapshot, then pushes:

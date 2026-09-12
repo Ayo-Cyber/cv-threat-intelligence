@@ -15,6 +15,7 @@ type StartOptions = {
   now?: () => number;
   timeoutMs?: number;
   stopTimeoutMs?: number;
+  onStdout?: (data: Buffer) => void;
   onStderr?: (data: Buffer) => void;
 };
 
@@ -40,6 +41,7 @@ export async function startOwnedApi({
   now = Date.now,
   timeoutMs = 30_000,
   stopTimeoutMs = 5_000,
+  onStdout,
   onStderr,
 }: StartOptions): Promise<OwnedApi> {
   const baseUrl = `http://127.0.0.1:${port}/api/v1`;
@@ -78,7 +80,10 @@ export async function startOwnedApi({
       stdio: "pipe",
     },
   );
+  if (onStdout) process.stdout.on("data", onStdout);
+  else process.stdout.resume();
   if (onStderr) process.stderr.on("data", onStderr);
+  else process.stderr.resume();
 
   const lifecycle = new AbortController();
   const exitListeners = new Set<(error: Error) => void>();

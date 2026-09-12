@@ -9,13 +9,11 @@ import {
 } from "lucide-react";
 import type { Camera, Hierarchy, Mode, Transport } from "../lib/types";
 import {
-  ALL_LOCATIONS,
   areaOptions,
   branchOptions,
   decodeLocationSelection,
   encodeLocationSelection,
   filterCameras,
-  reconcileAreaSelection,
   type LocationSelection,
 } from "../lib/hierarchy";
 import {
@@ -42,6 +40,10 @@ export default function StreamsWall({
   api,
   mode,
   running,
+  branch,
+  area,
+  onBranchChange,
+  onAreaChange,
   onExit,
 }: {
   hierarchy: Hierarchy;
@@ -49,10 +51,12 @@ export default function StreamsWall({
   api: Transport;
   mode: Mode;
   running: boolean;
+  branch: LocationSelection;
+  area: LocationSelection;
+  onBranchChange: (selection: LocationSelection) => void;
+  onAreaChange: (selection: LocationSelection) => void;
   onExit: () => void;
 }) {
-  const [branch, setBranch] = useState<LocationSelection>(ALL_LOCATIONS);
-  const [area, setArea] = useState<LocationSelection>(ALL_LOCATIONS);
   const [query, setQuery] = useState("");
   const [density, setDensity] = useState<(typeof DENSITIES)[number]>(4);
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -195,10 +199,7 @@ export default function StreamsWall({
             onChange={(event) => {
               const next = decodeLocationSelection(event.target.value);
               if (!next) return;
-              setBranch(next);
-              setArea((current) =>
-                reconcileAreaSelection(hierarchy, next, current),
-              );
+              onBranchChange(next);
             }}
           >
             {branchChoices.map((option) => (
@@ -215,7 +216,7 @@ export default function StreamsWall({
             value={encodeLocationSelection(area)}
             onChange={(event) => {
               const next = decodeLocationSelection(event.target.value);
-              if (next) setArea(next);
+              if (next) onAreaChange(next);
             }}
           >
             {areaChoices.map((option) => (

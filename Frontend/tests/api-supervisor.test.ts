@@ -22,6 +22,37 @@ function child() {
 }
 
 describe("owned API supervision", () => {
+  it("continuously drains high-volume stdout for the child lifecycle", async () => {
+    const owned = child();
+    let bytes = 0;
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("port free"))
+      .mockResolvedValueOnce(
+        new Response('{"name":"Argus Engine API","status":"ok"}'),
+      );
+    const api = await startOwnedApi({
+      python: "python",
+      root: "/repo",
+      site: "site.json",
+      db: "events.db",
+      port: 8787,
+      spawn: (() => owned) as any,
+      fetch: fetch as any,
+      sleep: async () => {},
+      onStdout: (data) => {
+        bytes += data.length;
+      },
+    });
+
+    const chunk = Buffer.alloc(64 * 1024, "x");
+    for (let index = 0; index < 128; index += 1) owned.stdout.write(chunk);
+
+    expect(owned.stdout.readableFlowing).toBe(true);
+    expect(bytes).toBe(8 * 1024 * 1024);
+    await api.stop();
+  });
+
   it("spawns the requested loopback API and waits until its root is ready", async () => {
     const owned = child();
     const spawn = vi.fn(() => owned);

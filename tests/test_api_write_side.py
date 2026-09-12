@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from cvti.api.app import create_app
 
@@ -138,6 +139,31 @@ class TheBackendPermissionModelIsTheOnlyOne(unittest.TestCase):
         ok = self.client.get("/api/v1/events?q=door", headers=self.owner)
         self.assertEqual(ok.status_code, 200, ok.text)
 
+    def test_installer_cannot_read_any_alert_or_triage_rest_route(self):
+        for path in (
+            "/api/v1/events",
+            "/api/v1/events/evt_1",
+            "/api/v1/events/evt_1/clip",
+            "/api/v1/triage",
+        ):
+            with self.subTest(path=path):
+                refused = self.client.get(path, headers=self.installer)
+                self.assertEqual(refused.status_code, 403, refused.text)
+                self.assertEqual(
+                    refused.json()["error"]["detail"]["permission"],
+                    "view_alerts",
+                )
+
+    def test_installer_cannot_open_the_alert_websocket(self):
+        token = self.installer["Authorization"].removeprefix("Bearer ")
+        with self.assertRaises(WebSocketDisconnect) as caught:
+            with self.client.websocket_connect(
+                "/api/v1/stream",
+                subprotocols=["argus.v1", f"argus.token.{token}"],
+            ) as websocket:
+                websocket.receive_json()
+        self.assertEqual(caught.exception.code, 4403)
+
     def test_site_write_needs_configure_site(self):
         refused = self.client.put("/api/v1/site", headers=self.installer,
                                   json={"name": "nope"})
@@ -202,6 +228,27 @@ class TheBackendPermissionModelIsTheOnlyOne(unittest.TestCase):
         self.assertEqual(branch_mutations, {
             "created": "ayo", "updated": "ayo", "removed": "ayo",
         })
+
+    def test_duplicate_branch_post_conflicts_but_put_still_updates(self):
+        first = self.client.post(
+            "/api/v1/branches", headers=self.owner,
+            json={"branch": {"id": "ikeja", "name": "Ikeja"}},
+        )
+        self.assertEqual(first.status_code, 201, first.text)
+
+        duplicate = self.client.post(
+            "/api/v1/branches", headers=self.owner,
+            json={"branch": {"id": "ikeja", "name": "Overwrite"}},
+        )
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+        self.assertEqual(duplicate.json()["error"]["code"], "conflict")
+
+        updated = self.client.put(
+            "/api/v1/branches/ikeja", headers=self.owner,
+            json={"branch": {"name": "Ikeja Mall"}},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertIn({"id": "ikeja", "name": "Ikeja Mall"}, updated.json())
 
     def test_owner_can_create_branch_area_and_read_hierarchy(self):
         made = self.client.post(

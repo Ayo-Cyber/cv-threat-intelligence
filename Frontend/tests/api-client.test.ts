@@ -24,14 +24,16 @@ function fetchSequence(items: Response[]) {
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   readonly url: string;
+  readonly protocols: string[];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   closed = false;
 
-  constructor(url: string) {
+  constructor(url: string, protocols: string | string[] = []) {
     this.url = url;
+    this.protocols = Array.isArray(protocols) ? protocols : [protocols];
     FakeWebSocket.instances.push(this);
   }
 
@@ -43,8 +45,8 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify({ type, ts: 1, data }) });
   }
 
-  disconnect() {
-    this.onclose?.();
+  disconnect(code = 1006) {
+    this.onclose?.({ code });
   }
 }
 
@@ -271,7 +273,8 @@ describe("ArgusApiClient", () => {
     await client.invoke("sign_in", ["a", "pw"]);
 
     const first = FakeWebSocket.instances[0];
-    expect(first.url).toBe("ws://127.0.0.1:8787/api/v1/stream?token=secret");
+    expect(first.url).toBe("ws://127.0.0.1:8787/api/v1/stream");
+    expect(first.protocols).toEqual(["argus.v1", "argus.token.secret"]);
     first.emit("health", { status: "ok" });
     first.emit("triage", { to_review: 1 });
     first.emit("alert.new", { id: "evt_1" });
@@ -291,5 +294,107 @@ describe("ArgusApiClient", () => {
     const before = FakeWebSocket.instances.length;
     await vi.advanceTimersByTimeAsync(60000);
     expect(FakeWebSocket.instances).toHaveLength(before);
+  });
+
+  it.each([4401, 4403])(
+    "does not reconnect after websocket auth close code %s",
+    async (code) => {
+      vi.useFakeTimers();
+      const net = fetchSequence([
+        response({
+          token: "secret",
+          user: { username: "a", role: "owner", permissions: [] },
+        }),
+        response([]),
+      ]);
+      const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
+        fetch: net.fetch,
+        WebSocket: FakeWebSocket as unknown as typeof WebSocket,
+      });
+      client.subscribe(() => {});
+      await client.invoke("sign_in", ["a", "pw"]);
+
+      FakeWebSocket.instances[0].disconnect(code);
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      if (code === 4401)
+        await expect(client.invoke("list_cameras")).rejects.toMatchObject({
+          status: 401,
+        });
+      else await expect(client.invoke("list_cameras")).resolves.toEqual([]);
+    },
+  );
+
+  it("returns only canonical loopback stream descriptor fields", async () => {
+    const net = fetchSequence([
+      response({
+        token: "t",
+        user: { username: "a", role: "owner", permissions: [] },
+      }),
+      response({
+        kind: "webrtc",
+        url: "http://127.0.0.1:1984/api/webrtc?src=front",
+        ws: "ws://localhost:1984/api/ws?src=front",
+        mjpeg_fallback: "http://[::1]:5599/stream/front?token=stream",
+        internal: "must-not-cross-ipc",
+      }),
+    ]);
+    const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
+      fetch: net.fetch,
+    });
+    await client.invoke("sign_in", ["a", "pw"]);
+
+    await expect(client.invoke("camera_stream", ["front"])).resolves.toEqual({
+      kind: "webrtc",
+      url: "http://127.0.0.1:1984/api/webrtc?src=front",
+      mjpeg_fallback: "http://[::1]:5599/stream/front?token=stream",
+    });
+  });
+
+  it.each([
+    ["direct MJPEG host", { kind: "mjpeg", url: "http://camera.example/live" }],
+    ["direct MJPEG protocol", { kind: "mjpeg", url: "file:///tmp/live" }],
+    ["WHEP host", { kind: "webrtc", url: "http://camera.example/whep" }],
+    [
+      "fallback host",
+      {
+        kind: "webrtc",
+        url: "http://127.0.0.1:1984/whep",
+        mjpeg_fallback: "http://camera.example/live",
+      },
+    ],
+    [
+      "signaling host",
+      {
+        kind: "webrtc",
+        url: "http://127.0.0.1:1984/whep",
+        ws: "ws://camera.example/ws",
+      },
+    ],
+    [
+      "signaling protocol",
+      {
+        kind: "webrtc",
+        url: "http://127.0.0.1:1984/whep",
+        ws: "http://127.0.0.1:1984/ws",
+      },
+    ],
+  ])("rejects an unsafe %s descriptor", async (_label, descriptor) => {
+    const net = fetchSequence([
+      response({
+        token: "t",
+        user: { username: "a", role: "owner", permissions: [] },
+      }),
+      response(descriptor),
+    ]);
+    const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
+      fetch: net.fetch,
+    });
+    await client.invoke("sign_in", ["a", "pw"]);
+
+    await expect(client.invoke("camera_stream", ["front"])).rejects.toThrow(
+      "unsafe stream descriptor",
+    );
   });
 });

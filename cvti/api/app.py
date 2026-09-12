@@ -23,12 +23,30 @@ from cvti.logging_setup import get_logger
 log = get_logger(__name__)
 
 API_PREFIX = "/api/v1"
+WS_AUTH_PROTOCOL = "argus.v1"
+WS_TOKEN_PROTOCOL_PREFIX = "argus.token."
 
 
 def _error(status: int, code: str, message: str, detail: dict | None = None) -> JSONResponse:
     return JSONResponse(status_code=status,
                         content={"error": {"code": code, "message": message,
                                            "detail": detail or {}}})
+
+
+def _websocket_token(ws: WebSocket) -> str | None:
+    offered = {
+        item.strip()
+        for item in ws.headers.get("sec-websocket-protocol", "").split(",")
+        if item.strip()
+    }
+    if WS_AUTH_PROTOCOL not in offered:
+        return None
+    tokens = [
+        item.removeprefix(WS_TOKEN_PROTOCOL_PREFIX)
+        for item in offered
+        if item.startswith(WS_TOKEN_PROTOCOL_PREFIX)
+    ]
+    return tokens[0] if len(tokens) == 1 and tokens[0] else None
 
 
 def register_index(app: FastAPI, *, mock: bool = False) -> None:
@@ -83,6 +101,18 @@ def create_app(*, db_path: str = "runs/site/events.db",
         if principal is None:
             raise HTTPException(status_code=401, detail="unauthorized")
         return principal
+
+    def require_alert_principal(principal=Depends(require_principal)):
+        from cvti.security import permissions as perms
+        perms.require(principal.role, perms.VIEW_ALERTS)
+        return principal
+
+    from cvti.security.permissions import PermissionDenied
+
+    @app.exception_handler(PermissionDenied)
+    async def permission_denied(_request, exc: PermissionDenied):
+        return _error(403, "forbidden", str(exc),
+                      {"permission": exc.permission})
 
     # ---- auth ---------------------------------------------------------------
     @app.post(f"{API_PREFIX}/auth/session")
@@ -152,7 +182,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
 
     # ---- events & triage ----------------------------------------------------
     @app.get(f"{API_PREFIX}/events")
-    async def events(principal=Depends(require_principal),
+    async def events(principal=Depends(require_alert_principal),
                      limit: int = Query(50, ge=1, le=200),
                      cursor: Optional[int] = Query(None),
                      camera: Optional[str] = Query(None),
@@ -172,14 +202,14 @@ def create_app(*, db_path: str = "runs/site/events.db",
                                    camera=camera, priority=priority)
 
     @app.get(f"{API_PREFIX}/events/{{event_id}}")
-    async def event(event_id: str, principal=Depends(require_principal)):
+    async def event(event_id: str, principal=Depends(require_alert_principal)):
         got = sources.read_event(app.state.db_path, event_id)
         if got is None:
             return _error(404, "not_found", f"no such event '{event_id}'")
         return got
 
     @app.get(f"{API_PREFIX}/triage")
-    async def triage(principal=Depends(require_principal)):
+    async def triage(principal=Depends(require_alert_principal)):
         return sources.read_triage(app.state.db_path)
 
     # ---- live video (transport descriptor) ----------------------------------
@@ -221,11 +251,25 @@ def create_app(*, db_path: str = "runs/site/events.db",
 
     # ---- websocket ----------------------------------------------------------
     @app.websocket(f"{API_PREFIX}/stream")
-    async def ws_stream(ws: WebSocket, token: Optional[str] = Query(None)):
-        if app.state.tokens.resolve(token) is None:
+    async def ws_stream(ws: WebSocket):
+        from cvti.security import permissions as perms
+
+        token = _websocket_token(ws)
+        principal = app.state.tokens.resolve(token)
+        if principal is None:
             await ws.close(code=4401)   # unauthorized
             return
-        await ws.accept()
+        accounts = _accounts()
+        user = accounts.user(principal.username)
+        if user is None or user.role != principal.role:
+            accounts.close()
+            await ws.close(code=4401)
+            return
+        if not perms.allows(user.role, perms.VIEW_ALERTS):
+            accounts.close()
+            await ws.close(code=4403)
+            return
+        await ws.accept(subprotocol=WS_AUTH_PROTOCOL)
         db = app.state.db_path
         # Hydrate on connect (§16): one health + triage snapshot so the UI
         # paints without a separate poll.
@@ -237,6 +281,14 @@ def create_app(*, db_path: str = "runs/site/events.db",
         try:
             while True:
                 await asyncio.sleep(1.0)
+                current = app.state.tokens.resolve(token)
+                user = accounts.user(principal.username)
+                if current is None or user is None or user.role != principal.role:
+                    await ws.close(code=4401)
+                    return
+                if not perms.allows(user.role, perms.VIEW_ALERTS):
+                    await ws.close(code=4403)
+                    return
                 # new alerts
                 newest = sources.max_event_id(db)
                 if newest > last_id:
@@ -268,6 +320,8 @@ def create_app(*, db_path: str = "runs/site/events.db",
                 await ws.close()
             except Exception:  # noqa: BLE001
                 log.debug("websocket close after error also failed", exc_info=True)
+        finally:
+            accounts.close()
 
     # ---- W4 write-side: every remaining contract row, one table ----------
     from cvti.api.writes import _ApiBackend, register_writes
@@ -276,7 +330,8 @@ def create_app(*, db_path: str = "runs/site/events.db",
     register_writes(app, host, require_principal, API_PREFIX, _error)
 
     @app.get(f"{API_PREFIX}/events/{{event_id}}/clip")
-    async def event_clip(event_id: str, principal=Depends(require_principal)):
+    async def event_clip(event_id: str,
+                         principal=Depends(require_alert_principal)):
         got = sources.read_event(app.state.db_path, event_id)
         if got is None:
             return _error(404, "not_found", f"no such event '{event_id}'")

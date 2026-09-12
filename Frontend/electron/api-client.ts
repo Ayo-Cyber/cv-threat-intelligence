@@ -37,6 +37,46 @@ function normalizeIncident(value: any) {
   };
 }
 
+function loopbackUrl(value: unknown, protocols: string[]): string {
+  if (typeof value !== "string") throw new Error("unsafe stream descriptor URL");
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("unsafe stream descriptor URL");
+  }
+  if (
+    !protocols.includes(parsed.protocol) ||
+    !["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsed.hostname) ||
+    parsed.username ||
+    parsed.password
+  )
+    throw new Error("unsafe stream descriptor URL");
+  return parsed.toString();
+}
+
+function normalizeStreamDescriptor(value: any) {
+  if (!value || typeof value !== "object")
+    throw new Error("unsafe stream descriptor shape");
+  if (value.kind === "mjpeg")
+    return { kind: "mjpeg", url: loopbackUrl(value.url, ["http:"]) };
+  if (value.kind !== "webrtc")
+    throw new Error("unsafe stream descriptor kind");
+  const normalized: {
+    kind: "webrtc";
+    url: string;
+    mjpeg_fallback?: string;
+  } = {
+    kind: "webrtc",
+    url: loopbackUrl(value.url, ["http:"]),
+  };
+  if (value.mjpeg_fallback !== undefined && value.mjpeg_fallback !== null)
+    normalized.mjpeg_fallback = loopbackUrl(value.mjpeg_fallback, ["http:"]);
+  if (value.ws !== undefined && value.ws !== null)
+    loopbackUrl(value.ws, ["ws:"]);
+  return normalized;
+}
+
 const operations: Record<string, Operation> = {
   get_site: { method: "GET", path: fixed("/site") },
   set_site: {
@@ -117,7 +157,11 @@ const operations: Record<string, Operation> = {
     body: ([, , dwell_seconds]) => ({ dwell_seconds }),
   },
   camera_snapshot: { method: "GET", path: item("/cameras", "/snapshot") },
-  camera_stream: { method: "GET", path: item("/cameras", "/stream") },
+  camera_stream: {
+    method: "GET",
+    path: item("/cameras", "/stream"),
+    normalize: normalizeStreamDescriptor,
+  },
   list_zones: { method: "GET", path: item("/cameras", "/zones") },
   add_zone: {
     method: "POST",
@@ -483,8 +527,11 @@ export class ArgusApiClient {
     const url = new URL(this.baseUrl);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     url.pathname = `${url.pathname.replace(/\/$/, "")}/stream`;
-    url.search = new URLSearchParams({ token: this.token }).toString();
-    const socket = new this.WebSocketImpl(url.toString());
+    url.search = "";
+    const socket = new this.WebSocketImpl(url.toString(), [
+      "argus.v1",
+      `argus.token.${this.token}`,
+    ]);
     this.socket = socket;
     socket.onopen = () => {
       this.reconnectAttempt = 0;
@@ -505,8 +552,17 @@ export class ArgusApiClient {
       }
     };
     socket.onerror = () => socket.close();
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (this.socket === socket) this.socket = undefined;
+      if ([4401, 4403].includes(event.code)) {
+        if (event.code === 4401) {
+          this.token = undefined;
+          this.evidenceIds.clear();
+        }
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = undefined;
+        return;
+      }
       this.scheduleReconnect();
     };
   }

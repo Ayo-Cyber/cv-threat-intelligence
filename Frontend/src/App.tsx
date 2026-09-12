@@ -6,6 +6,7 @@ import {
   SlidersHorizontal,
   Settings,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Plus,
   Play,
@@ -53,6 +54,7 @@ import SettingsPanel from "./components/SettingsPanel";
 import { AccountHelp } from "./components/AccountAccess";
 import CameraStream from "./components/CameraStream";
 import StreamsWall from "./components/StreamsWall";
+import { useVisibleStreams } from "./hooks/useVisibleStreams";
 import { applyPushEvent } from "./lib/push";
 import {
   ALL_LOCATIONS,
@@ -266,6 +268,21 @@ export default function App() {
     area,
     query,
   );
+  const {
+    activeIds: overviewActiveIds,
+    visibleIds: overviewVisibleIds,
+    page: overviewPage,
+    pageCount: overviewPageCount,
+    setPage: setOverviewPage,
+    observeWall: observeOverviewWall,
+  } = useVisibleStreams(
+    wallCameras.map((camera) => camera.id),
+    16,
+  );
+  const overviewActive = new Set(overviewActiveIds);
+  const overviewCameras = overviewVisibleIds
+    .map((id) => wallCameras.find((camera) => camera.id === id))
+    .filter((camera): camera is Camera => Boolean(camera));
   const cameraMatches = ws.cameras.filter((camera) =>
     `${camera.id} ${camera.area || ""}`
       .toLowerCase()
@@ -300,6 +317,15 @@ export default function App() {
         api={api}
         mode={mode}
         running={Boolean(ws.monitor.running)}
+        branch={branch}
+        area={area}
+        onBranchChange={(nextBranch) => {
+          setBranch(nextBranch);
+          setArea((current) =>
+            reconcileAreaSelection(ws.hierarchy, nextBranch, current),
+          );
+        }}
+        onAreaChange={setArea}
         onExit={() => setStreamsOnly(false)}
       />
     );
@@ -749,8 +775,8 @@ export default function App() {
                           </select>
                         </div>
                       </div>
-                      <div className="camera-grid">
-                        {wallCameras.map((c) => (
+                      <div className="camera-grid" ref={observeOverviewWall}>
+                        {overviewCameras.map((c) => (
                           <article className="camera-tile" key={c.id}>
                             {mode === "demo" ? (
                               <CameraMedia
@@ -762,7 +788,7 @@ export default function App() {
                               <CameraStream
                                 camera={c}
                                 api={api}
-                                active
+                                active={overviewActive.has(c.id)}
                                 onOpen={() => configure(c)}
                               />
                             )}
@@ -787,6 +813,34 @@ export default function App() {
                           </article>
                         ))}
                       </div>
+                      {overviewPageCount > 1 && (
+                        <div
+                          className="overview-pager"
+                          aria-label="Overview camera pages"
+                        >
+                          <button
+                            className="icon-button"
+                            aria-label="Previous overview camera page"
+                            title="Previous camera page"
+                            disabled={overviewPage <= 1}
+                            onClick={() => setOverviewPage(overviewPage - 1)}
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+                          <span>
+                            {overviewPage} / {overviewPageCount}
+                          </span>
+                          <button
+                            className="icon-button"
+                            aria-label="Next overview camera page"
+                            title="Next camera page"
+                            disabled={overviewPage >= overviewPageCount}
+                            onClick={() => setOverviewPage(overviewPage + 1)}
+                          >
+                            <ChevronRight size={16} />
+                          </button>
+                        </div>
+                      )}
                       {wallCameras.length === 0 && (
                         <Empty title="No matching cameras">
                           Change the branch, area, or search filter.

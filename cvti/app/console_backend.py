@@ -1032,6 +1032,14 @@ class ConsoleBackend:
 
     def create_branch(self, branch: dict) -> list[dict]:
         self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.serving.onboarding import HierarchyConflict
+
+        if isinstance(branch, dict) and branch.get("id") in {
+            item["id"] for item in onboarding.normalized_branches(self.site_path)
+        }:
+            raise HierarchyConflict(
+                f"branch {branch.get('id')!r} already exists; use PUT to update it"
+            )
         branches = onboarding.upsert_branch(self.site_path, branch)
         self.audit.record(
             self.current_user.username, "config_change",

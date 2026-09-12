@@ -5,9 +5,10 @@ async function mountEngine(
   permissions: string[],
   rejectBranchCreate = false,
   reservedIds = false,
+  cameraCount = 1,
 ) {
   await page.addInitScript(
-    ({ initialPermissions, rejectBranch, useReservedIds }) => {
+    ({ initialPermissions, rejectBranch, useReservedIds, mountedCameraCount }) => {
       const state = {
         permissions: initialPermissions,
         calls: [] as string[],
@@ -17,12 +18,16 @@ async function mountEngine(
       (window as any).__argusTest = state;
       const branchId = useReservedIds ? "virtual:all" : "branch-1";
       const areaId = useReservedIds ? "id:anything" : "area-1";
-      const camera = {
-        id: "camera-1",
-        source: "0",
-        area_id: areaId,
-        branch_id: branchId,
-      };
+      const cameras = Array.from(
+        { length: mountedCameraCount },
+        (_, index) => ({
+          id: `camera-${String(index + 1).padStart(3, "0")}`,
+          source: "0",
+          area_id: areaId,
+          branch_id: branchId,
+        }),
+      );
+      const camera = cameras[0];
       const hierarchy = {
         organization: { id: "org-1", name: "Test Organization" },
         branches: [
@@ -34,7 +39,7 @@ async function mountEngine(
                 id: areaId,
                 name: useReservedIds ? "id:anything" : "Test Area",
                 branch_id: branchId,
-                cameras: [camera],
+                cameras,
               },
             ],
           },
@@ -53,7 +58,7 @@ async function mountEngine(
               role: "custom",
               permissions: [...state.permissions],
             };
-          if (method === "list_cameras") return [camera];
+          if (method === "list_cameras") return cameras;
           if (method === "list_events") return [];
           if (method === "list_areas")
             return [
@@ -92,6 +97,7 @@ async function mountEngine(
       initialPermissions: permissions,
       rejectBranch: rejectBranchCreate,
       useReservedIds: reservedIds,
+      mountedCameraCount: cameraCount,
     },
   );
   await page.reload();
@@ -451,6 +457,78 @@ test("streams-only wall supports filtering, focus, fullscreen, and ordered escap
   await expect(
     page.getByRole("heading", { name: "Every camera. One clear picture." }),
   ).toBeVisible();
+});
+
+test("overview caps 100 camera descriptors and releases the previous page", async ({
+  page,
+}) => {
+  await mountEngine(page, ["view_live"], false, false, 100);
+  const tiles = page.locator(".camera-grid .camera-tile");
+
+  await expect(tiles).toHaveCount(16);
+  await expect(page.getByText("camera-001", { exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Set(
+            (window as any).__argusTest.invocations
+              .filter(
+                (entry: { method: string; args: string[] }) =>
+                  entry.method === "camera_stream" &&
+                  /^camera-\d+$/.test(entry.args[0]),
+              )
+              .map((entry: { args: string[] }) => entry.args[0]),
+          ).size,
+      ),
+    )
+    .toBe(16);
+
+  await page.getByRole("button", { name: "Next overview camera page" }).click();
+
+  await expect(page.getByText("camera-001", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("camera-017", { exact: true })).toBeVisible();
+  await expect(tiles).toHaveCount(16);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Set(
+            (window as any).__argusTest.invocations
+              .filter(
+                (entry: { method: string; args: string[] }) =>
+                  entry.method === "camera_stream" &&
+                  /^camera-\d+$/.test(entry.args[0]),
+              )
+              .map((entry: { args: string[] }) => entry.args[0]),
+          ).size,
+      ),
+    )
+    .toBe(32);
+});
+
+test("overview hierarchy selection survives streams wall exit and re-entry", async ({
+  page,
+}) => {
+  await page
+    .getByLabel("Filter branch")
+    .selectOption({ label: "Ikeja Outlet (3)" });
+  await page
+    .getByLabel("Filter area")
+    .selectOption({ label: "External perimeter (2)" });
+
+  await page.getByRole("button", { name: "Open streams wall" }).click();
+  let wall = page.getByRole("region", { name: "Streams-only camera wall" });
+  await expect(wall.getByLabel("Wall branch")).toHaveValue("id:ikeja-outlet");
+  await expect(wall.getByLabel("Wall area")).toHaveValue("id:external");
+  await wall.getByRole("button", { name: "Exit streams wall" }).click();
+
+  await expect(page.getByLabel("Filter branch")).toHaveValue("id:ikeja-outlet");
+  await expect(page.getByLabel("Filter area")).toHaveValue("id:external");
+  await page.getByRole("button", { name: "Open streams wall" }).click();
+  wall = page.getByRole("region", { name: "Streams-only camera wall" });
+  await expect(wall.getByLabel("Wall branch")).toHaveValue("id:ikeja-outlet");
+  await expect(wall.getByLabel("Wall area")).toHaveValue("id:external");
 });
 
 test("streams-only focus reconciles after search, branch, and area exclusion", async ({

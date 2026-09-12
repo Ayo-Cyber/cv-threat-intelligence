@@ -1,5 +1,6 @@
 import { _electron as electron } from "@playwright/test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
@@ -34,6 +35,7 @@ export async function createSmokeEnvironment(repo, label = "api") {
   const db = path.join(temp, "events.db");
   const userData = path.join(temp, "electron");
   const smokeState = path.join(userData, "smoke-state.json");
+  const supportLog = path.join(userData, "frontend.log");
   const source = path.join(repo, "data/test_clips/empty_warehouse.mp4");
   const apiPort = await reserveLoopbackPort();
   const pixel = Buffer.from(
@@ -90,6 +92,7 @@ export async function createSmokeEnvironment(repo, label = "api") {
     ARGUS_USER_DATA: userData,
     ARGUS_SMOKE_TEST: "1",
     ARGUS_SMOKE_STATE: smokeState,
+    ARGUS_SUPPORT_LOG: supportLog,
     PYTHONDONTWRITEBYTECODE: "1",
     PYTHONPYCACHEPREFIX: path.join(temp, "pycache"),
   };
@@ -100,6 +103,7 @@ export async function createSmokeEnvironment(repo, label = "api") {
     env,
     site,
     smokeState,
+    supportLog,
     streamUrl: `http://127.0.0.1:${streamPort}/stream/Lobby%20North`,
     temp,
     userData,
@@ -219,11 +223,31 @@ async function run() {
       hierarchyAfterWrite.branches.some((branch) => branch.id === "north"),
     );
 
+    await invoke("add_user", [
+      "native_installer",
+      "Native-Installer-Only-2026!",
+      "installer",
+    ]);
+    await invoke("sign_out");
+    await invoke("sign_in", [
+      "native_installer",
+      "Native-Installer-Only-2026!",
+    ]);
+    const installerAuth = await invoke("auth_state");
+    assert.equal(installerAuth.role, "installer");
+    await assert.rejects(invoke("list_events", [10]), /view_alerts/);
+    assert.equal((await invoke("list_cameras")).length, 4);
+    await invoke("sign_out");
+    await invoke("sign_in", [
+      "desktop_smoke",
+      "Desktop-Smoke-Only-2026!",
+    ]);
+
     const descriptor = await invoke("camera_stream", ["Lobby North"]);
     assert.equal(descriptor.kind, "mjpeg");
     assert.match(
       descriptor.url,
-      /^http:\/\/127\.0\.0\.1:\d+\/stream\/Lobby North\?token=/,
+      /^http:\/\/127\.0\.0\.1:\d+\/stream\/Lobby%20North\?token=/,
     );
 
     const started = await invoke("start_monitoring");
@@ -232,6 +256,21 @@ async function run() {
     const stopped = await invoke("stop_monitoring");
     assert.equal(stopped.running, false);
     monitoringStarted = false;
+
+    const latestSmokeState = JSON.parse(
+      await fs.readFile(fixture.smokeState, "utf8"),
+    );
+    const supportLog = await fs.readFile(fixture.supportLog, "utf8");
+    const candidateFingerprints = Array.from(
+      supportLog.matchAll(/[A-Za-z0-9_-]{20,}/g),
+      (match) => createHash("sha256").update(match[0]).digest("hex"),
+    );
+    assert.equal(
+      candidateFingerprints.includes(latestSmokeState.token_sha256),
+      false,
+      "Electron support log contains the raw API bearer token",
+    );
+    assert.equal((await fs.stat(fixture.supportLog)).mode & 0o777, 0o600);
   } finally {
     if (app && monitoringStarted) {
       const page = await app.firstWindow().catch(() => undefined);
@@ -244,7 +283,7 @@ async function run() {
     await fixture.cleanup();
   }
   console.log(
-    "PASS: Electron-owned API discovery, auth, hierarchy read/write, camera and scene reads, stream descriptor, monitoring commands, and owned PID observed alive then confirmed exited.",
+    "PASS: Electron-owned API discovery, owner and installer role boundaries, hierarchy read/write, camera and scene reads, sanitized stream descriptor, redacted restrictive support log, monitoring commands, and owned PID observed alive then confirmed exited.",
   );
 }
 
