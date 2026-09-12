@@ -29,11 +29,18 @@ and excluded from Git; the preparation script does not download videos.
 
 Select **Local engine** inside Electron to sign in to the real backend. The
 default account database is separate from the old console: create an owner on
-first use. The adapter uses the existing Python virtual environment and:
+first use. Electron starts and owns the local Argus API, keeps its bearer token
+in the main process, and stops the API when the app exits. The runtime uses the
+existing Python virtual environment and:
 
 - Site: `configs/site_live.json`
 - Database: `runs/desktop/events.db` (accounts/context in the same run directory)
 - Backend: existing `cvti.app.console_backend.ConsoleBackend`
+- API: `http://127.0.0.1:8787/api/v1`
+
+Use `ARGUS_API_PORT` when port 8787 is reserved. For temporary rollback during
+migration, `ARGUS_TRANSPORT=bridge` selects the legacy JSON-lines worker. The API
+is the default when `ARGUS_TRANSPORT` is unset or has any other value.
 
 You can select another site and reuse a specific run's accounts/context/events:
 
@@ -48,6 +55,12 @@ persists camera/rule changes to the selected site. Use a copy of your site confi
 for experiments. Do not run the old Qt console and this app against the same
 camera/engine simultaneously. Previewing cameras is distinct from monitoring.
 
+Existing flat site configs continue to load under a stable virtual organization
+and branch without being rewritten by reads. Saving organization, branch, or area
+changes materializes the hierarchy in the selected site config. Configure the
+organization and branches under **Settings > Organization**, then create areas
+and assign cameras under **Cameras > Locations**.
+
 To run compiled assets rather than Vite:
 
 ```sh
@@ -60,8 +73,11 @@ URL. Native engine access intentionally does not work in a browser. Browser mode
 cannot execute Python or access a webcam through this adapter.
 
 `ARGUS_REPO`, `ARGUS_PYTHON`, and `ARGUS_USER_DATA` optionally override repository,
-Python executable and Electron profile paths. On Windows the default virtualenv
-path is `.venv/Scripts/python.exe`; Windows native execution is not yet verified.
+Python executable and Electron profile paths. `ARGUS_SITE_CONFIG`, `ARGUS_DB`,
+`ARGUS_API_PORT`, and `ARGUS_TRANSPORT=bridge` override the site, account/event
+database, loopback API port, and rollback transport. On Windows the default
+virtualenv path is `.venv/Scripts/python.exe`; Windows native execution is not
+yet verified.
 
 ## What is connected
 
@@ -102,6 +118,9 @@ verification remains outstanding.
 
 - Real login/first-owner setup and existing backend authorization.
 - Camera wall and engine start/stop, with separate preview and monitoring states.
+- Organization/branch/area hierarchy, location assignment, and wall filters.
+- A streams-only wall entered from Overview, with branch, area, search, density,
+  paging, focus, fullscreen, and return to the standard application shell.
 - Existing webcam/demo/live-stream feed registry and switch progress.
 - Camera discovery/testing/add/remove and site area creation/assignment.
 - Per-camera scene evidence, editable context, approval and remapping.
@@ -123,7 +142,20 @@ npm test
 ../.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
 npm run build
 ../.venv/bin/python scripts/smoke_backend.py --repo "$(cd .. && pwd)"
+ARGUS_REPO="$(cd .. && pwd)" node scripts/smoke_api_transport.mjs
 ARGUS_REPO="$(cd .. && pwd)" node scripts/smoke_electron.mjs
+npm run test:ui
+```
+
+The focused backend command in the integration plan uses dotted unittest module
+names, but `tests/` is not a Python package. Run the files directly instead:
+
+```sh
+cd ..
+./.venv/bin/python tests/test_location_hierarchy.py -v
+./.venv/bin/python tests/test_api_contract_is_frozen.py -v
+./.venv/bin/python tests/test_api_write_side.py -v
+./.venv/bin/python tests/test_engine_api.py -v
 ```
 
 With Vite running in a second terminal and Google Chrome installed:
@@ -132,34 +164,35 @@ With Vite running in a second terminal and Google Chrome installed:
 npm run test:ui
 ```
 
-Native smoke tests create temporary site/account data and remove it afterward.
-They do not start monitoring or alter the real site. Browser tests include real
-media readiness, responsive overflow, scene draft preservation, persistence,
-rule switches, zoning, incident review and separation from native engine access.
+Native smoke tests reserve unique API ports, create temporary site/account/profile
+data, briefly start and stop monitoring, and remove their data afterward. They do
+not alter the selected real site. Browser tests include real media readiness,
+responsive overflow, scene draft preservation, persistence, rule switches,
+zoning, incident review and separation from native engine access. Real camera
+hardware and a live WebRTC/go2rtc session remain explicit environmental checks.
 
 ## Architecture
 
 ```text
 React renderer / typed transport
   -> sandboxed Electron preload (one narrow invoke interface)
-  -> Electron main process (sender and command validation)
-  -> Python JSON-lines worker (authentication and permission checks)
+  -> Electron main process (sender validation, token and API child ownership)
+  -> loopback Argus API (authentication, permissions, reads, writes, WebSocket)
   -> existing ConsoleBackend -> existing scene/detection/verification services
 ```
 
 Renderer Node integration is disabled. Context isolation and sandboxing are on.
-Arbitrary IPC commands and navigation are rejected. Credentials stay in the
-backend session, not localStorage. Demo localStorage is separate sample data.
-Camera images use the backend's token-protected localhost MJPEG service.
-The UI makes no external font requests. The configured backend verifier may still
-use whichever provider the existing installation selects.
+Arbitrary IPC commands and navigation are rejected. The API bearer token stays in
+Electron main memory, not the preload surface or browser storage. Demo localStorage
+contains separate sample data. Each visible camera requests an authenticated
+descriptor: WebRTC is preferred when go2rtc publishes it, with the descriptor's
+MJPEG fallback used when negotiation fails; MJPEG is used directly when it is the
+only published transport. Connecting a preview only displays video. **Start
+monitoring** separately launches detection and alert processing.
 
-As of Ayo's `main` at `7900c69`, the FastAPI read/auth/WebSocket skeleton exists,
-including stream descriptors and go2rtc support. Configuration/write endpoints
-are intentionally absent there. This UI still uses the existing Python worker
-for its complete read/write workflows; it does not yet consume that API or its
-WebRTC descriptors. The transport boundary can be migrated as those contracts mature.
-This is a source-run desktop application, not a signed macOS/Windows installer.
+The UI makes no external font requests. The configured backend verifier may still
+use whichever provider the existing installation selects. This is a source-run
+desktop application, not a signed macOS/Windows installer.
 
 ## See the live EarthCams
 
