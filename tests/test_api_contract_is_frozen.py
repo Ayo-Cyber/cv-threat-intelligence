@@ -46,6 +46,24 @@ class ImplementedRoutesAppearInTheContract(unittest.TestCase):
         self.assertEqual(missing, [],
                          f"served but absent from docs/api-v1.md: {missing}")
 
+    def test_hierarchy_extension_routes_are_served(self):
+        from cvti.api.app import create_app
+        served = {
+            (method, route.path)
+            for route in create_app().routes
+            for method in getattr(route, "methods", set())
+        }
+        expected = {
+            ("GET", "/api/v1/organization"),
+            ("PUT", "/api/v1/organization"),
+            ("GET", "/api/v1/branches"),
+            ("POST", "/api/v1/branches"),
+            ("PUT", "/api/v1/branches/{branch_id}"),
+            ("DELETE", "/api/v1/branches/{branch_id}"),
+            ("GET", "/api/v1/hierarchy"),
+        }
+        self.assertEqual(expected - served, set())
+
 
 class TheClientSurfaceIsFullyMapped(unittest.TestCase):
     def test_every_bridge_method_has_a_contract_row(self):
@@ -76,6 +94,12 @@ class TheGapsTheContractExists(unittest.TestCase):
         without alert.update shows stale verdicts forever. The contract must
         keep carrying that promise until the message ships."""
         self.assertIn("alert.update", DOC)
+
+    def test_package_description_does_not_claim_writes_are_pending(self):
+        import cvti.api
+        package_contract = (cvti.api.__doc__ or "").lower()
+        self.assertNotIn("read-only", package_contract)
+        self.assertNotIn("write and config endpoints", package_contract)
 
 
 if __name__ == "__main__":

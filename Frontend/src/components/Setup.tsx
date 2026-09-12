@@ -20,6 +20,7 @@ export default function Setup({
   api,
   mode,
   cameras,
+  canConfigureCameras,
   onAdd,
   onConfigure,
   onChange,
@@ -28,7 +29,8 @@ export default function Setup({
   api: Transport;
   mode: Mode;
   cameras: Camera[];
-  onAdd: () => void;
+  canConfigureCameras: boolean;
+  onAdd?: () => void;
   onConfigure: (c: Camera, tab?: string) => void;
   onChange: () => Promise<void>;
   onFinish: () => void;
@@ -90,10 +92,12 @@ export default function Setup({
         {step === 0 && (
           <>
             <p>Connect cameras and assign them to the areas of your site.</p>
-            <button className="button primary" onClick={onAdd}>
-              <Plus size={16} />
-              Add camera
-            </button>
+            {canConfigureCameras && onAdd && (
+              <button className="button primary" onClick={onAdd}>
+                <Plus size={16} />
+                Add camera
+              </button>
+            )}
           </>
         )}
         {[0, 1, 3].includes(step) && (

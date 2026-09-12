@@ -12,6 +12,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -19,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from cvti.api.app import create_app
 from cvti.api.mock import create_mock_app
@@ -63,7 +65,9 @@ class RealApiTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = Path(self._tmp.name)
         db, site = _make_site(tmp)
-        self.client = TestClient(create_app(db_path=db, site_path=site))
+        self.app = create_app(db_path=db, site_path=site)
+        self.client = TestClient(self.app)
+        self.auth_db = tmp / "auth.db"
         self.addCleanup(self._tmp.cleanup)
 
     def _token(self) -> str:
@@ -149,16 +153,84 @@ class RealApiTests(unittest.TestCase):
 
     def test_websocket_hydrates_and_pushes(self):
         token = self._token()
-        with self.client.websocket_connect(f"{PREFIX}/stream?token={token}") as ws:
+        with self.client.websocket_connect(
+            f"{PREFIX}/stream",
+            subprotocols=["argus.v1", f"argus.token.{token}"],
+        ) as ws:
             first = ws.receive_json()
             self.assertEqual(first["type"], "health")
             second = ws.receive_json()
             self.assertEqual(second["type"], "triage")
 
     def test_websocket_rejects_bad_token(self):
-        with self.assertRaises(Exception):
-            with self.client.websocket_connect(f"{PREFIX}/stream?token=nope") as ws:
+        with self.assertRaises(WebSocketDisconnect) as caught:
+            with self.client.websocket_connect(
+                f"{PREFIX}/stream",
+                subprotocols=["argus.v1", "argus.token.nope"],
+            ) as ws:
                 ws.receive_json()
+        self.assertEqual(caught.exception.code, 4401)
+
+    def test_websocket_closes_when_its_token_expires(self):
+        token = self._token()
+        principal = self.app.state.tokens.resolve(token)
+        with self.client.websocket_connect(
+            f"{PREFIX}/stream",
+            subprotocols=["argus.v1", f"argus.token.{token}"],
+        ) as ws:
+            ws.receive_json()
+            ws.receive_json()
+            principal.expires_at = time.time() - 1
+            with self.assertRaises(WebSocketDisconnect) as caught:
+                ws.receive_json()
+        self.assertEqual(caught.exception.code, 4401)
+
+    def test_websocket_closes_when_its_token_is_revoked(self):
+        token = self._token()
+        with self.client.websocket_connect(
+            f"{PREFIX}/stream",
+            subprotocols=["argus.v1", f"argus.token.{token}"],
+        ) as ws:
+            ws.receive_json()
+            ws.receive_json()
+            self.app.state.tokens.revoke(token)
+            with self.assertRaises(WebSocketDisconnect) as caught:
+                ws.receive_json()
+        self.assertEqual(caught.exception.code, 4401)
+
+    def test_websocket_closes_when_the_account_role_changes(self):
+        from cvti.security.accounts import AccountStore
+
+        token = self._token()
+        with self.client.websocket_connect(
+            f"{PREFIX}/stream",
+            subprotocols=["argus.v1", f"argus.token.{token}"],
+        ) as ws:
+            ws.receive_json()
+            ws.receive_json()
+            store = AccountStore(self.auth_db)
+            store.set_role("ayo", "installer")
+            store.close()
+            with self.assertRaises(WebSocketDisconnect) as caught:
+                ws.receive_json()
+        self.assertEqual(caught.exception.code, 4401)
+
+    def test_websocket_closes_when_the_account_is_deleted(self):
+        from cvti.security.accounts import AccountStore
+
+        token = self._token()
+        with self.client.websocket_connect(
+            f"{PREFIX}/stream",
+            subprotocols=["argus.v1", f"argus.token.{token}"],
+        ) as ws:
+            ws.receive_json()
+            ws.receive_json()
+            store = AccountStore(self.auth_db)
+            store.delete_user("ayo")
+            store.close()
+            with self.assertRaises(WebSocketDisconnect) as caught:
+                ws.receive_json()
+        self.assertEqual(caught.exception.code, 4401)
 
 
 class MockApiTests(unittest.TestCase):

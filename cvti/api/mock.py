@@ -18,7 +18,15 @@ import time
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from cvti.api.app import API_PREFIX, _iso, _send, register_index
+from cvti.api.app import (
+    API_PREFIX,
+    WS_AUTH_PROTOCOL,
+    _close_websocket_auth_denial,
+    _iso,
+    _send,
+    _websocket_token,
+    register_index,
+)
 from cvti.api.tokens import TokenStore
 
 _CAMERAS = [
@@ -127,15 +135,19 @@ def create_mock_app() -> FastAPI:
         return {"kind": "mjpeg", "url": f"http://127.0.0.1:5599/stream/{cid}?token=mock"}
 
     @app.websocket(f"{API_PREFIX}/stream")
-    async def ws(ws: WebSocket, token: Optional[str] = Query(None)):
+    async def ws(ws: WebSocket):
+        token = _websocket_token(ws)
         if app.state.tokens.resolve(token) is None:
-            await ws.close(code=4401); return
-        await ws.accept()
+            await _close_websocket_auth_denial(ws, 4401); return
+        await ws.accept(subprotocol=WS_AUTH_PROTOCOL)
         await _send(ws, "health", _health())
         await _send(ws, "triage", {"to_review": 7, "total": app.state.counter["n"], "by_priority": {}})
         try:
             while True:
                 await asyncio.sleep(4.0)
+                if app.state.tokens.resolve(token) is None:
+                    await ws.close(code=4401)
+                    return
                 app.state.counter["n"] += 1
                 await _send(ws, "alert.new", _mock_event(app.state.counter["n"]))
         except WebSocketDisconnect:

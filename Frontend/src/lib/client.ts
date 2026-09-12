@@ -11,5 +11,9 @@ export function client(mode: Mode): Transport {
         );
       return window.argusDesktop.invoke(method, args);
     },
+    subscribe: (listener) => {
+      if (!window.argusDesktop) return () => {};
+      return window.argusDesktop.subscribe(listener);
+    },
   };
 }

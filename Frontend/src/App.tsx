@@ -6,6 +6,7 @@ import {
   SlidersHorizontal,
   Settings,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Plus,
   Play,
@@ -23,6 +24,7 @@ import {
   Layers,
   Trash2,
   ScanLine,
+  Maximize2,
 } from "lucide-react";
 import { client } from "./lib/client";
 import {
@@ -50,11 +52,34 @@ import FeedSwitcher from "./components/FeedSwitcher";
 import HierarchyReview from "./components/HierarchyReview";
 import SettingsPanel from "./components/SettingsPanel";
 import { AccountHelp } from "./components/AccountAccess";
+import CameraStream from "./components/CameraStream";
+import StreamsWall from "./components/StreamsWall";
+import { useVisibleStreams } from "./hooks/useVisibleStreams";
+import { applyPushEvent } from "./lib/push";
+import {
+  ALL_LOCATIONS,
+  areaOptions,
+  branchOptions,
+  decodeLocationSelection,
+  encodeLocationSelection,
+  filterCameras,
+  loadWallFilterPreference,
+  reconcileAreaSelection,
+  reconcileBranchSelection,
+  sameLocationSelection,
+  saveWallFilterPreference,
+  type LocationSelection,
+} from "./lib/hierarchy";
 
 const blank: Workspace = {
   cameras: [],
   events: [],
   areas: [],
+  hierarchy: {
+    organization: { id: "", name: "" },
+    branches: [],
+    unassigned_cameras: [],
+  },
   site: {},
   monitor: {},
   english: {},
@@ -87,26 +112,27 @@ export default function App() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [query, setQuery] = useState("");
-  const [area, setArea] = useState("all");
+  const [branch, setBranch] = useState<LocationSelection>(ALL_LOCATIONS);
+  const [area, setArea] = useState<LocationSelection>(ALL_LOCATIONS);
+  const [preferenceUser, setPreferenceUser] = useState("");
   const [filter, setFilter] = useState("open");
   const [dark, setDark] = useState(
     localStorage.getItem("argus.theme") === "dark",
   );
   const [nav, setNav] = useState(false);
-  const [live, setLive] = useState<Json>({});
   const [selected, setSelected] = useState<{ id: string; tab: string } | null>(
     null,
   );
   const [eventId, setEventId] = useState<string | null>(null);
   const [add, setAdd] = useState(false);
-  const [newArea, setNewArea] = useState(false);
-  const [hierarchy, setHierarchy] = useState(false);
+  const [hierarchyReview, setHierarchyReview] = useState(false);
   const [cameraDirty, setCameraDirty] = useState(false);
-  const [areaName, setAreaName] = useState("");
+  const [streamsOnly, setStreamsOnly] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const generation = useRef(0);
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const canConfigureCameras = ws.auth.permissions.includes("configure_cameras");
   const refresh = useCallback(async () => {
     const current = generation.current;
     const auth = await api.invoke("auth_state");
@@ -115,18 +141,20 @@ export default function App() {
       setWs({ ...blank, auth });
       return;
     }
-    const [cameras, events, areas, site, monitor, english] = await Promise.all([
-      api.invoke("list_cameras"),
-      auth.permissions.includes("view_alerts")
-        ? api.invoke("list_events", [100])
-        : Promise.resolve([]),
-      api.invoke("list_areas"),
-      api.invoke("get_site"),
-      api.invoke("monitoring_status"),
-      api.invoke("english_rules_status"),
-    ]);
+    const [cameras, events, areas, hierarchy, site, monitor, english] =
+      await Promise.all([
+        api.invoke("list_cameras"),
+        auth.permissions.includes("view_alerts")
+          ? api.invoke("list_events", [100])
+          : Promise.resolve([]),
+        api.invoke("list_areas"),
+        api.invoke("hierarchy"),
+        api.invoke("get_site"),
+        api.invoke("monitoring_status"),
+        api.invoke("english_rules_status"),
+      ]);
     if (current !== generation.current) return;
-    setWs({ cameras, events, areas, site, monitor, english, auth });
+    setWs({ cameras, events, areas, hierarchy, site, monitor, english, auth });
     setLastSync(new Date());
   }, [api]);
   useEffect(() => {
@@ -134,7 +162,6 @@ export default function App() {
     setWs(blank);
     setLoading(true);
     setError("");
-    setLive({});
     setSelected(null);
     setEventId(null);
     let active = true;
@@ -161,6 +188,13 @@ export default function App() {
     };
   }, [refresh]);
   useEffect(() => {
+    if (!api.subscribe) return;
+    return api.subscribe((event) => {
+      setWs((current) => applyPushEvent(current, event));
+      setLastSync(new Date());
+    });
+  }, [api]);
+  useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     localStorage.setItem("argus.theme", dark ? "dark" : "light");
   }, [dark]);
@@ -169,6 +203,40 @@ export default function App() {
     const timer = setTimeout(() => setToast(""), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
+  useEffect(() => {
+    if (canConfigureCameras) return;
+    if (add) setAdd(false);
+    if (view === "setup") setView("settings");
+  }, [add, canConfigureCameras, view]);
+  useEffect(() => {
+    if (!ws.auth.signed_in || !ws.auth.username) {
+      setPreferenceUser("");
+      setBranch(ALL_LOCATIONS);
+      setArea(ALL_LOCATIONS);
+      return;
+    }
+    const saved = loadWallFilterPreference(localStorage, ws.auth.username);
+    setBranch(saved.branch);
+    setArea(saved.area);
+    setPreferenceUser(ws.auth.username);
+  }, [ws.auth.signed_in, ws.auth.username]);
+  useEffect(() => {
+    if (preferenceUser !== ws.auth.username || !ws.auth.signed_in) return;
+    saveWallFilterPreference(localStorage, ws.auth.username, {
+      branch,
+      area,
+    });
+  }, [area, branch, preferenceUser, ws.auth.signed_in, ws.auth.username]);
+  useEffect(() => {
+    const compatibleBranch = reconcileBranchSelection(ws.hierarchy, branch);
+    if (!sameLocationSelection(compatibleBranch, branch)) {
+      setBranch(ALL_LOCATIONS);
+      setArea(ALL_LOCATIONS);
+      return;
+    }
+    const compatibleArea = reconcileAreaSelection(ws.hierarchy, branch, area);
+    if (!sameLocationSelection(compatibleArea, area)) setArea(compatibleArea);
+  }, [area, branch, ws.hierarchy]);
   async function action(
     method: string,
     args: unknown[] = [],
@@ -190,26 +258,39 @@ export default function App() {
       setBusy(false);
     }
   }
-  async function connectFeeds() {
-    const r = await action("live_start", [Math.max(ws.cameras.length, 1)]);
-    if (r) setLive(r);
-  }
   async function toggleMonitoring() {
-    if (mode === "engine" && !ws.monitor.running)
-      await api.invoke("live_stop").catch(() => {});
-    setLive({});
     await action(ws.monitor.running ? "stop_monitoring" : "start_monitoring");
-    if (mode === "engine") await connectFeeds();
   }
-  const stream = (id: string) =>
-    live.port
-      ? `http://127.0.0.1:${live.port}/stream/${encodeURIComponent(id)}?token=${encodeURIComponent(live.token || "")}`
-      : undefined;
-  const cameras = ws.cameras.filter(
-    (c) =>
-      (area === "all" || c.area_id === area) &&
-      `${c.id} ${c.area || ""}`.toLowerCase().includes(query.toLowerCase()),
+  const wallCameras = filterCameras(
+    ws.cameras,
+    ws.hierarchy,
+    branch,
+    area,
+    query,
   );
+  const {
+    activeIds: overviewActiveIds,
+    visibleIds: overviewVisibleIds,
+    page: overviewPage,
+    pageCount: overviewPageCount,
+    setPage: setOverviewPage,
+    observeWall: observeOverviewWall,
+  } = useVisibleStreams(
+    wallCameras.map((camera) => camera.id),
+    16,
+  );
+  const overviewActive = new Set(overviewActiveIds);
+  const overviewCameras = overviewVisibleIds
+    .map((id) => wallCameras.find((camera) => camera.id === id))
+    .filter((camera): camera is Camera => Boolean(camera));
+  const cameraMatches = ws.cameras.filter((camera) =>
+    `${camera.id} ${camera.area || ""}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+  const wallBranches = branchOptions(ws.cameras, ws.hierarchy);
+  const wallAreas = areaOptions(ws.cameras, ws.hierarchy, branch);
+  const hierarchyAreas = ws.hierarchy.branches.flatMap((item) => item.areas);
   const open = ws.events.filter((e) => !resolved(e));
   const events = ws.events.filter(
     (e) =>
@@ -225,6 +306,30 @@ export default function App() {
   };
   const configure = (c: Camera, tab = "scene") =>
     setSelected({ id: c.id, tab });
+  const openCameraOnboarding = () => {
+    if (canConfigureCameras) setAdd(true);
+  };
+  if (streamsOnly && ws.auth.signed_in) {
+    return (
+      <StreamsWall
+        hierarchy={ws.hierarchy}
+        cameras={ws.cameras}
+        api={api}
+        mode={mode}
+        running={Boolean(ws.monitor.running)}
+        branch={branch}
+        area={area}
+        onBranchChange={(nextBranch) => {
+          setBranch(nextBranch);
+          setArea((current) =>
+            reconcileAreaSelection(ws.hierarchy, nextBranch, current),
+          );
+        }}
+        onAreaChange={setArea}
+        onExit={() => setStreamsOnly(false)}
+      />
+    );
+  }
   return (
     <div className="app-shell">
       <aside className={`sidebar ${nav ? "mobile-open" : ""}`}>
@@ -506,15 +611,16 @@ export default function App() {
                           ? "Stop monitoring"
                           : "Start monitoring"}
                     </button>
-                  ) : ["cameras", "rules"].includes(view) ? (
+                  ) : ["cameras", "rules"].includes(view) &&
+                    canConfigureCameras ? (
                     <button
                       className="button primary"
-                      onClick={() => setAdd(true)}
+                      onClick={openCameraOnboarding}
                     >
                       <Plus size={16} />
                       Add camera
                     </button>
-                  ) : view === "settings" ? (
+                  ) : view === "settings" && canConfigureCameras ? (
                     <button className="button" onClick={() => choose("setup")}>
                       <Layers size={16} />
                       Site setup
@@ -527,10 +633,7 @@ export default function App() {
                   {mode === "engine" && (
                     <FeedSwitcher
                       api={api}
-                      onChange={async () => {
-                        setLive({});
-                        await refresh();
-                      }}
+                      onChange={refresh}
                       disabled={!ws.auth.permissions.includes("configure_site")}
                     />
                   )}{" "}
@@ -597,49 +700,105 @@ export default function App() {
                   <div className="overview-layout">
                     <section className="camera-section">
                       <div className="section-bar">
-                        <h2>
-                          Camera wall <span>{cameras.length}</span>
-                        </h2>
-                        <div className="section-tools">
-                          <select
-                            aria-label="Filter area"
-                            value={area}
-                            onChange={(e) => setArea(e.target.value)}
+                        <div className="section-title-action">
+                          <h2>
+                            Camera wall <span>{wallCameras.length}</span>
+                          </h2>
+                          <button
+                            className="icon-button"
+                            aria-label="Open streams wall"
+                            title="Open streams wall"
+                            onClick={() => setStreamsOnly(true)}
                           >
-                            <option value="all">All areas</option>
-                            {ws.areas.map((a) => (
-                              <option key={a.id} value={a.id}>
-                                {a.name || a.id}
+                            <Maximize2 size={16} />
+                          </button>
+                        </div>
+                        <div className="section-tools">
+                          <div className="search-field wall-search">
+                            <Search size={14} />
+                            <input
+                              aria-label="Search camera wall"
+                              placeholder="Search cameras"
+                              value={query}
+                              onChange={(event) => setQuery(event.target.value)}
+                            />
+                          </div>
+                          <select
+                            aria-label="Filter branch"
+                            value={encodeLocationSelection(branch)}
+                            onChange={(event) => {
+                              const nextBranch = decodeLocationSelection(
+                                event.target.value,
+                              );
+                              if (!nextBranch) return;
+                              setBranch(nextBranch);
+                              setArea((current) =>
+                                reconcileAreaSelection(
+                                  ws.hierarchy,
+                                  nextBranch,
+                                  current,
+                                ),
+                              );
+                            }}
+                          >
+                            {wallBranches.map((option) => (
+                              <option
+                                key={encodeLocationSelection(option.selection)}
+                                value={encodeLocationSelection(
+                                  option.selection,
+                                )}
+                              >
+                                {option.name} ({option.count})
                               </option>
                             ))}
                           </select>
-                          {mode === "engine" && (
-                            <button
-                              className="icon-button"
-                              title="Connect camera feeds"
-                              onClick={() => void connectFeeds()}
-                              disabled={busy}
-                            >
-                              <RefreshCw size={17} />
-                            </button>
-                          )}
+                          <select
+                            aria-label="Filter area"
+                            value={encodeLocationSelection(area)}
+                            onChange={(event) => {
+                              const selection = decodeLocationSelection(
+                                event.target.value,
+                              );
+                              if (selection) setArea(selection);
+                            }}
+                          >
+                            {wallAreas.map((option) => (
+                              <option
+                                key={encodeLocationSelection(option.selection)}
+                                value={encodeLocationSelection(
+                                  option.selection,
+                                )}
+                              >
+                                {option.name} ({option.count})
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
-                      <div className="camera-grid">
-                        {cameras.map((c) => (
+                      <div className="camera-grid" ref={observeOverviewWall}>
+                        {overviewCameras.map((c) => (
                           <article className="camera-tile" key={c.id}>
-                            <CameraMedia
-                              camera={c}
-                              stream={stream(c.id)}
-                              paused={!ws.monitor.running}
-                              onOpen={() => configure(c)}
-                            />
+                            {mode === "demo" ? (
+                              <CameraMedia
+                                camera={c}
+                                paused={!ws.monitor.running}
+                                onOpen={() => configure(c)}
+                              />
+                            ) : (
+                              <CameraStream
+                                camera={c}
+                                api={api}
+                                active={overviewActive.has(c.id)}
+                                onOpen={() => configure(c)}
+                              />
+                            )}
                             <div className="camera-caption">
                               <div>
                                 <strong>{c.id}</strong>
                                 <small>
-                                  {ws.areas.find((a) => a.id === c.area_id)
-                                    ?.name || "Ungrouped area"}
+                                  {hierarchyAreas.find(
+                                    (item) => item.id === c.area_id,
+                                  )?.name || "Unassigned"}
                                 </small>
                               </div>
                               <button
@@ -654,9 +813,37 @@ export default function App() {
                           </article>
                         ))}
                       </div>
-                      {cameras.length === 0 && (
-                        <Empty title="No cameras yet">
-                          Add a camera to begin setting up this site.
+                      {overviewPageCount > 1 && (
+                        <div
+                          className="overview-pager"
+                          aria-label="Overview camera pages"
+                        >
+                          <button
+                            className="icon-button"
+                            aria-label="Previous overview camera page"
+                            title="Previous camera page"
+                            disabled={overviewPage <= 1}
+                            onClick={() => setOverviewPage(overviewPage - 1)}
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+                          <span>
+                            {overviewPage} / {overviewPageCount}
+                          </span>
+                          <button
+                            className="icon-button"
+                            aria-label="Next overview camera page"
+                            title="Next camera page"
+                            disabled={overviewPage >= overviewPageCount}
+                            onClick={() => setOverviewPage(overviewPage + 1)}
+                          >
+                            <ChevronRight size={16} />
+                          </button>
+                        </div>
+                      )}
+                      {wallCameras.length === 0 && (
+                        <Empty title="No matching cameras">
+                          Change the branch, area, or search filter.
                         </Empty>
                       )}
                       <div className="wall-footer">
@@ -843,19 +1030,15 @@ export default function App() {
                     {mode === "engine" && (
                       <button
                         className="button"
-                        onClick={() => setHierarchy(true)}
+                        onClick={() => setHierarchyReview(true)}
                       >
                         <ScanLine size={16} />
                         Site & area review
                       </button>
                     )}
-                    <button className="button" onClick={() => setNewArea(true)}>
-                      <Layers size={16} />
-                      Create area
-                    </button>
                   </div>
                   <div className="management-list">
-                    {cameras.map((c) => (
+                    {cameraMatches.map((c) => (
                       <article className="management-row" key={c.id}>
                         <img
                           src={c.snapshot}
@@ -898,28 +1081,34 @@ export default function App() {
                             )}{" "}
                             {view === "rules" ? "Detectors" : "Zones"}
                           </button>
-                          <button
-                            className="icon-button"
-                            title={`Remove ${c.id}`}
-                            disabled={busy}
-                            onClick={() => {
-                              if (
-                                confirm(`Remove camera ${c.id} from this site?`)
-                              )
-                                void action(
-                                  "remove_camera",
-                                  [c.id],
-                                  "Camera removed",
-                                );
-                            }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {ws.auth.permissions.includes(
+                            "configure_cameras",
+                          ) && (
+                            <button
+                              className="icon-button"
+                              title={`Remove ${c.id}`}
+                              disabled={busy}
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `Remove camera ${c.id} from this site?`,
+                                  )
+                                )
+                                  void action(
+                                    "remove_camera",
+                                    [c.id],
+                                    "Camera removed",
+                                  );
+                              }}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       </article>
                     ))}
                   </div>
-                  {!cameras.length && (
+                  {!cameraMatches.length && (
                     <Empty title="No matching cameras">
                       Add a camera or change the search.
                     </Empty>
@@ -932,6 +1121,8 @@ export default function App() {
                   mode={mode}
                   site={ws.site}
                   auth={ws.auth}
+                  hierarchy={ws.hierarchy}
+                  cameras={ws.cameras}
                   onChange={refresh}
                   notify={setToast}
                 />
@@ -941,7 +1132,8 @@ export default function App() {
                   api={api}
                   mode={mode}
                   cameras={ws.cameras}
-                  onAdd={() => setAdd(true)}
+                  canConfigureCameras={canConfigureCameras}
+                  onAdd={openCameraOnboarding}
                   onConfigure={configure}
                   onChange={refresh}
                   onFinish={() => choose("watch")}
@@ -963,17 +1155,17 @@ export default function App() {
           {toast}
         </div>
       )}
-      {hierarchy && (
+      {hierarchyReview && (
         <Drawer
           title="Site & area review"
           subtitle="AGENT MAPPER"
-          onClose={() => setHierarchy(false)}
+          onClose={() => setHierarchyReview(false)}
         >
           <HierarchyReview
             api={api}
             onChange={refresh}
             onCamera={(id) => {
-              setHierarchy(false);
+              setHierarchyReview(false);
               setSelected({ id, tab: "scene" });
             }}
           />
@@ -998,7 +1190,6 @@ export default function App() {
             }
             camera={currentCamera}
             api={api}
-            stream={stream(currentCamera.id)}
             initialTab={selected.tab}
             onTabChange={(tab) => setSelected({ id: currentCamera.id, tab })}
             onChange={refresh}
@@ -1016,7 +1207,7 @@ export default function App() {
           <IncidentDetails event={currentEvent} api={api} onChange={refresh} />
         </Drawer>
       )}
-      {add && (
+      {add && canConfigureCameras && (
         <Drawer
           title="Connect a camera"
           subtitle="CAMERA SETUP"
@@ -1025,58 +1216,14 @@ export default function App() {
           <AddCamera
             api={api}
             mode={mode}
-            areas={ws.areas}
+            hierarchy={ws.hierarchy}
+            authorized={canConfigureCameras}
             onAdded={async () => {
               await refresh();
               setAdd(false);
               setToast("Camera added");
             }}
           />
-        </Drawer>
-      )}
-      {newArea && (
-        <Drawer
-          title="Create an area"
-          subtitle="SITE ORGANISATION"
-          onClose={() => setNewArea(false)}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void action(
-                "create_area",
-                [
-                  {
-                    id: areaName.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
-                    name: areaName,
-                  },
-                ],
-                "Area created",
-              ).then((r) => {
-                if (r) {
-                  setNewArea(false);
-                  setAreaName("");
-                }
-              });
-            }}
-          >
-            <label>
-              Area name
-              <input
-                required
-                value={areaName}
-                onChange={(e) => setAreaName(e.target.value)}
-                placeholder="Warehouse west"
-              />
-            </label>
-            <button
-              className="button primary"
-              disabled={busy || !areaName.trim()}
-            >
-              <Plus size={16} />
-              Create area
-            </button>
-          </form>
         </Drawer>
       )}
     </div>

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from copy import deepcopy
 from pathlib import Path
 
 from cvti.logging_setup import get_logger
@@ -61,13 +62,35 @@ def read_cameras(site_path: str, db_path: str) -> list[dict]:
     except Exception:  # noqa: BLE001 - a missing/invalid site is empty, not a crash
         log.debug("could not read site cameras; returning empty", exc_info=True)
         cams = []
+    try:
+        from cvti.serving.onboarding import normalized_hierarchy
+        hierarchy = normalized_hierarchy(site_path)
+    except Exception:  # noqa: BLE001 - location metadata must not hide cameras
+        log.debug("could not resolve camera hierarchy", exc_info=True)
+        hierarchy = {"branches": [], "unassigned_areas": [],
+                     "unassigned_cameras": []}
+    locations = {}
+    for branch in hierarchy["branches"]:
+        for area in branch["areas"]:
+            for camera in area["cameras"]:
+                locations[str(camera.get("id"))] = {
+                    "area_id": area["id"], "branch_id": branch["id"],
+                }
+    for area in hierarchy["unassigned_areas"]:
+        for camera in area["cameras"]:
+            locations[str(camera.get("id"))] = {"area_id": area["id"]}
+    for camera in hierarchy["unassigned_cameras"]:
+        area_id = str(camera.get("area_id", "")).strip()
+        locations[str(camera.get("id"))] = (
+            {"area_id": area_id} if area_id else {}
+        )
     health = read_health(db_path)
     link = {c.get("camera_id"): c for c in (health.get("cameras") or [])}
     out = []
     for c in cams:
         cid = str(c.get("id"))
         live = link.get(cid, {})
-        out.append({
+        item = {
             "id": cid,
             "source": redact_credentials(str(c.get("source", ""))),
             "view_only": bool(c.get("view_only")),
@@ -75,8 +98,29 @@ def read_cameras(site_path: str, db_path: str) -> list[dict]:
             "last_frame_age_s": live.get("last_frame_age_s"),
             "reconnects": live.get("reconnects"),
             "ingest": live.get("ingest"),
-        })
+        }
+        item.update(locations.get(cid, {}))
+        out.append(item)
     return out
+
+
+def read_hierarchy(site_path: str) -> dict:
+    """Normalized hierarchy with every nested camera credential-redacted."""
+    from cvti.serving.onboarding import normalized_hierarchy
+
+    hierarchy = deepcopy(normalized_hierarchy(site_path))
+    camera_groups = [hierarchy["unassigned_cameras"]]
+    for branch in hierarchy["branches"]:
+        camera_groups.extend(area["cameras"] for area in branch["areas"])
+    camera_groups.extend(
+        area["cameras"] for area in hierarchy["unassigned_areas"]
+    )
+    for cameras in camera_groups:
+        for camera in cameras:
+            for field in ("source", "detect_source"):
+                if field in camera:
+                    camera[field] = redact_credentials(str(camera[field]))
+    return hierarchy
 
 
 # ---- events -----------------------------------------------------------------

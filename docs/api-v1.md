@@ -17,16 +17,19 @@ mapped endpoint here.
 
 - Base path `/api/v1`. JSON bodies both ways. UTF-8.
 - **Auth**: `Authorization: Bearer <token>` from `POST /auth/session`.
-  The WebSocket takes `?token=`. No unauthenticated route exists except
+  The WebSocket offers `argus.v1` and `argus.token.<token>` in
+  `Sec-WebSocket-Protocol`; credentials are never placed in its URL. No
+  unauthenticated route exists except
   `GET /` and `/api/v1` (discovery) and the first-run endpoints marked PUBLIC.
 - **Errors**: `{"error": {"code", "message", "detail"}}` with the HTTP status.
-  `401` unauthenticated · `403` carries the MISSING PERMISSION'S NAME in
-  `detail.permission` · `404` unknown id · `503` engine not running.
+  `401` unauthenticated; `403` carries the MISSING PERMISSION'S NAME in
+  `detail.permission`; `400` invalid payload; `404` unknown id;
+  `409` hierarchy conflict; `503` engine not running.
 - **Permissions** are the existing vocabulary (`cvti/security/permissions.py`):
   each endpoint enforces exactly the permission its backing ConsoleBackend
   method already enforces — the API adds transport, never a second permission
   model. The permission column below names it.
-- **Status**: `shipped` = implemented today · `pending` = frozen here, not yet built.
+- **Status**: `shipped` = implemented today; `pending` = frozen here, not yet built.
   (W4 shipped the full write-side on 10 Sep 2026 — every row below is live.) Shapes of pending endpoints follow the backing
   method's current return value unless a Shape note says otherwise.
 
@@ -56,6 +59,31 @@ mapped endpoint here.
 | `apply_template` | `POST /site/templates/{name}/apply` | configure_cameras | shipped |
 | `approve_site_context` | `POST /site/context/approve` | configure_cameras | shipped |
 | `send_test_notification` | `POST /site/notifications/test` | configure_site | shipped |
+
+### Organization hierarchy
+
+| Bridge method | Endpoint | Permission | Status |
+|---|---|---|---|
+| `organization` | `GET /organization` | view_live | shipped |
+| `update_organization` | `PUT /organization` (body: `{organization: {id, name}}`) | configure_site | shipped |
+| `list_branches` | `GET /branches` | view_live | shipped |
+| `create_branch` | `POST /branches` (body: `{branch: {id, name}}`) | configure_cameras | shipped |
+| `update_branch` | `PUT /branches/{id}` (body: `{branch: {name}}`; path id is authoritative) | configure_cameras | shipped |
+| `remove_branch` | `DELETE /branches/{id}` | configure_cameras | shipped |
+| `hierarchy` | `GET /hierarchy` | view_live | shipped |
+
+`GET /hierarchy` returns
+`{organization, branches: [{id, name, areas: [{..., branch_id, cameras}]}], unassigned_areas, unassigned_cameras}`.
+Camera objects in `/hierarchy` redact credentials from both `source` and
+`detect_source`; `/cameras` redacts its returned `source`. Flat camera reads
+include their normalized `area_id` and area-derived `branch_id` when resolved.
+The frozen `/areas` response remains flat and does not depend on branch metadata.
+
+Legacy site files remain read-only during hierarchy reads. They receive a
+stable virtual organization and main branch, legacy cameras receive derived
+single-camera areas, and every camera remains visible. The first hierarchy
+write materializes those defaults. Deleting an unknown branch returns `404`;
+deleting a branch that still contains areas returns `409 conflict`.
 
 ### Cameras
 
@@ -156,7 +184,21 @@ when the go2rtc gateway is up, else `{kind: "mjpeg", url}`. Players switch on
 | — | `GET /system/health` | any | shipped |
 | — | `GET /system/info` | any | shipped |
 
-## WebSocket — `WS /api/v1/stream?token=`
+## WebSocket — `WS /api/v1/stream`
+
+Clients offer the ordered subprotocols `argus.v1` and
+`argus.token.<bearer-token>`. The server selects only `argus.v1`, so the token
+is not echoed and never enters access-log request URLs. The socket requires
+`view_alerts`, revalidates its in-memory token and account on every push-loop
+iteration, and closes with the following application codes. For an initial
+authentication or authorization denial, the server first accepts the safe
+`argus.v1` subprotocol and then closes before emitting hydration or alert data,
+so browser clients receive the application close code instead of HTTP 403:
+
+- `4401` when the token expires/is revoked, the account is deleted, or its role
+  changes; the client must clear the session and sign in again;
+- `4403` when the authenticated role lacks `view_alerts`; the client keeps the
+  REST session but must not reconnect the alert socket.
 
 Messages are `{type, ts, data}`. On connect the server hydrates with one
 `health` and one `triage` snapshot, then pushes:

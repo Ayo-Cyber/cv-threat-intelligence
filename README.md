@@ -17,11 +17,11 @@ sample size and confidence interval, is in [docs/NUMBERS.md](docs/NUMBERS.md).
 
 Three layers, one process per site:
 
-| Layer | What it does |
-|---|---|
-| **Detectors** | YOLO pose/object + a fine-tuned VideoMAE action model + deterministic zone and tamper rules. Fast, per-frame, and deliberately noisy. |
-| **Rules engine** | Config-driven, per camera. Decides which detections are the kind of thing *this site* cares about. |
-| **Verification gate** | A local VLM (Gemma 3 via Ollama) looks at the frames and confirms or rejects. This is the part that makes the alerts usable. |
+| Layer                 | What it does                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Detectors**         | YOLO pose/object + a fine-tuned VideoMAE action model + deterministic zone and tamper rules. Fast, per-frame, and deliberately noisy. |
+| **Rules engine**      | Config-driven, per camera. Decides which detections are the kind of thing _this site_ cares about.                                    |
+| **Verification gate** | A local VLM (Gemma 3 via Ollama) looks at the frames and confirms or rejects. This is the part that makes the alerts usable.          |
 
 Runs offline end to end — no API key, no cloud, no footage leaving the machine.
 Measured at 5 concurrent cameras on one laptop.
@@ -35,9 +35,24 @@ Everything else: [docs/README.md](docs/README.md)
 ## Download the desktop app
 
 The new Electron + React + TypeScript UI is developed in [Frontend/](Frontend/README.md).
-It uses the existing Python backend and remains an incremental replacement for
-the legacy console. For local source runs, use `cd Frontend`, `npm run build`,
-then `npm start` after installing the documented dependencies.
+Electron starts the local Argus API by default, owns its authentication token and
+child-process lifetime, and delegates to the existing Python backend. It remains
+an incremental replacement for the legacy console. For local source runs, use
+`cd Frontend`, `npm run build`, then `npm start` after installing the documented
+dependencies.
+
+The desktop UI supports organization, branch, and area setup; branch/area filters
+on the standard camera wall; and a streams-only wall entered from Overview.
+Connecting camera previews does not start detection: use **Start monitoring**
+separately. Live descriptors prefer WebRTC when go2rtc is available and fall back
+to the token-protected loopback MJPEG publisher. Existing flat site configs remain
+readable through a virtual hierarchy until a location edit materializes the new
+fields.
+
+The API listens on loopback port 8787 by default. Override it with
+`ARGUS_API_PORT`, or temporarily restore the legacy worker with
+`ARGUS_TRANSPORT=bridge`. See the [desktop guide](Frontend/README.md) for exact
+commands, migration behavior, smoke tests, and environmental acceptance limits.
 
 Installers for macOS, Windows and Linux are on the
 [Releases page](https://github.com/Ayo-Cyber/cv-threat-intelligence/releases).
@@ -101,7 +116,7 @@ python -m cvti.app.shell --site-config configs/site_6cam_demo.json --db runs/sit
 python -m cvti.eval --dataset camnuvem --gate ollama --kind fire
 ```
 
-> **The gate is not optional.** `--gate-provider mock` confirms *every* alert
+> **The gate is not optional.** `--gate-provider mock` confirms _every_ alert
 > without looking at it, which inverts the product. The engine refuses to start
 > on it unless you set `ARGUS_ALLOW_MOCK_GATE=1`, and shows a permanent red
 > banner when you do.
@@ -118,14 +133,14 @@ The same suite gates every build — a red suite cannot produce an installer.
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `No module named 'torch'` | Virtualenv isn't active: `source .venv/bin/activate` |
-| Engine refuses to start, mentions `ARGUS_ALLOW_MOCK_GATE` | Working as intended — pass `--gate-provider ollama` instead. |
-| System panel says "Ollama offline" | `ollama serve`, then Recheck. |
-| System panel says "model not pulled" | `ollama pull gemma3:4b` |
-| Alerts take ~30s to appear | Expected — that's the local model reasoning about the frames. See the latency notes in [docs/NUMBERS.md](docs/NUMBERS.md). |
-| No alerts at all on a demo config | Check `runs/live/run.log`; the engine prints every verdict, confirmed or rejected. |
+| Symptom                                                   | Fix                                                                                                                        |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `No module named 'torch'`                                 | Virtualenv isn't active: `source .venv/bin/activate`                                                                       |
+| Engine refuses to start, mentions `ARGUS_ALLOW_MOCK_GATE` | Working as intended — pass `--gate-provider ollama` instead.                                                               |
+| System panel says "Ollama offline"                        | `ollama serve`, then Recheck.                                                                                              |
+| System panel says "model not pulled"                      | `ollama pull gemma3:4b`                                                                                                    |
+| Alerts take ~30s to appear                                | Expected — that's the local model reasoning about the frames. See the latency notes in [docs/NUMBERS.md](docs/NUMBERS.md). |
+| No alerts at all on a demo config                         | Check `runs/live/run.log`; the engine prints every verdict, confirmed or rejected.                                         |
 
 ---
 

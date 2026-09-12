@@ -1,9 +1,24 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, net, protocol } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import readline from "node:readline";
+import type { ArgusApiClient } from "./api-client.js";
+import { createOwnedApiClient, createSmokeStateWriter } from "./api-runtime.js";
+import { startOwnedApi, type OwnedApi } from "./api-supervisor.js";
+import { createSupportLog } from "./support-log.js";
+import {
+  createBridgeTransport,
+  registerBridgeStreamProtocol,
+} from "./bridge-transport.js";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "argus-stream",
+    privileges: { standard: true, secure: true, stream: true },
+  },
+]);
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const root = process.env.ARGUS_REPO || path.resolve(dir, "../..");
@@ -11,6 +26,11 @@ let window: BrowserWindow | null = null;
 let worker: ChildProcessWithoutNullStreams | undefined;
 let sequence = 0;
 let exiting = false;
+const transport = process.env.ARGUS_TRANSPORT === "bridge" ? "bridge" : "api";
+let ownedApi: OwnedApi | undefined;
+let apiClient: ArgusApiClient | undefined;
+let apiStarting: Promise<ArgusApiClient> | undefined;
+const smokeState = createSmokeStateWriter(process.env);
 if (process.env.ARGUS_USER_DATA)
   app.setPath("userData", process.env.ARGUS_USER_DATA);
 const pending = new Map<
@@ -94,6 +114,17 @@ const methods = new Set([
 ]);
 
 methods.add("live_stop");
+for (const method of [
+  "camera_stream",
+  "organization",
+  "update_organization",
+  "list_branches",
+  "create_branch",
+  "update_branch",
+  "remove_branch",
+  "hierarchy",
+])
+  methods.add(method);
 function failPending(message: string) {
   for (const item of pending.values()) {
     clearTimeout(item.timer);
@@ -178,7 +209,79 @@ function invoke(method: string, args: unknown[]) {
   });
 }
 
+const bridgeTransport = createBridgeTransport(invoke, (url) => net.fetch(url));
+
+async function ensureApi() {
+  if (apiClient) return apiClient;
+  if (apiStarting) return apiStarting;
+  apiStarting = (async () => {
+    const python =
+      process.env.ARGUS_PYTHON ||
+      path.join(
+        root,
+        ".venv",
+        process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
+      );
+    if (!fs.existsSync(python))
+      throw new Error(
+        "Python environment missing. Set ARGUS_PYTHON to the existing Argus Python executable.",
+      );
+    const port = Number(process.env.ARGUS_API_PORT || 8787);
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+      throw new Error("ARGUS_API_PORT must be an integer from 1 to 65535.");
+    const logPath =
+      process.env.ARGUS_SUPPORT_LOG ||
+      path.join(root, "runs", "desktop", "frontend.log");
+    const supportLog = createSupportLog(logPath);
+    const writeOutput = (data: Buffer) => {
+      const safe = supportLog.write(data);
+      process.stderr.write(safe);
+    };
+    const owner = await startOwnedApi({
+      python,
+      root,
+      port,
+      site: process.env.ARGUS_SITE_CONFIG || "configs/site_live.json",
+      db: process.env.ARGUS_DB || "runs/desktop/events.db",
+      onStdout: writeOutput,
+      onStderr: writeOutput,
+    });
+    ownedApi = owner;
+    if (smokeState) {
+      if (!Number.isInteger(owner.process.pid))
+        throw new Error("Owned Argus API did not expose a process ID.");
+      smokeState.recordPid(owner.process.pid!);
+    }
+    const client = createOwnedApiClient(
+      owner,
+      smokeState
+        ? { onToken: (token) => smokeState.recordToken(token) }
+        : undefined,
+    );
+    client.subscribe((event) =>
+      window?.webContents.send("engine:event", event),
+    );
+    owner.onExit(() => {
+      const remaining = supportLog.close();
+      if (remaining) process.stderr.write(remaining);
+      if (!exiting) {
+        void client.close();
+        apiClient = undefined;
+        if (ownedApi === owner) ownedApi = undefined;
+      }
+    });
+    owner.assertAlive();
+    apiClient = client;
+    return client;
+  })().finally(() => {
+    apiStarting = undefined;
+  });
+  return apiStarting;
+}
+
 app.whenReady().then(() => {
+  if (transport === "bridge")
+    void registerBridgeStreamProtocol(protocol, bridgeTransport);
   ipcMain.handle("engine:environment", (event) => {
     if (event.sender !== window?.webContents) throw new Error("Unknown caller");
     const python =
@@ -220,7 +323,8 @@ app.whenReady().then(() => {
       JSON.stringify(args).length > 1000000
     )
       throw new Error("Invalid engine request");
-    return invoke(method, args);
+    if (transport === "bridge") return bridgeTransport.invoke(method, args);
+    return ensureApi().then((client) => client.invoke(method, args));
   });
   const create = () => {
     window = new BrowserWindow({
@@ -249,18 +353,34 @@ app.whenReady().then(() => {
   });
 });
 app.on("before-quit", (event) => {
-  if (exiting || !worker) return;
+  if (exiting) return;
+  if (transport === "bridge") {
+    if (!worker) return;
+    event.preventDefault();
+    exiting = true;
+    const timeout = setTimeout(() => {
+      worker?.kill();
+      app.quit();
+    }, 10000);
+    void invoke("shutdown", []).finally(() => {
+      clearTimeout(timeout);
+      worker?.kill();
+      app.quit();
+    });
+    return;
+  }
+  if (!apiClient && !ownedApi && !apiStarting) return;
   event.preventDefault();
   exiting = true;
-  const timeout = setTimeout(() => {
-    worker?.kill();
-    app.quit();
-  }, 10000);
-  void invoke("shutdown", []).finally(() => {
-    clearTimeout(timeout);
-    worker?.kill();
-    app.quit();
-  });
+  void (async () => {
+    try {
+      const client = apiClient ?? (await apiStarting);
+      await client?.close();
+    } finally {
+      await ownedApi?.stop();
+      app.quit();
+    }
+  })();
 });
 app.on("window-all-closed", () => app.quit());
 process.on("uncaughtException", (error) => {

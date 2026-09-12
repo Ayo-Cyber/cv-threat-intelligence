@@ -1,26 +1,47 @@
 import { useState } from "react";
 import { Plus, Search, CheckCircle2 } from "lucide-react";
-import type { Json, Mode, Transport } from "../lib/types";
+import type { Hierarchy, Json, Mode, Transport } from "../lib/types";
+import {
+  UNASSIGNED_BRANCH,
+  decodeLocationSelection,
+  encodeLocationSelection,
+  locationIdSelection,
+  type LocationSelection,
+} from "../lib/hierarchy";
 import { Notice, Spinner } from "./common";
+
 export default function AddCamera({
   api,
   mode,
-  areas,
+  hierarchy,
+  authorized,
   onAdded,
 }: {
   api: Transport;
   mode: Mode;
-  areas: Json[];
+  hierarchy: Hierarchy;
+  authorized: boolean;
   onAdded: () => Promise<void>;
 }) {
   const [id, setId] = useState("");
   const [source, setSource] = useState("");
-  const [area, setArea] = useState("");
+  const [branch, setBranch] = useState<LocationSelection | null>(null);
+  const [area, setArea] = useState<LocationSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const [found, setFound] = useState<Json[]>([]);
+  const selectedBranch = hierarchy.branches.find(
+    (item) => branch?.kind === "id" && item.id === branch.id,
+  );
+  const placementReady =
+    branch?.kind === "unassigned" ||
+    Boolean(selectedBranch && area?.kind === "id");
   async function action(kind: string) {
+    if (!authorized) {
+      setError("Forbidden (requires configure_cameras)");
+      return;
+    }
     setBusy(true);
     setError("");
     setResult("");
@@ -36,7 +57,11 @@ export default function AddCamera({
         setResult("Camera source is reachable");
       } else {
         await api.invoke("add_camera", [
-          { id: id.trim(), source: source.trim(), area_id: area || undefined },
+          {
+            id: id.trim(),
+            source: source.trim(),
+            area_id: area?.kind === "id" ? area.id : undefined,
+          },
         ]);
         await onAdded();
       }
@@ -57,7 +82,7 @@ export default function AddCamera({
       {error && <Notice error>{error}</Notice>}
       <button
         className="button"
-        disabled={busy || mode === "demo"}
+        disabled={!authorized || busy || mode === "demo"}
         onClick={() => void action("discover")}
       >
         <Search size={16} />
@@ -110,26 +135,70 @@ export default function AddCamera({
           />
         </label>
         <label>
-          Area
-          <select value={area} onChange={(e) => setArea(e.target.value)}>
-            <option value="">Ungrouped</option>
-            {areas.map((a) => (
-              <option value={a.id} key={a.id}>
-                {a.name || a.id}
+          Branch
+          <select
+            required
+            value={branch ? encodeLocationSelection(branch) : ""}
+            onChange={(event) => {
+              setBranch(decodeLocationSelection(event.target.value) || null);
+              setArea(null);
+            }}
+          >
+            <option value="">Select a branch</option>
+            {hierarchy.branches.map((item) => (
+              <option
+                value={encodeLocationSelection(locationIdSelection(item.id))}
+                key={item.id}
+              >
+                {item.name}
               </option>
             ))}
+            <option value={encodeLocationSelection(UNASSIGNED_BRANCH)}>
+              Assign later
+            </option>
           </select>
         </label>
+        {selectedBranch && (
+          <label>
+            Area
+            <select
+              required
+              value={area ? encodeLocationSelection(area) : ""}
+              onChange={(event) =>
+                setArea(decodeLocationSelection(event.target.value) || null)
+              }
+            >
+              <option value="">Select an area</option>
+              {selectedBranch.areas.map((item) => (
+                <option
+                  value={encodeLocationSelection(locationIdSelection(item.id))}
+                  key={item.id}
+                >
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {branch?.kind === "unassigned" && (
+          <p className="field-note">
+            This camera will remain visible under Unassigned until it is placed
+            in an area.
+          </p>
+        )}
         <div className="actions">
           <button
             className="button"
             type="button"
-            disabled={busy || !source || mode === "demo"}
+            disabled={!authorized || busy || !source || mode === "demo"}
             onClick={() => void action("test")}
           >
             Test connection
           </button>
-          <button className="button primary" disabled={busy || !id || !source}>
+          <button
+            className="button primary"
+            disabled={!authorized || busy || !id || !source || !placementReady}
+          >
             {busy ? <Spinner /> : <Plus size={16} />}Add camera
           </button>
         </div>
