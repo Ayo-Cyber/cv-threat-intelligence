@@ -272,11 +272,18 @@ export class ArgusApiClient {
 
   constructor(
     private readonly baseUrl: string,
-    options: { fetch?: typeof fetch; WebSocket?: typeof WebSocket } = {},
+    options: {
+      fetch?: typeof fetch;
+      WebSocket?: typeof WebSocket;
+      onToken?: (token: string) => void;
+    } = {},
   ) {
     this.fetchImpl = options.fetch ?? fetch;
     this.WebSocketImpl = options.WebSocket ?? globalThis.WebSocket;
+    this.onToken = options.onToken;
   }
+
+  private readonly onToken?: (token: string) => void;
 
   async invoke<T>(method: string, args: unknown[] = []): Promise<T> {
     if (!Array.isArray(args)) throw new Error("Invalid operation arguments");
@@ -400,6 +407,7 @@ export class ArgusApiClient {
       false,
     )) as any;
     this.token = value.token;
+    this.onToken?.(value.token);
     this.closed = false;
     this.connectSocket();
     return {

@@ -14,6 +14,7 @@ type StartOptions = {
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
   timeoutMs?: number;
+  stopTimeoutMs?: number;
   onStderr?: (data: Buffer) => void;
 };
 
@@ -38,6 +39,7 @@ export async function startOwnedApi({
     new Promise((resolve) => setTimeout(resolve, milliseconds)),
   now = Date.now,
   timeoutMs = 30_000,
+  stopTimeoutMs = 5_000,
   onStderr,
 }: StartOptions): Promise<OwnedApi> {
   const baseUrl = `http://127.0.0.1:${port}/api/v1`;
@@ -81,6 +83,7 @@ export async function startOwnedApi({
   const lifecycle = new AbortController();
   const exitListeners = new Set<(error: Error) => void>();
   let exitError: Error | undefined;
+  let stopPromise: Promise<void> | undefined;
   const markExited = (error: Error) => {
     if (exitError) return;
     exitError = error;
@@ -120,6 +123,24 @@ export async function startOwnedApi({
       throw error;
     }
   };
+  const waitForExit = (timeout: number) => {
+    if (exitError || process.exitCode !== null) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (exited: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        process.off("exit", onExit);
+        process.off("error", onExit);
+        resolve(exited);
+      };
+      const onExit = () => finish(true);
+      const timer = setTimeout(() => finish(false), timeout);
+      process.once("exit", onExit);
+      process.once("error", onExit);
+    });
+  };
   const owned: OwnedApi = {
     baseUrl,
     process,
@@ -134,7 +155,20 @@ export async function startOwnedApi({
       return () => exitListeners.delete(listener);
     },
     async stop() {
-      if (process.exitCode === null && !process.killed) process.kill("SIGTERM");
+      if (stopPromise) return stopPromise;
+      stopPromise = (async () => {
+        if (exitError || process.exitCode !== null) return;
+        const terminated = waitForExit(stopTimeoutMs);
+        process.kill("SIGTERM");
+        if (await terminated) return;
+        const killed = waitForExit(stopTimeoutMs);
+        process.kill("SIGKILL");
+        if (await killed) return;
+        throw new Error(
+          `Owned Argus API process ${process.pid ?? "unknown"} did not exit after SIGKILL.`,
+        );
+      })();
+      return stopPromise;
     },
   };
 

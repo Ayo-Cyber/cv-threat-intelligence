@@ -29,6 +29,7 @@ export async function createSmokeEnvironment(repo, label = "api") {
   const site = path.join(temp, "site.json");
   const db = path.join(temp, "events.db");
   const userData = path.join(temp, "electron");
+  const smokeState = path.join(userData, "smoke-state.json");
   const source = path.join(repo, "data/test_clips/empty_warehouse.mp4");
   const apiPort = await reserveLoopbackPort();
   const pixel = Buffer.from(
@@ -83,6 +84,8 @@ export async function createSmokeEnvironment(repo, label = "api") {
     ARGUS_SITE_CONFIG: site,
     ARGUS_DB: db,
     ARGUS_USER_DATA: userData,
+    ARGUS_SMOKE_TEST: "1",
+    ARGUS_SMOKE_STATE: smokeState,
     PYTHONDONTWRITEBYTECODE: "1",
     PYTHONPYCACHEPREFIX: path.join(temp, "pycache"),
   };
@@ -92,6 +95,7 @@ export async function createSmokeEnvironment(repo, label = "api") {
     db,
     env,
     site,
+    smokeState,
     streamUrl: `http://127.0.0.1:${streamPort}/stream/Lobby%20North`,
     temp,
     userData,
@@ -104,17 +108,36 @@ export async function createSmokeEnvironment(repo, label = "api") {
   };
 }
 
-async function waitForApiShutdown(baseUrl, timeoutMs = 15_000) {
+export async function waitForSmokeState(statePath, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      await fetch(baseUrl, { signal: AbortSignal.timeout(500) });
-    } catch {
-      return;
+      const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+      if (Number.isInteger(state.api_pid) && state.token_sha256) return state;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`Electron-owned API remained reachable at ${baseUrl}`);
+  throw new Error(
+    "Electron smoke state did not receive API PID and token hash.",
+  );
+}
+
+async function waitForPidExit(pid, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error?.code === "ESRCH") return;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(
+    `Electron-owned API PID ${pid} remained alive after shutdown.`,
+  );
 }
 
 async function run() {
@@ -124,6 +147,7 @@ async function run() {
   const fixture = await createSmokeEnvironment(repo, "api-transport");
   const baseUrl = `http://127.0.0.1:${fixture.apiPort}/api/v1`;
   let app;
+  let apiPid;
   let monitoringStarted = false;
   try {
     app = await electron.launch({
@@ -162,6 +186,9 @@ async function run() {
     assert.equal(auth.signed_in, true);
     assert.equal(auth.username, "desktop_smoke");
     assert.equal(auth.role, "owner");
+    const smokeState = await waitForSmokeState(fixture.smokeState);
+    apiPid = smokeState.api_pid;
+    process.kill(apiPid, 0);
 
     const subnet = await invoke("detect_subnet");
     assert.ok(Object.hasOwn(subnet, "cidr"));
@@ -209,11 +236,11 @@ async function run() {
         .catch(() => undefined);
     }
     await app?.close();
-    if (app) await waitForApiShutdown(baseUrl);
+    if (apiPid) await waitForPidExit(apiPid);
     await fixture.cleanup();
   }
   console.log(
-    "PASS: Electron-owned API discovery, auth, hierarchy read/write, camera and scene reads, stream descriptor, monitoring commands, and child shutdown.",
+    "PASS: Electron-owned API discovery, auth, hierarchy read/write, camera and scene reads, stream descriptor, monitoring commands, and owned PID observed alive then confirmed exited.",
   );
 }
 

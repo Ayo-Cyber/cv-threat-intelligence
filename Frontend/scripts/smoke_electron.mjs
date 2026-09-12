@@ -1,8 +1,12 @@
 import { _electron as electron } from "@playwright/test";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { createSmokeEnvironment } from "./smoke_api_transport.mjs";
+import {
+  createSmokeEnvironment,
+  waitForSmokeState,
+} from "./smoke_api_transport.mjs";
 const repo = process.env.ARGUS_REPO;
 if (!repo) throw new Error("Set ARGUS_REPO to the existing Python repository.");
 const fixture = await createSmokeEnvironment(repo, "electron");
@@ -10,40 +14,109 @@ const { env, site, temp } = fixture;
 const cameraId = `desktop_zone_smoke_${process.pid}`;
 
 async function nativeFullscreenEscape(page, wall) {
-  try {
-    await wall.getByRole("button", { name: "Enter fullscreen" }).click();
-    await page.waitForFunction(
-      () => document.fullscreenElement !== null,
-      null,
-      {
-        timeout: 5000,
-      },
-    );
-  } catch {
+  const supported = await page.evaluate(
+    () =>
+      document.fullscreenEnabled &&
+      typeof Element.prototype.requestFullscreen === "function",
+  );
+  if (!supported) {
     console.warn(
-      "SKIP: native headed fullscreen could not be entered. Manual acceptance: enter Streams wall, enter fullscreen, press Escape, and confirm the wall remains open outside fullscreen.",
+      "SKIP: this environment does not expose the browser Fullscreen API. Manual acceptance: enter Streams wall, enter fullscreen, press Escape, and confirm the wall remains open outside fullscreen.",
     );
     return "skipped";
   }
+  const control = wall.getByRole("button", { name: "Enter fullscreen" });
+  assert.equal(await control.count(), 1);
+  assert.equal(await control.isEnabled(), true);
+  await control.click();
+  await page.waitForFunction(() => document.fullscreenElement !== null, null, {
+    timeout: 5000,
+  });
   await page.keyboard.press("Escape");
-  try {
-    await page.waitForFunction(
-      () => document.fullscreenElement === null,
-      null,
-      {
-        timeout: 5000,
-      },
-    );
-  } catch {
-    assert.equal(await wall.count(), 1, "Escape must not close the wall");
-    await page.evaluate(() => document.exitFullscreen()).catch(() => undefined);
-    console.warn(
-      "SKIP: platform automation did not synthesize browser-owned Escape. Manual acceptance: press Escape from native headed fullscreen and confirm only fullscreen closes.",
-    );
-    return "skipped";
-  }
+  await page.waitForFunction(() => document.fullscreenElement === null, null, {
+    timeout: 5000,
+  });
   assert.equal(await wall.isVisible(), true);
   return "passed";
+}
+
+async function rendererContainsToken(page, expectedFingerprint) {
+  return page.evaluate(async (expected) => {
+    const candidates = new Set();
+    const seen = new Set();
+    const addString = (value) => {
+      candidates.add(value);
+      for (const match of value.matchAll(/[A-Za-z0-9_-]{20,}/g))
+        candidates.add(match[0]);
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed !== value) addValue(parsed);
+      } catch {
+        /* Plain storage strings are already included. */
+      }
+    };
+    const addValue = (value) => {
+      if (typeof value === "string") return addString(value);
+      if (!value || typeof value !== "object" || seen.has(value)) return;
+      seen.add(value);
+      if (Array.isArray(value)) {
+        value.forEach(addValue);
+        return;
+      }
+      for (const [key, item] of Object.entries(value)) {
+        addString(key);
+        addValue(item);
+      }
+    };
+    for (const storage of [localStorage, sessionStorage]) {
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index) || "";
+        addString(key);
+        addString(storage.getItem(key) || "");
+      }
+    }
+    addString(document.cookie);
+    if (typeof indexedDB.databases === "function") {
+      for (const info of await indexedDB.databases()) {
+        if (!info.name) continue;
+        addString(info.name);
+        const database = await new Promise((resolve, reject) => {
+          const request = indexedDB.open(info.name);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        for (const storeName of Array.from(database.objectStoreNames)) {
+          addString(storeName);
+          const transaction = database.transaction(storeName, "readonly");
+          const store = transaction.objectStore(storeName);
+          const read = (request) =>
+            new Promise((resolve, reject) => {
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
+          const [keys, values] = await Promise.all([
+            read(store.getAllKeys()),
+            read(store.getAll()),
+          ]);
+          addValue(keys);
+          addValue(values);
+        }
+        database.close();
+      }
+    }
+    const encoder = new TextEncoder();
+    for (const candidate of candidates) {
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        encoder.encode(candidate),
+      );
+      const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+      if (fingerprint === expected) return true;
+    }
+    return false;
+  }, expectedFingerprint);
 }
 let app;
 try {
@@ -192,6 +265,41 @@ try {
   await page.getByRole("button", { name: "Close details" }).click();
   await page.getByRole("button", { name: "Overview", exact: true }).click();
 
+  const smokeState = await waitForSmokeState(fixture.smokeState);
+  const storageMarkers = [
+    "local-storage-smoke-marker-2026",
+    "session-storage-smoke-marker-2026",
+    "indexed-db-smoke-marker-2026",
+  ];
+  await page.evaluate(async ([localMarker, sessionMarker, indexedMarker]) => {
+    localStorage.setItem("argus.smoke.local", localMarker);
+    sessionStorage.setItem("argus.smoke.session", sessionMarker);
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.open("argus-smoke-token-audit", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("state");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const database = request.result;
+        const transaction = database.transaction("state", "readwrite");
+        transaction.objectStore("state").put({ value: indexedMarker }, "token");
+        transaction.onerror = () => reject(transaction.error);
+        transaction.oncomplete = () => {
+          database.close();
+          resolve();
+        };
+      };
+    });
+  }, storageMarkers);
+  for (const marker of storageMarkers) {
+    assert.equal(
+      await rendererContainsToken(
+        page,
+        createHash("sha256").update(marker).digest("hex"),
+      ),
+      true,
+      `Renderer storage scanner missed ${marker}`,
+    );
+  }
   const exposure = await page.evaluate(async () => ({
     cookies: document.cookie,
     indexedDatabases:
@@ -212,10 +320,15 @@ try {
     "subscribe",
   ]);
   assert.equal(exposure.cookies, "");
-  assert.deepEqual(exposure.indexedDatabases, []);
+  assert.deepEqual(exposure.indexedDatabases, ["argus-smoke-token-audit"]);
   assert.equal(
     exposure.storage.flat().some((value) => /bearer|auth.?token/i.test(value)),
     false,
+  );
+  assert.equal(
+    await rendererContainsToken(page, smokeState.token_sha256),
+    false,
+    "Renderer storage contains the actual Electron-main API token",
   );
 
   await page.getByRole("button", { name: "Open streams wall" }).click();
@@ -243,7 +356,7 @@ try {
   assert.equal(await page.locator(".sidebar").count(), 1);
   await page.screenshot({ path: "test-results/electron-native.png" });
   console.log(
-    `PASS: production Electron, API-default auth, operator permission denial, recovery, real preview, hierarchy wall filters, shell return, token boundary, IPC allowlist, and native fullscreen Escape ${fullscreenAcceptance}.`,
+    `PASS: production Electron, API-default auth, actual-token fingerprint absent from verified local/session/IndexedDB storage, operator permission denial, recovery, real preview, hierarchy wall filters, shell return, IPC allowlist, and native fullscreen Escape ${fullscreenAcceptance}.`,
   );
 } finally {
   await app?.close();

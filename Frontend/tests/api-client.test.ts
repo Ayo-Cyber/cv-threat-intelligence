@@ -86,6 +86,26 @@ describe("ArgusApiClient", () => {
     expect(JSON.stringify(auth)).not.toContain("main-process-secret");
   });
 
+  it("reports the actual token only to an internal observer", async () => {
+    const net = fetchSequence([
+      response({
+        token: "random-main-token",
+        user: { username: "ayo", role: "owner", permissions: [] },
+      }),
+    ]);
+    const onToken = vi.fn();
+    const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
+      fetch: net.fetch,
+      onToken,
+    });
+
+    const auth = await client.invoke("sign_in", ["ayo", "secret"]);
+
+    expect(onToken).toHaveBeenCalledOnce();
+    expect(onToken).toHaveBeenCalledWith("random-main-token");
+    expect(JSON.stringify(auth)).not.toContain("random-main-token");
+  });
+
   it("maps list_events envelope to the existing incident array", async () => {
     const net = fetchSequence([
       response({

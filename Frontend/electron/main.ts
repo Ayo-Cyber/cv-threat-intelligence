@@ -5,7 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import readline from "node:readline";
 import type { ArgusApiClient } from "./api-client.js";
-import { createOwnedApiClient } from "./api-runtime.js";
+import { createOwnedApiClient, createSmokeStateWriter } from "./api-runtime.js";
 import { startOwnedApi, type OwnedApi } from "./api-supervisor.js";
 import {
   createBridgeTransport,
@@ -29,6 +29,7 @@ const transport = process.env.ARGUS_TRANSPORT === "bridge" ? "bridge" : "api";
 let ownedApi: OwnedApi | undefined;
 let apiClient: ArgusApiClient | undefined;
 let apiStarting: Promise<ArgusApiClient> | undefined;
+const smokeState = createSmokeStateWriter(process.env);
 if (process.env.ARGUS_USER_DATA)
   app.setPath("userData", process.env.ARGUS_USER_DATA);
 const pending = new Map<
@@ -241,7 +242,17 @@ async function ensureApi() {
       },
     });
     ownedApi = owner;
-    const client = createOwnedApiClient(owner);
+    if (smokeState) {
+      if (!Number.isInteger(owner.process.pid))
+        throw new Error("Owned Argus API did not expose a process ID.");
+      smokeState.recordPid(owner.process.pid!);
+    }
+    const client = createOwnedApiClient(
+      owner,
+      smokeState
+        ? { onToken: (token) => smokeState.recordToken(token) }
+        : undefined,
+    );
     client.subscribe((event) =>
       window?.webContents.send("engine:event", event),
     );

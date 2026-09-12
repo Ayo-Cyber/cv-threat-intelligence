@@ -95,6 +95,12 @@ class TheGapsTheContractExists(unittest.TestCase):
         keep carrying that promise until the message ships."""
         self.assertIn("alert.update", DOC)
 
+    def test_package_description_does_not_claim_writes_are_pending(self):
+        import cvti.api
+        package_contract = (cvti.api.__doc__ or "").lower()
+        self.assertNotIn("read-only", package_contract)
+        self.assertNotIn("write and config endpoints", package_contract)
+
 
 if __name__ == "__main__":
     unittest.main()
