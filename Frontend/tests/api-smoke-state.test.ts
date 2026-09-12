@@ -1,13 +1,20 @@
 import { createHash } from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createSmokeStateWriter } from "../electron/api-runtime.js";
 
 describe("API smoke state", () => {
+  const root = path.resolve(os.tmpdir(), "argus-smoke-state-test");
+  const profile = path.join(root, "profile");
+  const state = path.join(profile, "api-state.json");
+  const outside = path.join(root, "outside.json");
+
   it("is disabled unless the explicit smoke gate is enabled", () => {
     expect(
       createSmokeStateWriter({
-        ARGUS_USER_DATA: "/tmp/profile",
-        ARGUS_SMOKE_STATE: "/tmp/profile/state.json",
+        ARGUS_USER_DATA: profile,
+        ARGUS_SMOKE_STATE: state,
       }),
     ).toBeUndefined();
   });
@@ -16,8 +23,8 @@ describe("API smoke state", () => {
     expect(() =>
       createSmokeStateWriter({
         ARGUS_SMOKE_TEST: "1",
-        ARGUS_USER_DATA: "/tmp/profile",
-        ARGUS_SMOKE_STATE: "/tmp/outside.json",
+        ARGUS_USER_DATA: profile,
+        ARGUS_SMOKE_STATE: outside,
       }),
     ).toThrow("must be inside ARGUS_USER_DATA");
   });
@@ -28,8 +35,8 @@ describe("API smoke state", () => {
     const writer = createSmokeStateWriter(
       {
         ARGUS_SMOKE_TEST: "1",
-        ARGUS_USER_DATA: "/tmp/profile",
-        ARGUS_SMOKE_STATE: "/tmp/profile/api-state.json",
+        ARGUS_USER_DATA: profile,
+        ARGUS_SMOKE_STATE: state,
       },
       { mkdirSync, writeFileSync },
     );
@@ -37,7 +44,7 @@ describe("API smoke state", () => {
     writer?.recordPid(4321);
     writer?.recordToken("random-main-token");
 
-    expect(mkdirSync).toHaveBeenCalledWith("/tmp/profile", { recursive: true });
+    expect(mkdirSync).toHaveBeenCalledWith(profile, { recursive: true });
     const [, body, options] = writeFileSync.mock.calls.at(-1) || [];
     expect(JSON.parse(String(body))).toEqual({
       api_pid: 4321,

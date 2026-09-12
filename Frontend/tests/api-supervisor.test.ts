@@ -174,4 +174,52 @@ describe("owned API supervision", () => {
       vi.useRealTimers();
     }
   });
+
+  it("does not accept child error without a definitive exit", async () => {
+    vi.useFakeTimers();
+    try {
+      const owned = child();
+      const unrelated = child();
+      owned.kill = vi.fn((signal) => {
+        if (signal === "SIGTERM")
+          queueMicrotask(() => owned.emit("error", new Error("signal failed")));
+        return false;
+      });
+      const fetch = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("port free"))
+        .mockResolvedValueOnce(
+          new Response('{"name":"Argus Engine API","status":"ok"}'),
+        );
+      const api = await startOwnedApi({
+        python: "python",
+        root: "/repo",
+        site: "site.json",
+        db: "events.db",
+        port: 8787,
+        spawn: (() => owned) as any,
+        fetch: fetch as any,
+        sleep: async () => {},
+        stopTimeoutMs: 100,
+      });
+      let resolved = false;
+
+      const stopping = api.stop().then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(owned.exitCode).toBeNull();
+      expect(resolved).toBe(false);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(owned.kill).toHaveBeenCalledWith("SIGKILL");
+      expect(unrelated.kill).not.toHaveBeenCalled();
+      const rejected = expect(stopping).rejects.toThrow(
+        "did not exit after SIGKILL",
+      );
+      await vi.advanceTimersByTimeAsync(100);
+      await rejected;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

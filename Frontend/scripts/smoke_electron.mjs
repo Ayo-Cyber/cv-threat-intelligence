@@ -5,6 +5,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import {
   createSmokeEnvironment,
+  fullscreenSkipAllowed,
   waitForSmokeState,
 } from "./smoke_api_transport.mjs";
 const repo = process.env.ARGUS_REPO;
@@ -14,17 +15,22 @@ const { env, site, temp } = fixture;
 const cameraId = `desktop_zone_smoke_${process.pid}`;
 
 async function nativeFullscreenEscape(page, wall) {
-  const supported = await page.evaluate(
-    () =>
-      document.fullscreenEnabled &&
+  const capability = await page.evaluate(() => ({
+    fullscreenEnabled: document.fullscreenEnabled,
+    requestFullscreen:
       typeof Element.prototype.requestFullscreen === "function",
-  );
-  if (!supported) {
+  }));
+  if (fullscreenSkipAllowed(capability)) {
     console.warn(
       "SKIP: this environment does not expose the browser Fullscreen API. Manual acceptance: enter Streams wall, enter fullscreen, press Escape, and confirm the wall remains open outside fullscreen.",
     );
     return "skipped";
   }
+  assert.equal(
+    capability.fullscreenEnabled,
+    true,
+    "Fullscreen API exists but document.fullscreenEnabled is false",
+  );
   const control = wall.getByRole("button", { name: "Enter fullscreen" });
   assert.equal(await control.count(), 1);
   assert.equal(await control.isEnabled(), true);

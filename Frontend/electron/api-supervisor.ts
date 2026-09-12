@@ -83,6 +83,7 @@ export async function startOwnedApi({
   const lifecycle = new AbortController();
   const exitListeners = new Set<(error: Error) => void>();
   let exitError: Error | undefined;
+  let processError: Error | undefined;
   let stopPromise: Promise<void> | undefined;
   const markExited = (error: Error) => {
     if (exitError) return;
@@ -91,7 +92,10 @@ export async function startOwnedApi({
     for (const listener of exitListeners) listener(error);
     exitListeners.clear();
   };
-  process.once("error", markExited);
+  process.on("error", (error) => {
+    processError = error;
+    lifecycle.abort(error);
+  });
   process.once("exit", (code) =>
     markExited(
       new Error(
@@ -104,10 +108,11 @@ export async function startOwnedApi({
 
   const assertAlive = () => {
     if (exitError) throw exitError;
-    if (process.exitCode !== null || process.killed) {
+    if (process.exitCode !== null) {
       markExited(new Error("Owned Argus API process is not running."));
       throw exitError;
     }
+    if (processError) throw processError;
   };
   const guardedFetch: typeof globalThis.fetch = async (input, init) => {
     assertAlive();
@@ -132,13 +137,11 @@ export async function startOwnedApi({
         settled = true;
         clearTimeout(timer);
         process.off("exit", onExit);
-        process.off("error", onExit);
         resolve(exited);
       };
       const onExit = () => finish(true);
       const timer = setTimeout(() => finish(false), timeout);
       process.once("exit", onExit);
-      process.once("error", onExit);
     });
   };
   const owned: OwnedApi = {

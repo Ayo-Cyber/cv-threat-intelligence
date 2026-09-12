@@ -7,6 +7,10 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+export function fullscreenSkipAllowed({ requestFullscreen }) {
+  return !requestFullscreen;
+}
+
 export async function reserveLoopbackPort() {
   const server = net.createServer();
   await new Promise((resolve, reject) => {
