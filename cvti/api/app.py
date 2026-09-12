@@ -104,6 +104,20 @@ def create_app(*, db_path: str = "runs/site/events.db",
         from cvti.security.accounts import AccountStore
         return AccountStore(Path(app.state.db_path).parent / "auth.db")
 
+    # Data reads follow the ACTIVE feed. `app.state.db_path` is the home site
+    # the process booted with — right for auth (accounts live beside the home
+    # db, and the engine's --security-dir keeps it on that same store), wrong
+    # for everything else once switch_feed has moved the backend to another
+    # feed's config + event store: the wall and incidents kept serving the boot
+    # feed while the engine ran on the selected one (12 Sep field).
+    def _db() -> str:
+        host = getattr(app.state, "backend_host", None)
+        return host.active_db_path if host is not None else app.state.db_path
+
+    def _site() -> str:
+        host = getattr(app.state, "backend_host", None)
+        return host.active_site_path if host is not None else app.state.site_path
+
     def require_principal(authorization: Optional[str] = Header(default=None)):
         token = None
         if authorization and authorization.lower().startswith("bearer "):
@@ -168,7 +182,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
     # ---- system -------------------------------------------------------------
     @app.get(f"{API_PREFIX}/system/health")
     async def health(principal=Depends(require_principal)):
-        return sources.read_health(app.state.db_path)
+        return sources.read_health(_db())
 
     @app.get(f"{API_PREFIX}/system/info")
     async def info(principal=Depends(require_principal)):
@@ -180,12 +194,12 @@ def create_app(*, db_path: str = "runs/site/events.db",
 
     @app.get(f"{API_PREFIX}/monitor")
     async def monitor(principal=Depends(require_principal)):
-        return sources.monitor_state(app.state.db_path)
+        return sources.monitor_state(_db())
 
     # ---- cameras ------------------------------------------------------------
     @app.get(f"{API_PREFIX}/cameras")
     async def cameras(principal=Depends(require_principal)):
-        return sources.read_cameras(app.state.site_path, app.state.db_path)
+        return sources.read_cameras(_site(), _db())
 
     # MUST precede /cameras/{camera_id}: FastAPI matches in definition order, so
     # a dynamic route declared first would swallow /cameras/presets and read
@@ -198,7 +212,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
 
     @app.get(f"{API_PREFIX}/cameras/{{camera_id}}")
     async def camera(camera_id: str, principal=Depends(require_principal)):
-        for c in sources.read_cameras(app.state.site_path, app.state.db_path):
+        for c in sources.read_cameras(_site(), _db()):
             if c["id"] == camera_id:
                 return c
         return _error(404, "not_found", f"no such camera '{camera_id}'")
@@ -221,24 +235,24 @@ def create_app(*, db_path: str = "runs/site/events.db",
             except PermissionDenied as exc:
                 return _error(403, "forbidden", str(exc),
                               {"permission": exc.permission})
-        return sources.read_events(app.state.db_path, limit=limit, cursor=cursor,
+        return sources.read_events(_db(), limit=limit, cursor=cursor,
                                    camera=camera, priority=priority)
 
     @app.get(f"{API_PREFIX}/events/{{event_id}}")
     async def event(event_id: str, principal=Depends(require_alert_principal)):
-        got = sources.read_event(app.state.db_path, event_id)
+        got = sources.read_event(_db(), event_id)
         if got is None:
             return _error(404, "not_found", f"no such event '{event_id}'")
         return got
 
     @app.get(f"{API_PREFIX}/triage")
     async def triage(principal=Depends(require_alert_principal)):
-        return sources.read_triage(app.state.db_path)
+        return sources.read_triage(_db())
 
     # ---- live video (transport descriptor) ----------------------------------
     @app.get(f"{API_PREFIX}/cameras/{{camera_id}}/stream")
     async def stream(camera_id: str, principal=Depends(require_principal)):
-        out_dir = Path(app.state.db_path).parent
+        out_dir = Path(_db()).parent
         # MJPEG publisher details — the fallback transport, and part of the
         # WebRTC answer so a player can degrade without a second round-trip.
         mjpeg = None
@@ -270,7 +284,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
             return {"kind": "mjpeg", "url": mjpeg}
         return _error(503, "engine_unavailable",
                       "no live stream — engine not publishing frames",
-                      {"phase": sources.monitor_state(app.state.db_path)["phase"]})
+                      {"phase": sources.monitor_state(_db())["phase"]})
 
     # ---- websocket ----------------------------------------------------------
     @app.websocket(f"{API_PREFIX}/stream")
@@ -293,7 +307,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
             await _close_websocket_auth_denial(ws, 4403)
             return
         await ws.accept(subprotocol=WS_AUTH_PROTOCOL)
-        db = app.state.db_path
+        db = _db()
         # Hydrate on connect (§16): one health + triage snapshot so the UI
         # paints without a separate poll.
         await _send(ws, "health", sources.read_health(db))
@@ -304,6 +318,18 @@ def create_app(*, db_path: str = "runs/site/events.db",
         try:
             while True:
                 await asyncio.sleep(1.0)
+                # A feed switch mid-connection moves the event store under us:
+                # re-baseline on the new DB (its ids are unrelated to the old
+                # one's, so a raw max_event_id compare would replay history as
+                # "new" alerts) and re-hydrate so the wall repaints for the
+                # feed the engine is now on.
+                if _db() != db:
+                    db = _db()
+                    last_id = sources.max_event_id(db)
+                    last_reviews = sources.review_states(db)
+                    await _send(ws, "health", sources.read_health(db))
+                    await _send(ws, "triage", sources.read_triage(db))
+                    last_health_gen = sources.read_health(db).get("generated_at")
                 current = app.state.tokens.resolve(token)
                 user = accounts.user(principal.username)
                 if current is None or user is None or user.role != principal.role:
@@ -355,7 +381,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
     @app.get(f"{API_PREFIX}/events/{{event_id}}/clip")
     async def event_clip(event_id: str,
                          principal=Depends(require_alert_principal)):
-        got = sources.read_event(app.state.db_path, event_id)
+        got = sources.read_event(_db(), event_id)
         if got is None:
             return _error(404, "not_found", f"no such event '{event_id}'")
         from cvti.security.permissions import PermissionDenied

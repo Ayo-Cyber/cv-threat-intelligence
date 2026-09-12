@@ -42,6 +42,21 @@ class _ApiBackend:
         self._backend = None
         self._lock = threading.Lock()   # ConsoleBackend is not re-entrant
 
+    # The ACTIVE feed lives on the built ConsoleBackend: switch_feed moves ITS
+    # site_path/db_path, never these constructor copies. The read routes ask
+    # here, so what the UI reads is the feed the engine runs on — not the site
+    # the process booted with (12 Sep field: Live EarthCams selected, engine
+    # up on it, wall and incidents still serving the webcam's DB).
+    @property
+    def active_db_path(self) -> str:
+        b = self._backend
+        return b.db_path if b is not None else self.db_path
+
+    @property
+    def active_site_path(self) -> str:
+        b = self._backend
+        return b.site_path if b is not None else self.site_path
+
     def _build(self):
         from cvti.app.console_backend import ConsoleBackend
 
