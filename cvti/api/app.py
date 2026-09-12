@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from cvti.api import sources
@@ -155,7 +155,10 @@ def create_app(*, db_path: str = "runs/site/events.db",
     async def sign_out(authorization: Optional[str] = Header(default=None)):
         if authorization and authorization.lower().startswith("bearer "):
             app.state.tokens.revoke(authorization[7:].strip())
-        return JSONResponse(status_code=204, content=None)
+        # 204 = No Content: the body MUST be empty. JSONResponse(None) writes
+        # "null" (4 bytes) against a 0 Content-Length, which crashes the whole
+        # uvicorn worker on every logout (12 Sep). An empty Response is correct.
+        return Response(status_code=204)
 
     @app.get(f"{API_PREFIX}/roles")
     async def roles(principal=Depends(require_principal)):
