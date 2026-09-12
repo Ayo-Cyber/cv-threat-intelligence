@@ -121,6 +121,14 @@ class RealApiTests(unittest.TestCase):
         self.assertIn("rtsp://***@10.0.0.9/stream1", cams[0]["source"])
         self.assertEqual(cams[0]["state"], "connected")   # merged from health
 
+    def test_cameras_presets_is_not_swallowed_by_the_camera_id_route(self):
+        # /cameras/presets must resolve to its own route, not fall into
+        # /cameras/{camera_id} as camera_id='presets' (the 12 Sep field UI
+        # error "no such camera 'presets'"). Empty dict matches the mock.
+        r = self.client.get(f"{PREFIX}/cameras/presets", headers=self._auth())
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {})
+
     def test_events_list_and_shape(self):
         r = self.client.get(f"{PREFIX}/events", headers=self._auth())
         body = r.json()
