@@ -26,6 +26,7 @@ from typing import Any, Callable
 
 from cvti.health import component
 from cvti.logging_setup import get_logger
+from cvti.verification.vlm_slot import VLMBusy
 
 log = get_logger(__name__)
 
@@ -104,9 +105,19 @@ class Assurance:
                 title="SELF TEST — scheduled end-to-end check", person_id=None,
                 object_label=None, timestamp=started)
             gate = self.gate_factory()
-            verdict = gate.verify([frame], candidate,
-                                  {"environment_type": "self-test",
-                                   "scene_description": "Scheduled system self-test."})
+            # A probe must never contend with a live verdict: run it in skip
+            # mode so a busy local VLM postpones the self-test instead of
+            # doubling the load (11 Sep pilot: the self-test's own 360s call
+            # overlapped real verifies and both missed their deadlines).
+            gate.slot_mode = "skip"
+            try:
+                verdict = gate.verify([frame], candidate,
+                                      {"environment_type": "self-test",
+                                       "scene_description": "Scheduled system self-test."})
+            except VLMBusy as busy:
+                result["steps"]["gate"] = f"postponed: {str(busy)[:120]}"
+                return self._finish(result, "self-test postponed — verifier busy with a live alert",
+                                    skipped=True)
             if getattr(verdict, "errored", False):
                 result["steps"]["gate"] = f"no verdict: {verdict.error[:120]}"
                 return self._finish(result, f"self-test failed: gate gave no verdict ({verdict.error[:80]})")
@@ -134,10 +145,17 @@ class Assurance:
         log.info("self-test passed in %.1fs", result["seconds"])
         return result
 
-    def _finish(self, result: dict, headline: str) -> dict:
-        """A failed self-test is itself an alert — that is the whole point."""
+    def _finish(self, result: dict, headline: str, *, skipped: bool = False) -> dict:
+        """A failed self-test is itself an alert — that is the whole point.
+
+        A SKIPPED one is not: the verifier was busy doing real work, which is
+        the system healthy, not broken. Record it and stay quiet."""
         result["seconds"] = round(self.clock() - result["at"], 1)
         self.last_result = result
+        if skipped:
+            result["skipped"] = True
+            log.info(headline)
+            return result
         self._health.failed(RuntimeError(headline), log, "running the daily self-test")
         try:
             self.notifier.notify(_self_test_event(False, f"⚠️ {headline}"))

@@ -108,7 +108,10 @@ class ThePromptCarriesTheEvidence(unittest.TestCase):
                                        (300, 200, 330, 260))
         with mock.patch.object(g, "_call_provider", side_effect=fake_provider):
             g.verify(evidence, _alert(), {})
-        self.assertEqual(seen["n"], 3, "the crop must travel as its own image")
+        # A local gate caps at LOCAL_MAX_FRAMES (11 Sep pilot: the vision
+        # tower pays per image) — but the cap keeps the LAST image, so the
+        # subject crop still travels as its own image.
+        self.assertEqual(seen["n"], 2, "one context frame + the subject crop")
 
 
 if __name__ == "__main__":

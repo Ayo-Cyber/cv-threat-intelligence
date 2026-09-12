@@ -867,7 +867,10 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         queue,
         gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
                                               base_url=gate_base_url, save_dir=save_dir,
-                                              sensitivity=gate_sensitivity),
+                                              sensitivity=gate_sensitivity,
+                                              # frames per verdict; None derives
+                                              # (local models get 1 — 11 Sep pilot)
+                                              max_frames=site.get("gate_max_frames")),
         workers=_gate_workers_for(gate_workers, len(cams_cfg),
                                   provider=gate_provider, device=device),
         on_verdict=sink.handle,
