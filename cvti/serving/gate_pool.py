@@ -32,7 +32,7 @@ VerdictHandler = Callable[[QueuedAlert, Any], None]
 # would reject "a person standing on a street" as not-a-threat). Demo/loitering path.
 # "camera_offline" joins it for a different reason: there is no frame to
 # verify. The camera is unreachable — that IS the observation.
-BYPASS_DETECTORS: set[str] = {"presence", "camera_offline"}
+BYPASS_DETECTORS: set[str] = {"presence", "camera_offline", "zone_entry", "zone_exit"}
 
 # The measured tier (bakeoff + per-rule breakdown, manifest e56b4277, 9 Sep 2026):
 # 'violence' fired on 0 of 170 normal clips, while the VLM rejected 12 of its 79

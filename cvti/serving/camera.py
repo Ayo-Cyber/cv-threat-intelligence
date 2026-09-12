@@ -449,8 +449,15 @@ class PerCameraState:
         if self.zone_monitor is not None:
             states = self.zone_monitor.update(tracked, timestamp)
             zone_events = zone_states_to_events(states, timestamp=timestamp)
+            # Exits are debounced inside the monitor; drain them each frame so a
+            # person leaving a restricted zone is its own event, not silence.
+            exits = self.zone_monitor.drain_exits()
+            if exits:
+                from cvti.event_adapters import zone_exits_to_events
+                zone_events = zone_events + zone_exits_to_events(exits, timestamp=timestamp)
             raw_events += zone_events
-            zone_by_pid = {e.person_id: e.extra.get("zone") for e in zone_events}
+            zone_by_pid = {e.person_id: e.extra.get("zone") for e in zone_events
+                           if e.extra.get("zone")}
 
         try:
             # Person-gate + cadence for the HEAVY per-camera models (audit

@@ -255,3 +255,41 @@ def test_far_field_person_survives_a_relaxed_area_gate() -> None:
     assert len(dropped) == 0, "retail gate is expected to drop the far-field box"
     kept = filter_person_detections(far, (720, 1280), min_area_ratio=0.002)
     assert len(kept) == 1, "the relaxed far-field gate must keep a real distant person"
+
+
+def test_zone_entry_fires_once_then_presence_continues() -> None:
+    """Crossing INTO a zone is a distinct one-shot event; presence continues
+    every frame after (12 Sep: 'entering' must be separable from 'loitering')."""
+    mon = RetailZoneMonitor([_wide_zone()])
+    s0 = mon.update(_person([100, 100, 200, 400], tracker_id=1), 0.0)[0]
+    assert "wide" in s0.entered_zones, "first frame in a zone is an entry"
+    s1 = mon.update(_person([100, 100, 200, 400], tracker_id=1), 0.5)[0]
+    assert "wide" not in s1.entered_zones, "a staying person does not re-enter"
+    assert "wide" in s1.zones, "but presence continues"
+
+
+def test_zone_exit_is_grace_debounced() -> None:
+    """Leaving is reported only after the grace window — a one-frame gap
+    (occlusion / boundary jitter) must NOT read as an exit."""
+    mon = RetailZoneMonitor([_wide_zone()], dwell_grace_seconds=2.0)
+    mon.update(_person([100, 100, 200, 400], tracker_id=1), 0.0)
+    # gone for less than grace -> no exit yet
+    mon.update(sv.Detections.empty(), 1.0)
+    assert mon.drain_exits() == [], "a brief gap is not an exit"
+    # gone past grace -> exit fires, once
+    mon.update(sv.Detections.empty(), 3.5)
+    assert mon.drain_exits() == [(1, "wide")]
+    assert mon.drain_exits() == [], "exits drain — not re-reported"
+
+
+def test_zone_entry_and_exit_events_from_adapter() -> None:
+    from cvti.event_adapters import zone_states_to_events, zone_exits_to_events
+    mon = RetailZoneMonitor([_wide_zone()], dwell_grace_seconds=1.0)
+    states = mon.update(_person([100, 100, 200, 400], tracker_id=7), 0.0)
+    evs = zone_states_to_events(states, timestamp=0.0)
+    kinds = [e.detector for e in evs]
+    assert "zone_entry" in kinds and "presence" in kinds
+    mon.update(sv.Detections.empty(), 2.0)
+    exits = zone_exits_to_events(mon.drain_exits(), timestamp=2.0)
+    assert [e.detector for e in exits] == ["zone_exit"]
+    assert exits[0].person_id == 7

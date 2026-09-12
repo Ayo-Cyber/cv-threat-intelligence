@@ -11,15 +11,38 @@ if TYPE_CHECKING:
 
 
 def zone_states_to_events(zone_states: list[Any], timestamp: float = 0.0) -> list[RawEvent]:
-    """Bridge RetailZoneMonitor output into presence RawEvents."""
+    """Bridge RetailZoneMonitor output into presence + zone_entry RawEvents.
+
+    Three distinct signals, not one (12 Sep, field feedback that 'entering'
+    was indistinguishable from 'loitering'):
+    - `zone_entry`: fires ONCE, the frame a person crosses into the zone — the
+      instant 'someone entered the area' alert.
+    - `presence`: continuous while they are inside; carries dwell_seconds and
+      the `loitering` flag (dwell past the zone's threshold) that the
+      'remained beyond the configured time' rule keys on.
+    (`zone_exit` is emitted separately from the monitor's drained exits.)
+    """
     events: list[RawEvent] = []
     for state in zone_states:
         tid = getattr(state, "tracker_id", None)
         zones = getattr(state, "zones", []) or []
         dwell_map = getattr(state, "dwell_seconds", {}) or {}
         loitering = bool(getattr(state, "loitering", False))
+        entered = set(getattr(state, "entered_zones", []) or [])
         for zone in zones:
             dwell = float(dwell_map.get(zone, 0.0))
+            if zone in entered:
+                events.append(
+                    RawEvent(
+                        detector="zone_entry",
+                        active=True,
+                        title=f"PERSON ENTERED ZONE {zone.upper()}",
+                        level="medium",
+                        person_id=tid,
+                        timestamp=timestamp,
+                        extra={"zone": zone, "dwell_seconds": dwell},
+                    )
+                )
             events.append(
                 RawEvent(
                     detector="presence",
@@ -31,6 +54,24 @@ def zone_states_to_events(zone_states: list[Any], timestamp: float = 0.0) -> lis
                     extra={"zone": zone, "dwell_seconds": dwell, "loitering": loitering},
                 )
             )
+    return events
+
+
+def zone_exits_to_events(exits: list[tuple[int, str]], timestamp: float = 0.0) -> list[RawEvent]:
+    """Bridge the monitor's drained (tracker_id, zone) exits into zone_exit events."""
+    events: list[RawEvent] = []
+    for tid, zone in exits or []:
+        events.append(
+            RawEvent(
+                detector="zone_exit",
+                active=True,
+                title=f"PERSON LEFT ZONE {zone.upper()}",
+                level="low",
+                person_id=tid,
+                timestamp=timestamp,
+                extra={"zone": zone},
+            )
+        )
     return events
 
 

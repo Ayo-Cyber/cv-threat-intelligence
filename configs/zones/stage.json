@@ -6,7 +6,7 @@
       "anchors": [
         "BOTTOM_CENTER"
       ],
-      "dwell_alert_seconds": 999999,
+      "dwell_alert_seconds": 20.0,
       "polygon": [
         [
           0,
