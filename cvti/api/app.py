@@ -184,6 +184,15 @@ def create_app(*, db_path: str = "runs/site/events.db",
     async def cameras(principal=Depends(require_principal)):
         return sources.read_cameras(app.state.site_path, app.state.db_path)
 
+    # MUST precede /cameras/{camera_id}: FastAPI matches in definition order, so
+    # a dynamic route declared first would swallow /cameras/presets and read
+    # 'presets' as a camera id ("no such camera 'presets'", 12 Sep field UI).
+    # PTZ view presets — empty until a PTZ camera advertises them, matching the
+    # mock contract's {} so the frontend simply hides the presets control.
+    @app.get(f"{API_PREFIX}/cameras/presets")
+    async def camera_presets(principal=Depends(require_principal)):
+        return {}
+
     @app.get(f"{API_PREFIX}/cameras/{{camera_id}}")
     async def camera(camera_id: str, principal=Depends(require_principal)):
         for c in sources.read_cameras(app.state.site_path, app.state.db_path):
