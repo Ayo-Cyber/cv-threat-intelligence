@@ -1704,6 +1704,14 @@ class ConsoleBackend:
                "--notify", notify, "--output-dir", str(out_dir),
                "--target-fps", "4", "--imgsz", "512",
                "--seconds", "100000", "--gate-drain", "60"]
+        if sys.platform == "darwin":
+            # Apple silicon shares ONE pool of memory between CPU and GPU, and
+            # Ollama runs the gate model on Metal. A torch-MPS detector in the
+            # same pool wedged the whole engine mid-graph under memory pressure
+            # (12 Sep, main thread sampled inside MPSGraph mutex waits; log and
+            # heartbeat silent while the process spun at 96% CPU). Detection at
+            # 4fps/512px costs ~40ms on the CPU — give the GPU to the VLM.
+            cmd += ["--device", "cpu"]
         kwargs = {}
         if sys.platform == "win32":
             # The engine is a console-mode exe; from the windowed app that would
