@@ -137,6 +137,39 @@ class RealApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json(), {})
 
+    def test_reads_follow_the_active_feed_not_the_boot_site(self):
+        # switch_feed moves the backend to another feed's config + event store;
+        # every data route must serve THAT feed. Before this, they read the
+        # db/site frozen at boot: Live EarthCams selected, engine running on
+        # it, and the wall + incidents still showed the webcam's DB (12 Sep).
+        tmp = Path(self._tmp.name)
+        other_db = tmp / "feeds" / "live" / "events.db"
+        other_db.parent.mkdir(parents=True)
+        con = sqlite3.connect(other_db)
+        con.execute("""CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts REAL, iso TEXT, camera_id TEXT, rule TEXT, priority TEXT,
+            confidence REAL, reason TEXT, track_id INTEGER, zone TEXT,
+            object_label TEXT, evidence_dir TEXT, review TEXT, reviewed_at TEXT)""")
+        con.execute("INSERT INTO events (ts,iso,camera_id,rule,priority,confidence,reason) "
+                    "VALUES (3,'2026-09-12T14:00:00Z','Dublin Street','loitering_watch','medium',0.99,'zone')")
+        con.commit(); con.close()
+        other_site = tmp / "live_camera.json"
+        other_site.write_text(json.dumps({"cameras": [
+            {"id": "Dublin Street", "source": "https://cdn/live.m3u8", "config": "x"},
+        ]}))
+
+        host = self.app.state.backend_host
+        host._backend = host._build()               # what the first write call does
+        host._backend.site_path = str(other_site)   # what switch_feed does
+        host._backend.db_path = str(other_db)
+
+        headers = self._auth()                       # auth still on the HOME store
+        evs = self.client.get(f"{PREFIX}/events", headers=headers).json()["events"]
+        self.assertEqual([e["camera_id"] for e in evs], ["Dublin Street"])
+        cams = self.client.get(f"{PREFIX}/cameras", headers=headers).json()
+        self.assertEqual([c["id"] for c in cams], ["Dublin Street"])
+        self.assertEqual(self.client.get(f"{PREFIX}/triage", headers=headers).json()["total"], 1)
+
     def test_events_list_and_shape(self):
         r = self.client.get(f"{PREFIX}/events", headers=self._auth())
         body = r.json()
