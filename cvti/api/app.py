@@ -204,8 +204,19 @@ def create_app(*, db_path: str = "runs/site/events.db",
         # The heartbeat file stays fresh for up to 30s after Stop, so the
         # header kept saying "monitoring" while the operator watched a Stop
         # that "didn't stop" (12 Sep). The process owner knows at once.
-        if _engine_alive() is False:
+        alive = _engine_alive()
+        if alive is False:
             state.update(running=False, starting=False, phase="stopped")
+        elif alive is True and not state["running"]:
+            # The other lie: a long preflight (scene mapping through the VLM
+            # ran 3+ minutes on a laptop) outlives the heartbeat's 90s grace,
+            # so the button flipped to "Start monitoring" while the engine was
+            # alive — and every click was a Start that answered "already" or a
+            # Stop that killed a half-started engine (12 Sep). The process
+            # lives; say so, and keep its phase if the heartbeat named one.
+            phase = state.get("phase") or ""
+            state.update(running=True, starting=True,
+                         phase=phase if phase.startswith("starting") else "starting")
         return state
 
     # ---- cameras ------------------------------------------------------------

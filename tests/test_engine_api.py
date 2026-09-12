@@ -189,6 +189,22 @@ class RealApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 503)
         self.assertEqual(r.json()["error"]["code"], "engine_unavailable")
 
+    def test_monitor_says_running_while_the_owned_engine_lives_through_a_long_preflight(self):
+        # Heartbeat stale (scene mapping ran minutes without one), process
+        # alive: the button must keep reading "Stop monitoring", not flip to
+        # Start and invite a click that kills a half-started engine (12 Sep).
+        import types
+        (Path(self._tmp.name) / "gate_health.json").write_text(json.dumps({
+            "generated_at": 1.0, "engine": {"phase": "starting — mapping camera scenes"}}))
+        host = self.app.state.backend_host
+        host._backend = host._build()
+        host._backend._engine_owned = True
+        host._backend._monitor = types.SimpleNamespace(poll=lambda: None, pid=4242)
+        mon = self.client.get(f"{PREFIX}/monitor", headers=self._auth()).json()
+        self.assertTrue(mon["running"])
+        self.assertTrue(mon["starting"])
+        self.assertEqual(mon["phase"], "starting — mapping camera scenes")
+
     def test_monitor_trusts_the_heartbeat_when_nobody_owns_an_engine(self):
         # No Start/Stop has gone through this API (a headless engine from a
         # terminal, say): the heartbeat file still decides, as before.
