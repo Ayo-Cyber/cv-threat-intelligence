@@ -264,6 +264,12 @@ class RetailZoneMonitor:
         # new track appearing in the same zone within the grace window, at the
         # spot a track just vanished from, INHERITS that track's entry time.
         self._last_pos: dict[tuple[int, str], tuple[float, float, float]] = {}
+        # (tracker_id, zone_name) -> last full box while in the zone, for the
+        # edge test. The CENTRE is the wrong point for that: on a close-range
+        # webcam a body half out of frame still has its centre well inside,
+        # so a real walk-out read as "lost from view" (12 Sep, first minute of
+        # the hardened build). A box that touches the frame border is at the edge.
+        self._last_box: dict[tuple[int, str], tuple[int, int, int, int]] = {}
         # Zone exits detected on the last update() — a (tracker_id, zone) pair
         # forgotten after the grace window (a debounced departure, so a
         # one-frame occlusion is NOT read as leaving-and-re-entering). Drained
@@ -312,18 +318,22 @@ class RetailZoneMonitor:
     def _near_boundary(self, key: tuple[int, str]) -> bool:
         """Was this track last seen where a person can actually leave from —
         the frame edge, or the zone's own outline?"""
-        pos = self._last_pos.get(key)
-        if pos is None:
+        box = self._last_box.get(key)
+        if box is None:
             return True                 # nothing known: the old, prompt behaviour
-        cx, cy, _w = pos
+        x1, y1, x2, y2 = box
         h, w = self._frame_extent()
         margin = self.EDGE_MARGIN_RATIO * max(h, w)
-        if cx <= margin or cy <= margin or cx >= w - margin or cy >= h - margin:
+        # Any side of the box within the margin of the frame border: the person
+        # is (partly) out of frame — they are leaving through the edge.
+        if x1 <= margin or y1 <= margin or x2 >= w - margin or y2 >= h - margin:
             return True
-        return _point_to_polygon_distance((cx, cy), self._spec_by_name[key[1]].polygon) <= margin
+        # Otherwise: were their feet at the zone's own outline (a drawn doorway)?
+        feet = ((x1 + x2) / 2.0, float(y2))
+        return _point_to_polygon_distance(feet, self._spec_by_name[key[1]].polygon) <= margin
 
     def _forget(self, key: tuple[int, str]) -> None:
-        for store in (self._entered_at, self._last_in_zone, self._last_pos):
+        for store in (self._entered_at, self._last_in_zone, self._last_pos, self._last_box):
             store.pop(key, None)
         self._confirmed.discard(key)
 
@@ -372,6 +382,7 @@ class RetailZoneMonitor:
                 cx = (bbox[0] + bbox[2]) / 2.0
                 cy = (bbox[1] + bbox[3]) / 2.0
                 self._last_pos[key] = (cx, cy, float(bbox[2] - bbox[0]))
+                self._last_box[key] = bbox
                 dwell = max(0.0, timestamp - entered)
                 # ENTRY fires once the person has been inside for the zone's
                 # confirmation window (dwell counts from first sight, so the

@@ -360,6 +360,19 @@ def test_leaving_through_the_edge_carries_the_dwell() -> None:
     assert ev.extra["dwell_seconds"] == 10.0 and ev.extra["how"] == "walked_out"
 
 
+def test_a_body_half_out_of_frame_is_at_the_edge_even_if_its_centre_is_not() -> None:
+    """Close-range webcam: the box of someone stepping out spans from the frame
+    border deep into the frame, so its CENTRE is nowhere near the edge. They
+    are leaving all the same — judge by the box, not its centre (12 Sep)."""
+    mon = RetailZoneMonitor([_wide_zone()], dwell_grace_seconds=2.0)
+    mon.update(_person([400, 100, 700, 900], tracker_id=1), 0.0)     # big, centred
+    mon.update(_person([0, 100, 420, 900], tracker_id=1), 6.0)       # half out on the left, centre x=210
+    mon.update(sv.Detections.empty(), 8.5)                            # gone past grace
+    ex = mon.drain_exits()
+    assert len(ex) == 1 and ex[0].how == "walked_out", ex
+    assert abs(ex[0].dwell_seconds - 6.0) < 1e-6
+
+
 def test_normalized_polygon_follows_the_frame() -> None:
     """A doorway drawn in frame fractions is right on any camera resolution."""
     cfg = {"zones": [{"name": "door",
