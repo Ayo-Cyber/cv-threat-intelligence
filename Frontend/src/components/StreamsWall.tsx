@@ -18,7 +18,11 @@ import {
   reconcileAreaSelection,
   type LocationSelection,
 } from "../lib/hierarchy";
-import { useVisibleStreams } from "../hooks/useVisibleStreams";
+import {
+  reconcileFocusedStream,
+  subscribedStreamIds,
+  useVisibleStreams,
+} from "../hooks/useVisibleStreams";
 import CameraStream from "./CameraStream";
 import { CameraMedia, Empty } from "./common";
 
@@ -79,6 +83,7 @@ export default function StreamsWall({
   );
   const branchChoices = branchOptions(cameras, hierarchy);
   const areaChoices = areaOptions(cameras, hierarchy, branch);
+  const filteredIds = filtered.map((camera) => camera.id);
   const {
     activeIds,
     visibleIds,
@@ -87,12 +92,16 @@ export default function StreamsWall({
     pageCount,
     setPage,
     observeWall,
-  } = useVisibleStreams(
-    filtered.map((camera) => camera.id),
-    density,
+  } = useVisibleStreams(filteredIds, density);
+  const effectiveFocusedId = reconcileFocusedStream(focusedId, filteredIds);
+  const displayedIds = effectiveFocusedId ? [effectiveFocusedId] : visibleIds;
+  const subscribedIds = new Set(
+    subscribedStreamIds(effectiveFocusedId, activeIds),
   );
-  const displayedIds = focusedId ? [focusedId] : visibleIds;
-  const subscribedIds = focusedId ? new Set([focusedId]) : new Set(activeIds);
+
+  useEffect(() => {
+    if (focusedId && !effectiveFocusedId) setFocusedId(null);
+  }, [effectiveFocusedId, focusedId]);
 
   const showToolbar = useCallback(() => {
     setToolbarHidden(false);
@@ -121,7 +130,7 @@ export default function StreamsWall({
     const onKeyDown = (event: KeyboardEvent) => {
       showToolbar();
       if (event.key !== "Escape") return;
-      if (focusedId) {
+      if (effectiveFocusedId) {
         event.preventDefault();
         event.stopPropagation();
         setFocusedId(null);
@@ -135,7 +144,7 @@ export default function StreamsWall({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [focusedId, onExit, showToolbar]);
+  }, [effectiveFocusedId, onExit, showToolbar]);
 
   const toggleFullscreen = async () => {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -302,7 +311,7 @@ export default function StreamsWall({
       </div>
 
       <div
-        className={`streams-stage density-${density} ${focusedId ? "is-focused" : ""}`}
+        className={`streams-stage density-${density} ${effectiveFocusedId ? "is-focused" : ""}`}
         ref={observeWall}
       >
         {displayedIds.map((id) => {
@@ -345,7 +354,7 @@ export default function StreamsWall({
         )}
       </div>
 
-      {mode === "engine" && !focusedId && (
+      {mode === "engine" && !effectiveFocusedId && (
         <div className="streams-prefetch" aria-hidden="true">
           {prefetchIds.map((id) => {
             const camera = cameraById.get(id);

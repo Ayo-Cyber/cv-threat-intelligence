@@ -3,6 +3,8 @@ import {
   activeStreamIds,
   createVisibleStreamState,
   moveVisibleStreamPage,
+  reconcileFocusedStream,
+  subscribedStreamIds,
 } from "../src/hooks/useVisibleStreams";
 
 const cameraIds = Array.from(
@@ -71,4 +73,18 @@ describe("streams wall subscription state", () => {
     expect(activeStreamIds(state, false)).toEqual([]);
     expect(activeStreamIds(state, true)).toEqual(cameraIds.slice(0, 20));
   });
+
+  it.each(["search", "branch", "area"])(
+    "releases a focused stream excluded by the %s filter",
+    () => {
+      const activeIds = ["camera-002", "camera-003"];
+      const focusedId = reconcileFocusedStream("camera-001", activeIds);
+
+      expect(focusedId).toBeNull();
+      expect(subscribedStreamIds(focusedId, activeIds)).toEqual(activeIds);
+      expect(subscribedStreamIds(focusedId, activeIds)).not.toContain(
+        "camera-001",
+      );
+    },
+  );
 });

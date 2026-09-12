@@ -2061,10 +2061,9 @@ fieldset:disabled {
   right: 10px;
   min-height: 48px;
   display: grid;
-  grid-template-columns: minmax(150px, auto) minmax(
-      360px,
-      1fr
-    ) auto auto auto auto;
+  grid-template-columns:
+    minmax(150px, auto) minmax(360px, 1fr)
+    auto auto auto auto;
   grid-template-areas: "identity filters density pager health actions";
   align-items: center;
   gap: 9px;
@@ -2357,7 +2356,22 @@ fieldset:disabled {
   .streams-caption small {
     font-size: 7px;
   }
+  .streams-stage.density-16 .streams-caption {
+    gap: 2px;
+    padding: 3px;
+  }
+  .streams-stage.density-16 .streams-caption strong {
+    font-size: 8px;
+  }
+  .streams-stage.density-16 .streams-caption small {
+    font-size: 6px;
+  }
   .streams-stage.density-16 .streams-caption .icon-button {
-    display: none;
+    width: 22px;
+    height: 22px;
+  }
+  .streams-stage.density-16 .streams-caption .icon-button svg {
+    width: 13px;
+    height: 13px;
   }
 }

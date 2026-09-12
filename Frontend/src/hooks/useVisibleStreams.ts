@@ -53,6 +53,20 @@ export function activeStreamIds(
   return wallVisible ? state.activeIds : [];
 }
 
+export function reconcileFocusedStream(
+  focusedId: string | null,
+  cameraIds: string[],
+): string | null {
+  return focusedId && cameraIds.includes(focusedId) ? focusedId : null;
+}
+
+export function subscribedStreamIds(
+  focusedId: string | null,
+  activeIds: string[],
+): string[] {
+  return focusedId ? [focusedId] : activeIds;
+}
+
 export function useVisibleStreams(cameraIds: string[], pageSize: number) {
   const [requestedPage, setPage] = useState(1);
   const [wallVisible, setWallVisible] = useState(true);

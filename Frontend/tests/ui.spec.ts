@@ -453,6 +453,39 @@ test("streams-only wall supports filtering, focus, fullscreen, and ordered escap
   ).toBeVisible();
 });
 
+test("streams-only focus reconciles after search, branch, and area exclusion", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Open streams wall" }).click();
+  const wall = page.getByRole("region", { name: "Streams-only camera wall" });
+  const stage = wall.locator(".streams-stage");
+  const focusLoadingBay = () =>
+    wall.getByRole("button", { name: "Focus Loading Bay" }).click();
+
+  await focusLoadingBay();
+  await wall.getByLabel("Search streams").fill("Forecourt ATM");
+  await expect(stage).not.toHaveClass(/is-focused/);
+  await expect(wall.getByText("Loading Bay", { exact: true })).toHaveCount(0);
+
+  await wall.getByLabel("Search streams").fill("");
+  await focusLoadingBay();
+  await wall
+    .getByLabel("Wall branch")
+    .selectOption({ label: "Ikeja Outlet (3)" });
+  await expect(stage).not.toHaveClass(/is-focused/);
+  await expect(wall.getByText("Loading Bay", { exact: true })).toHaveCount(0);
+
+  await wall
+    .getByLabel("Wall branch")
+    .selectOption({ label: "All branches (4)" });
+  await focusLoadingBay();
+  await wall
+    .getByLabel("Wall area")
+    .selectOption({ label: "Retail floor (1)" });
+  await expect(stage).not.toHaveClass(/is-focused/);
+  await expect(wall.getByText("Loading Bay", { exact: true })).toHaveCount(0);
+});
+
 test("streams-only toolbar auto-hides without overlap and remains visible while focused", async ({
   page,
 }) => {
@@ -531,6 +564,63 @@ test("streams-only toolbar auto-hides without overlap and remains visible while 
     path: "test-results/streams-wall-mobile.png",
     fullPage: true,
   });
+});
+
+test("streams-only density 16 keeps mobile focus actions and stable tiles", async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const { initialDemo } = await import("/src/lib/demo.ts");
+    const state = initialDemo();
+    const source = state.cameras[0];
+    state.cameras = Array.from({ length: 16 }, (_, index) => ({
+      ...source,
+      id: `Camera ${String(index + 1).padStart(2, "0")}`,
+    }));
+    localStorage.setItem("argus.desktop.demo.v1", JSON.stringify(state));
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Open streams wall" }).click();
+  const wall = page.getByRole("region", { name: "Streams-only camera wall" });
+  await wall.getByRole("button", { name: "Show 16 cameras" }).click();
+
+  const tiles = wall.locator(".streams-tile");
+  const focusActions = wall.getByRole("button", { name: /^Focus Camera/ });
+  await expect(tiles).toHaveCount(16);
+  await expect(focusActions).toHaveCount(16);
+  await expect(focusActions.first()).toBeVisible();
+  await expect(tiles.locator(".streams-caption strong")).toHaveCount(16);
+
+  const boxes = await tiles.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    }),
+  );
+  expect(boxes.every(({ width, height }) => width > 80 && height > 110)).toBe(
+    true,
+  );
+  expect(Math.max(...boxes.map(({ width }) => width))).toBeCloseTo(
+    Math.min(...boxes.map(({ width }) => width)),
+    0,
+  );
+  expect(Math.max(...boxes.map(({ height }) => height))).toBeCloseTo(
+    Math.min(...boxes.map(({ height }) => height)),
+    0,
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/streams-wall-mobile-density-16.png",
+    fullPage: true,
+  });
+
+  await focusActions.first().click();
+  await expect(wall.locator(".streams-stage")).toHaveClass(/is-focused/);
 });
 test("zone workspace fits the entire image and protects unsaved drawings", async ({
   page,
