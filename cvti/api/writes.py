@@ -57,6 +57,22 @@ class _ApiBackend:
         b = self._backend
         return b.site_path if b is not None else self.site_path
 
+    @property
+    def engine_alive(self) -> "bool | None":
+        """Is the engine process this backend owns alive?
+
+        None = no opinion: no backend built, or one that has never started or
+        stopped an engine (a headless engine run from a terminal is then
+        judged by its heartbeat file, as before). True/False once Start or
+        Stop has gone through here — the process owner's answer is instant,
+        the heartbeat's is up to 30s stale.
+        """
+        b = self._backend
+        if b is None or not getattr(b, "_engine_owned", False):
+            return None
+        m = getattr(b, "_monitor", None)
+        return bool(m is not None and m.poll() is None)
+
     def _build(self):
         from cvti.app.console_backend import ConsoleBackend
 

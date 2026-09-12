@@ -49,22 +49,28 @@ def test_configs_exist_and_load():
 
 
 def test_loitering_fires_only_after_dwell_threshold():
-    monitor = RetailZoneMonitor(load_zone_config(str(ZONE_CFG)))
+    zones = load_zone_config(str(ZONE_CFG))
+    monitor = RetailZoneMonitor(zones)
     engine = CustomizationEngine(str(RULES_CFG))
     person = _person([600, 300, 700, 700], tracker_id=1)   # bottom-centre (650,700) inside zone
+    # The threshold is the ZONE's, and the rule must agree with it. It used to
+    # be pinned at 1.5s here while the zone said 45 — the rule silently
+    # overrode the zone and every pedestrian who paused was a loiterer (12 Sep).
+    threshold = float(zones[0].dwell_alert_seconds)
+    assert threshold >= 30, "public-feed loitering means camped in view, not paused"
 
     names0, ev0 = _fire_names(engine, monitor, person, t=0.0)
     assert ev0, "a person in the zone must produce a presence event"
     assert ev0[0].extra.get("zone") == "watch"
     assert "loitering_watch" not in names0            # dwell 0 -> no loiter yet
 
-    names_half, ev_half = _fire_names(engine, monitor, person, t=0.5)
-    assert ev_half[0].extra["dwell_seconds"] < 1.5
+    names_half, ev_half = _fire_names(engine, monitor, person, t=threshold / 2)
+    assert ev_half[0].extra["dwell_seconds"] < threshold
     assert "loitering_watch" not in names_half         # still under threshold
 
-    names_late, ev_late = _fire_names(engine, monitor, person, t=2.0)
-    assert ev_late[0].extra["dwell_seconds"] >= 1.5
-    assert "loitering_watch" in names_late             # crossed 1.5s -> loitering fires
+    names_late, ev_late = _fire_names(engine, monitor, person, t=threshold + 0.5)
+    assert ev_late[0].extra["dwell_seconds"] >= threshold
+    assert "loitering_watch" in names_late             # crossed the threshold -> loitering fires
 
 
 def test_person_outside_zone_never_loiters():

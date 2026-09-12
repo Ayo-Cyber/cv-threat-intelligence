@@ -1387,6 +1387,17 @@ class ConsoleBackend:
         self._require(perms.CONFIGURE_SITE)
         return onboarding.set_site_meta(self.site_path, name=name, notify=notify)
 
+    def _home_notify(self) -> str:
+        """The site-wide delivery target (Telegram etc.), read from the HOME
+        site config. The generated live config used to hard-code "console",
+        so switching to Live EarthCams silently turned phone alerts off
+        (12 Sep: "alert should send to telegram and the app both")."""
+        try:
+            return (onboarding.get_site_meta(self._home_site).get("notify") or "console").strip()
+        except Exception:  # noqa: BLE001 - a missing home config must not block a spawn
+            log.debug("home site notify unreadable; console only", exc_info=True)
+            return "console"
+
     def mark_configured(self) -> dict:
         return onboarding.complete_first_run(self.site_path)
 
@@ -1748,7 +1759,11 @@ class ConsoleBackend:
     def _spawn_engine(self) -> "subprocess.Popen":
         out_dir = Path(self.db_path).parent
         out_dir.mkdir(parents=True, exist_ok=True)
-        notify = self.get_site().get("notify") or "console"
+        notify = (self.get_site().get("notify") or "console").strip()
+        if notify == "console":
+            # Feed configs are derived views of ONE site; the delivery
+            # preference (Telegram etc.) is the site's, not the feed's.
+            notify = self._home_notify()
         self._close_engine_log()
         _rotate_monitor_log(out_dir / "monitor.log")
         log_file = self._engine_log_file = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
@@ -1790,9 +1805,18 @@ class ConsoleBackend:
         return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, **kwargs)
 
     def start_monitoring(self) -> dict:
+        self._require(perms.CONTROL_ENGINE)
+        return self._start_engine()
+
+    def _start_engine(self) -> dict:
+        """start_monitoring without the permission gate — for callers that
+        already checked on the REQUEST thread. switch_feed restarts the engine
+        on a background thread, where the API's per-request impersonation has
+        already been cleared: the gate saw '<anonymous>' and refused, so a
+        feed switch while monitoring failed every time from Demi's app and the
+        engine stayed on the old feed (12 Sep)."""
         # A packaged app has no engine (torch/Ollama) inside it — it's a playback
         # demo. Don't try to spawn; the recorded alerts are already shown.
-        self._require(perms.CONTROL_ENGINE)
         if getattr(sys, "frozen", False) and self._bundled_engine() is None:
             # A lean viewer-only build (no engine inside). The full installer
             # ships argus-engine and never takes this branch.
@@ -1800,6 +1824,11 @@ class ConsoleBackend:
                     "note": "Playback demo — alerts are pre-recorded. This build has no detection engine inside."}
         if self._monitor and self._monitor.poll() is None:
             return {"running": True, "pid": self._monitor.pid, "already": True}
+        # From here on this backend OWNS the engine's lifecycle, and the API
+        # may answer "is it running" from the process instead of the heartbeat
+        # file (which lags a Stop by up to 30s). Never set for a headless
+        # engine somebody ran from a terminal — that one is heartbeat-judged.
+        self._engine_owned = True
         self._monitor_should_run = True
         self._restarts = 0
         self._crash_looped = False
@@ -1869,6 +1898,11 @@ class ConsoleBackend:
 
     def stop_monitoring(self) -> dict:
         self._require(perms.CONTROL_ENGINE)
+        return self._stop_engine()
+
+    def _stop_engine(self) -> dict:
+        """stop_monitoring without the permission gate — see _start_engine."""
+        self._engine_owned = True
         self._monitor_should_run = False   # tell the watchdog this is intentional
         if self._monitor and self._monitor.poll() is None:
             self._monitor.terminate()
@@ -2000,6 +2034,11 @@ class ConsoleBackend:
         more, and doing that inline would freeze the Qt UI thread. Poll
         feed_switch_status() for progress."""
         self._require(perms.CONFIGURE_SITE)
+        if self._monitor and self._monitor.poll() is None:
+            # The switch will stop and restart the engine — check THAT right
+            # here, on the request thread, where the caller's identity is
+            # still attached. The worker thread below runs anonymous.
+            self._require(perms.CONTROL_ENGINE)
         import threading
         st = getattr(self, "_switch_state", None)
         if st and st.get("busy"):
@@ -2031,7 +2070,7 @@ class ConsoleBackend:
             was_running = bool(self._monitor and self._monitor.poll() is None)
             if was_running:
                 st["status"] = "stopping engine…"
-                self.stop_monitoring()
+                self._stop_engine()
             cfg = str(self._writable_config(src["config"]))
             self.site_path = cfg
             self.db_path = self._db_for_feed(key, cfg)
@@ -2043,7 +2082,7 @@ class ConsoleBackend:
             # (Audit 23 Aug, #3.)
             if was_running:
                 st["status"] = "restarting engine…"
-                out = self.start_monitoring()
+                out = self._start_engine()
                 restarted = bool(out.get("running"))
             st.update(busy=False, done=True, active=key, error=None,
                       kind=src.get("kind", "demo"), config=src["config"],
@@ -2121,7 +2160,7 @@ class ConsoleBackend:
             return {"ok": False, "error": "could not reach the public demo feeds — "
                               "check this machine's internet connection and try again"}
         Path(src["config"]).write_text(json.dumps(
-            {"name": "Live Dashboard", "notify": "console", "configured": True, "cameras": cams}, indent=2))
+            {"name": "Live Dashboard", "notify": self._home_notify(), "configured": True, "cameras": cams}, indent=2))
         return {"ok": True, "resolved": len(cams)}
 
     def setup_state(self) -> dict:

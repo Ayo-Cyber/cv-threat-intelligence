@@ -170,6 +170,81 @@ class RealApiTests(unittest.TestCase):
         self.assertEqual([c["id"] for c in cams], ["Dublin Street"])
         self.assertEqual(self.client.get(f"{PREFIX}/triage", headers=headers).json()["total"], 1)
 
+    def test_monitor_and_stream_follow_the_engine_owner_not_the_stale_heartbeat(self):
+        # gate_health.json here is fresh, so the heartbeat alone says
+        # "monitoring". The backend that OWNS the engine process says nothing
+        # is running: Stop must read as stopped at once, not up to 30s later
+        # ("I pressed stop monitoring but it didn't stop", 12 Sep), and a tile
+        # must get a retryable 503, not a stale publisher URL.
+        host = self.app.state.backend_host
+        host._backend = host._build()
+        host._backend._engine_owned = True           # what Start/Stop leave behind
+        host._backend._monitor = None
+        headers = self._auth()
+        mon = self.client.get(f"{PREFIX}/monitor", headers=headers).json()
+        self.assertFalse(mon["running"])
+        self.assertEqual(mon["phase"], "stopped")
+        (Path(self._tmp.name) / "frames.json").write_text('{"port": 1, "token": "t"}')
+        r = self.client.get(f"{PREFIX}/cameras/Dublin Street/stream", headers=headers)
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(r.json()["error"]["code"], "engine_unavailable")
+
+    def test_monitor_says_running_while_the_owned_engine_lives_through_a_long_preflight(self):
+        # Heartbeat stale (scene mapping ran minutes without one), process
+        # alive: the button must keep reading "Stop monitoring", not flip to
+        # Start and invite a click that kills a half-started engine (12 Sep).
+        import types
+        (Path(self._tmp.name) / "gate_health.json").write_text(json.dumps({
+            "generated_at": 1.0, "engine": {"phase": "starting — mapping camera scenes"}}))
+        host = self.app.state.backend_host
+        host._backend = host._build()
+        host._backend._engine_owned = True
+        host._backend._monitor = types.SimpleNamespace(poll=lambda: None, pid=4242)
+        mon = self.client.get(f"{PREFIX}/monitor", headers=self._auth()).json()
+        self.assertTrue(mon["running"])
+        self.assertTrue(mon["starting"])
+        self.assertEqual(mon["phase"], "starting — mapping camera scenes")
+
+    def test_switching_feeds_while_monitoring_restarts_the_engine_as_the_caller(self):
+        # switch_feed works on a background thread, after the API has cleared
+        # its per-request impersonation. The stop/start inside it used to hit
+        # the permission gate as '<anonymous>' and fail every time, so from
+        # Demi's app a feed switch while monitoring left the engine on the old
+        # feed with a permission error in the switcher (12 Sep).
+        import types
+        host = self.app.state.backend_host
+        host._backend = host._build()
+        b = host._backend
+
+        class FakeEngine:
+            def __init__(self): self.alive, self.pid = True, 4242
+            def poll(self): return None if self.alive else 0
+            def terminate(self): self.alive = False
+            def wait(self, timeout=None): return 0
+            def kill(self): self.alive = False
+
+        first, second = FakeEngine(), FakeEngine()
+        b._monitor, b._engine_owned = first, True
+        b._spawn_engine = lambda: second
+        principal = types.SimpleNamespace(username="ayo", role="owner")
+        out = host.call(principal, "switch_feed", key="stage")
+        self.assertTrue(out["ok"], out)
+        deadline = time.time() + 30
+        while time.time() < deadline and host.call(principal, "feed_switch_status")["busy"]:
+            time.sleep(0.1)
+        st = host.call(principal, "feed_switch_status")
+        self.assertIsNone(st["error"], st)
+        self.assertTrue(st["engine_restarted"], st)
+        self.assertFalse(first.alive)              # old engine stopped
+        self.assertIs(b._monitor, second)          # new one running on the new feed
+        b._monitor_should_run = False              # let the watchdog thread exit
+
+    def test_monitor_trusts_the_heartbeat_when_nobody_owns_an_engine(self):
+        # No Start/Stop has gone through this API (a headless engine from a
+        # terminal, say): the heartbeat file still decides, as before.
+        mon = self.client.get(f"{PREFIX}/monitor", headers=self._auth()).json()
+        self.assertTrue(mon["running"])
+
     def test_events_list_and_shape(self):
         r = self.client.get(f"{PREFIX}/events", headers=self._auth())
         body = r.json()

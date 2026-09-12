@@ -3,6 +3,7 @@
   "rules": [
     {"name": "panic_running", "trigger": {"detector": "running"}, "priority": "high"},
     {"name": "loitering_watch", "trigger": {"detector": "presence"},
-     "context_filter": "zone == 'watch' and dwell_seconds >= 1.5", "priority": "medium"}
+     "_comment": "45s matches the zone's dwell_alert_seconds and its intent (someone CAMPED in view). At 1.5s the rule overrode the zone and fired for every pedestrian who paused — 100 auto-confirmed alerts in minutes, straight into the phone channel (12 Sep).",
+     "context_filter": "zone == 'watch' and dwell_seconds >= 45", "priority": "medium"}
   ]
 }

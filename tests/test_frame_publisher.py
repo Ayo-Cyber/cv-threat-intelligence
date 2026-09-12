@@ -300,3 +300,19 @@ class UiStreamWiringTests(unittest.TestCase):
         self.assertIn('img.src=""', stop,
                       "an <img> on an MJPEG stream holds the socket (and an "
                       "engine thread) open forever")
+
+
+class MarkerLifecycleTests(unittest.TestCase):
+    def test_stop_removes_frames_json(self):
+        # The file existing IS the publisher being alive (the contract
+        # stream_gateway.json already keeps). It used to outlive the engine,
+        # and every run listens on a new port — so after Stop the app resolved
+        # a dead URL and every tile read "fallback stream could not be
+        # loaded" (12 Sep).
+        with tempfile.TemporaryDirectory() as d:
+            pub = FramePublisher(draw_boxes=False).start(d)
+            marker = Path(d) / "frames.json"
+            self.assertTrue(marker.exists())
+            pub.stop()
+            self.assertFalse(marker.exists())
+            pub.stop()          # idempotent: a second stop must not raise
