@@ -99,18 +99,53 @@ class TelegramNotifier:
         rest = [p for p in imgs if p.name != "subject.jpg"]
         return (subject + rest)[:cap]
 
+    def _clip(self, event: dict, cap_mb: float = 45.0) -> "Path | None":
+        """The event's evidence clip, if one was written and Telegram will take it.
+
+        Bot API uploads cap at 50MB; stay under it with margin. No clip (a
+        provisional alert, clip disabled) just means photos-only, as before.
+        """
+        ev = event.get("evidence_dir")
+        if not ev:
+            return None
+        clip = Path(ev) / "clip.mp4"
+        try:
+            if clip.exists() and clip.stat().st_size <= cap_mb * 1024 * 1024:
+                return clip
+        except OSError:
+            return None
+        return None
+
     def notify(self, event: dict) -> None:
         import urllib.parse
         import urllib.request
         frames = self._frames(event)
+        clip = self._clip(event)
         try:
-            if not frames:
+            if not frames and not clip:
                 data = urllib.parse.urlencode({"chat_id": self.chat_id, "text": self._caption(event)}).encode()
                 urllib.request.urlopen(f"{self.base}/sendMessage", data=data, timeout=self.timeout)
                 return
-            self._send_photos(frames, self._caption(event))
+            if frames:
+                self._send_photos(frames, self._caption(event))
+            if clip:
+                # The clip follows the album ('i need the videos landing on the
+                # group chat', 12 Sep) — its own message, so a slow video upload
+                # can never delay the photos that page someone.
+                self._send_video(clip, self._caption_base(event))
         except Exception as exc:  # noqa: BLE001 - a notify failure must not kill the gate
             log.error(f"[notify telegram error] {str(exc)[:140]}", exc_info=True)
+
+    def _send_video(self, clip: "Path", caption: str) -> None:
+        import urllib.request
+        fields = {"chat_id": self.chat_id, "caption": f"🎬 {caption}",
+                  "supports_streaming": "true"}
+        files = {"video": (clip.name, clip.read_bytes())}
+        body, ctype = _multipart(fields, files)
+        req = urllib.request.Request(f"{self.base}/sendVideo", data=body,
+                                     headers={"Content-Type": ctype})
+        # video uploads are heavier than photos; give them a longer leash
+        urllib.request.urlopen(req, timeout=max(self.timeout, 30.0))
 
     def _send_photos(self, frames: list[Path], caption: str) -> None:
         """One photo -> sendPhoto; several -> sendMediaGroup (album)."""
