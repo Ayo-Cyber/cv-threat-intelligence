@@ -132,6 +132,14 @@ class PerCameraState:
     scene_reviewed: bool = field(default=False)
     active_zone_roles: set[str] = field(default_factory=set)
     person_filter: bool = True
+    # The zone lane's plausibility filter was born in retail (mannequin heads,
+    # reflections) and demanded a person be >=1.2% of the frame — on a wide
+    # outdoor camera a real person at distance is ~0.3%, so nobody could EVER
+    # enter a zone (12 Sep, VIRAT campus demo: raw=1 person, filtered=0,
+    # zero presence events). None = derive from the scene: retail keeps the
+    # tight gate, everything else gets a far-field one. Site key:
+    # "zone_min_person_area_ratio".
+    zone_min_person_area_ratio: float | None = None
     # Shared (stateless) models, injected by the pipeline.
     pose_model: Any = None            # LoadedModel | None — needed by concealment/violence/theft
     weapon_model: Any = None          # LoadedModel | None — needed by weapons
@@ -378,7 +386,12 @@ class PerCameraState:
             self._video_runtime.add_frame(image, frame_index=self._va_index)
             self._va_index += 1
         if self.person_filter and self.zone_monitor is not None:
-            detections = filter_person_detections(detections, frame_hw)
+            ratio = self.zone_min_person_area_ratio
+            if ratio is None:
+                env = (self.scene_context or {}).get("environment_type", "")
+                ratio = 0.012 if env in ("retail_shop", "mall_corridor") else 0.002
+            detections = filter_person_detections(detections, frame_hw,
+                                                  min_area_ratio=ratio)
         tracked = self._tracker.update_with_detections(detections)
 
         # Track -> box for EVERY frame (cheap): lets an alert record where its
@@ -628,6 +641,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 fire_min_frames=int(cam.get("fire_min_frames", 3)),
                 fire_min_hot_area_ratio=float(cam.get("fire_min_hot_area_ratio", 0.012)),
                 video_action=bool(cam.get("video_action")),
+                zone_min_person_area_ratio=cam.get("zone_min_person_area_ratio"),
             ),
         }
     return out

@@ -237,3 +237,21 @@ if __name__ == "__main__":
     test_example_config_loads()
     test_annotate_runs()
     print("\nAll retail_zones tests passed.")
+
+
+def test_far_field_person_survives_a_relaxed_area_gate() -> None:
+    """A wide outdoor CCTV view sees a real person at ~0.3% of the frame — the
+    retail-tuned 1.2% gate dropped them, so nobody could EVER enter an outdoor
+    zone (12 Sep, VIRAT campus demo). The non-retail default (0.2%) keeps them.
+    """
+    # 1280x720 frame; a distant standing person ~24x88px = 0.23% of frame.
+    far = sv.Detections(
+        xyxy=np.array([[600, 300, 624, 388]], dtype=float),
+        confidence=np.array([0.6]),
+        class_id=np.array([0]),
+        tracker_id=np.array([1]),
+    )
+    dropped = filter_person_detections(far, (720, 1280))          # retail default 1.2%
+    assert len(dropped) == 0, "retail gate is expected to drop the far-field box"
+    kept = filter_person_detections(far, (720, 1280), min_area_ratio=0.002)
+    assert len(kept) == 1, "the relaxed far-field gate must keep a real distant person"
