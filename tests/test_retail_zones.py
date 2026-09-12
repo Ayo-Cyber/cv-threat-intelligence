@@ -6,7 +6,9 @@ supervision is installed. Run:  python tests/test_retail_zones.py
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -270,9 +272,10 @@ def test_zone_entry_fires_once_then_presence_continues() -> None:
 
 def test_zone_exit_is_grace_debounced() -> None:
     """Leaving is reported only after the grace window — a one-frame gap
-    (occlusion / boundary jitter) must NOT read as an exit."""
+    (occlusion / boundary jitter) must NOT read as an exit. The person was
+    last seen at the frame edge, i.e. somewhere one can actually leave from."""
     mon = RetailZoneMonitor([_wide_zone()], dwell_grace_seconds=2.0)
-    mon.update(_person([100, 100, 200, 400], tracker_id=1), 0.0)
+    mon.update(_person([0, 100, 60, 400], tracker_id=1), 0.0)     # centre x=30: at the edge
     # gone for less than grace -> no exit yet
     mon.update(sv.Detections.empty(), 1.0)
     assert mon.drain_exits() == [], "a brief gap is not an exit"
@@ -282,10 +285,101 @@ def test_zone_exit_is_grace_debounced() -> None:
     assert mon.drain_exits() == [], "exits drain — not re-reported"
 
 
+def test_entry_is_confirmed_not_instant_when_the_zone_asks() -> None:
+    """A single false 'person' box used to be a HIGH 'entered' alert. With a
+    confirmation window the person must be seen inside for that long; dwell
+    still counts from first sight so the loiter clock is unchanged."""
+    z = _wide_zone()
+    z.entry_confirm_seconds = 0.6
+    mon = RetailZoneMonitor([z])
+    box = _person([400, 400, 500, 700], tracker_id=1)
+    assert mon.update(box, 0.0)[0].entered_zones == [], "first sight is not yet an entry"
+    assert mon.update(box, 0.25)[0].entered_zones == []
+    s = mon.update(box, 0.7)[0]
+    assert s.entered_zones == ["wide"], "confirmed after the window"
+    assert abs(s.dwell_seconds["wide"] - 0.7) < 1e-6, "dwell counted from first sight"
+    assert mon.update(box, 1.0)[0].entered_zones == [], "fires once"
+
+
+def test_a_flicker_never_becomes_an_entry_or_an_exit() -> None:
+    z = _wide_zone()
+    z.entry_confirm_seconds = 0.6
+    mon = RetailZoneMonitor([z], dwell_grace_seconds=1.0)
+    assert mon.update(_person([400, 400, 500, 700], tracker_id=1), 0.0)[0].entered_zones == []
+    for t in (0.25, 3.0, 20.0):                       # never seen again
+        mon.update(sv.Detections.empty(), t)
+        assert mon.drain_exits() == [], "an entry that never fired cannot be left"
+
+
+def test_vanishing_mid_zone_is_not_leaving_until_the_lost_window() -> None:
+    """Turning away from a close webcam, an occlusion, a detector dropout: the
+    track vanishes in the MIDDLE of the floor. That is not a doorway (12 Sep:
+    phantom left/entered pairs). It stays present through the lost window,
+    then leaves as 'lost' — an honest label, not a claimed departure."""
+    mon = RetailZoneMonitor([_wide_zone()], dwell_grace_seconds=2.0)
+    mon.update(_person([450, 400, 550, 700], tracker_id=1), 0.0)   # centre (500, 550): interior
+    mon.update(sv.Detections.empty(), 3.5)                          # past grace
+    assert mon.drain_exits() == [], "an occlusion mid-floor is not an exit"
+    mon.update(sv.Detections.empty(), RetailZoneMonitor.LOST_GRACE_DEFAULT + 0.5)
+    ex = mon.drain_exits()
+    assert len(ex) == 1 and ex[0].how == "lost" and ex[0].tracker_id == 1, ex
+
+
+def test_reappearing_mid_zone_inherits_across_a_long_occlusion() -> None:
+    mon = RetailZoneMonitor([_wide_zone()], dwell_grace_seconds=2.0)
+    mon.update(_person([450, 400, 550, 700], tracker_id=1), 0.0)
+    mon.update(sv.Detections.empty(), 5.0)                          # gone 5s: past grace, within lost
+    s = mon.update(_person([455, 400, 555, 700], tracker_id=2), 5.5)[0]   # new id, same spot
+    assert s.entered_zones == [], "same person under a new id: no second entry"
+    assert abs(s.dwell_seconds["wide"] - 5.5) < 1e-6, "and the clock is kept"
+    assert mon.drain_exits() == [], "and nobody left"
+
+
+def test_seen_outside_the_zone_is_a_real_exit_after_grace() -> None:
+    mon = RetailZoneMonitor([_shelf_zone()], dwell_grace_seconds=1.0)
+    mon.update(_person([80, 100, 120, 400], tracker_id=1), 0.0)     # in the shelf zone
+    mon.update(_person([780, 100, 820, 400], tracker_id=1), 4.0)    # visibly walked out of it
+    mon.update(_person([780, 100, 820, 400], tracker_id=1), 5.5)    # still outside, past grace
+    ex = mon.drain_exits()
+    assert len(ex) == 1 and ex[0].how == "walked_out", ex
+    assert ex[0].dwell_seconds == 0.0, "one sighting inside: no dwell to report"
+
+
+def test_leaving_through_the_edge_carries_the_dwell() -> None:
+    mon = RetailZoneMonitor([_wide_zone()], dwell_grace_seconds=2.0)
+    mon.update(_person([450, 400, 550, 700], tracker_id=1), 0.0)
+    mon.update(_person([0, 400, 60, 700], tracker_id=1), 10.0)      # at the left edge
+    mon.update(sv.Detections.empty(), 12.5)
+    ex = mon.drain_exits()
+    assert len(ex) == 1 and ex[0].how == "walked_out", ex
+    assert abs(ex[0].dwell_seconds - 10.0) < 1e-6, "left after 10s inside"
+    assert ex[0] == (1, "wide"), "still unpacks/compares as the old tuple"
+    from cvti.event_adapters import zone_exits_to_events
+    ev = zone_exits_to_events(ex, timestamp=12.5)[0]
+    assert ev.title == "PERSON LEFT ZONE WIDE AFTER 10S"
+    assert ev.extra["dwell_seconds"] == 10.0 and ev.extra["how"] == "walked_out"
+
+
+def test_normalized_polygon_follows_the_frame() -> None:
+    """A doorway drawn in frame fractions is right on any camera resolution."""
+    cfg = {"zones": [{"name": "door",
+                      "polygon": [[0.4, 0.5], [0.6, 0.5], [0.6, 1.0], [0.4, 1.0]]}]}
+    p = Path(tempfile.mkdtemp()) / "zones.json"
+    p.write_text(json.dumps(cfg))
+    specs = load_zone_config(p)
+    assert specs[0].normalized and specs[0].entry_confirm_seconds == 0.5
+    mon = RetailZoneMonitor(specs)
+    # 640x360 frame: the door spans x 256..384, y 180..360. Feet at x=320 -> inside.
+    s = mon.update(_person([300, 200, 340, 350], tracker_id=1), 0.0, frame_hw=(360, 640))[0]
+    assert s.zones == ["door"], s.zones
+    s2 = mon.update(_person([100, 200, 140, 350], tracker_id=2), 0.0, frame_hw=(360, 640))[0]
+    assert s2.zones == [], s2.zones
+
+
 def test_zone_entry_and_exit_events_from_adapter() -> None:
     from cvti.event_adapters import zone_states_to_events, zone_exits_to_events
     mon = RetailZoneMonitor([_wide_zone()], dwell_grace_seconds=1.0)
-    states = mon.update(_person([100, 100, 200, 400], tracker_id=7), 0.0)
+    states = mon.update(_person([0, 100, 60, 400], tracker_id=7), 0.0)    # at the frame edge
     evs = zone_states_to_events(states, timestamp=0.0)
     kinds = [e.detector for e in evs]
     assert "zone_entry" in kinds and "presence" in kinds
@@ -293,3 +387,4 @@ def test_zone_entry_and_exit_events_from_adapter() -> None:
     exits = zone_exits_to_events(mon.drain_exits(), timestamp=2.0)
     assert [e.detector for e in exits] == ["zone_exit"]
     assert exits[0].person_id == 7
+    assert exits[0].extra["how"] == "walked_out"

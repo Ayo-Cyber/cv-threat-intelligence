@@ -447,7 +447,9 @@ class PerCameraState:
 
         zone_by_pid: dict[Any, str | None] = {}   # person_id -> zone, for presence alerts
         if self.zone_monitor is not None:
-            states = self.zone_monitor.update(tracked, timestamp)
+            # frame_hw lets normalized (0..1) zone polygons fit THIS camera's
+            # resolution, and tells the monitor where the frame edges are.
+            states = self.zone_monitor.update(tracked, timestamp, frame_hw=frame_hw)
             zone_events = zone_states_to_events(states, timestamp=timestamp)
             # Exits are debounced inside the monitor; drain them each frame so a
             # person leaving a restricted zone is its own event, not silence.

@@ -3,28 +3,12 @@
     {
       "name": "demo_floor",
       "kind": "restricted",
-      "anchors": [
-        "BOTTOM_CENTER"
-      ],
+      "anchors": ["BOTTOM_CENTER"],
+      "_comment": "Whole frame at 1080p, so 'entered' = came into view. entry_confirm_seconds: a person must be seen inside this long before ENTERED fires (a single false box cannot). lost_grace_seconds: a track that vanishes in the middle of the floor (turned away from the webcam, occluded, detector dropout) is not someone who LEFT — it stays present this long and a re-detection at the spot inherits it; only a track last seen at the frame edge leaves after the ordinary grace. To make 'entered the room' mean a doorway, draw the polygon over the door in 0..1 frame fractions, e.g. [[0.35,0.2],[0.65,0.2],[0.65,1.0],[0.35,1.0]].",
+      "entry_confirm_seconds": 0.6,
+      "lost_grace_seconds": 8.0,
       "dwell_alert_seconds": 20.0,
-      "polygon": [
-        [
-          0,
-          0
-        ],
-        [
-          1920,
-          0
-        ],
-        [
-          1920,
-          1080
-        ],
-        [
-          0,
-          1080
-        ]
-      ]
+      "polygon": [[0, 0], [1920, 0], [1920, 1080], [0, 1080]]
     }
   ]
 }

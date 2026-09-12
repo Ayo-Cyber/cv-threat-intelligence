@@ -57,6 +57,16 @@ class ZoneSpec:
     anchors: tuple[sv.Position, ...] = (sv.Position.BOTTOM_CENTER,)
     kind: str = "shelf"                       # free-form tag: shelf | exit | aisle | ...
     dwell_alert_seconds: float | None = None  # optional loiter threshold for this zone
+    # A person must be inside this long before "entered" fires; a one-frame
+    # false detection never becomes a HIGH alert. 0 = instant (library default;
+    # load_zone_config defaults configs to 0.5s).
+    entry_confirm_seconds: float = 0.0
+    # How long a track that VANISHED in the zone's interior stays present
+    # before it counts as gone. None -> RetailZoneMonitor.LOST_GRACE_DEFAULT.
+    lost_grace_seconds: float | None = None
+    # Polygon given in 0..1 frame fractions: scaled to the first frame seen.
+    normalized: bool = False
+    polygon_raw: np.ndarray | None = None     # the 0..1 points, when normalized
 
 
 @dataclass
@@ -78,6 +88,50 @@ class PersonZoneState:
         dwell = self.dwell_seconds.get(z, 0.0)
         flag = " LOITER" if self.loitering else ""
         return f"{tag} {z} {dwell:.1f}s{flag}"
+
+
+@dataclass(eq=False)
+class ZoneExit:
+    """One debounced departure from RetailZoneMonitor.drain_exits().
+
+    Unpacks and compares as the historical (tracker_id, zone) tuple, and adds
+    how long the person was inside and HOW they went: `walked_out` (last seen
+    at a frame edge / the zone boundary, or seen outside the zone) versus
+    `lost` (vanished in the interior and never came back within the lost
+    window — an occlusion that outlasted patience, not a doorway)."""
+
+    tracker_id: int
+    zone: str
+    dwell_seconds: float = 0.0
+    how: str = "walked_out"
+
+    def __iter__(self):
+        yield self.tracker_id
+        yield self.zone
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ZoneExit):
+            return (self.tracker_id, self.zone, self.dwell_seconds, self.how) == \
+                   (other.tracker_id, other.zone, other.dwell_seconds, other.how)
+        if isinstance(other, tuple):
+            return (self.tracker_id, self.zone) == other
+        return NotImplemented
+
+
+def _point_to_polygon_distance(point: tuple[float, float], polygon: np.ndarray) -> float:
+    """Shortest distance from a point to the polygon's outline."""
+    px, py = point
+    best = float("inf")
+    n = len(polygon)
+    for i in range(n):
+        ax, ay = (float(v) for v in polygon[i])
+        bx, by = (float(v) for v in polygon[(i + 1) % n])
+        dx, dy = bx - ax, by - ay
+        seg = dx * dx + dy * dy
+        t = 0.0 if seg == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg))
+        cx, cy = ax + t * dx, ay + t * dy
+        best = min(best, ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5)
+    return best
 
 
 def filter_person_detections(
@@ -126,11 +180,17 @@ def load_zone_config(path: str | Path) -> list[ZoneSpec]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     specs: list[ZoneSpec] = []
     for entry in data.get("zones", []):
-        polygon = np.array(entry["polygon"], dtype=np.int64)
-        if polygon.ndim != 2 or polygon.shape[1] != 2 or len(polygon) < 3:
+        pts = np.array(entry["polygon"], dtype=float)
+        if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 3:
             raise ValueError(
                 f"Zone '{entry.get('name')}' polygon must be a list of >=3 [x, y] points."
             )
+        # Points all within 0..1 are frame FRACTIONS: a doorway drawn once is
+        # right on a 720p and a 1080p feed alike. The monitor scales them to
+        # the first frame it sees; until then they sit on a nominal 1080p
+        # canvas so a monitor that never learns the frame still has a shape.
+        normalized = bool(pts.min() >= 0.0 and pts.max() <= 1.0)
+        polygon = (np.rint(pts * np.array([1920.0, 1080.0])) if normalized else pts).astype(np.int64)
         specs.append(
             ZoneSpec(
                 name=str(entry["name"]),
@@ -138,6 +198,12 @@ def load_zone_config(path: str | Path) -> list[ZoneSpec]:
                 anchors=parse_anchors(entry.get("anchors")),
                 kind=str(entry.get("kind", "shelf")),
                 dwell_alert_seconds=entry.get("dwell_alert_seconds"),
+                # Configs default to a confirmed entry: at ~4fps that is two
+                # consecutive sightings, which a single false box cannot fake.
+                entry_confirm_seconds=float(entry.get("entry_confirm_seconds", 0.5)),
+                lost_grace_seconds=entry.get("lost_grace_seconds"),
+                normalized=normalized,
+                polygon_raw=pts if normalized else None,
             )
         )
     if not specs:
@@ -159,6 +225,16 @@ class RetailZoneMonitor:
     # frames; against a 60s threshold it cannot fabricate a loiterer, it only
     # stops real ones being forgotten mid-dwell.
     DWELL_GRACE_DEFAULT = 2.5
+    # A track that vanishes in the INTERIOR of a zone did not leave — nobody
+    # walks out through the middle of the floor. A turn away from a close
+    # webcam, an occlusion, a detector dropout all look like that, and each
+    # used to read as "left" then "entered" again (12 Sep). Such a track stays
+    # present for this long; a fresh id appearing at the spot inherits it. A
+    # track last seen at a frame edge or the zone boundary, or seen OUTSIDE the
+    # zone, did walk out: that exit fires after the ordinary grace.
+    LOST_GRACE_DEFAULT = 8.0
+    # "At the edge" = within this fraction of the longer frame side (~115px at 1080p).
+    EDGE_MARGIN_RATIO = 0.06
 
     def __init__(self, zones: list[ZoneSpec],
                  dwell_grace_seconds: float | None = None) -> None:
@@ -166,6 +242,12 @@ class RetailZoneMonitor:
         self.dwell_grace_seconds = (self.DWELL_GRACE_DEFAULT
                                     if dwell_grace_seconds is None
                                     else dwell_grace_seconds)
+        # (tracker_id, zone) pairs whose ENTRY has fired (or was inherited);
+        # only these ever produce an exit — a flicker that never confirmed
+        # leaves no trace either way.
+        self._confirmed: set[tuple[int, str]] = set()
+        self._frame_hw: tuple[int, int] | None = None
+        self._pending_scale = any(z.normalized for z in zones)
         self._sv_zones: dict[str, sv.PolygonZone] = {
             z.name: sv.PolygonZone(polygon=z.polygon, triggering_anchors=z.anchors)
             for z in zones
@@ -188,30 +270,81 @@ class RetailZoneMonitor:
         # by the caller each frame via drain_exits().
         self._exits: list[tuple[int, str]] = []
 
-    def drain_exits(self) -> list[tuple[int, str]]:
-        """The (tracker_id, zone) pairs that LEFT their zone since the last call.
+    def drain_exits(self) -> list[ZoneExit]:
+        """The departures since the last call — each a ZoneExit that still
+        unpacks as the historical (tracker_id, zone).
 
-        Exit is grace-debounced: a track is 'gone' only once it has been absent
-        longer than dwell_grace_seconds, so boundary jitter and brief occlusions
-        never fabricate an exit. Entry, by contrast, is instant (see
-        PersonZoneState.entered_zones) — crossing in is the security event you
-        want the moment it happens; crossing out can afford to be sure."""
+        Exit is debounced twice over. A track SEEN leaving (outside the zone,
+        or last at a frame edge / the zone boundary) is gone once absent past
+        dwell_grace_seconds. A track that vanished in the interior waits the
+        zone's lost window instead — an occlusion mid-floor is not a doorway.
+        Only a confirmed entry can ever produce an exit."""
         out = self._exits
         self._exits = []
         return out
 
-    def update(self, detections: sv.Detections, timestamp: float) -> list[PersonZoneState]:
+    def _fit_to_frame(self, frame_hw: tuple[int, int]) -> None:
+        """Scale normalized (0..1) polygons to the frame the first time one is
+        seen; remember the frame either way for the edge test."""
+        self._frame_hw = (int(frame_hw[0]), int(frame_hw[1]))
+        if not self._pending_scale:
+            return
+        h, w = self._frame_hw
+        for z in self.zones:
+            if z.normalized and z.polygon_raw is not None:
+                z.polygon = np.rint(z.polygon_raw * np.array([w, h], dtype=float)).astype(np.int64)
+                self._sv_zones[z.name] = sv.PolygonZone(polygon=z.polygon,
+                                                        triggering_anchors=z.anchors)
+        self._pending_scale = False
+
+    def _frame_extent(self) -> tuple[int, int]:
+        """(h, w) to judge 'at the edge' against: the real frame when known,
+        else the extent of the zones themselves (the CLI/replay callers)."""
+        if self._frame_hw is not None:
+            return self._frame_hw
+        pts = np.concatenate([z.polygon for z in self.zones])
+        return int(pts[:, 1].max()), int(pts[:, 0].max())
+
+    def _lost_grace(self, zone: str) -> float:
+        v = self._spec_by_name[zone].lost_grace_seconds
+        return self.LOST_GRACE_DEFAULT if v is None else float(v)
+
+    def _near_boundary(self, key: tuple[int, str]) -> bool:
+        """Was this track last seen where a person can actually leave from —
+        the frame edge, or the zone's own outline?"""
+        pos = self._last_pos.get(key)
+        if pos is None:
+            return True                 # nothing known: the old, prompt behaviour
+        cx, cy, _w = pos
+        h, w = self._frame_extent()
+        margin = self.EDGE_MARGIN_RATIO * max(h, w)
+        if cx <= margin or cy <= margin or cx >= w - margin or cy >= h - margin:
+            return True
+        return _point_to_polygon_distance((cx, cy), self._spec_by_name[key[1]].polygon) <= margin
+
+    def _forget(self, key: tuple[int, str]) -> None:
+        for store in (self._entered_at, self._last_in_zone, self._last_pos):
+            store.pop(key, None)
+        self._confirmed.discard(key)
+
+    def update(self, detections: sv.Detections, timestamp: float,
+               frame_hw: tuple[int, int] | None = None) -> list[PersonZoneState]:
+        if frame_hw is not None and (self._frame_hw is None or self._pending_scale):
+            self._fit_to_frame(frame_hw)
         n = len(detections)
         # Boolean membership mask per zone, aligned to detection order.
         masks = {name: zone.trigger(detections) for name, zone in self._sv_zones.items()}
 
         current_keys: set[tuple[int, str]] = set()
+        present_tids: set[int] = set()      # every tracked person in frame, in a zone or not
         states: list[PersonZoneState] = []
 
         for i in range(n):
             tid = _tracker_id_at(detections, i)
             bbox = tuple(int(v) for v in detections.xyxy[i])
             state = PersonZoneState(tracker_id=tid, bbox=bbox)  # type: ignore[arg-type]
+            if tid is not None:
+                present_tids.add(tid)
 
             for name in self._sv_zones:
                 if not bool(masks[name][i]):
@@ -224,21 +357,30 @@ class RetailZoneMonitor:
                 key = (tid, name)
                 current_keys.add(key)
                 if key not in self._entered_at:
-                    inherited = self._inherit_entry(key, bbox, timestamp,
-                                                    current_keys)
-                    self._entered_at[key] = (timestamp if inherited is None
-                                             else inherited)
-                    # A genuinely NEW presence is a zone ENTRY. An inherited
-                    # entry is the same person handed back under a fresh track
-                    # id after an occlusion — not a new crossing, so no entry.
+                    inherited = self._inherit_entry(key, bbox, timestamp, current_keys)
                     if inherited is None:
-                        state.entered_zones.append(name)
+                        self._entered_at[key] = timestamp
+                    else:
+                        # The same person handed back under a fresh track id
+                        # after an occlusion — not a new crossing. They keep
+                        # the clock, and if their entry already fired, that too.
+                        self._entered_at[key], donor_confirmed = inherited
+                        if donor_confirmed:
+                            self._confirmed.add(key)
                 entered = self._entered_at[key]
                 self._last_in_zone[key] = timestamp
                 cx = (bbox[0] + bbox[2]) / 2.0
                 cy = (bbox[1] + bbox[3]) / 2.0
                 self._last_pos[key] = (cx, cy, float(bbox[2] - bbox[0]))
                 dwell = max(0.0, timestamp - entered)
+                # ENTRY fires once the person has been inside for the zone's
+                # confirmation window (dwell counts from first sight, so the
+                # loiter clock is unchanged). A one-frame false box never
+                # becomes "PERSON ENTERED"; 0 keeps the instant behaviour.
+                if (key not in self._confirmed
+                        and dwell >= self._spec_by_name[name].entry_confirm_seconds):
+                    self._confirmed.add(key)
+                    state.entered_zones.append(name)
                 state.dwell_seconds[name] = dwell
                 threshold = self._spec_by_name[name].dwell_alert_seconds
                 if threshold is not None and dwell >= threshold:
@@ -246,31 +388,41 @@ class RetailZoneMonitor:
 
             states.append(state)
 
-        # Forget a (track, zone) pair only after it has been absent longer than the grace
-        # window, so brief boundary jitter / 1-frame track loss does not reset dwell.
+        # Forget a (track, zone) pair only once it has been gone long enough —
+        # the ordinary grace when we SAW it leave (outside the zone, or last at
+        # an edge), the longer lost window when it vanished mid-zone. Brief
+        # boundary jitter / 1-frame track loss never resets dwell either way.
         for key in list(self._entered_at):
             if key in current_keys:
                 continue
-            last = self._last_in_zone.get(key, self._entered_at[key])
-            if timestamp - last > self.dwell_grace_seconds:
-                del self._entered_at[key]
-                self._last_in_zone.pop(key, None)
-                self._last_pos.pop(key, None)
-                self._exits.append(key)   # debounced departure -> a zone EXIT
+            entered = self._entered_at[key]
+            last = self._last_in_zone.get(key, entered)
+            absent = timestamp - last
+            if absent <= self.dwell_grace_seconds:
+                continue
+            walked_out = key[0] in present_tids or self._near_boundary(key)
+            if not walked_out and absent <= self._lost_grace(key[1]):
+                continue
+            confirmed = key in self._confirmed
+            self._forget(key)
+            if confirmed:                 # an unconfirmed flicker leaves silently
+                self._exits.append(ZoneExit(key[0], key[1], max(0.0, last - entered),
+                                            "walked_out" if walked_out else "lost"))
 
         return states
 
     def _inherit_entry(self, key: tuple[int, str], bbox: tuple,
-                       timestamp: float, current_keys: set) -> float | None:
-        """A vanished track's entry time, if this NEW track is standing where
-        it stood.
+                       timestamp: float, current_keys: set) -> tuple[float, bool] | None:
+        """A vanished track's (entry time, entry-already-fired), if this NEW
+        track is standing where it stood.
 
         ByteTrack hands an occluded person back under a fresh id; without this
         the loiter timer restarted from zero every time. The donor must be the
-        SAME zone, absent from this frame, gone for at most the grace window,
-        and its last centre within ~one body-width of the new box — i.e. the
-        person visibly never left the spot. The donor is consumed so one
-        vanished track cannot seed two heirs."""
+        SAME zone, absent from this frame, gone for at most its patience window
+        (the grace if it was at an edge, the lost window if it vanished
+        mid-zone), and its last centre within ~one body-width of the new box —
+        i.e. the person visibly never left the spot. The donor is consumed so
+        one vanished track cannot seed two heirs."""
         _, zone = key
         cx = (bbox[0] + bbox[2]) / 2.0
         cy = (bbox[1] + bbox[3]) / 2.0
@@ -279,17 +431,19 @@ class RetailZoneMonitor:
         for old_key, (ox, oy, ow) in self._last_pos.items():
             if old_key == key or old_key[1] != zone or old_key in current_keys:
                 continue
-            if timestamp - self._last_in_zone.get(old_key, 0.0) > self.dwell_grace_seconds:
+            patience = (self.dwell_grace_seconds if self._near_boundary(old_key)
+                        else self._lost_grace(zone))
+            if timestamp - self._last_in_zone.get(old_key, 0.0) > patience:
                 continue
             dist = ((cx - ox) ** 2 + (cy - oy) ** 2) ** 0.5
             if dist <= 1.2 * max(width, ow) and (best_dist is None or dist < best_dist):
                 best_key, best_dist = old_key, dist
         if best_key is None:
             return None
-        entered = self._entered_at.get(best_key)
-        for store in (self._entered_at, self._last_in_zone, self._last_pos):
-            store.pop(best_key, None)
-        return entered
+        entered = self._entered_at.get(best_key, timestamp)
+        confirmed = best_key in self._confirmed
+        self._forget(best_key)
+        return entered, confirmed
 
     def annotate(
         self,
