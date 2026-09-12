@@ -3,6 +3,8 @@ import { connectWhep, resolveCameraStream } from "../src/lib/whep";
 
 class FakePeerConnection {
   static instances: FakePeerConnection[] = [];
+  static hangingPhase?:
+    "createOffer" | "setLocalDescription" | "setRemoteDescription";
   localDescription: RTCSessionDescriptionInit | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
   closed = false;
@@ -14,14 +16,20 @@ class FakePeerConnection {
   }
 
   async createOffer() {
+    if (FakePeerConnection.hangingPhase === "createOffer")
+      return new Promise<RTCSessionDescriptionInit>(() => {});
     return { type: "offer" as const, sdp: "local-offer" };
   }
 
   async setLocalDescription(value: RTCSessionDescriptionInit) {
+    if (FakePeerConnection.hangingPhase === "setLocalDescription")
+      return new Promise<void>(() => {});
     this.localDescription = value;
   }
 
   async setRemoteDescription(value: RTCSessionDescriptionInit) {
+    if (FakePeerConnection.hangingPhase === "setRemoteDescription")
+      return new Promise<void>(() => {});
     this.remoteDescription = value;
   }
 
@@ -35,6 +43,7 @@ describe("WHEP streaming", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     FakePeerConnection.instances = [];
+    FakePeerConnection.hangingPhase = undefined;
   });
 
   it("posts the local offer and applies the WHEP answer", async () => {
@@ -199,22 +208,37 @@ describe("WHEP streaming", () => {
     expect(api.invoke).toHaveBeenCalledTimes(1);
   });
 
-  it("times out hung WHEP negotiation and closes its peer", async () => {
+  it.each([
+    "createOffer",
+    "setLocalDescription",
+    "fetch",
+    "response.text",
+    "setRemoteDescription",
+  ] as const)("times out a hung WHEP %s phase and cleans up", async (phase) => {
     vi.useFakeTimers();
+    if (
+      phase === "createOffer" ||
+      phase === "setLocalDescription" ||
+      phase === "setRemoteDescription"
+    )
+      FakePeerConnection.hangingPhase = phase;
     vi.stubGlobal(
       "fetch",
-      vi.fn((_url, init: RequestInit = {}) =>
-        new Promise((_resolve, reject) =>
-          init.signal?.addEventListener(
-            "abort",
-            () => reject(init.signal?.reason),
-            { once: true },
-          ),
-        ),
-      ),
+      phase === "fetch"
+        ? vi.fn(() => new Promise<Response>(() => {}))
+        : vi.fn(async () => ({
+            ok: true,
+            status: 201,
+            text:
+              phase === "response.text"
+                ? () => new Promise<string>(() => {})
+                : async () => "remote-answer",
+          })),
     );
     vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
     const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, "addEventListener");
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
     const pending = connectWhep(
       {} as HTMLVideoElement,
       "http://127.0.0.1:1984/api/webrtc?src=front",
@@ -230,6 +254,31 @@ describe("WHEP streaming", () => {
 
     expect(outcome).toContain("timed out");
     expect(FakePeerConnection.instances[0].closed).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener.mock.calls.length).toBe(addListener.mock.calls.length);
+  });
+
+  it("parent abort cancels a hung pre-fetch phase and cleans up", async () => {
+    vi.useFakeTimers();
+    FakePeerConnection.hangingPhase = "createOffer";
+    vi.stubGlobal("fetch", vi.fn());
+    vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+    const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, "addEventListener");
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    const pending = connectWhep(
+      {} as HTMLVideoElement,
+      "http://127.0.0.1:1984/api/webrtc?src=front",
+      controller.signal,
+    );
+
     controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(FakePeerConnection.instances[0].closed).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener.mock.calls.length).toBe(
+      addListener.mock.calls.length,
+    );
   });
 });

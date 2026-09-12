@@ -44,50 +44,77 @@ export async function connectWhep(
       "WHEP requires a loopback HTTP endpoint supplied by Argus.",
     );
   }
-  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  if (signal.aborted) throw abortError(signal);
   const peer = new RTCPeerConnection();
-  const close = () => peer.close();
+  let peerClosed = false;
+  const close = () => {
+    if (peerClosed) return;
+    peerClosed = true;
+    peer.close();
+  };
   signal.addEventListener("abort", close, { once: true });
   const negotiation = new AbortController();
   const cancelNegotiation = () => negotiation.abort(abortError(signal));
   signal.addEventListener("abort", cancelNegotiation, { once: true });
-  let timedOut = false;
+  const timeoutError = new DOMException(
+    "WHEP negotiation timed out",
+    "TimeoutError",
+  );
   const timeout = setTimeout(() => {
-    timedOut = true;
-    negotiation.abort(new DOMException("WHEP negotiation timed out", "TimeoutError"));
+    negotiation.abort(timeoutError);
   }, WHEP_TIMEOUT_MS);
+  let rejectOnAbort = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectOnAbort = () => reject(abortError(negotiation.signal));
+    negotiation.signal.addEventListener("abort", rejectOnAbort, { once: true });
+  });
+  const throwIfAborted = () => {
+    if (negotiation.signal.aborted) throw abortError(negotiation.signal);
+  };
+  let connected = false;
   try {
-    peer.addTransceiver("video", { direction: "recvonly" });
-    peer.ontrack = (event) => {
-      if (signal.aborted) return;
-      video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
-      void video.play().catch(() => {});
-      onTrack?.();
-    };
-    const offer = await peer.createOffer();
-    await peer.setLocalDescription(offer);
-    const response = await fetch(endpoint.toString(), {
-      method: "POST",
-      headers: { "content-type": "application/sdp" },
-      body: offer.sdp ?? "",
-      signal: negotiation.signal,
-    });
-    if (!response.ok)
-      throw new Error(`WHEP negotiation failed (${response.status})`);
-    await peer.setRemoteDescription({
-      type: "answer",
-      sdp: await response.text(),
-    });
-    clearTimeout(timeout);
-    signal.removeEventListener("abort", cancelNegotiation);
-    return peer;
+    const connect = (async () => {
+      peer.addTransceiver("video", { direction: "recvonly" });
+      peer.ontrack = (event) => {
+        if (signal.aborted) return;
+        video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+        void video.play().catch(() => {});
+        onTrack?.();
+      };
+      const offer = await peer.createOffer();
+      throwIfAborted();
+      await peer.setLocalDescription(offer);
+      throwIfAborted();
+      const response = await fetch(endpoint.toString(), {
+        method: "POST",
+        headers: { "content-type": "application/sdp" },
+        body: offer.sdp ?? "",
+        signal: negotiation.signal,
+      });
+      throwIfAborted();
+      if (!response.ok)
+        throw new Error(`WHEP negotiation failed (${response.status})`);
+      const answer = await response.text();
+      throwIfAborted();
+      await peer.setRemoteDescription({ type: "answer", sdp: answer });
+      throwIfAborted();
+      return peer;
+    })();
+    const result = await Promise.race([connect, aborted]);
+    connected = true;
+    return result;
   } catch (error) {
-    clearTimeout(timeout);
-    signal.removeEventListener("abort", cancelNegotiation);
-    signal.removeEventListener("abort", close);
-    peer.close();
-    if (timedOut) throw new Error("WHEP negotiation timed out");
+    if ((error as { name?: string }).name === "TimeoutError")
+      throw new Error("WHEP negotiation timed out");
     throw error;
+  } finally {
+    clearTimeout(timeout);
+    negotiation.signal.removeEventListener("abort", rejectOnAbort);
+    signal.removeEventListener("abort", cancelNegotiation);
+    if (!connected) {
+      signal.removeEventListener("abort", close);
+      close();
+    }
   }
 }
 

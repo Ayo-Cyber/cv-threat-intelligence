@@ -190,7 +190,10 @@ Clients offer the ordered subprotocols `argus.v1` and
 `argus.token.<bearer-token>`. The server selects only `argus.v1`, so the token
 is not echoed and never enters access-log request URLs. The socket requires
 `view_alerts`, revalidates its in-memory token and account on every push-loop
-iteration, and closes with:
+iteration, and closes with the following application codes. For an initial
+authentication or authorization denial, the server first accepts the safe
+`argus.v1` subprotocol and then closes before emitting hydration or alert data,
+so browser clients receive the application close code instead of HTTP 403:
 
 - `4401` when the token expires/is revoked, the account is deleted, or its role
   changes; the client must clear the session and sign in again;

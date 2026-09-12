@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, W
 from cvti.api.app import (
     API_PREFIX,
     WS_AUTH_PROTOCOL,
+    _close_websocket_auth_denial,
     _iso,
     _send,
     _websocket_token,
@@ -137,7 +138,7 @@ def create_mock_app() -> FastAPI:
     async def ws(ws: WebSocket):
         token = _websocket_token(ws)
         if app.state.tokens.resolve(token) is None:
-            await ws.close(code=4401); return
+            await _close_websocket_auth_denial(ws, 4401); return
         await ws.accept(subprotocol=WS_AUTH_PROTOCOL)
         await _send(ws, "health", _health())
         await _send(ws, "triage", {"to_review": 7, "total": app.state.counter["n"], "by_priority": {}})

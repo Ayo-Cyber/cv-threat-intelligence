@@ -262,6 +262,8 @@ async function ensureApi() {
       window?.webContents.send("engine:event", event),
     );
     owner.onExit(() => {
+      const remaining = supportLog.close();
+      if (remaining) process.stderr.write(remaining);
       if (!exiting) {
         void client.close();
         apiClient = undefined;

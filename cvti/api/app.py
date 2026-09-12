@@ -49,6 +49,17 @@ def _websocket_token(ws: WebSocket) -> str | None:
     return tokens[0] if len(tokens) == 1 and tokens[0] else None
 
 
+async def _close_websocket_auth_denial(ws: WebSocket, code: int) -> None:
+    offered = {
+        item.strip()
+        for item in ws.headers.get("sec-websocket-protocol", "").split(",")
+        if item.strip()
+    }
+    if WS_AUTH_PROTOCOL in offered:
+        await ws.accept(subprotocol=WS_AUTH_PROTOCOL)
+    await ws.close(code=code)
+
+
 def register_index(app: FastAPI, *, mock: bool = False) -> None:
     """A self-describing root, so hitting the base URL isn't a bare 404.
 
@@ -257,17 +268,17 @@ def create_app(*, db_path: str = "runs/site/events.db",
         token = _websocket_token(ws)
         principal = app.state.tokens.resolve(token)
         if principal is None:
-            await ws.close(code=4401)   # unauthorized
+            await _close_websocket_auth_denial(ws, 4401)
             return
         accounts = _accounts()
         user = accounts.user(principal.username)
         if user is None or user.role != principal.role:
             accounts.close()
-            await ws.close(code=4401)
+            await _close_websocket_auth_denial(ws, 4401)
             return
         if not perms.allows(user.role, perms.VIEW_ALERTS):
             accounts.close()
-            await ws.close(code=4403)
+            await _close_websocket_auth_denial(ws, 4403)
             return
         await ws.accept(subprotocol=WS_AUTH_PROTOCOL)
         db = app.state.db_path
