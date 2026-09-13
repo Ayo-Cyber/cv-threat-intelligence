@@ -218,6 +218,7 @@ class ConcealmentDetector:
         retract_scale: float = RETRACT_SCALE,
         dwell_frames: int = DWELL_FRAMES,
         weights: tuple[float, float, float] = WEIGHTS,
+        state_grace_seconds: float = 1.5,
     ) -> None:
         self.window_seconds = window_seconds
         self.score_threshold = score_threshold
@@ -226,8 +227,10 @@ class ConcealmentDetector:
         self.retract_scale = retract_scale
         self.dwell_frames = dwell_frames
         self.weights = weights
+        self.state_grace_seconds = state_grace_seconds
         self._buffers: dict[int, deque[_FrameFeatures]] = {}
         self._over_threshold: dict[int, int] = {}
+        self._last_seen: dict[int, float] = {}
 
     def update(
         self,
@@ -237,10 +240,10 @@ class ConcealmentDetector:
     ) -> list[ConcealmentAssessment]:
         """bag_bboxes: detected PERSONAL-bag boxes this frame (backpack/handbag/suitcase).
         Trolleys/baskets are not personal bags, so pass nothing for them — they stay safe."""
-        active_ids = {f.track_id for f in pose_frames}
         results: list[ConcealmentAssessment] = []
 
         for frame in pose_frames:
+            self._last_seen[frame.track_id] = timestamp
             buf = self._buffers.setdefault(frame.track_id, deque())
             buf.append(_frame_features(frame, bag_bboxes))
             cutoff = timestamp - self.window_seconds
@@ -260,12 +263,18 @@ class ConcealmentDetector:
                 reasons=reasons, components=components, limited=limited,
             ))
 
-        # Drop state for tracks that have left the scene.
-        for tid in list(self._buffers):
-            if tid not in active_ids:
-                del self._buffers[tid]
-                self._over_threshold.pop(tid, None)
         return results
+
+    def expire(self, timestamp: float) -> None:
+        stale = [
+            track_id
+            for track_id, seen_at in self._last_seen.items()
+            if timestamp - seen_at > self.state_grace_seconds
+        ]
+        for track_id in stale:
+            self._buffers.pop(track_id, None)
+            self._over_threshold.pop(track_id, None)
+            self._last_seen.pop(track_id, None)
 
     def score_window(
         self, window: list[_FrameFeatures]

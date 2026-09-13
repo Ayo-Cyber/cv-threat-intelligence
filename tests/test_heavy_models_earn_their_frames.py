@@ -24,6 +24,7 @@ import supervision as sv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from cvti.detector.core import PosePersonState
 from cvti.rules.customization import CustomizationEngine
 from cvti.serving.camera import PerCameraState, build_camera_states
 
@@ -42,6 +43,26 @@ def _empty() -> sv.Detections:
 
 def _frame() -> np.ndarray:
     return np.zeros((120, 160, 3), dtype=np.uint8)
+
+
+def _pose_person(wrist: tuple[float, float]) -> PosePersonState:
+    return PosePersonState(
+        track_id=1,
+        bbox=(60, 10, 140, 110),
+        timestamp=0.0,
+        left_shoulder=(80.0, 20.0),
+        right_shoulder=(120.0, 20.0),
+        left_elbow=None,
+        right_elbow=None,
+        left_wrist=wrist,
+        right_wrist=None,
+        max_wrist_speed=0.0,
+        max_wrist_accel=0.0,
+        max_arm_extension_ratio=0.0,
+        weapon_labels=[],
+        left_hip=(85.0, 100.0),
+        right_hip=(115.0, 100.0),
+    )
 
 
 class _GateHarness(unittest.TestCase):
@@ -108,6 +129,34 @@ class PersonGateTests(_GateHarness):
         state = self._state(heavy_stride=1)
         pose, _ = self._run(state, [_person(10.0 + i) for i in range(6)])
         self.assertEqual(pose, 6)
+
+    def test_concealment_history_survives_heavy_stride_sampling_gaps(self):
+        engine = CustomizationEngine()
+        engine.rules = [
+            {"name": "shoplifting", "trigger": {"detector": "concealment"},
+             "priority": "high"}
+        ]
+        state = PerCameraState(
+            "cam1", engine, person_filter=False, pose_model=object(),
+            concealment=True, heavy_stride=2,
+        )
+        pose_sequence = (
+            [[_pose_person((200.0, 20.0))] for _ in range(4)]
+            + [[_pose_person((105.0, 95.0))] for _ in range(9)]
+        )
+
+        alerts = []
+        with mock.patch.object(
+            PerCameraState, "_compute_pose", side_effect=pose_sequence,
+        ) as pose:
+            for i in range(24):
+                alerts.extend(state.process(_person(), _frame(), timestamp=100.0 + i * 0.1))
+
+        self.assertEqual(pose.call_count, len(pose_sequence))
+        self.assertTrue(
+            any(alert.rule_name == "shoplifting" for alert in alerts),
+            "reach-then-waist samples should reach concealment candidate state",
+        )
 
     def test_cheap_detectors_ignore_the_gate(self):
         """Tamper works on an EMPTY scene — that's its whole point."""

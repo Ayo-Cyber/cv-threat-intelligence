@@ -125,13 +125,21 @@ def test_trolley_destination_is_safe() -> None:
     print(f"PASS trolley destination stays safe (score={result.score:.2f}, dest={result.destination})")
 
 
-def test_state_cleared_when_track_leaves() -> None:
-    det = ConcealmentDetector()
-    det.update([frame(0.0, (105.0, 245.0))], 0.0)
+def test_unsampled_gap_does_not_erase_concealment_history() -> None:
+    det = ConcealmentDetector(state_grace_seconds=1.5)
+    det.update([frame(0.0, (200.0, 110.0))], 0.0)
     assert 1 in det._buffers
-    det.update([], 0.5)                       # track gone this frame
-    assert 1 not in det._buffers, "buffer should be dropped when the track disappears"
-    print("PASS per-track state is cleared when the track leaves")
+    det.expire(0.2)
+    assert 1 in det._buffers
+
+
+def test_stale_track_is_expired_after_grace() -> None:
+    det = ConcealmentDetector(state_grace_seconds=1.0)
+    det.update([frame(0.0, (200.0, 110.0))], 0.0)
+    det.expire(1.01)
+    assert 1 not in det._buffers
+    assert 1 not in det._over_threshold
+    assert 1 not in det._last_seen
 
 
 if __name__ == "__main__":
@@ -141,5 +149,6 @@ if __name__ == "__main__":
     test_empty_window_is_zero()
     test_bag_concealment_fires_with_destination_bag()
     test_trolley_destination_is_safe()
-    test_state_cleared_when_track_leaves()
+    test_unsampled_gap_does_not_erase_concealment_history()
+    test_stale_track_is_expired_after_grace()
     print("\nAll concealment tests passed.")

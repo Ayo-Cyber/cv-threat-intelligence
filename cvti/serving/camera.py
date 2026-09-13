@@ -481,14 +481,16 @@ class PerCameraState:
             self._heavy_tick += 1
             run_heavy = person_present and (
                 first_appearance or self._heavy_tick % max(1, self.heavy_stride) == 0)
-            pose_people = (self._compute_pose(image, timestamp)
-                           if self._needs_pose() and run_heavy else [])
+            pose_ran = self._needs_pose() and run_heavy
+            pose_people = self._compute_pose(image, timestamp) if pose_ran else []
             if self._conceal is not None:
                 from cvti.detector.core import pose_people_to_concealment_frames
                 from cvti.event_adapters import concealment_to_events
-                assessments = self._conceal.update(
-                    pose_people_to_concealment_frames(pose_people, timestamp), timestamp)
-                raw_events += concealment_to_events(assessments, timestamp)
+                if pose_ran:
+                    assessments = self._conceal.update(
+                        pose_people_to_concealment_frames(pose_people, timestamp), timestamp)
+                    raw_events += concealment_to_events(assessments, timestamp)
+                self._conceal.expire(timestamp)
             if self.violence or self.weapons or self.theft:
                 merged = self._merged_detections(object_detections, image,
                                                  include_weapon=run_heavy)
