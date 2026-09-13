@@ -28,6 +28,7 @@ _RULE_FRAMES = {
     "violence": 4, "assault": 4, "fight": 4,
     "concealment": 3, "shoplift": 3, "theft": 3,
     "robbery": 5, "armed_robbery": 5,
+    "multiple_people_moving": 3,
     "presence": 1, "loiter": 1, "zone": 1, "after_hours": 1, "intrusion": 1,
 }
 _DEFAULT_FRAMES = 3

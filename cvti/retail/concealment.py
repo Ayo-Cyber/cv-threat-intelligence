@@ -37,7 +37,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 from dataclasses import dataclass, field
-from math import hypot
+from math import hypot, isclose
 from typing import Any
 from cvti.logging_setup import get_logger
 
@@ -61,7 +61,7 @@ Point = tuple[float, float]
 # (they'll pay at the counter), and carts aren't COCO classes, so "hand into trolley"
 # never produces a bag bbox and never fires. Putting goods into your OWN bag does.
 BAG_CLASSES = ("backpack", "handbag", "suitcase")
-COCO_BAG_IDS = (24, 26, 28)  # backpack, handbag, suitcase in COCO
+COCO_BAG_IDS = frozenset({24, 26, 28})  # backpack, handbag, suitcase in COCO
 
 # ---- Tunables (all overridable via ConcealmentDetector.__init__) -------------
 WINDOW_SECONDS = 1.2      # how much recent history each decision looks at
@@ -98,6 +98,7 @@ class _FrameFeatures:
     hand_at_waist: bool
     hand_at_bag: bool
     has_hips: bool
+    associated_bag: tuple[float, float, float, float] | None
 
 
 @dataclass
@@ -109,6 +110,15 @@ class ConcealmentAssessment:
     reasons: list[str] = field(default_factory=list)
     components: dict[str, float] = field(default_factory=dict)
     limited: bool = False          # True when hips were never seen (occluded) -> degraded
+    associated_bag: tuple[float, float, float, float] | None = None
+
+
+@dataclass
+class _BagOwnership:
+    bbox: tuple[float, float, float, float]
+    owner_track_id: int | None
+    last_seen: float
+    last_owned: float
 
 
 def _dist(a: Point | None, b: Point | None) -> float | None:
@@ -136,6 +146,45 @@ def _point_to_bbox(p: Point, box: tuple[float, float, float, float]) -> float:
     return hypot(dx, dy)
 
 
+def _bbox_distance(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    dx = max(ax1 - bx2, bx1 - ax2, 0.0)
+    dy = max(ay1 - by2, by1 - ay2, 0.0)
+    return hypot(dx, dy)
+
+
+def _bbox_iou(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    x1 = max(a[0], b[0])
+    y1 = max(a[1], b[1])
+    x2 = min(a[2], b[2])
+    y2 = min(a[3], b[3])
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    area_a = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+    area_b = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+    union = area_a + area_b - intersection
+    return intersection / union if union > 0.0 else 0.0
+
+
+def _bbox_center_distance_ratio(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    ax = (a[0] + a[2]) / 2.0
+    ay = (a[1] + a[3]) / 2.0
+    bx = (b[0] + b[2]) / 2.0
+    by = (b[1] + b[3]) / 2.0
+    scale = max(hypot(a[2] - a[0], a[3] - a[1]),
+                hypot(b[2] - b[0], b[3] - b[1]), 1.0)
+    return hypot(ax - bx, ay - by) / scale
+
+
 def _body_scale(kp: dict[str, Point | None], bbox: tuple[float, float, float, float] | None) -> float | None:
     shoulder_c = _mid(kp.get("left_shoulder"), kp.get("right_shoulder"))
     hip_c = _mid(kp.get("left_hip"), kp.get("right_hip"))
@@ -151,6 +200,72 @@ def _body_scale(kp: dict[str, Point | None], bbox: tuple[float, float, float, fl
         if height > 1e-3:
             return height * 0.5
     return None
+
+
+def personal_bag_boxes(detections: Any) -> list[tuple[float, float, float, float]]:
+    """Extract COCO personal-bag boxes from an existing detection pass."""
+    xyxy = getattr(detections, "xyxy", None)
+    class_ids = getattr(detections, "class_id", None)
+    if xyxy is None or class_ids is None:
+        return []
+    return [
+        tuple(float(value) for value in box[:4])
+        for box, class_id in zip(xyxy, class_ids)
+        if class_id is not None and int(class_id) in COCO_BAG_IDS
+    ]
+
+
+def bags_for_pose(
+    frame: PoseFrame,
+    bag_bboxes: list[tuple[float, float, float, float]],
+) -> list[tuple[float, float, float, float]]:
+    """Keep personal bags intersecting or within one body scale of this person."""
+    if frame.bbox is None:
+        return []
+    scale = _body_scale(frame.keypoints, frame.bbox)
+    if scale is None:
+        return []
+    return [box for box in bag_bboxes if _bbox_distance(frame.bbox, box) <= scale]
+
+
+def associate_bags_to_tracks(
+    pose_frames: list[PoseFrame],
+    bag_bboxes: list[tuple[float, float, float, float]],
+) -> dict[int, list[tuple[float, float, float, float]]]:
+    """Assign each nearby bag to one pose track; leave exact ties unassigned."""
+    by_track = {frame.track_id: [] for frame in pose_frames}
+    for bag in bag_bboxes:
+        bx = (bag[0] + bag[2]) / 2.0
+        by = (bag[1] + bag[3]) / 2.0
+        candidates: list[tuple[float, int]] = []
+        for frame in pose_frames:
+            if frame.bbox is None or not bags_for_pose(frame, [bag]):
+                continue
+            scale = _body_scale(frame.keypoints, frame.bbox)
+            if scale is None:
+                continue
+            px = (frame.bbox[0] + frame.bbox[2]) / 2.0
+            py = (frame.bbox[1] + frame.bbox[3]) / 2.0
+            candidates.append((hypot(bx - px, by - py) / scale, frame.track_id))
+        candidates.sort()
+        if not candidates:
+            continue
+        if len(candidates) > 1 and isclose(
+            candidates[0][0], candidates[1][0], rel_tol=1e-9, abs_tol=1e-9
+        ):
+            continue
+        by_track[candidates[0][1]].append(bag)
+    return by_track
+
+
+def _bags_for_track(
+    track_id: int,
+    bag_bboxes: list[tuple[float, float, float, float]] | None = None,
+    bag_bboxes_by_track: dict[int, list[tuple[float, float, float, float]]] | None = None,
+) -> list[tuple[float, float, float, float]]:
+    if bag_bboxes_by_track is not None:
+        return bag_bboxes_by_track.get(track_id, [])
+    return bag_bboxes or []
 
 
 def _frame_features(
@@ -173,6 +288,7 @@ def _frame_features(
     lateral_reach: float | None = None
     hand_at_waist = False
     hand_at_bag = False
+    associated_bag = None
 
     if scale and scale > 1e-3:
         if hip_c is not None and wrists:
@@ -191,7 +307,11 @@ def _frame_features(
                     break
         # Hand reaching into a PERSONAL bag (concealment destination).
         if bag_bboxes and wrists:
-            nearest = min(_point_to_bbox(w, b) for w in wrists for b in bag_bboxes) / scale
+            nearest, associated_bag = min(
+                (_point_to_bbox(wrist, box) / scale, box)
+                for wrist in wrists
+                for box in bag_bboxes
+            )
             hand_to_bag = nearest
             hand_at_bag = nearest < BAG_AT
 
@@ -203,7 +323,13 @@ def _frame_features(
         hand_at_waist=hand_at_waist,
         hand_at_bag=hand_at_bag,
         has_hips=has_hips,
+        associated_bag=associated_bag,
     )
+
+
+def _bag_score_source(window: list[_FrameFeatures]) -> _FrameFeatures | None:
+    bag_features = [feature for feature in window if feature.hand_to_bag is not None]
+    return min(bag_features, key=lambda feature: feature.hand_to_bag) if bag_features else None
 
 
 class ConcealmentDetector:
@@ -218,6 +344,7 @@ class ConcealmentDetector:
         retract_scale: float = RETRACT_SCALE,
         dwell_frames: int = DWELL_FRAMES,
         weights: tuple[float, float, float] = WEIGHTS,
+        state_grace_seconds: float = 1.5,
     ) -> None:
         self.window_seconds = window_seconds
         self.score_threshold = score_threshold
@@ -226,28 +353,125 @@ class ConcealmentDetector:
         self.retract_scale = retract_scale
         self.dwell_frames = dwell_frames
         self.weights = weights
+        self.state_grace_seconds = state_grace_seconds
         self._buffers: dict[int, deque[_FrameFeatures]] = {}
         self._over_threshold: dict[int, int] = {}
+        self._last_seen: dict[int, float] = {}
+        self._bag_owners: dict[int, _BagOwnership] = {}
+        self._next_bag_id = 1
+
+    def _match_bag_owner(
+        self,
+        bag: tuple[float, float, float, float],
+        unmatched: set[int],
+    ) -> int | None:
+        matches = []
+        for bag_id in unmatched:
+            previous = self._bag_owners[bag_id].bbox
+            overlap = _bbox_iou(bag, previous)
+            distance = _bbox_center_distance_ratio(bag, previous)
+            if overlap >= 0.2 or distance <= 0.75:
+                matches.append((overlap, -distance, bag_id))
+        if not matches:
+            return None
+        return max(matches)[2]
+
+    def _expire_bag_owners(self, timestamp: float) -> None:
+        stale_after = max(self.window_seconds, self.state_grace_seconds)
+        for bag_id, state in list(self._bag_owners.items()):
+            if timestamp - state.last_seen > stale_after:
+                self._bag_owners.pop(bag_id, None)
+
+    def associate_bags_to_tracks(
+        self,
+        pose_frames: list[PoseFrame],
+        bag_bboxes: list[tuple[float, float, float, float]],
+        timestamp: float,
+    ) -> dict[int, list[tuple[float, float, float, float]]]:
+        """Assign physical bags exclusively, holding ownership for one score window."""
+        by_track = {frame.track_id: [] for frame in pose_frames}
+        self._expire_bag_owners(timestamp)
+        unmatched = set(self._bag_owners)
+        for bag in bag_bboxes:
+            bag_id = self._match_bag_owner(bag, unmatched)
+            if bag_id is None:
+                bag_id = self._next_bag_id
+                self._next_bag_id += 1
+                state = _BagOwnership(bag, None, timestamp, float("-inf"))
+                self._bag_owners[bag_id] = state
+            else:
+                unmatched.discard(bag_id)
+                state = self._bag_owners[bag_id]
+
+            frame_assignment = associate_bags_to_tracks(pose_frames, [bag])
+            winner = next((
+                track_id for track_id, boxes in frame_assignment.items() if boxes
+            ), None)
+            plausible = {
+                frame.track_id for frame in pose_frames if bags_for_pose(frame, [bag])
+            }
+            if state.owner_track_id in plausible:
+                owner = state.owner_track_id
+            elif (state.owner_track_id is not None
+                  and timestamp - state.last_owned <= self.window_seconds):
+                owner = None
+            else:
+                owner = winner
+
+            state.bbox = bag
+            state.last_seen = timestamp
+            if owner is not None:
+                state.owner_track_id = owner
+                state.last_owned = timestamp
+                by_track[owner].append(bag)
+
+        return by_track
+
+    def update_with_bag_detections(
+        self,
+        pose_frames: list[PoseFrame],
+        timestamp: float,
+        bag_bboxes: list[tuple[float, float, float, float]] | None,
+    ) -> list[ConcealmentAssessment]:
+        bags = bag_bboxes or []
+        return self.update(
+            pose_frames,
+            timestamp,
+            bag_bboxes_by_track=self.associate_bags_to_tracks(
+                pose_frames, bags, timestamp
+            ),
+        )
 
     def update(
         self,
         pose_frames: list[PoseFrame],
         timestamp: float,
         bag_bboxes: list[tuple[float, float, float, float]] | None = None,
+        bag_bboxes_by_track: dict[
+            int, list[tuple[float, float, float, float]]
+        ] | None = None,
     ) -> list[ConcealmentAssessment]:
         """bag_bboxes: detected PERSONAL-bag boxes this frame (backpack/handbag/suitcase).
         Trolleys/baskets are not personal bags, so pass nothing for them — they stay safe."""
-        active_ids = {f.track_id for f in pose_frames}
+        self.expire(timestamp)
         results: list[ConcealmentAssessment] = []
 
         for frame in pose_frames:
+            self._last_seen[frame.track_id] = timestamp
             buf = self._buffers.setdefault(frame.track_id, deque())
-            buf.append(_frame_features(frame, bag_bboxes))
+            track_bags = _bags_for_track(
+                frame.track_id,
+                bag_bboxes=bag_bboxes,
+                bag_bboxes_by_track=bag_bboxes_by_track,
+            )
+            buf.append(_frame_features(frame, track_bags))
             cutoff = timestamp - self.window_seconds
             while buf and buf[0].timestamp < cutoff:
                 buf.popleft()
 
-            score, reasons, components, limited, destination = self.score_window(list(buf))
+            window = list(buf)
+            score, reasons, components, limited, destination = self.score_window(window)
+            bag_source = _bag_score_source(window)
 
             if score >= self.score_threshold:
                 self._over_threshold[frame.track_id] = self._over_threshold.get(frame.track_id, 0) + 1
@@ -258,14 +482,25 @@ class ConcealmentDetector:
             results.append(ConcealmentAssessment(
                 track_id=frame.track_id, score=score, candidate=candidate, destination=destination,
                 reasons=reasons, components=components, limited=limited,
+                associated_bag=(
+                    bag_source.associated_bag
+                    if destination == "bag" and bag_source is not None
+                    else None
+                ),
             ))
 
-        # Drop state for tracks that have left the scene.
-        for tid in list(self._buffers):
-            if tid not in active_ids:
-                del self._buffers[tid]
-                self._over_threshold.pop(tid, None)
         return results
+
+    def expire(self, timestamp: float) -> None:
+        stale = [
+            track_id
+            for track_id, seen_at in self._last_seen.items()
+            if timestamp - seen_at > self.state_grace_seconds
+        ]
+        for track_id in stale:
+            self._buffers.pop(track_id, None)
+            self._over_threshold.pop(track_id, None)
+            self._last_seen.pop(track_id, None)
 
     def score_window(
         self, window: list[_FrameFeatures]
@@ -281,7 +516,8 @@ class ConcealmentDetector:
         recent = window[-1]
         hips_ever = any(f.has_hips for f in window)
         hand_to_hip_vals = [f.hand_to_hip for f in window if f.hand_to_hip is not None]
-        hand_to_bag_vals = [f.hand_to_bag for f in window if f.hand_to_bag is not None]
+        bag_source = _bag_score_source(window)
+        hand_to_bag_vals = [bag_source.hand_to_bag] if bag_source is not None else []
         reach_vals = [f.lateral_reach for f in window if f.lateral_reach is not None]
         dwell_count = sum(1 for f in window if f.hand_at_waist or f.hand_at_bag)
 
@@ -435,7 +671,9 @@ def main() -> None:
             obj = object_model(result.orig_img, classes=list(COCO_BAG_IDS), conf=0.35, verbose=False)[0]
             if obj.boxes is not None and len(obj.boxes) > 0:
                 bag_bboxes = [tuple(float(v) for v in b) for b in obj.boxes.xyxy]
-        assessments = detector.update(pose_frames, n * dt, bag_bboxes=bag_bboxes)
+        assessments = detector.update_with_bag_detections(
+            pose_frames, n * dt, bag_bboxes
+        )
         assess_by_id = {a.track_id: a for a in assessments}
         for a in assessments:
             peak[a.track_id] = max(peak.get(a.track_id, 0.0), a.score)

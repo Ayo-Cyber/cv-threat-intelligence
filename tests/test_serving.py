@@ -3,6 +3,11 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 import sys
+from types import SimpleNamespace
+from unittest import mock
+
+import numpy as np
+import supervision as sv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -210,6 +215,226 @@ class CameraMappingTests(unittest.TestCase):
         self.assertEqual(qa.payload["frames"], ["F"])
 
 
+class MovementPipelineTests(unittest.TestCase):
+    class _Tracker:
+        def update_with_detections(self, detections):
+            return detections
+
+    class _Zones:
+        def update(self, detections, timestamp, frame_hw=None):
+            return [
+                SimpleNamespace(
+                    tracker_id=int(track_id), zones=[zone], dwell_seconds={zone: timestamp},
+                    loitering=False, entered_zones=[],
+                )
+                for track_id, zone in zip(detections.tracker_id, ("gate", "yard"))
+            ]
+
+        def drain_exits(self):
+            return []
+
+    @staticmethod
+    def _detections(xs):
+        boxes = np.array([[x, 20.0, x + 20.0, 80.0] for x in xs], dtype=float).reshape(-1, 4)
+        return sv.Detections(
+            xyxy=boxes,
+            class_id=np.array([0] * len(xs)),
+            confidence=np.array([0.95] * len(xs)),
+            tracker_id=np.array([1, 2][:len(xs)]),
+        )
+
+    def _state(self, permitted):
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        state = PerCameraState(
+            "chi_gate", CustomizationEngine(), zone_monitor=self._Zones(),
+            person_filter=False, normal_movement=True, multiple_people_moving=True,
+            movement_enter_speed_ratio=0.05, movement_exit_speed_ratio=0.02,
+            movement_min_track_seconds=0.4, movement_min_people=2,
+            movement_persistence_seconds=0.5,
+            permitted_movement_zones=permitted,
+        )
+        state._tracker = self._Tracker()
+        return state
+
+    def test_permitted_zones_filter_overlays_and_simultaneous_count(self):
+        state = self._state(("gate",))
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+        state.process(self._detections((0.0, 10.0)), frame, 0.0)
+        state.process(self._detections((60.0, 70.0)), frame, 0.5)
+        alerts = state.process(self._detections((70.0, 80.0)), frame, 1.0)
+
+        self.assertEqual([item["track_id"] for item in state._motion_overlays], [1])
+        self.assertEqual(state._motion_overlays[0]["colour"], (0, 200, 0))
+        self.assertEqual(alerts, [], "one permitted moving track must not fire scenario 5")
+
+    def test_absent_permitted_zones_counts_the_whole_camera(self):
+        state = self._state(None)
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+        state.process(self._detections((0.0, 10.0)), frame, 0.0)
+        state.process(self._detections((60.0, 70.0)), frame, 0.5)
+
+        self.assertEqual([item["track_id"] for item in state._motion_overlays], [1, 2])
+
+    def test_two_spread_out_movers_emit_one_latched_group_candidate(self):
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        state = PerCameraState(
+            "chi_gate", CustomizationEngine("configs/chi_pilot_v1.json"),
+            zone_monitor=self._Zones(), person_filter=False,
+            multiple_people_moving=True,
+            movement_enter_speed_ratio=0.05, movement_exit_speed_ratio=0.02,
+            movement_min_track_seconds=0.4, movement_min_people=2,
+            movement_persistence_seconds=0.5,
+        )
+        state._tracker = self._Tracker()
+        frame = np.zeros((600, 1000, 3), dtype=np.uint8)
+
+        self.assertEqual(state.process(self._detections((0.0, 900.0)), frame, 0.0), [])
+        self.assertEqual(state.process(self._detections((300.0, 600.0)), frame, 0.5), [])
+        alerts = state.process(self._detections((500.0, 400.0)), frame, 1.0)
+
+        self.assertEqual(len(alerts), 1)
+        candidate = alerts[0].payload["candidate"]
+        self.assertEqual(candidate.detector, "multiple_people_moving")
+        self.assertEqual(candidate.metadata["track_ids"], [1, 2])
+        self.assertEqual(candidate.metadata["group_bbox"], (400.0, 20.0, 520.0, 80.0))
+        self.assertEqual(len(candidate.metadata["motions"]), 2)
+        self.assertEqual(alerts[0].payload["bbox"], (400, 20, 520, 80))
+        self.assertEqual(len(alerts[0].payload["frames"]), 3)
+
+        duplicate = state.process(self._detections((600.0, 300.0)), frame, 1.5)
+        self.assertEqual(duplicate, [], "a sustained interval must emit only once")
+
+    def test_scenario_five_only_draws_active_constituents_in_amber(self):
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        state = PerCameraState(
+            "chi_gate", CustomizationEngine("configs/chi_pilot_v1.json"),
+            zone_monitor=self._Zones(), person_filter=False,
+            normal_movement=False, multiple_people_moving=True,
+            movement_enter_speed_ratio=0.05, movement_exit_speed_ratio=0.02,
+            movement_min_track_seconds=0.01, movement_min_people=2,
+            movement_persistence_seconds=0.01,
+        )
+        state._tracker = self._Tracker()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        state.process(self._detections((0.0, 10.0)), frame, 0.0)
+
+        state.process(self._detections((20.0, 30.0)), frame, 0.1)
+
+        self.assertEqual([item["track_id"] for item in state._motion_overlays], [1, 2])
+        self.assertEqual(
+            {item["colour"] for item in state._motion_overlays}, {(0, 200, 255)}
+        )
+
+    def test_sub_expiry_pipeline_dropout_does_not_emit_a_duplicate_incident(self):
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        state = PerCameraState(
+            "chi_gate", CustomizationEngine("configs/chi_pilot_v1.json"),
+            zone_monitor=self._Zones(), person_filter=False,
+            multiple_people_moving=True,
+            movement_enter_speed_ratio=0.05, movement_exit_speed_ratio=0.02,
+            movement_min_track_seconds=0.01, movement_min_people=2,
+            movement_persistence_seconds=0.01,
+        )
+        state._tracker = self._Tracker()
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        state.process(self._detections((0.0, 10.0)), frame, 0.0)
+        self.assertEqual(state.process(self._detections((20.0, 30.0)), frame, 0.1), [])
+        self.assertEqual(len(state.process(self._detections((22.0, 32.0)), frame, 0.12)), 1)
+
+        self.assertEqual(state.process(self._detections(()), frame, 0.3), [])
+        self.assertEqual(
+            state.process(self._detections((40.0, 50.0)), frame, 0.4),
+            [],
+            "the same scenario-5 incident duplicated after one detector miss",
+        )
+
+    def test_stationary_people_emit_no_movement_candidate(self):
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        state = PerCameraState(
+            "chi_gate", CustomizationEngine("configs/chi_pilot_v1.json"),
+            zone_monitor=self._Zones(), person_filter=False,
+            multiple_people_moving=True, movement_persistence_seconds=0.5,
+        )
+        state._tracker = self._Tracker()
+        frame = np.zeros((600, 1000, 3), dtype=np.uint8)
+
+        for timestamp in (0.0, 0.5, 1.0, 1.5):
+            self.assertEqual(
+                state.process(self._detections((100.0, 800.0)), frame, timestamp),
+                [],
+            )
+
+
+class ConcealmentBagWiringTests(unittest.TestCase):
+    def test_shared_bag_detection_is_grounded_to_only_the_matching_pose_track(self):
+        from cvti.detector.core import PosePersonState
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        def pose(track_id, bbox, wrist):
+            x1, y1, x2, y2 = bbox
+            return PosePersonState(
+                track_id=track_id,
+                bbox=bbox,
+                timestamp=0.0,
+                left_shoulder=(x1 + 20.0, y1 + 10.0),
+                right_shoulder=(x2 - 20.0, y1 + 10.0),
+                left_elbow=None,
+                right_elbow=None,
+                left_wrist=wrist,
+                right_wrist=None,
+                max_wrist_speed=0.0,
+                max_wrist_accel=0.0,
+                max_arm_extension_ratio=0.0,
+                weapon_labels=[],
+                left_hip=(x1 + 25.0, y2 - 10.0),
+                right_hip=(x2 - 25.0, y2 - 10.0),
+            )
+
+        detections = sv.Detections(
+            xyxy=np.array([
+                [60.0, 10.0, 140.0, 110.0],
+                [150.0, 10.0, 230.0, 110.0],
+                [130.0, 55.0, 145.0, 105.0],
+            ]),
+            class_id=np.array([0, 0, 26]),
+            confidence=np.array([0.95, 0.94, 0.88]),
+        )
+        pose_people = [
+            pose(1, (60, 10, 140, 110), (125.0, 80.0)),
+            pose(2, (150, 10, 230, 110), (155.0, 80.0)),
+        ]
+        state = PerCameraState(
+            "cam1",
+            CustomizationEngine(),
+            person_filter=False,
+            pose_model=object(),
+            concealment=True,
+            heavy_stride=1,
+        )
+
+        with mock.patch.object(PerCameraState, "_compute_pose", return_value=pose_people):
+            state.process(detections, np.zeros((160, 500, 3), dtype=np.uint8), timestamp=1.0)
+
+        first = state._conceal._buffers[1][-1]
+        second = state._conceal._buffers[2][-1]
+        self.assertGreater(first.hand_to_bag, 0.0)
+        self.assertLess(first.hand_to_bag, 0.6)
+        self.assertIsNone(second.hand_to_bag)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -312,9 +537,178 @@ class SmoothPublishTest(unittest.TestCase):
         import inspect
         from cvti.serving import pipeline as pl
         src = inspect.getsource(pl.run_site)
-        self.assertIn("FramePublisher(draw_boxes=False)", src)
+        self.assertIn("FramePublisher().start(output_dir)", src)
         loop = inspect.getsource(pl.MultiStreamPipeline._smooth_publish_loop)
         self.assertNotIn("latest_boxes", loop)
+
+    def test_smooth_publish_passes_the_latest_motion_overlays(self):
+        from cvti.serving.frame_publisher import FrameOverlay
+        from cvti.serving.pipeline import MultiStreamPipeline
+
+        class StopLoop(BaseException):
+            pass
+
+        class Publisher:
+            def __init__(self):
+                self.call = None
+
+            def has_viewers(self, _camera_id):
+                return True
+
+            def publish(self, camera_id, frame, overlays=()):
+                self.call = (camera_id, frame, overlays)
+                raise StopLoop
+
+        decoder = SimpleNamespace(
+            display_fps=0,
+            playout=None,
+            peek_latest=lambda: (SimpleNamespace(image="decoded-frame"), 1),
+        )
+        publisher = Publisher()
+        pipe = MultiStreamPipeline.__new__(MultiStreamPipeline)
+        pipe.publish_fps = 12
+        pipe.publisher = publisher
+        pipe._decoders = {"cam": decoder}
+        pipe.view_only = set()
+        pipe._camera_states = {
+            "cam": SimpleNamespace(
+                _motion_overlays=[{
+                    "track_id": 9,
+                    "bbox": (10, 20, 30, 40),
+                    "label": "#9 MOVING",
+                }]
+            )
+        }
+
+        with self.assertRaises(StopLoop):
+            pipe._smooth_publish_loop()
+
+        camera_id, frame, overlays = publisher.call
+        self.assertEqual((camera_id, frame), ("cam", "decoded-frame"))
+        self.assertEqual(overlays, [FrameOverlay(
+            track_id=9,
+            bbox=(10, 20, 30, 40),
+            label="#9 MOVING",
+            colour=(0, 200, 0),
+        )])
+
+    def test_motion_overlay_records_are_mapped_for_every_publish_path(self):
+        from cvti.serving.frame_publisher import FrameOverlay
+        from cvti.serving import pipeline
+
+        self.assertTrue(hasattr(pipeline, "_frame_overlays"))
+        state = SimpleNamespace(_motion_overlays=[{
+            "track_id": 3,
+            "bbox": (1, 2, 30, 40),
+            "label": "#3 MOVING",
+        }])
+        self.assertEqual(pipeline._frame_overlays(state), [FrameOverlay(
+            track_id=3,
+            bbox=(1, 2, 30, 40),
+            label="#3 MOVING",
+            colour=(0, 200, 0),
+        )])
+        self.assertEqual(pipeline._frame_overlays(None), [])
+
+    def test_motion_overlay_mapper_preserves_semantic_colour(self):
+        from cvti.serving.frame_publisher import FrameOverlay
+        from cvti.serving.pipeline import _frame_overlays
+
+        state = SimpleNamespace(_motion_overlays=[{
+            "track_id": 4,
+            "bbox": (1, 2, 30, 40),
+            "label": "#4 MOVING",
+            "colour": (0, 200, 0),
+        }])
+
+        self.assertEqual(
+            _frame_overlays(state),
+            [FrameOverlay(4, (1, 2, 30, 40), "#4 MOVING", (0, 200, 0))],
+        )
+
+    def test_aggregate_track_ids_reach_publisher_alert_state(self):
+        from cvti.contracts import CandidateAlert
+        from cvti.serving.pipeline import _alert_track_ids
+
+        aggregate = CandidateAlert(
+            rule_name="chi_multiple_people_moving",
+            priority="high",
+            detector="multiple_people_moving",
+            title="MULTIPLE PEOPLE MOVING",
+            person_id=None,
+            object_label=None,
+            timestamp=1.0,
+            metadata={"track_ids": [7, 9]},
+        )
+        singular = CandidateAlert(
+            rule_name="weapon",
+            priority="critical",
+            detector="weapons",
+            title="WEAPON",
+            person_id=3,
+            object_label="knife",
+            timestamp=1.0,
+        )
+
+        queued = [
+            QueuedAlert(
+                camera_id="cam", rule_name=aggregate.rule_name, priority="high",
+                title=aggregate.title, timestamp=1.0,
+                payload={"candidate": aggregate},
+            ),
+            QueuedAlert(
+                camera_id="cam", rule_name=singular.rule_name, priority="critical",
+                title=singular.title, timestamp=1.0, track_id=3,
+                payload={"candidate": singular},
+            ),
+        ]
+
+        self.assertEqual(_alert_track_ids(queued), {3, 7, 9})
+
+    def test_paced_playout_passes_motion_overlays_and_source_size(self):
+        from cvti.serving.frame_publisher import FrameOverlay
+        from cvti.serving.pipeline import MultiStreamPipeline
+
+        class StopLoop(BaseException):
+            pass
+
+        class Publisher:
+            def has_viewers(self, _camera_id):
+                return True
+
+            def publish_jpeg(self, camera_id, jpeg, overlays=(), source_size=None):
+                self.call = (camera_id, jpeg, overlays, source_size)
+                raise StopLoop
+
+        decoded = np.zeros((480, 640, 3), np.uint8)
+        decoder = SimpleNamespace(
+            display_fps=0,
+            playout=SimpleNamespace(pop_due=lambda _now: b"paced-jpeg"),
+            peek_latest=lambda: (SimpleNamespace(image=decoded), 1),
+        )
+        publisher = Publisher()
+        pipe = MultiStreamPipeline.__new__(MultiStreamPipeline)
+        pipe.publish_fps = 12
+        pipe.publisher = publisher
+        pipe._decoders = {"cam": decoder}
+        pipe.view_only = set()
+        pipe._camera_states = {
+            "cam": SimpleNamespace(_motion_overlays=[{
+                "track_id": 5,
+                "bbox": (10, 20, 30, 40),
+                "label": "#5 MOVING",
+            }])
+        }
+
+        with self.assertRaises(StopLoop):
+            pipe._smooth_publish_loop()
+
+        self.assertEqual(publisher.call, (
+            "cam",
+            b"paced-jpeg",
+            [FrameOverlay(5, (10, 20, 30, 40), "#5 MOVING", (0, 200, 0))],
+            (480, 640),
+        ))
 
     def test_live_sources_play_from_the_playout_buffer(self):
         """Two prior designs both failed the operator: pacing through an HLS

@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "status": "opportunistic_non_acceptance_replay",
+  "recorded_at": "2026-09-13T15:30:25+01:00",
+  "source": {
+    "path": "data/test_clips/normal_street_01.mp4",
+    "sha256": "2ca3549f53d02f645106edadf97f52f3c0760d1f9b07e32e5befba6df1c894c8",
+    "width": 640,
+    "height": 360,
+    "source_fps": 25.0,
+    "duration_s": 13.64
+  },
+  "runtime": {
+    "python": "3.9.6",
+    "ultralytics": "8.4.64",
+    "required_ultralytics": "8.4.35",
+    "gate_model": "gemma3:4b",
+    "gate_model_digest": "a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a",
+    "gate_prompt_fingerprint": "0bf660f4a02480122fc35b7b961672f9d151420d38d450a0779cf2f2bd2f41c6"
+  },
+  "configuration": {
+    "camera_id": "S45-LOCAL-MULTI",
+    "rules": "configs/chi_pilot_v1.json",
+    "normal_movement": true,
+    "multiple_people_moving": true,
+    "movement_enter_speed_ratio": 0.05,
+    "movement_exit_speed_ratio": 0.02,
+    "movement_min_track_seconds": 0.4,
+    "movement_min_people": 2,
+    "movement_persistence_seconds": 0.5,
+    "permitted_movement_zones": null,
+    "target_fps": 5.0,
+    "publish_fps": 24.0,
+    "imgsz": 640
+  },
+  "tracking_stream_observation": {
+    "tracking_requested": true,
+    "authenticated": true,
+    "bytes_received": 205828,
+    "client_timeout_s": 8.0,
+    "capture_sha256": "5d620fd5c0d33a7627e749a1527420e63ed6537bb69ebf7a090e3a02df757c90",
+    "capture_retained": false,
+    "motion_scorer_eligible": false,
+    "ineligible_reason": "The original capture bytes were transient, so MJPEG/JPEG structure and content uniqueness cannot be revalidated."
+  },
+  "candidate_reaching_gate": {
+    "candidate_id": "gate_0001",
+    "timestamp_s": 10.0,
+    "people_count": 2,
+    "track_ids": [
+      35,
+      52
+    ],
+    "group_bbox": [
+      59.53569030761719,
+      302.60601806640625,
+      351.9428405761719,
+      360.0
+    ],
+    "motion_speed_ratios": [
+      0.04997214177542217,
+      0.05532791772986258
+    ],
+    "queue_admitted": true
+  },
+  "gate": {
+    "verified": 1,
+    "confirmed": 1,
+    "rejected": 0,
+    "errors": 0,
+    "unverified": 0,
+    "queue_deduped": 1,
+    "confidence": 0.9,
+    "reason": "Several pedestrians are demonstrably moving across the scene at the same time.",
+    "median_latency_s": 34.45
+  },
+  "persistence": {
+    "event_count": 1,
+    "rule": "chi_multiple_people_moving",
+    "provisional": false,
+    "unverified": false,
+    "gate_frame_count": 3,
+    "event_frame_count": 17,
+    "subject_crop_present": true,
+    "replay_clip_present": true
+  },
+  "performance": {
+    "detect_batch": {
+      "count": 48,
+      "units": 48,
+      "span_s": 14.595,
+      "rate_per_s": 3.289,
+      "first_inference_ms": 5329.2
+    },
+    "decode": {
+      "count": 108,
+      "units": 108,
+      "span_s": 20.037,
+      "rate_per_s": 5.39
+    }
+  },
+  "artifact_hashes": {
+    "site_config": "d1d55a92fd88d8199d0ac189ced544954cd096ff95c4a8ed450b927f24baca42",
+    "gate_alert_json": "86ef7b96a58b4a50498c7f27d6efeffddfb254a2ba9cd8854bdfbeaae21d64a2",
+    "gate_verification_json": "3d0e73264dcd70265b9a7e957daadcd97e27dae0b50f12b0844c2659542e0445",
+    "perf_report_json": "6b64e08be288d9ed0cf04c9cf5d0e4b6422f2d6fa35b08a0398c2a1f5dbcd1a2",
+    "event_json": "99ddbe4f13713cbc1e7a251bb1ab1cc8aefe598c60afdec6adc1b832a0542d35",
+    "events_db": "3ed7a9be2a17a8e79e261e09a634f27f9e2589d413818e11e0720dbca01036ff",
+    "operator_log": "18fb1f3ac87eb545a47830865fbbe708c0986690b66d5777346267e2878935fe",
+    "gate_health_json": "dcd4c619197b38ee6721eb70bd707685a2cb0bda565b9e49a2414d14d1a283e4",
+    "event_media_name_and_content_manifest": "d1c00a9aa6daf1abf70afa64cb309da79c81921a0c7df3fb3e2d56f11206e039"
+  },
+  "limitations": [
+    "No frozen pre-run interval, person-frame, or identity annotations existed.",
+    "The replay does not measure person recall, ID switches, scenario-5 precision or recall, or formal detection delay.",
+    "The replay does not cover a controlled stationary crowd, temporary occlusion, or a permitted-zone boundary.",
+    "One queue duplicate was counted, but no pre-queue scenario-5 candidate audit exists to reconstruct it.",
+    "The run overlapped another validation workload and cannot measure hidden-versus-shown FPS impact.",
+    "The tracking capture was not retained; its hash alone is not eligible evidence for the motion scorer's MJPEG structure or six-unique-capture requirements.",
+    "The runtime used Ultralytics 8.4.64 instead of the required pinned 8.4.35."
+  ]
+}

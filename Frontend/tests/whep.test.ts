@@ -123,6 +123,34 @@ describe("WHEP streaming", () => {
     });
   });
 
+  it("requests tracking MJPEG without attempting WebRTC negotiation", async () => {
+    const api = {
+      invoke: vi.fn(async () => ({
+        kind: "mjpeg" as const,
+        url: "http://127.0.0.1:9000/stream/front?tracking=1&token=x",
+      })),
+    };
+    const connect = vi.fn();
+
+    const result = await resolveCameraStream({
+      cameraId: "front",
+      tracking: true,
+      active: true,
+      api,
+      video: {} as HTMLVideoElement,
+      signal: new AbortController().signal,
+      connect,
+    });
+
+    expect(api.invoke).toHaveBeenCalledWith("camera_stream", ["front", true]);
+    expect(connect).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      kind: "mjpeg",
+      url: "http://127.0.0.1:9000/stream/front?tracking=1&token=x",
+      degraded: false,
+    });
+  });
+
   it("does not request or negotiate a stream while the tile is inactive", async () => {
     const api = { invoke: vi.fn() };
     const connect = vi.fn();

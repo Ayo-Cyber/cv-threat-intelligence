@@ -1,4 +1,4 @@
-import type { StreamDescriptor, Transport } from "./types";
+import type { CameraStreamArgs, StreamDescriptor, Transport } from "./types";
 
 export type ResolvedCameraStream =
   | { kind: "inactive" }
@@ -120,6 +120,7 @@ export async function connectWhep(
 
 export async function resolveCameraStream({
   cameraId,
+  tracking = false,
   active,
   api,
   video,
@@ -130,6 +131,7 @@ export async function resolveCameraStream({
   sleep = abortableDelay,
 }: {
   cameraId: string;
+  tracking?: boolean;
   active: boolean;
   api: Pick<Transport, "invoke">;
   video: HTMLVideoElement;
@@ -142,9 +144,11 @@ export async function resolveCameraStream({
   if (!active) return { kind: "inactive" };
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const descriptor = await api.invoke<StreamDescriptor>("camera_stream", [
-        cameraId,
-      ]);
+      const args: CameraStreamArgs = [cameraId, tracking];
+      const descriptor = await api.invoke<StreamDescriptor>(
+        "camera_stream",
+        args,
+      );
       if (descriptor.kind === "mjpeg")
         return { kind: "mjpeg", url: descriptor.url, degraded: false };
       try {

@@ -1,6 +1,188 @@
 # Project Context
 
-## Current Authoritative Handoff - 2026-09-03
+## Combined Final Fix Wave - 2026-09-13
+
+The four Important final-review blockers are addressed in the current branch:
+
+- emergency SQLite audit purges checkpoint the WAL and VACUUM after committing
+  row deletion, then stop before deleting event evidence if database bytes
+  cannot be reclaimed safely;
+- scenario-5 state and its aggregate latch survive a tracker miss shorter than
+  expiry, while an observed below-threshold state or expiry resets the incident;
+- overlays use green for ordinary scenario-4 movement, amber for active
+  scenario-5 constituents (including scenario-5-only cameras), and the alert
+  colour for confirmed/associated tracks, with aggregate `track_ids` carried
+  into publisher alert state; and
+- runtime persistence records every generated scenario-5 candidate in the
+  scorer-compatible `motion_candidate_audit` table, including queue admission,
+  gate, error, and persistence outcomes without changing user-alert policy.
+
+The same wave validates public motion constructor invariants, rejects
+non-boolean feature flags, and prevents an older overlapping publisher
+completion from overwriting a newer frame in the same session.
+
+Exact verification: the combined focused backend set passed `262` tests with
+`14` dependency warnings in `37.85s`; the one test edited afterward passed
+separately (`1 passed`, `14` dependency warnings in `0.98s`); frontend unit
+tests passed `118` tests across `22` files and the production build passed;
+prompt regression exited successfully with fingerprint `0bf660f4a024...` while
+reporting metrics as **UNMEASURED**. Per the user's stop request, the broad
+Python run was interrupted after `1418 passed, 8 skipped, 1 failed, 15 warnings`
+in `162.18s`; its sole observed failure was Ultralytics 8.4.64 versus required
+8.4.35. This is not represented as a completed full-suite run.
+
+No measured Chi accuracy is claimed. Controlled rights-cleared Chi clips, the
+frozen prompt corpus, and three real hidden/shown capture pairs remain
+unavailable. Geometry-based bag identity remains an empirical risk, and the
+shared environment still does not match the pinned Ultralytics version.
+
+## Current Authoritative Handoff - 2026-09-13 - Motion Scenarios 4 And 5
+
+Chi pilot scenarios 4 and 5 are implemented and have a repeatable acceptance
+workflow in `docs/CHI_PILOT_TESTING.md`.
+
+- Scenario 4 is non-alert telemetry. It boxes only tracks classified as moving
+  in configured permitted zones; with no permitted-zone list, the whole view is
+  eligible. It never creates a candidate merely because a person moves.
+- Scenario 5 creates one aggregate `multiple_people_moving` candidate per
+  sustained above-threshold interval. It counts permitted moving tracks and is
+  independent of crowd proximity, clustering, density, panic, or the existing
+  crowd-formation detector.
+- YOLO person detection and ByteTrack continue regardless of whether tracking
+  boxes are hidden or shown. Overlay visibility only selects the raw or
+  authenticated annotated stream variant.
+- Both motion detectors default off. Movement defaults are enter `0.05`, exit
+  `0.02`, minimum track age `0.4s`, minimum people `2`, and persistence `0.5s`.
+- Tracking boxes default hidden. The global control persists per operator;
+  per-camera `Use global`/`Show`/`Hide` overrides last only for the current
+  desktop session. Visibility changes do not stop monitoring.
+
+Task 5 validation on 2026-09-13 produced:
+
+- focused backend: `123 passed, 15 warnings`;
+- frontend unit: `118 passed`;
+- frontend production build: passed;
+- full Python: `1446 passed, 8 skipped, 2 failed`;
+- real local replay of `data/test_clips/normal_street_01.mp4`: one admitted
+  scenario-5 candidate at clip timestamp 10.0s for tracks 35 and 52, one real
+  `gemma3:4b` confirmation, one persisted event, zero gate errors/unverified
+  results, and one additional queue duplicate suppressed;
+- authenticated shown-overlay path: exercised with 205,828 MJPEG bytes received.
+
+Sanitized replay facts, source/transient-artifact hashes, and the exact local
+Ollama model digest are retained in
+`docs/evidence/chi-motion-local-replay-2026-09-13.json`. The original output
+directory was transient, so the manifest supports provenance checks and source
+replay, not re-inspection of every original output byte.
+
+The original Task 5 regression found two different causes; they must not be
+grouped as environment failures:
+
+1. The shared environment has Ultralytics 8.4.64 while `requirements.txt` pins
+   8.4.35. This is the sole environment-caused failure; the DirectML seam test
+   intentionally detects it.
+2. The stale `docs/prompt_baseline.json` fingerprint was feature-caused by the
+   scenario-5 prompt wording. Fix round 1 updated it to
+   `0bf660f4a024...` and detector-question count 8. Current metrics remain null
+   and unmeasured, with the prior measured baseline retained as provenance,
+   because the frozen corpus is unavailable.
+
+Post-fix verification is `161 passed` for the combined focused backend/prompt/
+scorer set and `1462 passed, 8 skipped, 1 failed` for full Python. The sole
+remaining full-suite failure is the Ultralytics environment mismatch above;
+the prompt regression check now passes while explicitly reporting unmeasured
+metrics.
+
+The retained clips do not provide the controlled stationary-crowd,
+temporary-occlusion, or permitted-zone-boundary cases. They also lack frozen
+person-frame and identity annotations. Detection recall, ID switches,
+scenario-5 precision/recall, formal detection delay, candidate duplicate rate,
+and the complete acceptance cells remain **unmeasured**. The local replay is
+plumbing evidence only. Hidden-versus-shown FPS is also unmeasured because the
+single shown run overlapped regression load and no overlay-specific timing
+series exists.
+
+`tools/score_chi_motion.py` is the acceptance scorer. It validates combined
+half-open interval labels with case clip hashes and target sampling rates. It
+requires every expected person/sample observation, including explicit misses
+on the clip-anchored target-FPS grid and the documented final-frame sample, so
+absent rows cannot improve recall or ID-switch results. Candidate `case_id`
+provides deterministic clip association: unknown/out-of-bounds candidates are
+malformed, while valid candidates outside a scored positive interval are false
+positives. Ambiguous scored interval overlaps remain errors.
+
+The scorer also validates complete generated-candidate and gate audit rows from
+SQLite or JSON and exactly three paired hidden/shown performance runs. Every run
+must declare schema, case/clip, pair/run ID, mode/query, config hash, and sample
+count/duration plus observation count. `sample_count` must equal production
+`engine.units` (processed frames used for FPS), while `observation_count` must
+equal `engine.count` (inference batches); each pair must have equal sampling.
+Six distinct non-empty
+capture files must be complete `--argusframe` MJPEG streams containing valid
+JPEG framing, and all six content hashes must be unique. Every serialized rate
+must agree with frame units / duration within the exact three-decimal rounding
+interval. The hash-verified captures are included in the retained result's
+input hashes. The result contains observation coverage, person recall, ID
+switches, scenario-5 precision/recall, per-candidate classification, duplicate
+candidates and persisted alerts, detection delay, and paired overlay FPS impact.
+The runtime now writes the complete scenario-5 pre-queue lifecycle to
+`motion_candidate_audit`. Candidate-derived acceptance metrics nevertheless
+remain unmeasured until the controlled matrix is captured and scored; gate
+directories alone remain insufficient.
+
+The frontend's full Playwright suite completed with `19 passed, 2 failed`.
+Both existing failures are caused by the absent ignored
+`Frontend/public/demo` media: the overview finds zero videos and the zone
+workspace cannot obtain a snapshot's natural image ratio. These must not be
+interpreted as tracking-overlay regressions or silently omitted from release
+reporting.
+
+No video fixture was added: the repository media do not cover all required
+cases, and no new recording with documented redistribution rights was
+available.
+
+## Scenario 10 Handoff - 2026-09-13
+
+Chi pilot scenario 10 (pocketing and personal-bag concealment) has an
+architecture repair through `0da99f9`. The production serving path now:
+
+- keeps per-person concealment history across unsampled `heavy_stride` frames
+  and expires abandoned tracks after a grace period;
+- reuses the shared COCO detections for backpacks, handbags, and suitcases,
+  assigns each physical bag to at most one nearby pose track, and retains that
+  owner across near-equal frame jitter for the concealment scoring window;
+- scores a sampled pose window for destination proximity, reach/retract, and
+  dwell, producing a candidate with a `waist` or `bag` destination rather than
+  declaring theft;
+- carries the score components, reasons, limited-evidence flag, and associated
+  bag box through `RawEvent`, `CandidateAlert`, and the shared alert queue;
+- applies reviewed Agent Mapper context compatibility before a candidate enters
+  the shared alert queue;
+- sends TrueSight three chronological concealment frames plus a subject crop,
+  with prompt instructions to reject browsing, phone handling, clothing
+  adjustment, openly carried goods, and trolley/basket placement; and
+- stores every generated concealment candidate in the retained
+  `concealment_audit` SQLite table before queue admission, including admitted,
+  deduplicated, and capacity-dropped outcomes, then attaches any gate verdict;
+  only a confirmed high-priority result becomes a persisted/notified user alert; and
+- records per-camera `pose_infer` latency and invocation throughput in
+  `perf_report.json`.
+
+The deterministic regression coverage exercises the repaired timeline, bag
+grounding, rules metadata, audit persistence, pose timing, evidence selection,
+and prompt versioning. This is
+not yet an empirical scenario-10 pass. `docs/prompt_baseline.json` remains
+marked **unmeasured** because the frozen golden corpus is unavailable; its
+fingerprint and prompt counts now match the scenario-5-aware prompt. Precision
+and recall are unknown. Do not reuse the previous prompt's metrics for this
+wording and do not tune the `0.63` candidate threshold or four-sample
+persistence until labeled Chi clips have been run.
+
+The repeatable scenario-10 recording matrix, commands, acceptance gates, and
+reporting fields are in `docs/CHI_PILOT_TESTING.md`, alongside the completed
+scenarios 4 and 5 validation workflow.
+
+## Previous Authoritative Handoff - 2026-09-03
 
 The full hierarchical Agent Mapper work is now on Ayo's `main`, including
 review protection, evidence-bearing bulk review, and the performance work
@@ -30,7 +212,7 @@ small-model alternative. Until then, keep `gemma3:4b` behind mandatory human
 scene review; its structural output is reliable, but outdoor classification is
 not accurate enough for automatic acceptance.
 
-## Previous Authoritative Handoff - 2026-08-30
+## Earlier Authoritative Handoff - 2026-08-30
 
 This section supersedes older "current state" statements later in this
 chronological document. The implementation base is Ayo's production branch at

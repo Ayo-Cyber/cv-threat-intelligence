@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from cvti.contracts import RawEvent
@@ -110,10 +111,34 @@ def concealment_to_events(assessments: list[Any], timestamp: float = 0.0) -> lis
                 extra={
                     "destination": destination,
                     "score": float(getattr(assessment, "score", 0.0)),
+                    "components": deepcopy(getattr(assessment, "components", {}) or {}),
+                    "reasons": deepcopy(getattr(assessment, "reasons", []) or []),
+                    "limited": bool(getattr(assessment, "limited", False)),
+                    "associated_bag": getattr(assessment, "associated_bag", None),
                 },
             )
         )
     return events
+
+
+def simultaneous_movement_to_event(event: dict, timestamp: float = 0.0) -> RawEvent:
+    """Bridge aggregate tracked movement into one scenario-5 RawEvent."""
+    people_count = int(event.get("people_count", len(event.get("track_ids", []))))
+    return RawEvent(
+        detector="multiple_people_moving",
+        active=True,
+        title="MULTIPLE PEOPLE MOVING",
+        level="high",
+        timestamp=timestamp,
+        extra={
+            "confidence": float(event["confidence"]),
+            "people_count": people_count,
+            "track_ids": deepcopy(event["track_ids"]),
+            "group_bbox": tuple(event["group_bbox"]),
+            "motions": deepcopy(event["motions"]),
+            "reasons": [f"{people_count} tracked people moving simultaneously"],
+        },
+    )
 
 
 def assessments_to_events(

@@ -123,11 +123,17 @@ how sure you are of YOUR OWN verdict: high when the evidence is unmistakable, lo
 are guessing.
 """
 
+_CONCEALMENT_NORMAL_ACTION_POLICY = (
+    "Reject normal browsing, phone handling, clothing adjustment, openly carried goods, "
+    "and placement into a trolley or shopping basket."
+)
+
 _QUESTIONS: dict[str, str] = {
     "shoplifting": ("Is a person CONCEALING merchandise in this {environment_type} — slipping it "
                     "into clothing, a pocket, a waistband, or a personal bag? Handling, examining "
                     "or carrying goods openly, or putting them in a shop basket or trolley, is "
-                    "normal shopping and is NOT shoplifting."),
+                    "normal shopping and is NOT shoplifting. "
+                    + _CONCEALMENT_NORMAL_ACTION_POLICY),
     "violence_in_store": "Does this frame show genuine physical violence or assault in a {environment_type}?",
     "weapon_sighting": "Does this frame show a real weapon being carried or brandished by a person?",
     "after_hours_intrusion": "Does this frame show unauthorized presence in a {environment_type} outside business hours?",
@@ -167,6 +173,11 @@ _DETECTOR_QUESTIONS: dict[str, str] = {
     "person_fall": "Do these frames show a person who has collapsed or is lying on the ground (fallen, fainted, or knocked down) and NOT getting up — a possible medical emergency? Someone sitting, crouching, kneeling, bending down, or deliberately lying down is NOT a fall.",
     "running": "Does this brief sequence show a person running or moving with panic/urgency? Someone walking calmly is NOT panic.",
     "crowd_formation": "Does this frame show an unsafe crowd or tight group formation blocking movement or exits? A few people spread out normally is NOT unsafe.",
+    "multiple_people_moving": (
+        "Do these frames show multiple distinct people visibly moving at the same time? "
+        "Verify simultaneous movement only; proximity is not required. "
+        "Crowd density and panic are not required."
+    ),
 }
 
 
@@ -201,7 +212,7 @@ _STRICT_SHOPLIFTING_Q = (
     "Is a person CONCEALING merchandise in this {environment_type} — slipping it into "
     "clothing, a pocket, a waistband, or a personal bag? Handling, examining or carrying "
     "goods openly, or putting them in a shop basket or trolley, is normal shopping and is "
-    "NOT shoplifting.")
+    "NOT shoplifting. " + _CONCEALMENT_NORMAL_ACTION_POLICY)
 
 SENSITIVITY_QUESTIONS: dict[str, dict[str, str]] = {
     "sensitive": {},                       # use the defaults above
@@ -349,11 +360,13 @@ class VerificationGate:
     TIMEOUT_FLOOR_S = 90.0
     TIMEOUT_CEIL_S = 360.0
     # Frames per verdict on a LOCAL model (11 Sep pilot): the vision tower
-    # pays per image, so a CPU box gets two — one full frame for context plus
-    # the LAST image, which is where the evidence builder appends the zoomed
-    # subject crop that decides appearance verdicts (W5). Site override:
-    # "gate_max_frames".
+    # pays per image, so a CPU box normally gets two. Concealment is temporal:
+    # its rule contract is three chronological full frames plus the final
+    # subject crop, so its derived default preserves all four. Simultaneous
+    # movement keeps its three-frame chronology. Site override: "gate_max_frames".
     LOCAL_MAX_FRAMES = 2
+    LOCAL_CONCEALMENT_MAX_FRAMES = 4
+    LOCAL_MOVEMENT_MAX_FRAMES = 3
     # Conventional API-key env var per provider.
     DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY",
                        "ollama": "OLLAMA_API_KEY"}
@@ -450,7 +463,15 @@ class VerificationGate:
         frames = frame if isinstance(frame, list) else [frame]
         cap = self.max_frames
         if cap is None:
-            cap = self.LOCAL_MAX_FRAMES if self.provider in ("ollama", "local") else 0
+            if self.provider in ("ollama", "local"):
+                if alert.detector == "concealment":
+                    cap = self.LOCAL_CONCEALMENT_MAX_FRAMES
+                elif alert.detector == "multiple_people_moving":
+                    cap = self.LOCAL_MOVEMENT_MAX_FRAMES
+                else:
+                    cap = self.LOCAL_MAX_FRAMES
+            else:
+                cap = 0
         if cap and len(frames) > cap:
             # The LAST image always survives the cap — evidence builders
             # append the zoomed subject crop there, and it is the frame that

@@ -5,17 +5,22 @@ Three prompt revisions moved theft precision 37.5% -> 53.3% -> 63.6% — a
 26-point swing on wording alone, with nothing guarding it. Anyone could edit
 `_QUESTIONS`, run the app, see it work, and ship that invisibly.
 """
+import io
 import json
 import tempfile
 import types
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
 from cvti.contracts import VerificationResult
 from cvti.eval import prompt_fingerprint as fp
 from cvti.eval.golden import GoldenSet, GoldenSetWriter, score
+from cvti.verification import gate
+from tools import prompt_regression
 
 
 def _candidate(rule="shoplifting"):
@@ -57,6 +62,14 @@ class FingerprintTest(unittest.TestCase):
 
     def test_it_is_stable_across_calls(self):
         self.assertEqual(fp.fingerprint(), fp.fingerprint())
+
+    def test_versioned_concealment_questions_reject_normal_actions(self):
+        policy = (
+            "Reject normal browsing, phone handling, clothing adjustment, openly carried "
+            "goods, and placement into a trolley or shopping basket."
+        )
+        self.assertIn(policy, gate._QUESTIONS["shoplifting"])
+        self.assertIn(policy, gate.SENSITIVITY_QUESTIONS["strict"]["shoplifting"])
 
 
 class GoldenSetTest(unittest.TestCase):
@@ -211,12 +224,128 @@ class BaselineTest(unittest.TestCase):
             "gate prompt text changed without re-measuring — see "
             "tools/prompt_regression.py")
 
-    def test_the_baseline_records_what_it_measured(self):
+    def test_baseline_status_matches_its_metric_provenance(self):
         base = json.loads(self.BASELINE.read_text())
-        for key in ("precision", "recall", "golden_cases", "gate_model", "tolerance",
-                    "measured_at"):
+        for key in ("measurement_status", "precision", "recall", "golden_cases",
+                    "gate_model", "tolerance", "measured_at"):
             self.assertIn(key, base)
-        self.assertGreater(base["golden_cases"], 0)
+        self.assertIn(base["measurement_status"], ("measured", "unmeasured"))
+        if base["measurement_status"] == "measured":
+            self.assertGreater(base["golden_cases"], 0)
+            self.assertIsNotNone(base["precision"])
+            self.assertIsNotNone(base["recall"])
+            self.assertIsNotNone(base["measured_at"])
+        else:
+            self.assertEqual(base["golden_cases"], 0)
+            self.assertIsNone(base["precision"])
+            self.assertIsNone(base["recall"])
+            self.assertIsNone(base["measured_at"])
+            self.assertIn("previous_measurement", base)
+
+    def test_check_reports_a_matching_unmeasured_prompt_honestly(self):
+        baseline = {
+            "fingerprint": fp.fingerprint(),
+            "measurement_status": "unmeasured",
+            "precision": None,
+            "recall": None,
+            "golden_cases": 0,
+            "unmeasured_reason": "golden corpus unavailable",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "baseline.json"
+            path.write_text(json.dumps(baseline))
+            output = io.StringIO()
+            with mock.patch.object(prompt_regression, "BASELINE", path), \
+                    redirect_stdout(output):
+                result = prompt_regression.cmd_check(types.SimpleNamespace())
+
+        self.assertEqual(result, 0)
+        self.assertIn("UNMEASURED", output.getvalue())
+        self.assertNotIn("matches the recorded measurement", output.getvalue())
+
+    def test_completed_replay_marks_an_updated_baseline_measured(self):
+        args = types.SimpleNamespace(
+            golden_dir="unused", fresh=False, gate_provider="mock", gate_model="mock",
+            sensitivity="balanced", verbose=False, limit=0, update_baseline=True,
+        )
+        golden = mock.MagicMock()
+        golden.__len__.return_value = 1
+        golden.replay.return_value = [{"case_id": "one"}]
+        measured = {"errors": 0, "precision": 1.0, "recall": 1.0}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline = Path(tmp) / "baseline.json"
+            with mock.patch.object(prompt_regression, "BASELINE", baseline), \
+                    mock.patch.object(prompt_regression, "GoldenSet", return_value=golden), \
+                    mock.patch.object(prompt_regression, "score", return_value=measured), \
+                    mock.patch.object(prompt_regression, "_model_digest", return_value="digest"), \
+                    redirect_stdout(io.StringIO()):
+                result = prompt_regression.cmd_run(args)
+            updated = json.loads(baseline.read_text())
+
+        self.assertEqual(result, 0)
+        self.assertEqual(updated["measurement_status"], "measured")
+
+    def test_partial_replay_is_not_reported_or_compared_as_a_full_measurement(self):
+        args = types.SimpleNamespace(
+            golden_dir="unused", fresh=False, gate_provider="mock", gate_model="mock",
+            sensitivity="balanced", verbose=False, limit=1, update_baseline=False,
+        )
+        golden = mock.MagicMock()
+        golden.__len__.return_value = 3
+        golden.replay.return_value = [{"case_id": "one"}]
+        partial = {"errors": 0, "precision": 1.0, "recall": 1.0}
+        output = io.StringIO()
+
+        with mock.patch.object(prompt_regression, "GoldenSet", return_value=golden), \
+                mock.patch.object(prompt_regression, "score", return_value=partial), \
+                mock.patch.object(prompt_regression, "_model_digest", return_value="digest"), \
+                redirect_stdout(output):
+            result = prompt_regression.cmd_run(args)
+
+        reported = json.loads(output.getvalue())
+        self.assertEqual(result, 2)
+        self.assertEqual(reported["measurement_status"], "partial")
+        self.assertEqual(reported["golden_cases"], 1)
+        self.assertEqual(reported["corpus_cases"], 3)
+
+    def test_corpus_sized_replay_with_errors_cannot_become_a_measurement(self):
+        golden = mock.MagicMock()
+        golden.__len__.return_value = 3
+        golden.replay.return_value = [
+            {"case_id": "one"}, {"case_id": "two"}, {"case_id": "three"},
+        ]
+        errored = {"errors": 1, "scored": 2, "precision": 1.0, "recall": 0.5}
+        original_baseline = {
+            "fingerprint": fp.fingerprint(), "measurement_status": "unmeasured",
+            "precision": None, "recall": None, "tolerance": {},
+        }
+
+        for update_baseline in (False, True):
+            args = types.SimpleNamespace(
+                golden_dir="unused", fresh=False, gate_provider="mock",
+                gate_model="mock", sensitivity="balanced", verbose=False,
+                limit=0, update_baseline=update_baseline,
+            )
+            output = io.StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                baseline = Path(tmp) / "baseline.json"
+                baseline.write_text(json.dumps(original_baseline))
+                with mock.patch.object(prompt_regression, "BASELINE", baseline), \
+                        mock.patch.object(prompt_regression, "GoldenSet", return_value=golden), \
+                        mock.patch.object(prompt_regression, "score", return_value=errored), \
+                        mock.patch.object(prompt_regression, "_model_digest",
+                                          return_value="digest"), \
+                        redirect_stdout(output):
+                    result = prompt_regression.cmd_run(args)
+
+                self.assertEqual(json.loads(baseline.read_text()), original_baseline)
+
+            reported = json.loads(output.getvalue())
+            self.assertEqual(result, 2)
+            self.assertEqual(reported["measurement_status"], "partial")
+            self.assertEqual(reported["golden_cases"], 2)
+            self.assertEqual(reported["corpus_cases"], 3)
 
     def test_tolerance_is_tighter_on_recall_than_precision(self):
         # Losing precision costs an operator a review. Losing recall means a

@@ -1,0 +1,11 @@
+{
+  "use_case_id": "chi_pilot_v1",
+  "rules": [
+    {
+      "name": "chi_multiple_people_moving",
+      "trigger": {"detector": "multiple_people_moving"},
+      "priority": "high",
+      "gate_question": "Do these frames show multiple distinct people visibly moving at the same time? Verify simultaneous movement only; proximity is not required. Crowd density and panic are not required."
+    }
+  ]
+}

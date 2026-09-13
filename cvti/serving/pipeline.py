@@ -28,6 +28,7 @@ from typing import Any, Callable
 from cvti.contracts import LOCAL_VLM_MODEL
 from cvti.serving.alert_queue import QueuedAlert
 from cvti.serving.batcher import collect_batch
+from cvti.serving.frame_publisher import FrameOverlay
 from cvti.serving.streams import Frame, StreamDecoder
 from cvti.logging_setup import get_logger
 
@@ -35,6 +36,32 @@ log = get_logger(__name__)
 
 # Handler signature: (frame, ultralytics_result) -> None
 ResultHandler = Callable[[Frame, Any], None]
+
+
+def _frame_overlays(state: Any) -> list[FrameOverlay]:
+    return [
+        FrameOverlay(
+            track_id=int(item["track_id"]),
+            bbox=tuple(item["bbox"]),
+            label=str(item["label"]),
+            colour=tuple(item.get("colour", (0, 200, 0))),
+        )
+        for item in (getattr(state, "_motion_overlays", ()) or ())
+    ]
+
+
+def _alert_track_ids(alerts: Any) -> set[int]:
+    track_ids: set[int] = set()
+    for alert in alerts:
+        scalar = getattr(alert, "track_id", getattr(alert, "person_id", None))
+        if scalar is not None:
+            track_ids.add(int(scalar))
+        payload = getattr(alert, "payload", {}) or {}
+        candidate = payload.get("candidate") if isinstance(payload, dict) else None
+        metadata = getattr(candidate or alert, "metadata", {}) or {}
+        for track_id in metadata.get("track_ids", ()):
+            track_ids.add(int(track_id))
+    return track_ids
 
 
 def _gate_workers_for(requested: int, n_cameras: int, *, provider: str = "",
@@ -413,7 +440,15 @@ class MultiStreamPipeline:
                         # freeze-then-fast-forward at every burst.
                         jpeg = d.playout.pop_due(time.perf_counter())
                         if jpeg is not None:
-                            self.publisher.publish_jpeg(cam_id, jpeg)
+                            state = ((self._camera_states or {}).get(cam_id)
+                                     if cam_id not in self.view_only else None)
+                            latest, _ = d.peek_latest()
+                            source_size = (latest.image.shape[:2]
+                                           if latest is not None and state is not None
+                                           else None)
+                            self.publisher.publish_jpeg(
+                                cam_id, jpeg, _frame_overlays(state), source_size
+                            )
                         continue
                     frame, seq = d.peek_latest()
                 except Exception:  # noqa: BLE001 - one camera must not stop the wall
@@ -423,7 +458,9 @@ class MultiStreamPipeline:
                     continue
                 last_seq[cam_id] = seq
                 try:
-                    self.publisher.publish(cam_id, frame.image)   # raw glass — no boxes
+                    state = ((self._camera_states or {}).get(cam_id)
+                             if cam_id not in self.view_only else None)
+                    self.publisher.publish(cam_id, frame.image, _frame_overlays(state))
                 except Exception:  # noqa: BLE001
                     log.debug("smooth publish failed for %s", cam_id, exc_info=True)
             sleep = period - (time.perf_counter() - t0)
@@ -480,9 +517,11 @@ class MultiStreamPipeline:
             self.latest_boxes[frame.camera_id] = boxes
             if alerts:
                 self.publisher.mark_alerting(
-                    frame.camera_id, {a.track_id for a in alerts if a.track_id is not None})
+                    frame.camera_id, _alert_track_ids(alerts))
             if not self.smooth_publish:
-                self.publisher.publish(frame.camera_id, frame.image, boxes)
+                self.publisher.publish(
+                    frame.camera_id, frame.image, _frame_overlays(state)
+                )
 
     def _all_ended(self) -> bool:
         return all(d.ended and not d.read_latest() for d in self._decoders.values())
@@ -841,6 +880,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # instead of only printed. sink.handle is the gate's verdict callback.
     from cvti.serving.alert_sink import AlertSink, build_notifier
     sink = AlertSink(output_dir, notifier=build_notifier(notify))
+    queue.on_generated = sink.audit_candidate_generated
+    queue.on_admission = sink.audit_candidate_admission
     # W1.6: when detection rides a substream, the sink can still attach one
     # full-resolution mainstream frame per alert — go2rtc hands it over
     # without the engine decoding that stream at all.
@@ -869,7 +910,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                               base_url=gate_base_url, save_dir=save_dir,
                                               sensitivity=gate_sensitivity,
                                               # frames per verdict; None derives
-                                              # (local models get 1 — 11 Sep pilot)
+                                              # (local models get 2, concealment 4)
                                               max_frames=site.get("gate_max_frames")),
         workers=_gate_workers_for(gate_workers, len(cams_cfg),
                                   provider=gate_provider, device=device),
@@ -883,11 +924,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # The UI reads frames from here instead of opening every stream a second time
     # (decode is the dominant per-camera cost) — and gets live boxes for free.
     from cvti.serving.frame_publisher import FramePublisher
-    # Watch is pure glass (user, 25 Aug): the live wall ships RAW frames — no
-    # box drawing, no per-frame copy. Boxes belong to the alert, where the
-    # sink already writes the annotated subject shot; a live overlay trailing
-    # the person by a detection interval looked broken and bought nothing.
-    publisher = FramePublisher(draw_boxes=False).start(output_dir) if publish_frames else None
+    # Raw Watch tiles stay pure glass. Tracking viewers explicitly select the
+    # separately cached annotated variant; they never alter the canonical JPEG.
+    publisher = FramePublisher().start(output_dir) if publish_frames else None
 
     def _on_link_change(cam_id: str, previous: str, state: str, held: float) -> None:
         """A camera going offline raises its own alert through normal routing.

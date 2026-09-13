@@ -102,6 +102,7 @@ class RetentionManager:
     def _connect(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.db_path)
         con.row_factory = sqlite3.Row
+        con.execute("PRAGMA busy_timeout = 5000")
         return con
 
     @staticmethod
@@ -189,23 +190,73 @@ class RetentionManager:
         con.execute("DELETE FROM events WHERE id = ?", (row["id"],))
         return True
 
+    def _expired_audit_ids(self, now: float) -> list[int]:
+        cutoff = now - self.policy.days * 86400
+        con = self._connect()
+        try:
+            return [row[0] for row in con.execute(
+                "SELECT id FROM concealment_audit WHERE generated_at < ? "
+                "ORDER BY generated_at ASC",
+                (cutoff,),
+            )]
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            con.close()
+
+    def _expired_motion_audit_ids(self, now: float) -> list[str]:
+        cutoff = now - self.policy.days * 86400
+        con = self._connect()
+        try:
+            return [row[0] for row in con.execute(
+                "SELECT candidate_id FROM motion_candidate_audit WHERE generated_at < ? "
+                "ORDER BY generated_at ASC",
+                (cutoff,),
+            )]
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            con.close()
+
+    @staticmethod
+    def _delete_audit_ids(con: sqlite3.Connection, audit_ids: list[int]) -> int:
+        if not audit_ids:
+            return 0
+        con.executemany(
+            "DELETE FROM concealment_audit WHERE id = ?",
+            ((audit_id,) for audit_id in audit_ids),
+        )
+        return len(audit_ids)
+
+    @staticmethod
+    def _delete_motion_audit_ids(
+        con: sqlite3.Connection, audit_ids: list[str]
+    ) -> int:
+        if not audit_ids:
+            return 0
+        con.executemany(
+            "DELETE FROM motion_candidate_audit WHERE candidate_id = ?",
+            ((audit_id,) for audit_id in audit_ids),
+        )
+        return len(audit_ids)
+
     def purge(self, now: float | None = None, dry_run: bool = False) -> dict:
         """Delete expired, settled events. Returns what happened."""
         if not self.policy.enabled:
             return {"skipped": "retention disabled"}
+        now = now if now is not None else time.time()
         rows = self.expired(now)
+        audit_ids = self._expired_audit_ids(now)
+        motion_audit_ids = self._expired_motion_audit_ids(now)
         result = {"examined": len(rows), "deleted": 0, "failed": 0,
                   "held": self.held(now), "dry_run": dry_run,
                   "retention_days": self.policy.days, "orphans_removed": 0,
-                  "would_delete": [r["id"] for r in rows] if dry_run else []}
+                  "would_delete": [r["id"] for r in rows] if dry_run else [],
+                  "audit_deleted": 0,
+                  "audit_would_delete": audit_ids if dry_run else [],
+                  "motion_audit_deleted": 0,
+                  "motion_audit_would_delete": motion_audit_ids if dry_run else []}
         if dry_run:
-            self.last_run = {**result, "at": time.time()}
-            return result
-        if not rows:
-            # An orphan exists independently of expiry — a site where nothing
-            # has aged out yet can still be holding evidence no record points
-            # to, which is the copy nobody can find or erase on request.
-            result["orphans_removed"] = self.sweep_orphans()
             self.last_run = {**result, "at": time.time()}
             return result
 
@@ -223,6 +274,15 @@ class RetentionManager:
                     con.rollback()
                     result["failed"] += 1
                     self._health.failed(exc, log, f"purging event {row['id']}")
+            try:
+                result["audit_deleted"] = self._delete_audit_ids(con, audit_ids)
+                result["motion_audit_deleted"] = self._delete_motion_audit_ids(
+                    con, motion_audit_ids
+                )
+                con.commit()
+            except sqlite3.Error as exc:
+                con.rollback()
+                self._health.failed(exc, log, "purging concealment audit rows")
         finally:
             con.close()
 
@@ -279,12 +339,37 @@ class RetentionManager:
         log.warning("retention: disk at %.1f%% — emergency purge, oldest first",
                     status["used_pct"])
         deleted = 0
+        audit_deleted = 0
+        motion_audit_deleted = 0
+        database_reclaimed: bool | None = None
+        db_bytes_reclaimed = 0
+        reclaim_error = ""
         con = self._connect()
         try:
             while True:
                 status = disk_status(self.root, self.policy)
                 if status.get("level") != "critical":
                     break
+                audit_ids = self._oldest_audit_ids(con, limit=1000)
+                motion_audit_ids = self._oldest_motion_audit_ids(con, limit=1000)
+                if audit_ids or motion_audit_ids:
+                    audit_deleted += self._delete_audit_ids(con, audit_ids)
+                    motion_audit_deleted += self._delete_motion_audit_ids(
+                        con, motion_audit_ids
+                    )
+                    con.commit()
+                    reclaim = self._reclaim_database_bytes(con)
+                    database_reclaimed = bool(reclaim["reclaimed"])
+                    db_bytes_reclaimed += int(reclaim.get("bytes_reclaimed", 0))
+                    reclaim_error = str(reclaim.get("error") or "")
+                    if not database_reclaimed:
+                        log.error(
+                            "retention: audit rows committed but SQLite bytes could not be "
+                            "reclaimed; preserving event evidence: %s",
+                            reclaim_error or "unknown SQLite reclaim failure",
+                        )
+                        break
+                    continue
                 rows = self._oldest_deletable(con, limit=25)
                 if not rows:
                     log.error("retention: disk at %.1f%% and nothing is deletable — "
@@ -299,7 +384,77 @@ class RetentionManager:
                         con.rollback()
         finally:
             con.close()
-        return {"triggered": True, "deleted": deleted, "disk": disk_status(self.root, self.policy)}
+        return {"triggered": True, "deleted": deleted,
+                "audit_deleted": audit_deleted,
+                "motion_audit_deleted": motion_audit_deleted,
+                "database_reclaimed": database_reclaimed,
+                "db_bytes_reclaimed": db_bytes_reclaimed,
+                "reclaim_error": reclaim_error,
+                "disk": disk_status(self.root, self.policy)}
+
+    def _database_footprint(self) -> int:
+        return sum(
+            path.stat().st_size
+            for path in (
+                self.db_path,
+                Path(f"{self.db_path}-wal"),
+                Path(f"{self.db_path}-shm"),
+            )
+            if path.exists()
+        )
+
+    def _reclaim_database_bytes(self, con: sqlite3.Connection) -> dict:
+        """Compact only after the deletion transaction has committed.
+
+        SQLite itself coordinates with the long-lived AlertSink connection. If
+        another connection has an active transaction, VACUUM fails cleanly and
+        emergency purge stops before sacrificing event evidence.
+        """
+        before = self._database_footprint()
+        try:
+            con.commit()
+            checkpoint = con.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint and int(checkpoint[0]) != 0:
+                raise sqlite3.OperationalError("WAL checkpoint is busy")
+            con.execute("VACUUM")
+            checkpoint = con.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint and int(checkpoint[0]) != 0:
+                raise sqlite3.OperationalError("WAL checkpoint is busy after VACUUM")
+            freelist = int(con.execute("PRAGMA freelist_count").fetchone()[0])
+            after = self._database_footprint()
+            return {
+                "reclaimed": freelist == 0,
+                "bytes_reclaimed": max(0, before - after),
+                "freelist_count": freelist,
+                "error": "" if freelist == 0 else f"{freelist} free pages remain",
+            }
+        except sqlite3.Error as exc:
+            return {
+                "reclaimed": False,
+                "bytes_reclaimed": 0,
+                "error": str(exc),
+            }
+
+    @staticmethod
+    def _oldest_audit_ids(con: sqlite3.Connection, limit: int) -> list[int]:
+        try:
+            return [row[0] for row in con.execute(
+                "SELECT id FROM concealment_audit ORDER BY generated_at ASC LIMIT ?",
+                (limit,),
+            )]
+        except sqlite3.OperationalError:
+            return []
+
+    @staticmethod
+    def _oldest_motion_audit_ids(con: sqlite3.Connection, limit: int) -> list[str]:
+        try:
+            return [row[0] for row in con.execute(
+                "SELECT candidate_id FROM motion_candidate_audit "
+                "ORDER BY generated_at ASC LIMIT ?",
+                (limit,),
+            )]
+        except sqlite3.OperationalError:
+            return []
 
     def _oldest_deletable(self, con: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
         try:

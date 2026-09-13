@@ -6,9 +6,16 @@ async function mountEngine(
   rejectBranchCreate = false,
   reservedIds = false,
   cameraCount = 1,
+  monitoringRunning = false,
 ) {
   await page.addInitScript(
-    ({ initialPermissions, rejectBranch, useReservedIds, mountedCameraCount }) => {
+    ({
+      initialPermissions,
+      rejectBranch,
+      useReservedIds,
+      mountedCameraCount,
+      initialMonitoringRunning,
+    }) => {
       const state = {
         permissions: initialPermissions,
         calls: [] as string[],
@@ -70,7 +77,8 @@ async function mountEngine(
           if (method === "hierarchy") return hierarchy;
           if (method === "get_site")
             return { name: "Test Site", notify: "console" };
-          if (method === "monitoring_status") return { running: false };
+          if (method === "monitoring_status")
+            return { running: initialMonitoringRunning };
           if (method === "english_rules_status") return { available: false };
           if (method === "feed_sources") return { active: "", sources: [] };
           if (method === "gate_status") return { ready: false };
@@ -98,6 +106,7 @@ async function mountEngine(
       rejectBranch: rejectBranchCreate,
       useReservedIds: reservedIds,
       mountedCameraCount: cameraCount,
+      initialMonitoringRunning: monitoringRunning,
     },
   );
   await page.reload();
@@ -457,6 +466,215 @@ test("streams-only wall supports filtering, focus, fullscreen, and ordered escap
   await expect(
     page.getByRole("heading", { name: "Every camera. One clear picture." }),
   ).toBeVisible();
+});
+
+test("tracking overlay controls persist globally and keep camera overrides session-only", async ({
+  page,
+}) => {
+  await mountEngine(page, ["view_live"], false, false, 2, true);
+
+  const globalToggle = page.getByRole("button", { name: "Show tracking" });
+  const frontOverride = page.getByLabel("Tracking overlay for camera-001");
+  const clearStreamLedger = () =>
+    page.evaluate(() => {
+      (window as any).__argusTest.invocations = [];
+    });
+  const streamLedger = () =>
+    page.evaluate(() =>
+      (window as any).__argusTest.invocations
+        .filter((entry: { method: string }) => entry.method === "camera_stream")
+        .map((entry: { args: unknown[] }) => entry.args),
+    );
+  await expect(globalToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(frontOverride).toHaveValue("global");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const requests = (window as any).__argusTest.invocations.filter(
+          (entry: { method: string; args: unknown[] }) =>
+            entry.method === "camera_stream" &&
+            /^camera-\d+$/.test(String(entry.args[0])),
+        );
+        return {
+          cameraIds: [
+            ...new Set(
+              requests.map((entry: { args: unknown[] }) => entry.args[0]),
+            ),
+          ],
+          allHidden: requests.every(
+            (entry: { args: unknown[] }) => entry.args[1] === false,
+          ),
+        };
+      }),
+    )
+    .toEqual({ cameraIds: ["camera-001", "camera-002"], allHidden: true });
+  await clearStreamLedger();
+
+  await frontOverride.selectOption("show");
+  await expect.poll(streamLedger).toEqual([["camera-001", true]]);
+
+  await clearStreamLedger();
+  await globalToggle.click();
+  await expect(globalToggle).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(streamLedger).toEqual([["camera-002", true]]);
+  await expect(
+    page.locator(".metrics").getByText("Running", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      (window as any).__argusTest.calls.includes("stop_monitoring"),
+    ),
+  ).toBe(false);
+
+  await clearStreamLedger();
+  await frontOverride.selectOption("hide");
+  await expect.poll(streamLedger).toEqual([["camera-001", false]]);
+
+  await clearStreamLedger();
+  await frontOverride.selectOption("global");
+  await expect.poll(streamLedger).toEqual([["camera-001", true]]);
+
+  const secondOverride = page.getByLabel("Tracking overlay for camera-002");
+  await clearStreamLedger();
+  await secondOverride.selectOption("hide");
+  await expect.poll(streamLedger).toEqual([["camera-002", false]]);
+
+  await page.getByRole("button", { name: "Open streams wall" }).click();
+  const wall = page.getByRole("region", { name: "Streams-only camera wall" });
+  await expect(
+    wall.getByRole("button", { name: "Show tracking" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(wall.getByLabel("Tracking overlay for camera-002")).toHaveValue(
+    "hide",
+  );
+
+  await page.reload();
+  await page.getByRole("button", { name: "Local engine", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Show tracking" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("Tracking overlay for camera-002")).toHaveValue(
+    "global",
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).__argusTest.invocations.filter(
+            (entry: { method: string; args: unknown[] }) =>
+              entry.method === "camera_stream" && entry.args[1] === true,
+          ).length,
+      ),
+    )
+    .toBeGreaterThanOrEqual(2);
+});
+
+test("an operator transport switch never reuses the previous operator tracking preference", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    localStorage.setItem("argus:tracking-overlay:Demi O.", "true");
+  });
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Show tracking" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page
+    .getByLabel("Tracking overlay for Loading Bay")
+    .selectOption("show");
+
+  await page.evaluate(() => {
+    const camera = {
+      id: "camera-001",
+      source: "0",
+      area_id: "area-1",
+      branch_id: "branch-1",
+    };
+    const state = {
+      calls: [] as string[],
+      invocations: [] as { method: string; args: unknown[] }[],
+    };
+    (window as any).__argusTest = state;
+    (window as any).argusDesktop = {
+      invoke: async (method: string, args: unknown[] = []) => {
+        state.calls.push(method);
+        state.invocations.push({ method, args });
+        if (method === "auth_state")
+          return {
+            configured: true,
+            signed_in: true,
+            username: "operator-b",
+            role: "operator",
+            permissions: ["view_live"],
+          };
+        if (method === "list_cameras") return [camera];
+        if (method === "list_events") return [];
+        if (method === "list_areas") return [{ id: "area-1", name: "Area 1" }];
+        if (method === "hierarchy")
+          return {
+            organization: { id: "org-1", name: "Operator B Site" },
+            branches: [
+              {
+                id: "branch-1",
+                name: "Branch 1",
+                areas: [
+                  {
+                    id: "area-1",
+                    name: "Area 1",
+                    branch_id: "branch-1",
+                    cameras: [camera],
+                  },
+                ],
+              },
+            ],
+            unassigned_cameras: [],
+          };
+        if (method === "get_site") return { name: "Operator B Site" };
+        if (method === "monitoring_status") return { running: true };
+        if (method === "english_rules_status") return { available: false };
+        if (method === "feed_sources") return { active: "", sources: [] };
+        if (method === "gate_status") return { ready: false };
+        if (method === "use_case_templates") return {};
+        if (method === "camera_stream")
+          return { kind: "mjpeg", url: "http://127.0.0.1:9/frame" };
+        return { ok: true };
+      },
+      subscribe: () => () => {},
+      environment: async () => ({}),
+    };
+  });
+
+  await page.getByRole("button", { name: "Local engine", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).__argusTest.invocations.filter(
+            (entry: { method: string }) => entry.method === "auth_state",
+          ).length,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).__argusTest.invocations.filter(
+            (entry: { method: string }) => entry.method === "camera_stream",
+          ).length,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await expect(
+    page.getByRole("button", { name: "Show tracking" }),
+  ).toHaveAttribute("aria-pressed", "false");
+  expect(
+    await page.evaluate(() =>
+      (window as any).__argusTest.invocations
+        .filter((entry: { method: string }) => entry.method === "camera_stream")
+        .some((entry: { args: unknown[] }) => entry.args[1] === true),
+    ),
+  ).toBe(false);
 });
 
 test("overview caps 100 camera descriptors and releases the previous page", async ({

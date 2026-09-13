@@ -12,6 +12,7 @@ import json
 import time
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote, urlencode
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -274,7 +275,8 @@ def create_app(*, db_path: str = "runs/site/events.db",
 
     # ---- live video (transport descriptor) ----------------------------------
     @app.get(f"{API_PREFIX}/cameras/{{camera_id}}/stream")
-    async def stream(camera_id: str, principal=Depends(require_principal)):
+    async def stream(camera_id: str, tracking: bool = False,
+                     principal=Depends(require_principal)):
         if _engine_alive() is False:
             # A publisher file can outlive the engine that wrote it, and every
             # run listens on a fresh port: a stale URL is a tile stuck on
@@ -288,28 +290,32 @@ def create_app(*, db_path: str = "runs/site/events.db",
         mjpeg = None
         try:
             pub = json.loads((out_dir / "frames.json").read_text())
-            mjpeg = (f"http://127.0.0.1:{pub['port']}/stream/{camera_id}"
-                     f"?token={pub['token']}")
+            query = {"token": pub["token"]}
+            if tracking:
+                query = {"tracking": 1, **query}
+            mjpeg = (f"http://127.0.0.1:{pub['port']}/stream/"
+                     f"{quote(camera_id, safe='')}?{urlencode(query)}")
         except (OSError, ValueError, KeyError):
             pass
         # W1.4: the engine writes stream_gateway.json while go2rtc is up and
         # REMOVES it on stop — so this file existing IS the gateway being
         # alive, the same way frames.json works. The player switches on
         # `kind`; everything here is loopback-only by design.
-        try:
-            gw = json.loads((out_dir / "stream_gateway.json").read_text())
-            name = (gw.get("streams") or {}).get(camera_id)
-            if name:
-                api_port = gw["api_port"]
-                return {"kind": "webrtc",
-                        # WHEP — one POST, standard WebRTC players speak it.
-                        "url": f"http://127.0.0.1:{api_port}/api/webrtc?src={name}",
-                        # go2rtc's own websocket signalling, for players that
-                        # prefer it (its bundled video-stream element does).
-                        "ws": f"ws://127.0.0.1:{api_port}/api/ws?src={name}",
-                        "mjpeg_fallback": mjpeg}
-        except (OSError, ValueError, KeyError):
-            pass
+        if not tracking:
+            try:
+                gw = json.loads((out_dir / "stream_gateway.json").read_text())
+                name = (gw.get("streams") or {}).get(camera_id)
+                if name:
+                    api_port = gw["api_port"]
+                    return {"kind": "webrtc",
+                            # WHEP — one POST, standard WebRTC players speak it.
+                            "url": f"http://127.0.0.1:{api_port}/api/webrtc?src={name}",
+                            # go2rtc's own websocket signalling, for players that
+                            # prefer it (its bundled video-stream element does).
+                            "ws": f"ws://127.0.0.1:{api_port}/api/ws?src={name}",
+                            "mjpeg_fallback": mjpeg}
+            except (OSError, ValueError, KeyError):
+                pass
         if mjpeg:
             return {"kind": "mjpeg", "url": mjpeg}
         return _error(503, "engine_unavailable",

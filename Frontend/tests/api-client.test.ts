@@ -352,6 +352,33 @@ describe("ArgusApiClient", () => {
     });
   });
 
+  it("forwards a sanitized tracking boolean without putting auth in the URL", async () => {
+    const net = fetchSequence([
+      response({
+        token: "main-process-secret",
+        user: { username: "a", role: "owner", permissions: [] },
+      }),
+      response({
+        kind: "mjpeg",
+        url: "http://127.0.0.1:5599/stream/front?tracking=1&token=publisher",
+      }),
+    ]);
+    const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
+      fetch: net.fetch,
+    });
+    await client.invoke("sign_in", ["a", "pw"]);
+
+    await client.invoke("camera_stream", ["front", true]);
+
+    expect(net.calls[1].url).toBe(
+      "http://127.0.0.1:8787/api/v1/cameras/front/stream?tracking=true",
+    );
+    expect(net.calls[1].url).not.toContain("main-process-secret");
+    expect(new Headers(net.calls[1].init.headers).get("authorization")).toBe(
+      "Bearer main-process-secret",
+    );
+  });
+
   it.each([
     ["direct MJPEG host", { kind: "mjpeg", url: "http://camera.example/live" }],
     ["direct MJPEG protocol", { kind: "mjpeg", url: "file:///tmp/live" }],

@@ -20,6 +20,7 @@ import json
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -155,6 +156,8 @@ class PerCameraState:
     fire_smoke: bool = False          # fire / smoke visual candidate
     running: bool = False             # sustained fast person movement (panic)
     crowd_formation: bool = False     # tight group formation
+    normal_movement: bool = False     # telemetry-only moving-person state
+    multiple_people_moving: bool = False
     running_min_speed_ratio: float = 0.18
     running_min_frames: int = 3
     crowd_min_people: int = 4
@@ -162,6 +165,12 @@ class PerCameraState:
     crowd_max_cluster_ratio: float = 0.24
     fire_min_frames: int = 3
     fire_min_hot_area_ratio: float = 0.012
+    movement_enter_speed_ratio: float = 0.05
+    movement_exit_speed_ratio: float = 0.02
+    movement_min_track_seconds: float = 0.4
+    movement_min_people: int = 2
+    movement_persistence_seconds: float = 0.5
+    permitted_movement_zones: tuple[str, ...] | None = None
     video_action: bool = False
     video_action_model: Any = None    # shared VideoMAEActionModel instance
     # Shared AsyncVideoActionRunner (one worker thread per site). When set,
@@ -210,6 +219,9 @@ class PerCameraState:
     settle_seconds: float = 8.0
     _running_det: Any = field(default=None, init=False, repr=False)
     _crowd_det: Any = field(default=None, init=False, repr=False)
+    _motion_tracker: Any = field(default=None, init=False, repr=False)
+    _simultaneous_movement_det: Any = field(default=None, init=False, repr=False)
+    _motion_overlays: list[dict] = field(default_factory=list, init=False, repr=False)
     context_decisions: list[dict] = field(default_factory=list, init=False)
     context_suppression_count: int = field(default=0, init=False)
     # Rolling recent frames (~2s at 5 FPS) so the gate gets per-rule evidence
@@ -258,6 +270,25 @@ class PerCameraState:
                 model_name=getattr(self.video_action_model, "model_name", "videomae"),
                 fps=self.va_fps, window_seconds=self.va_window_seconds,
                 frame_count=self.va_frames, cooldown_seconds=self.va_cooldown)
+        if self.normal_movement or self.multiple_people_moving:
+            from cvti.detector.person_motion import (
+                PersonMotionTracker,
+                SimultaneousMovementDetector,
+            )
+            self._motion_tracker = PersonMotionTracker(
+                enter_speed_ratio=self.movement_enter_speed_ratio,
+                exit_speed_ratio=self.movement_exit_speed_ratio,
+                min_track_seconds=self.movement_min_track_seconds,
+            )
+            self._simultaneous_movement_det = SimultaneousMovementDetector(
+                min_people=self.movement_min_people,
+                persistence_seconds=self.movement_persistence_seconds,
+            )
+
+    def _movement_zone_allows(self, zone_names: tuple[str, ...]) -> bool:
+        if self.permitted_movement_zones is None:
+            return True
+        return bool(set(zone_names).intersection(self.permitted_movement_zones))
 
     def _needs_pose(self) -> bool:
         return self.pose_model is not None and (self.concealment or self.violence or self.theft)
@@ -268,7 +299,17 @@ class PerCameraState:
         from cvti.detector.core import (
             assign_pose_tracks, enrich_pose_people_with_history, extract_pose_people,
         )
-        pose_people = extract_pose_people(self.pose_model, image, self.pose_conf, self.imgsz)
+        from cvti.serving.perf import BOARD
+        started = time.perf_counter()
+        try:
+            pose_people = extract_pose_people(
+                self.pose_model, image, self.pose_conf, self.imgsz
+            )
+        finally:
+            BOARD.observe(
+                "pose_infer", self.camera_id,
+                (time.perf_counter() - started) * 1000.0,
+            )
         pose_people, self._next_pose_id = assign_pose_tracks(
             pose_people, previous_people=self._prev_pose, next_track_id=self._next_pose_id)
         pose_people = enrich_pose_people_with_history(pose_people, self._pose_history)
@@ -341,8 +382,10 @@ class PerCameraState:
 
         `detections` is sv.Detections (tracking/zones); `object_detections` is the
         core.py Detection list from the same frame (weapons/violence/theft)."""
+        from cvti.retail.concealment import personal_bag_boxes
         from cvti.retail.zones import filter_person_detections
 
+        bag_boxes = personal_bag_boxes(detections) if self._conceal is not None else []
         frame_hw = image.shape[:2]
         self._frame_buffer.append(image)
         # Continuous replay buffer: a rolling JPEG window with timestamps so a
@@ -446,6 +489,7 @@ class PerCameraState:
                         level="medium", timestamp=timestamp, extra=c))
 
         zone_by_pid: dict[Any, str | None] = {}   # person_id -> zone, for presence alerts
+        zones_by_track: dict[int, tuple[str, ...]] = {}
         if self.zone_monitor is not None:
             # frame_hw lets normalized (0..1) zone polygons fit THIS camera's
             # resolution, and tells the monitor where the frame edges are.
@@ -460,8 +504,52 @@ class PerCameraState:
             raw_events += zone_events
             zone_by_pid = {e.person_id: e.extra.get("zone") for e in zone_events
                            if e.extra.get("zone")}
+            zones_by_track = {
+                int(state.tracker_id): tuple(state.zones)
+                for state in states
+                if state.tracker_id is not None
+            }
+
+        if self._motion_tracker is not None:
+            motions = self._motion_tracker.update(
+                _person_boxes(tracked), timestamp, frame_hw,
+                zones_by_track=zones_by_track,
+            )
+            permitted_motions = [
+                motion for motion in motions
+                if self._movement_zone_allows(motion.zone_names)
+            ]
+            if self.multiple_people_moving:
+                movement_event = self._simultaneous_movement_det.update(
+                    permitted_motions, timestamp
+                )
+                if movement_event is not None:
+                    from cvti.event_adapters import simultaneous_movement_to_event
+                    raw_events.append(
+                        simultaneous_movement_to_event(movement_event, timestamp)
+                    )
+            active_track_ids = (
+                set(self._simultaneous_movement_det.active_track_ids)
+                if self.multiple_people_moving else set()
+            )
+            self._motion_overlays = [
+                {
+                    "track_id": motion.track_id,
+                    "bbox": tuple(int(v) for v in motion.bbox),
+                    "label": f"#{motion.track_id} MOVING",
+                    "zone_names": list(motion.zone_names),
+                    "speed_ratio": motion.speed_ratio,
+                    "colour": ((0, 200, 255) if motion.track_id in active_track_ids
+                               else (0, 200, 0)),
+                }
+                for motion in permitted_motions
+                if motion.observed and motion.moving
+                and (self.normal_movement or motion.track_id in active_track_ids)
+            ]
 
         try:
+            if self._conceal is not None:
+                self._conceal.expire(timestamp)
             # Person-gate + cadence for the HEAVY per-camera models (audit
             # 1 Sep, D3). Pose and weapon are full forward passes per camera
             # per frame, and they ran unconditionally — on empty corridors,
@@ -481,14 +569,17 @@ class PerCameraState:
             self._heavy_tick += 1
             run_heavy = person_present and (
                 first_appearance or self._heavy_tick % max(1, self.heavy_stride) == 0)
-            pose_people = (self._compute_pose(image, timestamp)
-                           if self._needs_pose() and run_heavy else [])
+            pose_ran = self._needs_pose() and run_heavy
+            pose_people = self._compute_pose(image, timestamp) if pose_ran else []
             if self._conceal is not None:
                 from cvti.detector.core import pose_people_to_concealment_frames
                 from cvti.event_adapters import concealment_to_events
-                assessments = self._conceal.update(
-                    pose_people_to_concealment_frames(pose_people, timestamp), timestamp)
-                raw_events += concealment_to_events(assessments, timestamp)
+                if pose_ran:
+                    pose_frames = pose_people_to_concealment_frames(pose_people, timestamp)
+                    assessments = self._conceal.update_with_bag_detections(
+                        pose_frames, timestamp, bag_boxes
+                    )
+                    raw_events += concealment_to_events(assessments, timestamp)
             if self.violence or self.weapons or self.theft:
                 merged = self._merged_detections(object_detections, image,
                                                  include_weapon=run_heavy)
@@ -562,7 +653,10 @@ class PerCameraState:
             # space, so a person_id may not exist in the ByteTrack map either —
             # fall back for any unresolved id, not just a missing one.
             boxes = getattr(self, "_box_by_track", {}) or {}
-            bbox = boxes.get(a.person_id)
+            bbox = (a.metadata.get("group_bbox")
+                    if a.detector == "multiple_people_moving" else None)
+            if bbox is None:
+                bbox = boxes.get(a.person_id)
             if bbox is None and boxes:
                 bbox = max(boxes.values(),
                            key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
@@ -570,7 +664,10 @@ class PerCameraState:
             # crop of the flagged subject gives it hands and held objects —
             # its own rejections say "no people visible" on full CCTV frames.
             from cvti.verification.frame_select import append_subject_crop
-            evidence = append_subject_crop(frames or [image], image, bbox)
+            if a.detector == "multiple_people_moving":
+                evidence = frames or [image]
+            else:
+                evidence = append_subject_crop(frames or [image], image, bbox)
             out.append(_to_queued(self.camera_id, a, timestamp, zone,
                                   evidence, self.scene_context,
                                   clip_frames=clip_frames, clip_fps=clip_fps,
@@ -599,15 +696,92 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
     out: dict[str, dict] = {}
     for cam in site_config["cameras"]:
         cam_id = cam["id"]
+        detector_flags = (
+            "concealment", "violence", "weapons", "theft", "tamper", "fall",
+            "fire_smoke", "running", "crowd_formation", "normal_movement",
+            "multiple_people_moving", "video_action",
+        )
+        for flag in detector_flags:
+            if flag in cam and not isinstance(cam[flag], bool):
+                raise ValueError(f"camera {cam_id}: {flag} must be a boolean")
         if cam.get("view_only"):
             # A view-only camera is glass, not a detector (4 Sep, pilot): it
             # streams to the wall and runs nothing — no state, no rules, no
             # baseline. The pipeline still decodes and publishes it.
             continue
+        float_movement_fields = (
+            "movement_enter_speed_ratio",
+            "movement_exit_speed_ratio",
+            "movement_min_track_seconds",
+            "movement_persistence_seconds",
+        )
+        for field_name in float_movement_fields:
+            if isinstance(cam.get(field_name), bool):
+                raise ValueError(
+                    f"camera {cam_id}: {field_name} must be a number, not boolean"
+                )
+        try:
+            movement_enter = float(cam.get("movement_enter_speed_ratio", 0.05))
+            movement_exit = float(cam.get("movement_exit_speed_ratio", 0.02))
+            movement_min_track = float(cam.get("movement_min_track_seconds", 0.4))
+            movement_persistence = float(cam.get("movement_persistence_seconds", 0.5))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"camera {cam_id}: invalid movement configuration: {exc}") from exc
+        movement_min_people_raw = cam.get("movement_min_people", 2)
+        if isinstance(movement_min_people_raw, bool):
+            raise ValueError(f"camera {cam_id}: movement_min_people must be an integer")
+        try:
+            movement_min_people_number = float(movement_min_people_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"camera {cam_id}: invalid movement configuration: {exc}") from exc
+        if not isfinite(movement_min_people_number) or not movement_min_people_number.is_integer():
+            raise ValueError(f"camera {cam_id}: movement_min_people must be an integer")
+        movement_min_people = int(movement_min_people_number)
+        if not all(isfinite(value) for value in (
+            movement_enter, movement_exit, movement_min_track, movement_persistence,
+        )):
+            raise ValueError(f"camera {cam_id}: movement thresholds must be finite")
+        if movement_enter <= 0:
+            raise ValueError(f"camera {cam_id}: movement_enter_speed_ratio must be positive")
+        if movement_exit <= 0 or movement_exit >= movement_enter:
+            raise ValueError(
+                f"camera {cam_id}: movement_exit_speed_ratio must be positive and lower "
+                "than movement_enter_speed_ratio"
+            )
+        if movement_min_track <= 0:
+            raise ValueError(f"camera {cam_id}: movement_min_track_seconds must be positive")
+        if movement_min_people < 2:
+            raise ValueError(f"camera {cam_id}: movement_min_people must be at least 2")
+        if movement_persistence <= 0:
+            raise ValueError(f"camera {cam_id}: movement_persistence_seconds must be positive")
+        permitted_raw = cam.get("permitted_movement_zones")
+        permitted_zones: tuple[str, ...] | None = None
+        if permitted_raw is not None:
+            if not isinstance(permitted_raw, (list, tuple)):
+                raise ValueError(
+                    f"camera {cam_id}: permitted_movement_zones must be a list or tuple"
+                )
+            if any(not isinstance(zone, str) or not zone.strip() for zone in permitted_raw):
+                raise ValueError(
+                    f"camera {cam_id}: permitted_movement_zones must contain non-empty strings"
+                )
+            if not cam.get("zones"):
+                raise ValueError(
+                    f"camera {cam_id}: permitted_movement_zones requires a zone config"
+                )
+            permitted_zones = tuple(permitted_raw)
         engine = CustomizationEngine(cam["config"], baseline_path=baseline_config)
         zone_monitor = None
         if cam.get("zones"):
-            zone_monitor = RetailZoneMonitor(load_zone_config(cam["zones"]))
+            zone_specs = load_zone_config(cam["zones"])
+            if permitted_zones is not None:
+                configured_names = {spec.name for spec in zone_specs}
+                unknown_names = sorted(set(permitted_zones) - configured_names)
+                if unknown_names:
+                    raise ValueError(
+                        f"camera {cam_id}: unknown permitted movement zones: {unknown_names}"
+                    )
+            zone_monitor = RetailZoneMonitor(zone_specs)
         scene = (scene_contexts or {}).get(cam_id)
         if scene is None and cam.get("scene_description"):
             scene = {"environment_type": cam.get("environment_type", "unknown"),
@@ -637,11 +811,15 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 # same imgsz as the shared detector, not a leaked default.
                 imgsz=imgsz,
                 heavy_stride=int(cam.get("heavy_stride", 2)),
-                concealment=bool(cam.get("concealment")), violence=bool(cam.get("violence")),
-                weapons=bool(cam.get("weapons")), theft=bool(cam.get("theft")),
-                tamper=bool(cam.get("tamper")), fall=bool(cam.get("fall")),
-                fire_smoke=bool(cam.get("fire_smoke")), running=bool(cam.get("running")),
-                crowd_formation=bool(cam.get("crowd_formation")),
+                concealment=cam.get("concealment", False),
+                violence=cam.get("violence", False),
+                weapons=cam.get("weapons", False), theft=cam.get("theft", False),
+                tamper=cam.get("tamper", False), fall=cam.get("fall", False),
+                fire_smoke=cam.get("fire_smoke", False),
+                running=cam.get("running", False),
+                crowd_formation=cam.get("crowd_formation", False),
+                normal_movement=cam.get("normal_movement", False),
+                multiple_people_moving=cam.get("multiple_people_moving", False),
                 running_min_speed_ratio=float(cam.get("running_min_speed_ratio", 0.18)),
                 running_min_frames=int(cam.get("running_min_frames", 3)),
                 crowd_min_people=int(cam.get("crowd_min_people", 4)),
@@ -649,7 +827,13 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 crowd_max_cluster_ratio=float(cam.get("crowd_max_cluster_ratio", 0.24)),
                 fire_min_frames=int(cam.get("fire_min_frames", 3)),
                 fire_min_hot_area_ratio=float(cam.get("fire_min_hot_area_ratio", 0.012)),
-                video_action=bool(cam.get("video_action")),
+                movement_enter_speed_ratio=movement_enter,
+                movement_exit_speed_ratio=movement_exit,
+                movement_min_track_seconds=movement_min_track,
+                movement_min_people=movement_min_people,
+                movement_persistence_seconds=movement_persistence,
+                permitted_movement_zones=permitted_zones,
+                video_action=cam.get("video_action", False),
                 zone_min_person_area_ratio=cam.get("zone_min_person_area_ratio"),
             ),
         }

@@ -429,7 +429,8 @@ class ConsoleBackend:
     # Detectors the operator can toggle per camera (drive which models run).
     # Must stay in sync with PerCameraState's flags in cvti/serving/camera.py.
     RULE_FLAGS = ("concealment", "video_action", "violence", "weapons", "theft", "tamper",
-                  "fire_smoke", "running", "crowd_formation", "fall")
+                  "fire_smoke", "running", "crowd_formation", "fall", "normal_movement",
+                  "multiple_people_moving")
 
     # Tuning params a detector needs to behave sensibly. Applied when it is first
     # switched on so a toggle "just works" without hand-editing the site config;
@@ -438,6 +439,14 @@ class ConsoleBackend:
         "running": {"running_min_speed_ratio": 0.08, "running_min_frames": 3},
         "crowd_formation": {"crowd_min_people": 5, "crowd_min_frames": 3,
                             "crowd_max_cluster_ratio": 0.32},
+        "normal_movement": {"movement_enter_speed_ratio": 0.05,
+                            "movement_exit_speed_ratio": 0.02,
+                            "movement_min_track_seconds": 0.4},
+        "multiple_people_moving": {"movement_enter_speed_ratio": 0.05,
+                                   "movement_exit_speed_ratio": 0.02,
+                                   "movement_min_track_seconds": 0.4,
+                                   "movement_min_people": 2,
+                                   "movement_persistence_seconds": 0.5},
     }
 
     # --- first-run use-case templates (EP-05-T3) ---------------------------
@@ -484,6 +493,8 @@ class ConsoleBackend:
         "video_action": {"measured": True,
                          "summary": "88.9% caught (n=9) · 25.9% false alarms"},
         "running": {"measured": False}, "fall": {"measured": False},
+        "normal_movement": {"measured": False},
+        "multiple_people_moving": {"measured": False},
         "weapons": {"measured": False}, "violence": {"measured": False},
         "tamper": {"measured": False}, "theft": {"measured": False},
     }

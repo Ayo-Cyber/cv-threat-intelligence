@@ -135,28 +135,38 @@ def cmd_run(args) -> int:
 
     verdicts = golden.replay(gate, progress=progress if args.verbose else None,
                              resume_path=resume, limit=args.limit)
-    if len(verdicts) < len(golden):
+    corpus_covered = len(verdicts) == len(golden)
+    if not corpus_covered:
         log.info("partial run: %d/%d case(s) answered so far — rerun to continue "
                  "(progress kept in %s)", len(verdicts), len(golden), resume)
     result = score(verdicts)
-    result.update({"fingerprint": fingerprint(), "prompts": describe()["constants"],
+    error_count = int(result.get("errors", 0) or 0)
+    scored_cases = int(result.get("scored", max(0, len(verdicts) - error_count)))
+    complete = corpus_covered and error_count == 0
+    result.update({"measurement_status": "measured" if complete else "partial",
+                   "fingerprint": fingerprint(), "prompts": describe()["constants"],
                    "sensitivity": args.sensitivity, "gate_model": args.gate_model,
                    "gate_model_digest": _model_digest(args.gate_model),
                    "measured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                   "golden_cases": len(golden)})
+                   "golden_cases": scored_cases, "corpus_cases": len(golden)})
 
     print(json.dumps(result, indent=2))
     if result["errors"]:
         log.warning("%d case(s) errored and were excluded from scoring — a gate "
                     "error is not a rejection", result["errors"])
 
-    if args.update_baseline:
-        # An incomplete measurement must never become the yardstick.
-        if len(verdicts) < len(golden):
-            log.error("refusing --update-baseline: only %d/%d cases measured — "
+    # Partial metrics are useful progress, but they are neither a baseline nor
+    # comparable with one measured over the complete frozen corpus.
+    if not complete:
+        if args.update_baseline:
+            log.error("refusing --update-baseline: only %d/%d cases scored successfully — "
                       "rerun (it resumes) until the set is complete",
-                      len(verdicts), len(golden))
-            return 2
+                      scored_cases, len(golden))
+        else:
+            log.warning("partial replay is not compared with the full baseline")
+        return 2
+
+    if args.update_baseline:
         BASELINE.write_text(json.dumps({"tolerance": TOLERANCE, **result}, indent=2) + "\n")
         log.info("baseline updated: %s", BASELINE)
         # Archive the progress file: the measurement is banked, and a future
@@ -224,6 +234,11 @@ def cmd_check(args) -> int:
     base = json.loads(BASELINE.read_text())
     recorded = base.get("fingerprint")
     if recorded == current:
+        if base.get("measurement_status", "measured") == "unmeasured":
+            reason = base.get("unmeasured_reason", "no completed replay is recorded")
+            print(f"Prompt fingerprint is recorded ({current[:12]}…), but metrics are "
+                  f"UNMEASURED: {reason}.")
+            return 0
         print(f"Prompt fingerprint matches the recorded measurement "
               f"({current[:12]}…): precision {_pct(base.get('precision'))}, "
               f"recall {_pct(base.get('recall'))} on {base.get('golden_cases')} candidates.")

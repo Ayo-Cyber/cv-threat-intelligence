@@ -160,6 +160,7 @@ const operations: Record<string, Operation> = {
   camera_stream: {
     method: "GET",
     path: item("/cameras", "/stream"),
+    query: ([, tracking = false]) => ({ tracking: tracking === true }),
     normalize: normalizeStreamDescriptor,
   },
   list_zones: { method: "GET", path: item("/cameras", "/zones") },

@@ -94,6 +94,7 @@ export type StreamDescriptor =
       mjpeg_fallback?: string | null;
     }
   | { kind: "mjpeg"; url: string };
+export type CameraStreamArgs = [cameraId: string, tracking?: boolean];
 export type PushEvent = {
   type: "health" | "triage" | "alert.new" | "alert.update";
   data: unknown;
@@ -166,6 +167,18 @@ export const DETECTORS = [
     name: "Crowd formation",
     group: "Safety / HSE",
     detail: "Group density and proximity",
+  },
+  {
+    key: "normal_movement",
+    name: "Normal movement",
+    group: "Operations",
+    detail: "Moving-person telemetry in permitted areas",
+  },
+  {
+    key: "multiple_people_moving",
+    name: "Multiple people moving",
+    group: "Operations",
+    detail: "Simultaneous sustained movement",
   },
   {
     key: "fall",

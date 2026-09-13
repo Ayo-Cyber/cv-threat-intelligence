@@ -21,6 +21,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from cvti.serving import frame_publisher
 from cvti.serving.frame_publisher import FramePublisher
 
 from _backend_helper import signed_in
@@ -74,14 +75,50 @@ class PublisherTests(unittest.TestCase):
             self._get("/frame/nope")
         self.assertEqual(ctx.exception.code, 404)
 
-    def test_boxes_change_the_image_and_never_mutate_the_source(self):
+    def test_tracking_boxes_change_the_image_and_never_mutate_the_source(self):
         original = self.frame.copy()
+        self.pub._viewer_started("a", tracking=True)
+        self.addCleanup(self.pub._viewer_stopped, "a", True)
         self.pub.publish("a", self.frame, [(1, 10, 10, 100, 200)])
-        with_box = self.pub.frame("a")
-        self.pub.draw_boxes = False
-        self.pub.publish("a", self.frame, [(1, 10, 10, 100, 200)])
-        self.assertNotEqual(with_box, self.pub.frame("a"))
+        self.assertNotEqual(self.pub.frame("a", tracking=True), self.pub.frame("a"))
         self.assertTrue(np.array_equal(self.frame, original))
+
+    def test_raw_and_tracking_frames_are_built_from_the_same_source_on_demand(self):
+        self.assertTrue(hasattr(frame_publisher, "FrameOverlay"))
+        overlay = frame_publisher.FrameOverlay(
+            track_id=7,
+            bbox=(40, 40, 200, 260),
+            label="#7 MOVING",
+            colour=(0, 255, 0),
+        )
+        original = self.frame.copy()
+
+        self.pub.publish("cam1", self.frame, [overlay])
+        self.assertIsNone(self.pub.frame("cam1", tracking=True))
+
+        self.pub._viewer_started("cam1", tracking=True)
+        self.addCleanup(self.pub._viewer_stopped, "cam1", True)
+        self.pub.publish("cam1", self.frame, [overlay])
+
+        import cv2
+        raw = cv2.imdecode(
+            np.frombuffer(self.pub.frame("cam1"), np.uint8), cv2.IMREAD_COLOR
+        )
+        tracking = cv2.imdecode(
+            np.frombuffer(self.pub.frame("cam1", tracking=True), np.uint8),
+            cv2.IMREAD_COLOR,
+        )
+        self.assertLess(np.abs(raw.astype(int) - 60).max(), 5)
+        self.assertGreater(np.abs(tracking.astype(int) - 60).max(), 100)
+        self.assertTrue(np.array_equal(self.frame, original))
+
+        clean = np.full_like(self.frame, 80)
+        self.pub.publish("cam1", clean, [])
+        self.assertEqual(
+            self.pub.frame("cam1", tracking=True),
+            self.pub.frame("cam1"),
+            "a stopped track left its old box frozen on the tracking stream",
+        )
 
     def test_large_frames_are_downscaled_for_the_wall(self):
         self.pub.publish("big", np.full((1080, 1920, 3), 90, np.uint8), [])
@@ -89,24 +126,213 @@ class PublisherTests(unittest.TestCase):
         img = cv2.imdecode(np.frombuffer(self.pub.frame("big"), np.uint8), cv2.IMREAD_COLOR)
         self.assertLessEqual(img.shape[1], 320)
 
+    def test_paced_jpeg_gets_an_on_demand_tracking_variant(self):
+        import cv2
+
+        ok, encoded = cv2.imencode(
+            ".jpg", cv2.resize(self.frame, (320, 240)),
+            [cv2.IMWRITE_JPEG_QUALITY, self.pub.quality],
+        )
+        self.assertTrue(ok)
+        raw = encoded.tobytes()
+        overlay = frame_publisher.FrameOverlay(
+            track_id=4,
+            bbox=(80, 80, 400, 400),
+            label="#4 MOVING",
+            colour=(0, 200, 255),
+        )
+        self.pub._viewer_started("paced", tracking=True)
+        self.addCleanup(self.pub._viewer_stopped, "paced", True)
+
+        self.pub.publish_jpeg(
+            "paced", raw, [overlay], source_size=(480, 640)
+        )
+
+        self.assertEqual(self.pub.frame("paced"), raw)
+        self.assertNotEqual(self.pub.frame("paced", tracking=True), raw)
+
+    def test_tracking_cache_is_invalidated_across_viewer_sessions(self):
+        overlay = frame_publisher.FrameOverlay(
+            track_id=8,
+            bbox=(40, 40, 200, 260),
+            label="#8 MOVING",
+            colour=(0, 200, 255),
+        )
+        self.pub._viewer_started("cam1", tracking=True)
+        self.pub.publish("cam1", self.frame, [overlay])
+        self.assertIsNotNone(self.pub.frame("cam1", tracking=True))
+
+        self.pub._viewer_stopped("cam1", tracking=True)
+        self.assertEqual(self.pub.frame_seq("cam1", tracking=True), (None, 0))
+        self.pub.publish("cam1", np.full_like(self.frame, 70), [])
+        self.pub.publish("cam1", np.full_like(self.frame, 80), [])
+
+        self.pub._viewer_started("cam1", tracking=True)
+        self.addCleanup(self.pub._viewer_stopped, "cam1", True)
+        self.assertEqual(
+            self.pub.frame_seq("cam1", tracking=True),
+            (None, 0),
+            "a new tracking session received the prior session's annotation",
+        )
+        self.pub.publish("cam1", np.full_like(self.frame, 90), [overlay])
+        self.assertIsNotNone(self.pub.frame("cam1", tracking=True))
+        _, raw_sequence = self.pub.frame_seq("cam1")
+        _, tracking_sequence = self.pub.frame_seq("cam1", tracking=True)
+        self.assertEqual(tracking_sequence, raw_sequence)
+
+    def test_disconnected_generation_rejects_in_flight_annotation(self):
+        import threading
+
+        overlay = frame_publisher.FrameOverlay(
+            track_id=10,
+            bbox=(40, 40, 200, 260),
+            label="#10 MOVING",
+            colour=(0, 200, 255),
+        )
+        encoding = threading.Event()
+        release = threading.Event()
+        real_encode = self.pub._encode_tracking
+
+        def blocked_encode(*args):
+            encoding.set()
+            self.assertTrue(release.wait(2))
+            return real_encode(*args)
+
+        self.pub._viewer_started("cam1", tracking=True)
+        self.pub._encode_tracking = blocked_encode
+        worker = threading.Thread(
+            target=self.pub.publish, args=("cam1", self.frame, [overlay])
+        )
+        worker.start()
+        self.assertTrue(encoding.wait(2))
+        self.pub._viewer_stopped("cam1", tracking=True)
+        self.pub._viewer_started("cam1", tracking=True)
+        release.set()
+        worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.addCleanup(self.pub._viewer_stopped, "cam1", True)
+
+        self.assertEqual(self.pub.frame_seq("cam1", tracking=True), (None, 0))
+
+    def test_paced_annotation_failure_commits_raw_and_invalidates_tracking(self):
+        import cv2
+
+        def jpeg(value):
+            ok, encoded = cv2.imencode(
+                ".jpg", np.full((240, 320, 3), value, np.uint8)
+            )
+            self.assertTrue(ok)
+            return encoded.tobytes()
+
+        overlay = frame_publisher.FrameOverlay(
+            track_id=11,
+            bbox=(20, 20, 120, 160),
+            label="#11 MOVING",
+            colour=(0, 200, 255),
+        )
+        first_raw = jpeg(30)
+        next_raw = jpeg(100)
+        self.pub._viewer_started("paced", tracking=True)
+        self.addCleanup(self.pub._viewer_stopped, "paced", True)
+        self.pub.publish_jpeg(
+            "paced", first_raw, [overlay], source_size=(240, 320)
+        )
+        self.assertIsNotNone(self.pub.frame("paced", tracking=True))
+
+        def fail_annotation(*_args):
+            self.assertEqual(
+                self.pub.frame("paced"), first_raw,
+                "raw advanced before its tracking variant was prepared",
+            )
+            return None
+
+        self.pub._encode_tracking = fail_annotation
+        self.pub.publish_jpeg(
+            "paced", next_raw, [overlay], source_size=(240, 320)
+        )
+
+        self.assertEqual(self.pub.frame("paced"), next_raw)
+        self.assertEqual(self.pub.frame_seq("paced", tracking=True), (None, 0))
+
     def test_alerting_tracks_are_coloured_differently(self):
+        self.pub._viewer_started("c", tracking=True)
+        self.addCleanup(self.pub._viewer_stopped, "c", True)
         self.pub.publish("c", self.frame, [(3, 20, 20, 120, 220)])
-        normal = self.pub.frame("c")
+        normal = self.pub.frame("c", tracking=True)
         self.pub.mark_alerting("c", {3})
         self.pub.publish("c", self.frame, [(3, 20, 20, 120, 220)])
-        self.assertNotEqual(normal, self.pub.frame("c"))
+        self.assertNotEqual(normal, self.pub.frame("c", tracking=True))
+
+
+    def test_late_completion_cannot_overwrite_a_newer_same_session_publish(self):
+        import threading
+
+        pub = FramePublisher(max_width=0)
+        pub._viewer_started("cam1", tracking=True)
+        first_started = threading.Event()
+        release_first = threading.Event()
+        real_encode = pub._encode_tracking
+
+        def ordered_encode(image, *args):
+            if int(image[0, 0, 0]) == 10:
+                first_started.set()
+                self.assertTrue(release_first.wait(2))
+            return real_encode(image, *args)
+
+        pub._encode_tracking = ordered_encode
+        overlay = frame_publisher.FrameOverlay(1, (5, 5, 30, 30), "#1", (0, 255, 0))
+        older = threading.Thread(
+            target=pub.publish,
+            args=("cam1", np.full((48, 64, 3), 10, np.uint8), [overlay]),
+        )
+        newer = threading.Thread(
+            target=pub.publish,
+            args=("cam1", np.full((48, 64, 3), 200, np.uint8), [overlay]),
+        )
+
+        older.start()
+        self.assertTrue(first_started.wait(2))
+        newer.start()
+        newer.join(2)
+        release_first.set()
+        older.join(2)
+        self.assertFalse(older.is_alive())
+        self.assertFalse(newer.is_alive())
+
+        import cv2
+        raw = cv2.imdecode(np.frombuffer(pub.frame("cam1"), np.uint8), cv2.IMREAD_COLOR)
+        tracking = cv2.imdecode(
+            np.frombuffer(pub.frame("cam1", tracking=True), np.uint8), cv2.IMREAD_COLOR
+        )
+        self.assertGreater(float(raw.mean()), 180.0)
+        self.assertGreater(float(tracking.mean()), 150.0)
+        self.assertEqual(
+            pub.frame_seq("cam1")[1], pub.frame_seq("cam1", tracking=True)[1]
+        )
 
 
     # --- EP-03-T1: no unauthenticated route to a camera ---------------------
     def test_every_route_rejects_an_unauthenticated_request(self):
         self.pub.publish("cam1", self.frame, [])
-        for path in ("/frame/cam1", "/cameras", "/", "/frame/nonexistent", "/anything"):
+        for path in (
+            "/frame/cam1",
+            "/stream/cam1",
+            "/stream/cam1?tracking=1",
+            "/cameras",
+            "/",
+            "/frame/nonexistent",
+            "/anything",
+        ):
             self.assertEqual(self._status(path), 401,
                              f"{path} served without a token")
 
     def test_a_wrong_token_is_rejected(self):
         self.pub.publish("cam1", self.frame, [])
         self.assertEqual(self._status("/frame/cam1", "not-the-token"), 401)
+        self.assertEqual(self._status("/stream/cam1", "not-the-token"), 401)
+        self.assertEqual(
+            self._status("/stream/cam1?tracking=1", "not-the-token"), 401
+        )
 
     def test_the_token_also_works_as_a_query_parameter(self):
         # An <img> tag cannot set a header.
@@ -284,6 +510,32 @@ class MjpegStreamTests(unittest.TestCase):
         self.pub.publish("cam1", self.np.ones((48, 64, 3), self.np.uint8))
         _, s2 = self.pub.frame_seq("cam1")
         self.assertGreater(s2, s1, "streams would never send a second frame")
+
+    def test_raw_and_tracking_viewer_counts_are_released_on_disconnect(self):
+        import urllib.request
+
+        self.pub.viewer_linger = 0
+        self.pub.publish("cam1", self.np.zeros((48, 64, 3), self.np.uint8))
+        raw = urllib.request.urlopen(self._url("/stream/cam1"), timeout=5)
+        tracking = urllib.request.urlopen(
+            self._url("/stream/cam1") + "&tracking=1", timeout=5
+        )
+        deadline = time.time() + 2
+        while time.time() < deadline and (
+            self.pub._viewers.get("cam1") != 2
+            or self.pub._tracking_viewers.get("cam1") != 1
+        ):
+            time.sleep(0.02)
+        self.assertEqual(self.pub._viewers.get("cam1"), 2)
+        self.assertEqual(self.pub._tracking_viewers.get("cam1"), 1)
+
+        raw.close()
+        tracking.close()
+        deadline = time.time() + 3
+        while time.time() < deadline and self.pub._viewers.get("cam1"):
+            time.sleep(0.05)
+        self.assertEqual(self.pub._viewers.get("cam1"), 0)
+        self.assertEqual(self.pub._tracking_viewers.get("cam1"), 0)
 
 
 class UiStreamWiringTests(unittest.TestCase):

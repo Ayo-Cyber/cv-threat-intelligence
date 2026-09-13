@@ -57,6 +57,15 @@ import StreamsWall from "./components/StreamsWall";
 import { useVisibleStreams } from "./hooks/useVisibleStreams";
 import { applyPushEvent } from "./lib/push";
 import {
+  cameraTrackingPreference,
+  loadGlobalTrackingPreference,
+  saveGlobalTrackingPreference,
+  trackingVisible,
+  updateTrackingOverride,
+  type TrackingOverrides,
+  type TrackingPreference,
+} from "./lib/tracking-overlay";
+import {
   ALL_LOCATIONS,
   areaOptions,
   branchOptions,
@@ -102,6 +111,19 @@ const names: Record<View, string> = {
 const resolved = (e: Incident) =>
   e.triage_state === "resolved" || ["true", "false"].includes(e.review);
 const title = (e: Incident) => e.title || e.rule.replaceAll("_", " ");
+
+type TrackingPreferenceState = {
+  operatorId: string;
+  globalVisible: boolean;
+  overrides: TrackingOverrides;
+};
+
+const emptyTrackingPreferences = (): TrackingPreferenceState => ({
+  operatorId: "",
+  globalVisible: false,
+  overrides: {},
+});
+
 export default function App() {
   const [mode, setMode] = useState<Mode>("demo");
   const api = useMemo(() => client(mode), [mode]);
@@ -115,6 +137,8 @@ export default function App() {
   const [branch, setBranch] = useState<LocationSelection>(ALL_LOCATIONS);
   const [area, setArea] = useState<LocationSelection>(ALL_LOCATIONS);
   const [preferenceUser, setPreferenceUser] = useState("");
+  const [trackingPreferences, setTrackingPreferences] =
+    useState<TrackingPreferenceState>(emptyTrackingPreferences);
   const [filter, setFilter] = useState("open");
   const [dark, setDark] = useState(
     localStorage.getItem("argus.theme") === "dark",
@@ -133,14 +157,33 @@ export default function App() {
   const generation = useRef(0);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const canConfigureCameras = ws.auth.permissions.includes("configure_cameras");
+  const trackingPreferencesReady =
+    ws.auth.signed_in &&
+    Boolean(ws.auth.username) &&
+    trackingPreferences.operatorId === ws.auth.username;
+  const trackingGlobal = trackingPreferences.globalVisible;
+  const trackingOverrides = trackingPreferences.overrides;
   const refresh = useCallback(async () => {
     const current = generation.current;
     const auth = await api.invoke("auth_state");
     if (current !== generation.current) return;
     if (!auth.signed_in) {
+      setTrackingPreferences(emptyTrackingPreferences());
       setWs({ ...blank, auth });
       return;
     }
+    setTrackingPreferences((preferences) =>
+      preferences.operatorId === auth.username
+        ? preferences
+        : {
+            operatorId: auth.username,
+            globalVisible: loadGlobalTrackingPreference(
+              localStorage,
+              auth.username,
+            ),
+            overrides: {},
+          },
+    );
     const [cameras, events, areas, hierarchy, site, monitor, english] =
       await Promise.all([
         api.invoke("list_cameras"),
@@ -228,6 +271,14 @@ export default function App() {
     });
   }, [area, branch, preferenceUser, ws.auth.signed_in, ws.auth.username]);
   useEffect(() => {
+    if (!trackingPreferencesReady) return;
+    saveGlobalTrackingPreference(
+      localStorage,
+      trackingPreferences.operatorId,
+      trackingPreferences.globalVisible,
+    );
+  }, [trackingPreferences, trackingPreferencesReady]);
+  useEffect(() => {
     const compatibleBranch = reconcileBranchSelection(ws.hierarchy, branch);
     if (!sameLocationSelection(compatibleBranch, branch)) {
       setBranch(ALL_LOCATIONS);
@@ -309,7 +360,47 @@ export default function App() {
   const openCameraOnboarding = () => {
     if (canConfigureCameras) setAdd(true);
   };
-  if (streamsOnly && ws.auth.signed_in) {
+  const setCameraTracking = (
+    cameraId: string,
+    preference: TrackingPreference,
+  ) => {
+    setTrackingPreferences((current) =>
+      current.operatorId === ws.auth.username
+        ? {
+            ...current,
+            overrides: updateTrackingOverride(
+              current.overrides,
+              cameraId,
+              preference,
+            ),
+          }
+        : current,
+    );
+  };
+  const setTrackingGlobal = (visible: boolean) => {
+    setTrackingPreferences((current) =>
+      current.operatorId === ws.auth.username
+        ? { ...current, globalVisible: visible }
+        : current,
+    );
+  };
+  const changeMode = (nextMode: Mode) => {
+    if (nextMode === mode) return;
+    generation.current++;
+    setWs(blank);
+    setLoading(true);
+    setError("");
+    setSelected(null);
+    setEventId(null);
+    setStreamsOnly(false);
+    setPreferenceUser("");
+    setBranch(ALL_LOCATIONS);
+    setArea(ALL_LOCATIONS);
+    setTrackingPreferences(emptyTrackingPreferences());
+    setLastSync(null);
+    setMode(nextMode);
+  };
+  if (streamsOnly && trackingPreferencesReady) {
     return (
       <StreamsWall
         hierarchy={ws.hierarchy}
@@ -317,6 +408,10 @@ export default function App() {
         api={api}
         mode={mode}
         running={Boolean(ws.monitor.running)}
+        trackingGlobal={trackingGlobal}
+        trackingOverrides={trackingOverrides}
+        onTrackingGlobalChange={setTrackingGlobal}
+        onTrackingOverrideChange={setCameraTracking}
         branch={branch}
         area={area}
         onBranchChange={(nextBranch) => {
@@ -458,13 +553,13 @@ export default function App() {
             >
               <button
                 className={mode === "demo" ? "active" : ""}
-                onClick={() => setMode("demo")}
+                onClick={() => changeMode("demo")}
               >
                 Demo
               </button>
               <button
                 className={mode === "engine" ? "active" : ""}
-                onClick={() => setMode("engine")}
+                onClick={() => changeMode("engine")}
               >
                 Local engine
               </button>
@@ -714,6 +809,17 @@ export default function App() {
                           </button>
                         </div>
                         <div className="section-tools">
+                          <button
+                            className="icon-button tracking-toggle"
+                            aria-label="Show tracking"
+                            aria-pressed={trackingGlobal}
+                            title={
+                              trackingGlobal ? "Hide tracking" : "Show tracking"
+                            }
+                            onClick={() => setTrackingGlobal(!trackingGlobal)}
+                          >
+                            <ScanLine size={16} />
+                          </button>
                           <div className="search-field wall-search">
                             <Search size={14} />
                             <input
@@ -788,7 +894,17 @@ export default function App() {
                               <CameraStream
                                 camera={c}
                                 api={api}
-                                active={overviewActive.has(c.id)}
+                                active={
+                                  trackingPreferencesReady &&
+                                  overviewActive.has(c.id)
+                                }
+                                tracking={trackingVisible(
+                                  trackingGlobal,
+                                  cameraTrackingPreference(
+                                    trackingOverrides,
+                                    c.id,
+                                  ),
+                                )}
                                 onOpen={() => configure(c)}
                               />
                             )}
@@ -801,14 +917,47 @@ export default function App() {
                                   )?.name || "Unassigned"}
                                 </small>
                               </div>
-                              <button
-                                className="icon-button"
-                                title={`Configure ${c.id}`}
-                                aria-label={`Configure ${c.id}`}
-                                onClick={() => configure(c)}
-                              >
-                                <SlidersHorizontal size={16} />
-                              </button>
+                              <div className="camera-actions">
+                                <label
+                                  className="tracking-menu"
+                                  data-preference={cameraTrackingPreference(
+                                    trackingOverrides,
+                                    c.id,
+                                  )}
+                                  title={`Tracking: ${cameraTrackingPreference(
+                                    trackingOverrides,
+                                    c.id,
+                                  )}`}
+                                >
+                                  <ScanLine size={15} />
+                                  <select
+                                    aria-label={`Tracking overlay for ${c.id}`}
+                                    value={cameraTrackingPreference(
+                                      trackingOverrides,
+                                      c.id,
+                                    )}
+                                    onChange={(event) =>
+                                      setCameraTracking(
+                                        c.id,
+                                        event.target
+                                          .value as TrackingPreference,
+                                      )
+                                    }
+                                  >
+                                    <option value="global">Use global</option>
+                                    <option value="show">Show</option>
+                                    <option value="hide">Hide</option>
+                                  </select>
+                                </label>
+                                <button
+                                  className="icon-button"
+                                  title={`Configure ${c.id}`}
+                                  aria-label={`Configure ${c.id}`}
+                                  onClick={() => configure(c)}
+                                >
+                                  <SlidersHorizontal size={16} />
+                                </button>
+                              </div>
                             </div>
                           </article>
                         ))}

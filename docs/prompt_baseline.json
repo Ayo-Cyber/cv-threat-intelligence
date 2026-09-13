@@ -3,36 +3,60 @@
     "precision": 0.05,
     "recall": 0.03
   },
-  "cases": 96,
-  "scored": 96,
+  "measurement_status": "unmeasured",
+  "unmeasured_reason": "Prompt changed; the frozen golden corpus is unavailable for replay",
+  "cases": 0,
+  "scored": 0,
   "errors": 0,
-  "tp": 18,
-  "fn": 38,
-  "fp": 3,
-  "tn": 37,
-  "precision": 0.8571,
-  "precision_ci": [
-    0.6536,
-    0.9502
-  ],
-  "precision_n": 21,
-  "recall": 0.3214,
-  "recall_ci": [
-    0.214,
-    0.4518
-  ],
-  "recall_n": 56,
-  "fingerprint": "b477d8cf6007b6802086a3d44dff5ee960f16f62792638abfe610d8cd8f0a957",
+  "tp": 0,
+  "fn": 0,
+  "fp": 0,
+  "tn": 0,
+  "precision": null,
+  "precision_ci": null,
+  "precision_n": 0,
+  "recall": null,
+  "recall_ci": null,
+  "recall_n": 0,
+  "fingerprint": "0bf660f4a02480122fc35b7b961672f9d151420d38d450a0779cf2f2bd2f41c6",
   "prompts": {
     "SENSITIVITY_QUESTIONS": 3,
     "_COT_PROMPT_TEMPLATE": 2055,
-    "_DETECTOR_QUESTIONS": 7,
+    "_DETECTOR_QUESTIONS": 8,
     "_PROMPT_TEMPLATE": 2209,
     "_QUESTIONS": 16
   },
   "sensitivity": "balanced",
   "gate_model": "gemma3:4b",
-  "gate_model_digest": "a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a",
-  "measured_at": "2026-09-09T18:39:16",
-  "golden_cases": 96
+  "gate_model_digest": null,
+  "measured_at": null,
+  "golden_cases": 0,
+  "previous_measurement": {
+    "measurement_status": "measured",
+    "cases": 96,
+    "scored": 96,
+    "errors": 0,
+    "tp": 18,
+    "fn": 38,
+    "fp": 3,
+    "tn": 37,
+    "precision": 0.8571,
+    "precision_ci": [
+      0.6536,
+      0.9502
+    ],
+    "precision_n": 21,
+    "recall": 0.3214,
+    "recall_ci": [
+      0.214,
+      0.4518
+    ],
+    "recall_n": 56,
+    "fingerprint": "b477d8cf6007b6802086a3d44dff5ee960f16f62792638abfe610d8cd8f0a957",
+    "sensitivity": "balanced",
+    "gate_model": "gemma3:4b",
+    "gate_model_digest": "a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a",
+    "measured_at": "2026-09-09T18:39:16",
+    "golden_cases": 96
+  }
 }
