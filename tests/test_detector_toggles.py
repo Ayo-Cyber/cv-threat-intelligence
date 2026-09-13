@@ -96,5 +96,55 @@ class TogglePersistenceTests(unittest.TestCase):
             self.assertTrue(cam.get(key))
 
 
+class MovementConfigurationTests(unittest.TestCase):
+    def _site(self, **camera):
+        return {"cameras": [{
+            "id": "chi_gate",
+            "source": "clip.mp4",
+            "config": "configs/chi_pilot_v1.json",
+            **camera,
+        }]}
+
+    def test_movement_configuration_reaches_camera_state(self):
+        from cvti.serving.camera import build_camera_states
+
+        state = build_camera_states(self._site(
+            normal_movement=True,
+            multiple_people_moving=True,
+            movement_enter_speed_ratio=0.07,
+            movement_exit_speed_ratio=0.03,
+            movement_min_track_seconds=0.6,
+            movement_min_people=3,
+            movement_persistence_seconds=0.8,
+            permitted_movement_zones=["gate", "yard"],
+        ))["chi_gate"]["state"]
+
+        self.assertTrue(state.normal_movement)
+        self.assertTrue(state.multiple_people_moving)
+        self.assertEqual(state.movement_enter_speed_ratio, 0.07)
+        self.assertEqual(state.movement_exit_speed_ratio, 0.03)
+        self.assertEqual(state.movement_min_track_seconds, 0.6)
+        self.assertEqual(state.movement_min_people, 3)
+        self.assertEqual(state.movement_persistence_seconds, 0.8)
+        self.assertEqual(state.permitted_movement_zones, ("gate", "yard"))
+
+    def test_invalid_movement_thresholds_name_the_camera(self):
+        from cvti.serving.camera import build_camera_states
+
+        invalid = (
+            {"movement_enter_speed_ratio": "fast"},
+            {"movement_enter_speed_ratio": 0.0},
+            {"movement_exit_speed_ratio": 0.0},
+            {"movement_enter_speed_ratio": 0.03, "movement_exit_speed_ratio": 0.03},
+            {"movement_min_track_seconds": 0.0},
+            {"movement_min_people": 1},
+            {"movement_persistence_seconds": 0.0},
+        )
+        for values in invalid:
+            with self.subTest(values=values):
+                with self.assertRaisesRegex(ValueError, "chi_gate"):
+                    build_camera_states(self._site(multiple_people_moving=True, **values))
+
+
 if __name__ == "__main__":
     unittest.main()

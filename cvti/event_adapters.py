@@ -121,6 +121,26 @@ def concealment_to_events(assessments: list[Any], timestamp: float = 0.0) -> lis
     return events
 
 
+def simultaneous_movement_to_event(event: dict, timestamp: float = 0.0) -> RawEvent:
+    """Bridge aggregate tracked movement into one scenario-5 RawEvent."""
+    people_count = int(event.get("people_count", len(event.get("track_ids", []))))
+    return RawEvent(
+        detector="multiple_people_moving",
+        active=True,
+        title="MULTIPLE PEOPLE MOVING",
+        level="high",
+        timestamp=timestamp,
+        extra={
+            "confidence": float(event["confidence"]),
+            "people_count": people_count,
+            "track_ids": deepcopy(event["track_ids"]),
+            "group_bbox": tuple(event["group_bbox"]),
+            "motions": deepcopy(event["motions"]),
+            "reasons": [f"{people_count} tracked people moving simultaneously"],
+        },
+    )
+
+
 def assessments_to_events(
     object_assessment: ThreatAssessment | None,
     violence_assessment: ThreatAssessment | None,

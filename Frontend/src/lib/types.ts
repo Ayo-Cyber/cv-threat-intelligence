@@ -168,6 +168,18 @@ export const DETECTORS = [
     detail: "Group density and proximity",
   },
   {
+    key: "normal_movement",
+    name: "Normal movement",
+    group: "Operations",
+    detail: "Moving-person telemetry in permitted areas",
+  },
+  {
+    key: "multiple_people_moving",
+    name: "Multiple people moving",
+    group: "Operations",
+    detail: "Simultaneous sustained movement",
+  },
+  {
     key: "fall",
     name: "Person down",
     group: "Safety / HSE",

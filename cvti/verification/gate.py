@@ -173,6 +173,10 @@ _DETECTOR_QUESTIONS: dict[str, str] = {
     "person_fall": "Do these frames show a person who has collapsed or is lying on the ground (fallen, fainted, or knocked down) and NOT getting up — a possible medical emergency? Someone sitting, crouching, kneeling, bending down, or deliberately lying down is NOT a fall.",
     "running": "Does this brief sequence show a person running or moving with panic/urgency? Someone walking calmly is NOT panic.",
     "crowd_formation": "Does this frame show an unsafe crowd or tight group formation blocking movement or exits? A few people spread out normally is NOT unsafe.",
+    "multiple_people_moving": (
+        "Do these frames show multiple distinct people visibly moving at the same time? "
+        "Verify simultaneous movement only; crowd density, proximity, and panic are not required."
+    ),
 }
 
 

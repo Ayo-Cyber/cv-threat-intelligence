@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -212,6 +213,118 @@ class CameraMappingTests(unittest.TestCase):
         self.assertEqual(qa.zone, "shelf_right")
         self.assertEqual(qa.payload["candidate"], cand)
         self.assertEqual(qa.payload["frames"], ["F"])
+
+
+class MovementPipelineTests(unittest.TestCase):
+    class _Tracker:
+        def update_with_detections(self, detections):
+            return detections
+
+    class _Zones:
+        def update(self, detections, timestamp, frame_hw=None):
+            return [
+                SimpleNamespace(
+                    tracker_id=int(track_id), zones=[zone], dwell_seconds={zone: timestamp},
+                    loitering=False, entered_zones=[],
+                )
+                for track_id, zone in zip(detections.tracker_id, ("gate", "yard"))
+            ]
+
+        def drain_exits(self):
+            return []
+
+    @staticmethod
+    def _detections(xs):
+        return sv.Detections(
+            xyxy=np.array([[x, 20.0, x + 20.0, 80.0] for x in xs]),
+            class_id=np.array([0] * len(xs)),
+            confidence=np.array([0.95] * len(xs)),
+            tracker_id=np.array([1, 2][:len(xs)]),
+        )
+
+    def _state(self, permitted):
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        state = PerCameraState(
+            "chi_gate", CustomizationEngine(), zone_monitor=self._Zones(),
+            person_filter=False, normal_movement=True, multiple_people_moving=True,
+            movement_enter_speed_ratio=0.05, movement_exit_speed_ratio=0.02,
+            movement_min_track_seconds=0.4, movement_min_people=2,
+            movement_persistence_seconds=0.5,
+            permitted_movement_zones=permitted,
+        )
+        state._tracker = self._Tracker()
+        return state
+
+    def test_permitted_zones_filter_overlays_and_simultaneous_count(self):
+        state = self._state(("gate",))
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+        state.process(self._detections((0.0, 10.0)), frame, 0.0)
+        state.process(self._detections((60.0, 70.0)), frame, 0.5)
+        alerts = state.process(self._detections((70.0, 80.0)), frame, 1.0)
+
+        self.assertEqual([item["track_id"] for item in state._motion_overlays], [1])
+        self.assertEqual(alerts, [], "one permitted moving track must not fire scenario 5")
+
+    def test_absent_permitted_zones_counts_the_whole_camera(self):
+        state = self._state(None)
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+        state.process(self._detections((0.0, 10.0)), frame, 0.0)
+        state.process(self._detections((60.0, 70.0)), frame, 0.5)
+
+        self.assertEqual([item["track_id"] for item in state._motion_overlays], [1, 2])
+
+    def test_two_spread_out_movers_emit_one_latched_group_candidate(self):
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        state = PerCameraState(
+            "chi_gate", CustomizationEngine("configs/chi_pilot_v1.json"),
+            zone_monitor=self._Zones(), person_filter=False,
+            multiple_people_moving=True,
+            movement_enter_speed_ratio=0.05, movement_exit_speed_ratio=0.02,
+            movement_min_track_seconds=0.4, movement_min_people=2,
+            movement_persistence_seconds=0.5,
+        )
+        state._tracker = self._Tracker()
+        frame = np.zeros((600, 1000, 3), dtype=np.uint8)
+
+        self.assertEqual(state.process(self._detections((0.0, 900.0)), frame, 0.0), [])
+        self.assertEqual(state.process(self._detections((300.0, 600.0)), frame, 0.5), [])
+        alerts = state.process(self._detections((500.0, 400.0)), frame, 1.0)
+
+        self.assertEqual(len(alerts), 1)
+        candidate = alerts[0].payload["candidate"]
+        self.assertEqual(candidate.detector, "multiple_people_moving")
+        self.assertEqual(candidate.metadata["track_ids"], [1, 2])
+        self.assertEqual(candidate.metadata["group_bbox"], (400.0, 20.0, 520.0, 80.0))
+        self.assertEqual(len(candidate.metadata["motions"]), 2)
+        self.assertEqual(alerts[0].payload["bbox"], (400, 20, 520, 80))
+        self.assertEqual(len(alerts[0].payload["frames"]), 3)
+
+        duplicate = state.process(self._detections((600.0, 300.0)), frame, 1.5)
+        self.assertEqual(duplicate, [], "a sustained interval must emit only once")
+
+    def test_stationary_people_emit_no_movement_candidate(self):
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        state = PerCameraState(
+            "chi_gate", CustomizationEngine("configs/chi_pilot_v1.json"),
+            zone_monitor=self._Zones(), person_filter=False,
+            multiple_people_moving=True, movement_persistence_seconds=0.5,
+        )
+        state._tracker = self._Tracker()
+        frame = np.zeros((600, 1000, 3), dtype=np.uint8)
+
+        for timestamp in (0.0, 0.5, 1.0, 1.5):
+            self.assertEqual(
+                state.process(self._detections((100.0, 800.0)), frame, timestamp),
+                [],
+            )
 
 
 class ConcealmentBagWiringTests(unittest.TestCase):

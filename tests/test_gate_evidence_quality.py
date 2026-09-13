@@ -26,6 +26,7 @@ from cvti.event_adapters import concealment_to_events
 from cvti.rules.customization import CustomizationEngine
 from cvti.verification.frame_select import (
     append_subject_crop,
+    frames_for_rule,
     subject_crop,
 )
 from cvti.verification.gate import VerificationGate
@@ -314,6 +315,29 @@ class ThePromptCarriesTheEvidence(unittest.TestCase):
                 ), {"environment_type": "retail"})
 
             self.assertIn(policy, seen["prompt"], sensitivity)
+
+    def test_simultaneous_movement_uses_three_frames_and_a_specific_question(self):
+        self.assertEqual(frames_for_rule("chi_multiple_people_moving"), 3)
+        seen = {}
+        gate = VerificationGate(provider="ollama", cot=False)
+
+        def fake_provider(prompt, frames_bytes, alert):
+            seen["prompt"] = prompt.lower()
+            return ('{"confirmed": true, "confidence": 0.9, '
+                    '"reason": "movement", "alert_priority": "high"}')
+
+        alert = CandidateAlert(
+            rule_name="chi_multiple_people_moving", priority="high",
+            detector="multiple_people_moving", title="MULTIPLE PEOPLE MOVING",
+            person_id=None, object_label=None, timestamp=1.0,
+        )
+        with mock.patch.object(gate, "_call_provider", side_effect=fake_provider):
+            gate.verify([_frame(), _frame(), _frame()], alert, {})
+
+        self.assertIn("multiple distinct people", seen["prompt"])
+        self.assertIn("moving at the same time", seen["prompt"])
+        self.assertIn("crowd density", seen["prompt"])
+        self.assertIn("panic", seen["prompt"])
 
 
 if __name__ == "__main__":
