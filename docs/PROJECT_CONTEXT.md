@@ -1,6 +1,43 @@
 # Project Context
 
-## Current Authoritative Handoff - 2026-09-03
+## Current Authoritative Handoff - 2026-09-13
+
+Chi pilot scenario 10 (pocketing and personal-bag concealment) has an
+architecture repair through `0da99f9`. The production serving path now:
+
+- keeps per-person concealment history across unsampled `heavy_stride` frames
+  and expires abandoned tracks after a grace period;
+- reuses the shared COCO detections for backpacks, handbags, and suitcases,
+  assigns each bag to at most one nearby pose track, and leaves ambiguous ties
+  unassigned;
+- scores a sampled pose window for destination proximity, reach/retract, and
+  dwell, producing a candidate with a `waist` or `bag` destination rather than
+  declaring theft;
+- carries the score components, reasons, limited-evidence flag, and associated
+  bag box through `RawEvent` and the customization rules;
+- applies reviewed Agent Mapper context compatibility before a candidate enters
+  the shared alert queue;
+- sends TrueSight three chronological concealment frames plus a subject crop,
+  with prompt instructions to reject browsing, phone handling, clothing
+  adjustment, openly carried goods, and trolley/basket placement; and
+- emits a provisional event while asynchronous verification runs, then retains
+  confirmed or fail-visible unverified results and retracts normal TrueSight
+  rejections.
+
+The deterministic regression coverage exercises the repaired timeline, bag
+grounding, rules metadata, evidence selection, and prompt versioning. This is
+not yet an empirical scenario-10 pass. The current prompt fingerprint is
+recorded as **unmeasured** in `docs/prompt_baseline.json` because the frozen
+golden corpus is unavailable; its precision and recall are therefore unknown.
+Do not reuse the previous prompt's metrics for this wording and do not tune the
+`0.63` candidate threshold or four-sample persistence until labeled Chi clips
+have been run.
+
+The repeatable concealment-only recording matrix, commands, acceptance gates,
+and reporting fields are in `docs/CHI_PILOT_TESTING.md`. The later motion plan
+will extend that document for scenarios 4 and 5.
+
+## Previous Authoritative Handoff - 2026-09-03
 
 The full hierarchical Agent Mapper work is now on Ayo's `main`, including
 review protection, evidence-bearing bulk review, and the performance work
@@ -30,7 +67,7 @@ small-model alternative. Until then, keep `gemma3:4b` behind mandatory human
 scene review; its structural output is reliable, but outdoor classification is
 not accurate enough for automatic acceptance.
 
-## Previous Authoritative Handoff - 2026-08-30
+## Earlier Authoritative Handoff - 2026-08-30
 
 This section supersedes older "current state" statements later in this
 chronological document. The implementation base is Ayo's production branch at
