@@ -218,3 +218,64 @@ ratio. All remaining UI tests, including both fix-round workflows, pass.
 
 - The worktree still lacks the untracked demo media described above; this remains unrelated to
   tracking preference isolation.
+
+## Fix Round 2
+
+### Changes
+
+- Added a deterministic camera-stream ledger reset and reader to the real-component tracking
+  workflow.
+- Changed camera-001 `Show` over global false to require the exact ledger
+  `[["camera-001", true]]`, proving camera-002 does not remount.
+- Changed camera-002 `Hide` under global true to require the exact ledger
+  `[["camera-002", false]]`, proving camera-001 does not remount.
+- Retained exact full-ledger assertions for camera-001 `Hide` and `Use global` transitions.
+- Tightened the intervening global transition to the exact ledger
+  `[["camera-002", true]]` as additional coverage.
+- Production code was unchanged.
+
+### Targeted Playwright
+
+Command:
+
+```text
+cd Frontend && npx playwright test tests/ui.spec.ts --grep "tracking overlay controls"
+```
+
+Output:
+
+```text
+Running 1 test using 1 worker
+✓ tracking overlay controls persist globally and keep camera overrides session-only (1.8s)
+1 passed (3.1s)
+```
+
+### Verification
+
+```text
+cd Frontend && npm test -- tracking-overlay.test.ts streams-wall.test.ts
+Test Files  2 passed (2)
+Tests       16 passed (16)
+
+cd Frontend && npm test
+Test Files  22 passed (22)
+Tests       118 passed (118)
+
+cd Frontend && npm run build
+TypeScript build, Vite production build, Electron compile, and preload generation passed.
+```
+
+### Self-Review
+
+- Confirmed every per-camera override action clears the ledger immediately before selection.
+- Confirmed every resulting assertion compares the complete ordered camera-stream request list,
+  rather than filtering to the expected camera or checking only a count.
+- Confirmed an unexpected sibling request, duplicate target request, wrong camera ID, wrong
+  boolean, or extra stream request now fails the workflow.
+- Confirmed initialization requests are verified separately and cannot enter transition ledgers.
+- Confirmed no source or production behavior changed. No subagents were used.
+
+### Concerns
+
+- None specific to Fix Round 2. The previously documented absent demo-media assets remain
+  outside this test-contract change.

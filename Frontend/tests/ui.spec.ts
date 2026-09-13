@@ -475,6 +475,16 @@ test("tracking overlay controls persist globally and keep camera overrides sessi
 
   const globalToggle = page.getByRole("button", { name: "Show tracking" });
   const frontOverride = page.getByLabel("Tracking overlay for camera-001");
+  const clearStreamLedger = () =>
+    page.evaluate(() => {
+      (window as any).__argusTest.invocations = [];
+    });
+  const streamLedger = () =>
+    page.evaluate(() =>
+      (window as any).__argusTest.invocations
+        .filter((entry: { method: string }) => entry.method === "camera_stream")
+        .map((entry: { args: unknown[] }) => entry.args),
+    );
   await expect(globalToggle).toHaveAttribute("aria-pressed", "false");
   await expect(frontOverride).toHaveValue("global");
   await expect
@@ -498,51 +508,15 @@ test("tracking overlay controls persist globally and keep camera overrides sessi
       }),
     )
     .toEqual({ cameraIds: ["camera-001", "camera-002"], allHidden: true });
-  await page.evaluate(() => {
-    (window as any).__argusTest.invocations = [];
-  });
+  await clearStreamLedger();
 
   await frontOverride.selectOption("show");
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as any).__argusTest.invocations.filter(
-            (entry: { method: string; args: unknown[] }) =>
-              entry.method === "camera_stream" &&
-              entry.args[0] === "camera-001" &&
-              entry.args[1] === true,
-          ).length,
-      ),
-    )
-    .toBe(1);
+  await expect.poll(streamLedger).toEqual([["camera-001", true]]);
 
+  await clearStreamLedger();
   await globalToggle.click();
   await expect(globalToggle).toHaveAttribute("aria-pressed", "true");
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as any).__argusTest.invocations.filter(
-            (entry: { method: string; args: unknown[] }) =>
-              entry.method === "camera_stream" &&
-              entry.args[0] === "camera-002" &&
-              entry.args[1] === true,
-          ).length,
-      ),
-    )
-    .toBe(1);
-  expect(
-    await page.evaluate(
-      () =>
-        (window as any).__argusTest.invocations.filter(
-          (entry: { method: string; args: unknown[] }) =>
-            entry.method === "camera_stream" &&
-            entry.args[0] === "camera-001" &&
-            entry.args[1] === true,
-        ).length,
-    ),
-  ).toBe(1);
+  await expect.poll(streamLedger).toEqual([["camera-002", true]]);
   await expect(
     page.locator(".metrics").getByText("Running", { exact: true }),
   ).toBeVisible();
@@ -552,40 +526,18 @@ test("tracking overlay controls persist globally and keep camera overrides sessi
     ),
   ).toBe(false);
 
-  await page.evaluate(() => {
-    (window as any).__argusTest.invocations = [];
-  });
+  await clearStreamLedger();
   await frontOverride.selectOption("hide");
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        (window as any).__argusTest.invocations
-          .filter(
-            (entry: { method: string }) => entry.method === "camera_stream",
-          )
-          .map((entry: { args: unknown[] }) => entry.args),
-      ),
-    )
-    .toEqual([["camera-001", false]]);
+  await expect.poll(streamLedger).toEqual([["camera-001", false]]);
 
-  await page.evaluate(() => {
-    (window as any).__argusTest.invocations = [];
-  });
+  await clearStreamLedger();
   await frontOverride.selectOption("global");
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        (window as any).__argusTest.invocations
-          .filter(
-            (entry: { method: string }) => entry.method === "camera_stream",
-          )
-          .map((entry: { args: unknown[] }) => entry.args),
-      ),
-    )
-    .toEqual([["camera-001", true]]);
+  await expect.poll(streamLedger).toEqual([["camera-001", true]]);
 
   const secondOverride = page.getByLabel("Tracking overlay for camera-002");
+  await clearStreamLedger();
   await secondOverride.selectOption("hide");
+  await expect.poll(streamLedger).toEqual([["camera-002", false]]);
 
   await page.getByRole("button", { name: "Open streams wall" }).click();
   const wall = page.getByRole("region", { name: "Streams-only camera wall" });
