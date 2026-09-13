@@ -21,6 +21,7 @@ def motion(
     bbox: tuple[float, float, float, float],
     *,
     moving: bool = True,
+    observed: bool = True,
 ) -> PersonMotion:
     return PersonMotion(
         track_id=track_id,
@@ -29,6 +30,7 @@ def motion(
         moving=moving,
         moving_seconds=1.2 if moving else 0.0,
         zone_names=("permitted",),
+        observed=observed,
     )
 
 
@@ -99,7 +101,7 @@ def test_missing_track_is_returned_as_unobserved_until_expiry() -> None:
     tracker = PersonMotionTracker(
         enter_speed_ratio=0.05,
         exit_speed_ratio=0.02,
-        min_track_seconds=0.0,
+        min_track_seconds=0.01,
         ema_alpha=1.0,
         track_expiry_seconds=0.5,
     )
@@ -119,14 +121,15 @@ def test_sub_expiry_miss_preserves_latch_but_expiry_starts_a_new_incident() -> N
     tracker = PersonMotionTracker(
         enter_speed_ratio=0.05,
         exit_speed_ratio=0.02,
-        min_track_seconds=0.0,
+        min_track_seconds=0.01,
         ema_alpha=1.0,
         track_expiry_seconds=0.5,
     )
-    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.0)
+    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.01)
     tracker.update([person(1, 0), person(2, 20)], 0.0, FRAME)
     together = tracker.update([person(1, 10), person(2, 30)], 0.1, FRAME)
-    assert detector.update(together, 0.1) is not None
+    assert detector.update(together, 0.1) is None
+    assert detector.update(together, 0.12) is not None
 
     assert detector.update(tracker.update([], 0.4, FRAME), 0.4) is None
     returned = tracker.update([person(1, 20), person(2, 40)], 0.5, FRAME)
@@ -135,23 +138,44 @@ def test_sub_expiry_miss_preserves_latch_but_expiry_starts_a_new_incident() -> N
     assert detector.update(tracker.update([], 1.1, FRAME), 1.1) is None
     tracker.update([person(1, 30), person(2, 50)], 1.2, FRAME)
     moving_again = tracker.update([person(1, 40), person(2, 60)], 1.3, FRAME)
-    assert detector.update(moving_again, 1.3) is not None
+    assert detector.update(moving_again, 1.3) is None
+    assert detector.update(moving_again, 1.32) is not None
 
 
 def test_observed_stationary_state_resets_the_aggregate_latch() -> None:
-    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.0)
+    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.01)
     together = [
         motion(1, (10.0, 20.0, 30.0, 80.0)),
         motion(2, (40.0, 20.0, 60.0, 80.0)),
     ]
-    assert detector.update(together, 0.0) is not None
+    assert detector.update(together, 0.0) is None
+    assert detector.update(together, 0.01) is not None
 
     observed_stop = [
         motion(1, (10.0, 20.0, 30.0, 80.0)),
         motion(2, (40.0, 20.0, 60.0, 80.0), moving=False),
     ]
     assert detector.update(observed_stop, 0.1) is None
-    assert detector.update(together, 0.2) is not None
+    assert detector.update(together, 0.2) is None
+    assert detector.update(together, 0.22) is not None
+
+
+def test_unobserved_tracks_cannot_advance_pre_latch_persistence() -> None:
+    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.5)
+    observed = [
+        motion(1, (10.0, 20.0, 30.0, 80.0)),
+        motion(2, (40.0, 20.0, 60.0, 80.0)),
+    ]
+    missing = [
+        motion(1, (10.0, 20.0, 30.0, 80.0), observed=False),
+        motion(2, (40.0, 20.0, 60.0, 80.0), observed=False),
+    ]
+
+    assert detector.update(observed, 0.0) is None
+    assert detector.update(missing, 0.6) is None
+    assert detector.update(missing, 0.9) is None
+    assert detector.update(observed, 1.0) is None
+    assert detector.update(observed, 1.5) is not None
 
 
 @pytest.mark.parametrize(
@@ -161,7 +185,8 @@ def test_observed_stationary_state_resets_the_aggregate_latch() -> None:
         ({"exit_speed_ratio": float("inf")}, "finite"),
         ({"enter_speed_ratio": 0.0}, "positive"),
         ({"enter_speed_ratio": 0.02, "exit_speed_ratio": 0.02}, "lower"),
-        ({"min_track_seconds": -0.1}, "nonnegative"),
+        ({"min_track_seconds": 0.0}, "positive"),
+        ({"min_track_seconds": -0.1}, "positive"),
         ({"ema_alpha": 0.0}, "ema_alpha"),
         ({"ema_alpha": 1.01}, "ema_alpha"),
         ({"track_expiry_seconds": 0.0}, "track_expiry_seconds"),
@@ -178,7 +203,8 @@ def test_motion_tracker_rejects_invalid_constructor_values(kwargs, message) -> N
         ({"min_people": True}, "min_people"),
         ({"min_people": 1}, "min_people"),
         ({"min_people": 2.5}, "min_people"),
-        ({"persistence_seconds": -0.1}, "persistence_seconds"),
+        ({"persistence_seconds": 0.0}, "positive"),
+        ({"persistence_seconds": -0.1}, "positive"),
         ({"persistence_seconds": float("nan")}, "finite"),
     ],
 )
@@ -188,7 +214,7 @@ def test_aggregate_rejects_invalid_constructor_values(kwargs, message) -> None:
 
 
 def test_motion_snapshot_contains_bbox_and_zone_names() -> None:
-    tracker = PersonMotionTracker(min_track_seconds=0.0)
+    tracker = PersonMotionTracker(min_track_seconds=0.01)
 
     motion = tracker.update(
         [person(7, 10)],
@@ -225,13 +251,13 @@ def test_two_sustained_moving_tracks_fire_one_candidate() -> None:
 
 
 def test_one_moving_track_does_not_fire() -> None:
-    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.0)
+    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.01)
 
     assert detector.update([motion(1, (10.0, 20.0, 30.0, 80.0))], 0.0) is None
 
 
 def test_stationary_cluster_does_not_fire() -> None:
-    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.0)
+    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.01)
     clustered = [
         motion(1, (10.0, 10.0, 30.0, 80.0), moving=False),
         motion(2, (20.0, 10.0, 40.0, 80.0), moving=False),
@@ -242,13 +268,14 @@ def test_stationary_cluster_does_not_fire() -> None:
 
 
 def test_spread_out_moving_people_fire() -> None:
-    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.0)
+    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.01)
     spread_out = [
         motion(1, (0.0, 0.0, 20.0, 50.0)),
         motion(2, (900.0, 500.0, 950.0, 600.0)),
     ]
 
-    event = detector.update(spread_out, 0.0)
+    assert detector.update(spread_out, 0.0) is None
+    event = detector.update(spread_out, 0.01)
 
     assert event is not None
     assert event["group_bbox"] == (0.0, 0.0, 950.0, 600.0)

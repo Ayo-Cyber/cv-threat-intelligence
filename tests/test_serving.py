@@ -319,8 +319,8 @@ class MovementPipelineTests(unittest.TestCase):
             zone_monitor=self._Zones(), person_filter=False,
             normal_movement=False, multiple_people_moving=True,
             movement_enter_speed_ratio=0.05, movement_exit_speed_ratio=0.02,
-            movement_min_track_seconds=0.0, movement_min_people=2,
-            movement_persistence_seconds=0.0,
+            movement_min_track_seconds=0.01, movement_min_people=2,
+            movement_persistence_seconds=0.01,
         )
         state._tracker = self._Tracker()
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -342,13 +342,14 @@ class MovementPipelineTests(unittest.TestCase):
             zone_monitor=self._Zones(), person_filter=False,
             multiple_people_moving=True,
             movement_enter_speed_ratio=0.05, movement_exit_speed_ratio=0.02,
-            movement_min_track_seconds=0.0, movement_min_people=2,
-            movement_persistence_seconds=0.0,
+            movement_min_track_seconds=0.01, movement_min_people=2,
+            movement_persistence_seconds=0.01,
         )
         state._tracker = self._Tracker()
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         state.process(self._detections((0.0, 10.0)), frame, 0.0)
-        self.assertEqual(len(state.process(self._detections((20.0, 30.0)), frame, 0.1)), 1)
+        self.assertEqual(state.process(self._detections((20.0, 30.0)), frame, 0.1), [])
+        self.assertEqual(len(state.process(self._detections((22.0, 32.0)), frame, 0.12)), 1)
 
         self.assertEqual(state.process(self._detections(()), frame, 0.3), [])
         self.assertEqual(

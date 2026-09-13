@@ -58,8 +58,8 @@ class PersonMotionTracker:
             raise ValueError("enter_speed_ratio must be positive")
         if exit_speed_ratio <= 0 or exit_speed_ratio >= enter_speed_ratio:
             raise ValueError("exit_speed_ratio must be positive and lower than enter_speed_ratio")
-        if min_track_seconds < 0:
-            raise ValueError("min_track_seconds must be nonnegative")
+        if min_track_seconds <= 0:
+            raise ValueError("min_track_seconds must be positive")
         if not 0 < ema_alpha <= 1:
             raise ValueError("ema_alpha must satisfy 0 < ema_alpha <= 1")
         if track_expiry_seconds <= 0:
@@ -214,8 +214,8 @@ class SimultaneousMovementDetector:
                 or not isinstance(self.persistence_seconds, (int, float))
                 or not isfinite(float(self.persistence_seconds))):
             raise ValueError("persistence_seconds must be a finite number")
-        if self.persistence_seconds < 0:
-            raise ValueError("persistence_seconds must be nonnegative")
+        if self.persistence_seconds <= 0:
+            raise ValueError("persistence_seconds must be positive")
 
     @property
     def active_track_ids(self) -> tuple[int, ...]:
@@ -223,15 +223,28 @@ class SimultaneousMovementDetector:
 
     def update(self, motions: Sequence[PersonMotion], timestamp: float) -> dict | None:
         qualifying = [motion for motion in motions if motion.moving]
-        if len(qualifying) < self.min_people:
+        if self._latched:
+            if len(qualifying) >= self.min_people:
+                self._active_track_ids = tuple(
+                    motion.track_id for motion in qualifying
+                )
+                return None
             self._active_since = None
             self._latched = False
             self._active_track_ids = ()
             return None
-        self._active_track_ids = tuple(motion.track_id for motion in qualifying)
+
+        observed_qualifying = [motion for motion in qualifying if motion.observed]
+        if len(observed_qualifying) < self.min_people:
+            self._active_since = None
+            self._active_track_ids = ()
+            return None
+        self._active_track_ids = tuple(
+            motion.track_id for motion in observed_qualifying
+        )
         if self._active_since is None:
             self._active_since = timestamp
-        if self._latched or timestamp - self._active_since < self.persistence_seconds:
+        if timestamp - self._active_since < self.persistence_seconds:
             return None
         self._latched = True
-        return movement_event_metadata(qualifying)
+        return movement_event_metadata(observed_qualifying)
