@@ -77,6 +77,7 @@ class FramePublisher:
         # tab switch or MJPEG reconnect instead of flapping the decoder.
         self._viewers: dict[str, int] = {}
         self._tracking_viewers: dict[str, int] = {}
+        self._tracking_generation: dict[str, int] = {}
         self._viewer_last: dict[str, float] = {}
         self.viewer_linger = 5.0
         self._lock = threading.Lock()
@@ -106,6 +107,7 @@ class FramePublisher:
 
         with self._lock:
             tracking_watched = self._tracking_viewers.get(camera_id, 0) > 0
+            tracking_generation = self._tracking_generation.get(camera_id, 0)
             alerting = set(self._alerting.get(camera_id, set()))
 
         tracking_jpeg = None
@@ -114,55 +116,65 @@ class FramePublisher:
                 self._encode_tracking(img, overlays, scale, alerting)
                 if self.draw_boxes and overlays else raw_buf.tobytes()
             )
-        with self._lock:
-            self._raw_frames[camera_id] = raw_buf.tobytes()
-            self._raw_seq[camera_id] = self._raw_seq.get(camera_id, 0) + 1
-            if tracking_jpeg is not None:
-                self._tracking_frames[camera_id] = tracking_jpeg
-                self._tracking_seq[camera_id] = self._tracking_seq.get(camera_id, 0) + 1
-            self._tracks[camera_id] = [
-                int(o.track_id if isinstance(o, FrameOverlay) else o[0])
-                for o in overlays
-            ]
-            self.published += 1
+        self._commit(
+            camera_id, raw_buf.tobytes(), tracking_jpeg, overlays,
+            tracking_generation if tracking_watched else None,
+        )
 
     def publish_jpeg(self, camera_id: str, jpeg: bytes,
                      overlays: Sequence[FrameOverlay | tuple] = (),
                      source_size: tuple[int, int] | None = None) -> None:
         """Store paced raw bytes; decode a tracking copy only while requested."""
         with self._lock:
-            self._raw_frames[camera_id] = jpeg
-            self._raw_seq[camera_id] = self._raw_seq.get(camera_id, 0) + 1
             tracking_watched = self._tracking_viewers.get(camera_id, 0) > 0
+            tracking_generation = self._tracking_generation.get(camera_id, 0)
             alerting = set(self._alerting.get(camera_id, set()))
+
+        tracking_jpeg = None
+        if tracking_watched:
+            if not self.draw_boxes or not overlays:
+                tracking_jpeg = jpeg
+            else:
+                import cv2
+                import numpy as np
+                image = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+                if image is not None:
+                    scale = (image.shape[1] / float(source_size[1])
+                             if source_size and source_size[1] else 1.0)
+                    tracking_jpeg = self._encode_tracking(
+                        image, overlays, scale, alerting
+                    )
+
+        self._commit(
+            camera_id, jpeg, tracking_jpeg, overlays,
+            tracking_generation if tracking_watched else None,
+        )
+
+    def _commit(self, camera_id: str, raw_jpeg: bytes,
+                tracking_jpeg: bytes | None,
+                overlays: Sequence[FrameOverlay | tuple],
+                tracking_generation: int | None) -> None:
+        with self._lock:
+            sequence = self._raw_seq.get(camera_id, 0) + 1
+            self._raw_frames[camera_id] = raw_jpeg
+            self._raw_seq[camera_id] = sequence
+            tracking_current = (
+                tracking_generation is not None
+                and self._tracking_generation.get(camera_id, 0)
+                    == tracking_generation
+                and self._tracking_viewers.get(camera_id, 0) > 0
+            )
+            if tracking_current and tracking_jpeg is not None:
+                self._tracking_frames[camera_id] = tracking_jpeg
+                self._tracking_seq[camera_id] = sequence
+            else:
+                self._tracking_frames.pop(camera_id, None)
+                self._tracking_seq.pop(camera_id, None)
             self._tracks[camera_id] = [
                 int(o.track_id if isinstance(o, FrameOverlay) else o[0])
                 for o in overlays
             ]
             self.published += 1
-        if not tracking_watched:
-            return
-
-        if not self.draw_boxes or not overlays:
-            with self._lock:
-                self._tracking_frames[camera_id] = jpeg
-                self._tracking_seq[camera_id] = \
-                    self._tracking_seq.get(camera_id, 0) + 1
-            return
-
-        import cv2
-        import numpy as np
-        image = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
-        if image is None:
-            return
-        scale = (image.shape[1] / float(source_size[1])
-                 if source_size and source_size[1] else 1.0)
-        tracking_jpeg = self._encode_tracking(image, overlays, scale, alerting)
-        if tracking_jpeg is not None:
-            with self._lock:
-                self._tracking_frames[camera_id] = tracking_jpeg
-                self._tracking_seq[camera_id] = \
-                    self._tracking_seq.get(camera_id, 0) + 1
 
     def _encode_tracking(self, image: Any,
                          overlays: Sequence[FrameOverlay | tuple], scale: float,
@@ -202,6 +214,11 @@ class FramePublisher:
         with self._lock:
             self._viewers[camera_id] = self._viewers.get(camera_id, 0) + 1
             if tracking:
+                if self._tracking_viewers.get(camera_id, 0) == 0:
+                    self._tracking_generation[camera_id] = \
+                        self._tracking_generation.get(camera_id, 0) + 1
+                    self._tracking_frames.pop(camera_id, None)
+                    self._tracking_seq.pop(camera_id, None)
                 self._tracking_viewers[camera_id] = \
                     self._tracking_viewers.get(camera_id, 0) + 1
             self._viewer_last[camera_id] = time.time()
@@ -210,9 +227,14 @@ class FramePublisher:
         with self._lock:
             self._viewers[camera_id] = max(0, self._viewers.get(camera_id, 0) - 1)
             if tracking:
-                self._tracking_viewers[camera_id] = max(
-                    0, self._tracking_viewers.get(camera_id, 0) - 1
-                )
+                previous = self._tracking_viewers.get(camera_id, 0)
+                remaining = max(0, previous - 1)
+                self._tracking_viewers[camera_id] = remaining
+                if previous > 0 and remaining == 0:
+                    self._tracking_generation[camera_id] = \
+                        self._tracking_generation.get(camera_id, 0) + 1
+                    self._tracking_frames.pop(camera_id, None)
+                    self._tracking_seq.pop(camera_id, None)
             self._viewer_last[camera_id] = time.time()
 
     def has_viewers(self, camera_id: str) -> bool:

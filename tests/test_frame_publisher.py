@@ -151,6 +151,109 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(self.pub.frame("paced"), raw)
         self.assertNotEqual(self.pub.frame("paced", tracking=True), raw)
 
+    def test_tracking_cache_is_invalidated_across_viewer_sessions(self):
+        overlay = frame_publisher.FrameOverlay(
+            track_id=8,
+            bbox=(40, 40, 200, 260),
+            label="#8 MOVING",
+            colour=(0, 200, 255),
+        )
+        self.pub._viewer_started("cam1", tracking=True)
+        self.pub.publish("cam1", self.frame, [overlay])
+        self.assertIsNotNone(self.pub.frame("cam1", tracking=True))
+
+        self.pub._viewer_stopped("cam1", tracking=True)
+        self.assertEqual(self.pub.frame_seq("cam1", tracking=True), (None, 0))
+        self.pub.publish("cam1", np.full_like(self.frame, 70), [])
+        self.pub.publish("cam1", np.full_like(self.frame, 80), [])
+
+        self.pub._viewer_started("cam1", tracking=True)
+        self.addCleanup(self.pub._viewer_stopped, "cam1", True)
+        self.assertEqual(
+            self.pub.frame_seq("cam1", tracking=True),
+            (None, 0),
+            "a new tracking session received the prior session's annotation",
+        )
+        self.pub.publish("cam1", np.full_like(self.frame, 90), [overlay])
+        self.assertIsNotNone(self.pub.frame("cam1", tracking=True))
+        _, raw_sequence = self.pub.frame_seq("cam1")
+        _, tracking_sequence = self.pub.frame_seq("cam1", tracking=True)
+        self.assertEqual(tracking_sequence, raw_sequence)
+
+    def test_disconnected_generation_rejects_in_flight_annotation(self):
+        import threading
+
+        overlay = frame_publisher.FrameOverlay(
+            track_id=10,
+            bbox=(40, 40, 200, 260),
+            label="#10 MOVING",
+            colour=(0, 200, 255),
+        )
+        encoding = threading.Event()
+        release = threading.Event()
+        real_encode = self.pub._encode_tracking
+
+        def blocked_encode(*args):
+            encoding.set()
+            self.assertTrue(release.wait(2))
+            return real_encode(*args)
+
+        self.pub._viewer_started("cam1", tracking=True)
+        self.pub._encode_tracking = blocked_encode
+        worker = threading.Thread(
+            target=self.pub.publish, args=("cam1", self.frame, [overlay])
+        )
+        worker.start()
+        self.assertTrue(encoding.wait(2))
+        self.pub._viewer_stopped("cam1", tracking=True)
+        self.pub._viewer_started("cam1", tracking=True)
+        release.set()
+        worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.addCleanup(self.pub._viewer_stopped, "cam1", True)
+
+        self.assertEqual(self.pub.frame_seq("cam1", tracking=True), (None, 0))
+
+    def test_paced_annotation_failure_commits_raw_and_invalidates_tracking(self):
+        import cv2
+
+        def jpeg(value):
+            ok, encoded = cv2.imencode(
+                ".jpg", np.full((240, 320, 3), value, np.uint8)
+            )
+            self.assertTrue(ok)
+            return encoded.tobytes()
+
+        overlay = frame_publisher.FrameOverlay(
+            track_id=11,
+            bbox=(20, 20, 120, 160),
+            label="#11 MOVING",
+            colour=(0, 200, 255),
+        )
+        first_raw = jpeg(30)
+        next_raw = jpeg(100)
+        self.pub._viewer_started("paced", tracking=True)
+        self.addCleanup(self.pub._viewer_stopped, "paced", True)
+        self.pub.publish_jpeg(
+            "paced", first_raw, [overlay], source_size=(240, 320)
+        )
+        self.assertIsNotNone(self.pub.frame("paced", tracking=True))
+
+        def fail_annotation(*_args):
+            self.assertEqual(
+                self.pub.frame("paced"), first_raw,
+                "raw advanced before its tracking variant was prepared",
+            )
+            return None
+
+        self.pub._encode_tracking = fail_annotation
+        self.pub.publish_jpeg(
+            "paced", next_raw, [overlay], source_size=(240, 320)
+        )
+
+        self.assertEqual(self.pub.frame("paced"), next_raw)
+        self.assertEqual(self.pub.frame_seq("paced", tracking=True), (None, 0))
+
     def test_alerting_tracks_are_coloured_differently(self):
         self.pub._viewer_started("c", tracking=True)
         self.addCleanup(self.pub._viewer_stopped, "c", True)

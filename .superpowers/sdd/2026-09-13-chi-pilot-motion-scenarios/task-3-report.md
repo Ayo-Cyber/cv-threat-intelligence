@@ -34,3 +34,28 @@ GREEN:
 ## Self-Review
 
 No blocking findings remain. Raw and tracking routes share authentication, tracking counts are released on disconnect, false/default tracking remains WebRTC-first, and annotation does not affect detection cadence. The 14 Python warnings are existing matplotlib/pyparsing deprecations and are unrelated to this task.
+
+## Fix Round 1
+
+Hardened same-frame cache ownership and publication atomicity:
+
+- Added a per-camera tracking viewer generation. The first viewer of a session and the final disconnect invalidate tracking frame and sequence state.
+- Guarded commits with the captured generation and a live tracking-viewer count, preventing annotation started by an old session from repopulating a later session's cache.
+- Prepared paced-JPEG annotations before mutating raw state, then committed raw/tracking variants together under one lock with the same publish sequence.
+- On annotation failure, committed the new canonical raw frame while atomically invalidating the old tracking frame and sequence.
+- Added regressions for disconnect, intervening raw-only publications, reconnect, in-flight annotation across generations, paired sequences, and annotation failure.
+
+RED:
+
+- The three new focused regressions failed: disconnect retained `(old_jpeg, 1)`, in-flight work repopulated tracking after reconnect, and annotation preparation observed raw already advanced.
+
+GREEN:
+
+- `python -m pytest tests/test_frame_publisher.py -q`
+  - `31 passed in 17.86s`
+- `python -m pytest tests/test_engine_api.py tests/test_serving.py -q`
+  - `57 passed, 14 warnings in 16.64s`
+- `cd Frontend && npm test -- api-client.test.ts bridge-transport.test.ts whep.test.ts`
+  - `3 passed` test files, `33 passed` tests
+
+Self-review found no blocking concerns. The Python warnings remain the existing matplotlib/pyparsing deprecations.
