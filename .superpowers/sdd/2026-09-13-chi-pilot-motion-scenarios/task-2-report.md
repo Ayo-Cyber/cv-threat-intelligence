@@ -204,3 +204,63 @@ Python 3.9 bytecode compilation, `configs/chi_pilot_v1.json` parsing, and
 
 - Focused tests retain the existing matplotlib/pyparsing deprecation warnings; the zone suite
   retains one existing NumPy two-dimensional-vector deprecation warning.
+
+## Fix Round 2
+
+### Changes And Files
+
+- Modified `cvti/serving/camera.py` to reject boolean values for
+  `movement_enter_speed_ratio`, `movement_exit_speed_ratio`,
+  `movement_min_track_seconds`, and `movement_persistence_seconds` before calling `float()`.
+- Modified `tests/test_detector_toggles.py` with focused parameterized subtests covering both
+  `True` and `False` for every float-valued movement setting.
+- Appended this report.
+
+### RED / GREEN Evidence
+
+Focused RED:
+
+```text
+<shared-python> -m pytest \
+  tests/test_detector_toggles.py::MovementConfigurationTests::test_float_movement_settings_reject_booleans_before_conversion -q
+1 failed, 14 warnings
+```
+
+`True` was accepted by Python's float conversion and did not raise, reproducing the finding.
+
+Focused GREEN:
+
+```text
+<shared-python> -m pytest \
+  tests/test_detector_toggles.py::MovementConfigurationTests::test_float_movement_settings_reject_booleans_before_conversion -q
+1 passed, 14 warnings
+```
+
+Round-1 covering regression suite:
+
+```text
+<shared-python> -m pytest tests/test_detector_toggles.py \
+  tests/test_gate_evidence_quality.py tests/test_serving.py tests/test_vlm_contention.py -q
+67 passed, 14 warnings
+
+<shared-python> -m pytest tests/test_retail_zones.py tests/test_zone_customization.py \
+  tests/test_zone_rules_e2e.py -q
+33 passed, 15 warnings
+```
+
+Python 3.9 bytecode compilation and `git diff --check` passed.
+
+### Self-Review
+
+- Confirmed the guard enumerates all four float-valued movement settings and executes before
+  the existing conversion block.
+- Confirmed every boolean error identifies `camera chi_gate`, the exact setting, and that a
+  boolean is not accepted as a number.
+- Confirmed tests exercise eight combinations: four settings times `True` and `False`.
+- Confirmed round-1 finite-number, integer-count, permitted-zone, local-frame-cap, chronology,
+  and gate-wording behavior remains covered and passing.
+- No subagents were used.
+
+### Concerns
+
+- Focused tests retain the existing matplotlib/pyparsing deprecation warnings.

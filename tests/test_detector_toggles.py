@@ -163,6 +163,24 @@ class MovementConfigurationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "chi_gate"):
                     build_camera_states(self._site(multiple_people_moving=True, **values))
 
+    def test_float_movement_settings_reject_booleans_before_conversion(self):
+        from cvti.serving.camera import build_camera_states
+
+        fields = (
+            "movement_enter_speed_ratio",
+            "movement_exit_speed_ratio",
+            "movement_min_track_seconds",
+            "movement_persistence_seconds",
+        )
+        for field in fields:
+            for value in (True, False):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        f"camera chi_gate: {field} must be a number, not boolean",
+                    ):
+                        build_camera_states(self._site(**{field: value}))
+
     def test_permitted_movement_zones_require_a_string_sequence(self):
         from cvti.serving.camera import build_camera_states
 

@@ -695,6 +695,17 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
             # streams to the wall and runs nothing — no state, no rules, no
             # baseline. The pipeline still decodes and publishes it.
             continue
+        float_movement_fields = (
+            "movement_enter_speed_ratio",
+            "movement_exit_speed_ratio",
+            "movement_min_track_seconds",
+            "movement_persistence_seconds",
+        )
+        for field_name in float_movement_fields:
+            if isinstance(cam.get(field_name), bool):
+                raise ValueError(
+                    f"camera {cam_id}: {field_name} must be a number, not boolean"
+                )
         try:
             movement_enter = float(cam.get("movement_enter_speed_ratio", 0.05))
             movement_exit = float(cam.get("movement_exit_speed_ratio", 0.02))
