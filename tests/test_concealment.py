@@ -32,6 +32,22 @@ def frame(ts: float, wrist: tuple[float, float], hips: bool = True) -> PoseFrame
     return PoseFrame(track_id=1, timestamp=ts, keypoints=kp, bbox=(60, 90, 140, 260))
 
 
+def translated_frame(track_id: int, x_offset: float, wrist: tuple[float, float]) -> PoseFrame:
+    return PoseFrame(
+        track_id=track_id,
+        timestamp=0.0,
+        keypoints={
+            "left_shoulder": (80.0 + x_offset, 100.0),
+            "right_shoulder": (120.0 + x_offset, 100.0),
+            "left_wrist": wrist,
+            "right_wrist": None,
+            "left_hip": (85.0 + x_offset, 250.0),
+            "right_hip": (115.0 + x_offset, 250.0),
+        },
+        bbox=(60.0 + x_offset, 90.0, 140.0 + x_offset, 260.0),
+    )
+
+
 def _run(detector: ConcealmentDetector, frames: list[PoseFrame]):
     last = None
     for f in frames:
@@ -176,6 +192,50 @@ def test_bag_evidence_is_grounded_to_the_nearby_pose_track() -> None:
     assert assessments[0].associated_bag == bag
     assert assessments[1].components["f_bag"] == 0.0
     assert assessments[1].associated_bag is None
+
+
+def test_frame_level_bag_association_assigns_one_owner_among_adjacent_shoppers() -> None:
+    bag = (125.0, 170.0, 145.0, 235.0)
+    poses = [
+        translated_frame(1, 0.0, (125.0, 200.0)),
+        translated_frame(2, 90.0, (160.0, 200.0)),
+    ]
+
+    bags_by_track = concealment.associate_bags_to_tracks(poses, [bag])
+
+    assert bags_by_track == {1: [bag], 2: []}
+
+
+def test_frame_level_bag_association_leaves_an_equidistant_tie_unassigned() -> None:
+    bag = (135.0, 170.0, 155.0, 235.0)
+    poses = [
+        translated_frame(1, 0.0, (135.0, 200.0)),
+        translated_frame(2, 90.0, (155.0, 200.0)),
+    ]
+
+    bags_by_track = concealment.associate_bags_to_tracks(poses, [bag])
+
+    assert bags_by_track == {1: [], 2: []}
+
+
+def test_assessment_reports_the_bag_that_drove_the_temporal_score() -> None:
+    scoring_bag = (180.0, 170.0, 240.0, 235.0)
+    farther_bag = (250.0, 170.0, 300.0, 235.0)
+    detector = ConcealmentDetector()
+    detector.update(
+        [frame(0.0, (210.0, 200.0))],
+        timestamp=0.0,
+        bag_bboxes=[farther_bag, scoring_bag],
+    )
+
+    result = detector.update(
+        [frame(0.1, (210.0, 200.0))],
+        timestamp=0.1,
+        bag_bboxes=[],
+    )[0]
+
+    assert result.destination == "bag"
+    assert result.associated_bag == scoring_bag
 
 
 def test_track_specific_bags_take_precedence_over_legacy_global_bags() -> None:

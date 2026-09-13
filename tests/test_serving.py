@@ -243,15 +243,15 @@ class ConcealmentBagWiringTests(unittest.TestCase):
         detections = sv.Detections(
             xyxy=np.array([
                 [60.0, 10.0, 140.0, 110.0],
-                [360.0, 10.0, 440.0, 110.0],
-                [145.0, 55.0, 190.0, 105.0],
+                [150.0, 10.0, 230.0, 110.0],
+                [130.0, 55.0, 145.0, 105.0],
             ]),
             class_id=np.array([0, 0, 26]),
             confidence=np.array([0.95, 0.94, 0.88]),
         )
         pose_people = [
-            pose(1, (60, 10, 140, 110), (140.0, 80.0)),
-            pose(2, (360, 10, 440, 110), (400.0, 80.0)),
+            pose(1, (60, 10, 140, 110), (125.0, 80.0)),
+            pose(2, (150, 10, 230, 110), (155.0, 80.0)),
         ]
         state = PerCameraState(
             "cam1",

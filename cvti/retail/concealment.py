@@ -37,7 +37,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 from dataclasses import dataclass, field
-from math import hypot
+from math import hypot, isclose
 from typing import Any
 from cvti.logging_setup import get_logger
 
@@ -98,6 +98,7 @@ class _FrameFeatures:
     hand_at_waist: bool
     hand_at_bag: bool
     has_hips: bool
+    associated_bag: tuple[float, float, float, float] | None
 
 
 @dataclass
@@ -191,6 +192,36 @@ def bags_for_pose(
     return [box for box in bag_bboxes if _bbox_distance(frame.bbox, box) <= scale]
 
 
+def associate_bags_to_tracks(
+    pose_frames: list[PoseFrame],
+    bag_bboxes: list[tuple[float, float, float, float]],
+) -> dict[int, list[tuple[float, float, float, float]]]:
+    """Assign each nearby bag to one pose track; leave exact ties unassigned."""
+    by_track = {frame.track_id: [] for frame in pose_frames}
+    for bag in bag_bboxes:
+        bx = (bag[0] + bag[2]) / 2.0
+        by = (bag[1] + bag[3]) / 2.0
+        candidates: list[tuple[float, int]] = []
+        for frame in pose_frames:
+            if frame.bbox is None or not bags_for_pose(frame, [bag]):
+                continue
+            scale = _body_scale(frame.keypoints, frame.bbox)
+            if scale is None:
+                continue
+            px = (frame.bbox[0] + frame.bbox[2]) / 2.0
+            py = (frame.bbox[1] + frame.bbox[3]) / 2.0
+            candidates.append((hypot(bx - px, by - py) / scale, frame.track_id))
+        candidates.sort()
+        if not candidates:
+            continue
+        if len(candidates) > 1 and isclose(
+            candidates[0][0], candidates[1][0], rel_tol=1e-9, abs_tol=1e-9
+        ):
+            continue
+        by_track[candidates[0][1]].append(bag)
+    return by_track
+
+
 def _bags_for_track(
     track_id: int,
     bag_bboxes: list[tuple[float, float, float, float]] | None = None,
@@ -221,6 +252,7 @@ def _frame_features(
     lateral_reach: float | None = None
     hand_at_waist = False
     hand_at_bag = False
+    associated_bag = None
 
     if scale and scale > 1e-3:
         if hip_c is not None and wrists:
@@ -239,7 +271,11 @@ def _frame_features(
                     break
         # Hand reaching into a PERSONAL bag (concealment destination).
         if bag_bboxes and wrists:
-            nearest = min(_point_to_bbox(w, b) for w in wrists for b in bag_bboxes) / scale
+            nearest, associated_bag = min(
+                (_point_to_bbox(wrist, box) / scale, box)
+                for wrist in wrists
+                for box in bag_bboxes
+            )
             hand_to_bag = nearest
             hand_at_bag = nearest < BAG_AT
 
@@ -251,7 +287,13 @@ def _frame_features(
         hand_at_waist=hand_at_waist,
         hand_at_bag=hand_at_bag,
         has_hips=has_hips,
+        associated_bag=associated_bag,
     )
+
+
+def _bag_score_source(window: list[_FrameFeatures]) -> _FrameFeatures | None:
+    bag_features = [feature for feature in window if feature.hand_to_bag is not None]
+    return min(bag_features, key=lambda feature: feature.hand_to_bag) if bag_features else None
 
 
 class ConcealmentDetector:
@@ -307,7 +349,9 @@ class ConcealmentDetector:
             while buf and buf[0].timestamp < cutoff:
                 buf.popleft()
 
-            score, reasons, components, limited, destination = self.score_window(list(buf))
+            window = list(buf)
+            score, reasons, components, limited, destination = self.score_window(window)
+            bag_source = _bag_score_source(window)
 
             if score >= self.score_threshold:
                 self._over_threshold[frame.track_id] = self._over_threshold.get(frame.track_id, 0) + 1
@@ -318,7 +362,11 @@ class ConcealmentDetector:
             results.append(ConcealmentAssessment(
                 track_id=frame.track_id, score=score, candidate=candidate, destination=destination,
                 reasons=reasons, components=components, limited=limited,
-                associated_bag=track_bags[0] if track_bags else None,
+                associated_bag=(
+                    bag_source.associated_bag
+                    if destination == "bag" and bag_source is not None
+                    else None
+                ),
             ))
 
         return results
@@ -348,7 +396,8 @@ class ConcealmentDetector:
         recent = window[-1]
         hips_ever = any(f.has_hips for f in window)
         hand_to_hip_vals = [f.hand_to_hip for f in window if f.hand_to_hip is not None]
-        hand_to_bag_vals = [f.hand_to_bag for f in window if f.hand_to_bag is not None]
+        bag_source = _bag_score_source(window)
+        hand_to_bag_vals = [bag_source.hand_to_bag] if bag_source is not None else []
         reach_vals = [f.lateral_reach for f in window if f.lateral_reach is not None]
         dwell_count = sum(1 for f in window if f.hand_at_waist or f.hand_at_bag)
 
