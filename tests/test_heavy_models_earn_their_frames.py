@@ -187,6 +187,20 @@ class PersonGateTests(_GateHarness):
 
 
 class ImgszPlumbingTests(unittest.TestCase):
+    def test_pose_forward_pass_reports_per_camera_throughput(self):
+        from cvti.serving.perf import BOARD
+
+        state = PerCameraState(
+            "pose-perf-contract", CustomizationEngine(), person_filter=False,
+            pose_model=object(), concealment=True,
+        )
+        with mock.patch("cvti.detector.core.extract_pose_people", return_value=[]):
+            state._compute_pose(_frame(), timestamp=100.0)
+
+        pose = BOARD.snapshot()["pose_infer"]["pose-perf-contract"]
+        self.assertEqual(pose["count"], 1)
+        self.assertEqual(pose["units"], 1)
+
     def test_build_camera_states_hands_the_engines_imgsz_to_every_camera(self):
         site = {"cameras": [{"id": "front", "source": "x",
                              "config": "configs/all_threats_v1.json"}]}

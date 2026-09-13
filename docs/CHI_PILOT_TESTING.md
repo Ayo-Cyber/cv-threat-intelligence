@@ -22,10 +22,12 @@ camera frame
   -> per-person bag assignment and temporal ConcealmentDetector
   -> concealment RawEvent with destination, score, components, reasons,
      limited-evidence flag, track ID, subject box, and associated bag box
-  -> CustomizationEngine plus reviewed Agent Mapper scene compatibility
-  -> deduplicated shared alert queue
+  -> CandidateAlert metadata after CustomizationEngine plus reviewed Agent
+     Mapper scene compatibility
+  -> deduplicated shared alert queue with video and wall-clock timestamps
   -> TrueSight with 3 chronological full frames plus the subject crop
-  -> confirmed event persistence, notification, and UI evidence
+  -> concealment_audit.jsonl for every confirmed/rejected/unverified verdict
+  -> confirmed-only event persistence, notification, and UI evidence
 ```
 
 Skipped pose frames do not erase temporal history. `expire(timestamp)` still
@@ -142,7 +144,7 @@ It proves the concealment, serving, prompt, and evidence contracts without
 running a real Chi clip or asking TrueSight to judge one:
 
 ```bash
-MPLCONFIGDIR="$MPLCONFIGDIR" "$PYTHON" -m pytest tests/test_concealment.py tests/test_heavy_models_earn_their_frames.py tests/test_serving.py tests/test_prompt_regression.py tests/test_gate_evidence_quality.py -q
+MPLCONFIGDIR="$MPLCONFIGDIR" "$PYTHON" -m pytest tests/test_concealment.py tests/test_heavy_models_earn_their_frames.py tests/test_serving.py tests/test_prompt_regression.py tests/test_gate_evidence_quality.py tests/test_alert_sink.py -q
 ```
 
 The prompt fingerprint/status check is also non-measuring:
@@ -369,17 +371,19 @@ MPLCONFIGDIR="$MPLCONFIGDIR" OLLAMA_API_KEY=ollama "$PYTHON" -m cvti.serving.pip
 This exact run uses the reviewed mapper cache, the configured retail rule, the
 shared pose/concealment path, local TrueSight, the alert sink, and the live UI.
 
-### 7. Record Candidate And TrueSight Outcomes
+### 7. Extract Candidate, TrueSight, And Performance Outcomes
 
-Watch terminal 3 and retain `operator.log`. A candidate that reaches TrueSight
-produces a `[CONFIRMED]` or `[REJECTED]` line naming `shoplifting` and a title
-such as `POSSIBLE CONCEALMENT (waist)` or `(bag)`. No such line after the
-single-file processing completes means `not_gated`, not a TrueSight rejection.
+Watch terminal 3 and retain `operator.log`. The structured production record is
+`$CHI_OUT/concealment_audit.jsonl`: the alert sink appends one row for every
+queued concealment candidate after TrueSight returns `confirmed`, `rejected`,
+or `unverified`. A missing file means no concealment candidate reached the
+gate only when `operator.log` also contains no `concealment audit write failed`
+error. It is never evidence that TrueSight rejected the clip.
 
 The engine exits after the file ends and its queued verdicts drain. Its final
 lines report `alerts_queued` and gate `verified`, `confirmed`, `rejected`,
 `errors`, `unverified`, and `deduped` counts. Extract the case-specific audit
-lines with:
+health and queue lines with:
 
 ```bash
 grep -E 'ready_reviewed|POSSIBLE CONCEALMENT|CONFIRMED|REJECTED|UNVERIFIED|alerts_queued|gate=' "$CHI_OUT/operator.log"
@@ -387,6 +391,79 @@ grep -E 'ready_reviewed|POSSIBLE CONCEALMENT|CONFIRMED|REJECTED|UNVERIFIED|alert
 
 Only the two positive cases may end in `[CONFIRMED]`. Any `UNVERIFIED`, gate
 error, or breaker-open result invalidates the case.
+
+After shutdown, run this exact extractor. It reads all audit rows for the
+current camera, reports the first candidate and maximum detector score, derives
+positive-case detection delay from the fixed destination-action start in the
+matrix, and reads sampled pose-stage throughput from the final
+`perf_report.json`. It writes the reusable case artifact
+`$CHI_OUT/scenario10_result.json`.
+
+```bash
+"$PYTHON" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+case_id = os.environ["CASE_ID"]
+out = Path(os.environ["CHI_OUT"])
+audit_path = out / "concealment_audit.jsonl"
+rows = []
+if audit_path.exists():
+    rows = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+rows = [row for row in rows if row["camera_id"] == case_id]
+required = {
+    "candidate_timestamp", "track_id", "destination", "peak_score",
+    "components", "limited", "associated_bag", "enqueued_at", "verdict_at",
+    "gate_result_timestamp", "gate_latency_s", "verdict", "confirmed",
+    "confidence", "reason", "gate_error", "prompt_version",
+}
+for row in rows:
+    missing = sorted(required - row.keys())
+    if missing:
+        raise SystemExit(f"incomplete concealment audit row: {missing}")
+
+# Fixed before execution by the matrix. Delay is meaningful only for positives.
+action_start = {"S10-P01": 4.0, "S10-P02": 4.0}.get(case_id)
+for row in rows:
+    row["detection_delay_s"] = (
+        round(row["candidate_timestamp"] - action_start, 3)
+        if action_start is not None else None
+    )
+
+perf = json.loads((out / "perf_report.json").read_text())
+pose = perf.get("stages", {}).get("pose_infer", {}).get(case_id)
+record = {
+    "case_id": case_id,
+    "candidate_count": len(rows),
+    "first_candidate_timestamp": rows[0]["candidate_timestamp"] if rows else None,
+    "peak_score": max((row["peak_score"] for row in rows), default=None),
+    "candidates": rows,
+    "pose_stage": pose,
+    "pose_stage_fps": pose.get("rate_per_s") if pose else None,
+}
+target = out / "scenario10_result.json"
+target.write_text(json.dumps(record, indent=2) + "\n")
+print(json.dumps(record, indent=2))
+PY
+```
+
+Each candidate row contains `candidate_timestamp`, `track_id`, `destination`,
+`peak_score`, `components`, `limited`, `associated_bag`, `reasons`,
+`enqueued_at`, `verdict_at`, `gate_result_timestamp`, `gate_latency_s`, verdict,
+confidence/reason/error, and `prompt_version`. `candidate_timestamp` is seconds
+from the clip's decoder timeline. `gate_latency_s` is queue entry through sink
+receipt. `pose_stage_fps` is the observed pose invocation rate over the retained
+performance window; retain `count`, `per_unit_ms`, `p50_ms`, and `p95_ms` with
+it. A null rate from a one-sample window is insufficient performance evidence.
+
+For positives, use the first candidate timestamp and its derived
+`detection_delay_s`; use the maximum `peak_score` and its row for components,
+destination, limited status, associated bag, and track ownership. For negatives,
+zero rows means `not_gated`; one or more rows must all say `rejected`. Any
+`unverified` row invalidates the case. Candidate recall is the number of
+positive case IDs with at least one in-window row divided by two, not the number
+of confirmed SQLite events.
 
 ### 8. Retrieve Persistence, Replay, And UI Evidence
 
@@ -430,9 +507,11 @@ UI action exercises
 application's supported replay contract.
 
 For negative cases, an empty query result is correct when no candidate was
-gated or when a high-priority shoplifting candidate was rejected. Use the
-retained `[REJECTED]` line to distinguish rejection from `not_gated`; neither
-outcome may leave a confirmed or unverified event in the UI.
+gated or when a high-priority shoplifting candidate was rejected. Use
+`scenario10_result.json`, not the absence of a SQLite row, to distinguish
+`rejected` from `not_gated`; neither outcome may leave a confirmed or
+unverified event in the UI. Rejected and unverified high-priority candidates
+are audit records only and do not create user-facing alerts.
 
 After recording the matrix row, close the app and repeat from step 3 with the
 next case ID and filename. Keep every timestamped output directory.

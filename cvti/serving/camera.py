@@ -268,7 +268,17 @@ class PerCameraState:
         from cvti.detector.core import (
             assign_pose_tracks, enrich_pose_people_with_history, extract_pose_people,
         )
-        pose_people = extract_pose_people(self.pose_model, image, self.pose_conf, self.imgsz)
+        started = time.perf_counter()
+        try:
+            pose_people = extract_pose_people(
+                self.pose_model, image, self.pose_conf, self.imgsz
+            )
+        finally:
+            from cvti.serving.perf import BOARD
+            BOARD.observe(
+                "pose_infer", self.camera_id,
+                (time.perf_counter() - started) * 1000.0,
+            )
         pose_people, self._next_pose_id = assign_pose_tracks(
             pose_people, previous_people=self._prev_pose, next_track_id=self._next_pose_id)
         pose_people = enrich_pose_people_with_history(pose_people, self._pose_history)

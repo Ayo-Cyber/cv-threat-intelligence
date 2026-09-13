@@ -14,18 +14,21 @@ architecture repair through `0da99f9`. The production serving path now:
   dwell, producing a candidate with a `waist` or `bag` destination rather than
   declaring theft;
 - carries the score components, reasons, limited-evidence flag, and associated
-  bag box through `RawEvent` and the customization rules;
+  bag box through `RawEvent`, `CandidateAlert`, and the shared alert queue;
 - applies reviewed Agent Mapper context compatibility before a candidate enters
   the shared alert queue;
 - sends TrueSight three chronological concealment frames plus a subject crop,
   with prompt instructions to reject browsing, phone handling, clothing
   adjustment, openly carried goods, and trolley/basket placement; and
-- emits a provisional event while asynchronous verification runs, then retains
-  confirmed or fail-visible unverified results and retracts normal TrueSight
-  rejections.
+- appends every queued concealment outcome, including rejection and gate
+  failure, to `concealment_audit.jsonl` with detector and gate timing; only a
+  confirmed high-priority result becomes a persisted/notified user alert; and
+- records per-camera `pose_infer` latency and invocation throughput in
+  `perf_report.json`.
 
 The deterministic regression coverage exercises the repaired timeline, bag
-grounding, rules metadata, evidence selection, and prompt versioning. This is
+grounding, rules metadata, audit persistence, pose timing, evidence selection,
+and prompt versioning. This is
 not yet an empirical scenario-10 pass. The current prompt fingerprint is
 recorded as **unmeasured** in `docs/prompt_baseline.json` because the frozen
 golden corpus is unavailable; its precision and recall are therefore unknown.

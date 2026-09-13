@@ -143,6 +143,7 @@ class CustomizationEngine:
                         object_label=event.object_label,
                         timestamp=event.timestamp,
                         reasons=list(event.extra.get("reasons", []) or []),
+                        metadata=dict(event.extra),
                         # A rule's own plain-English question reaches the VLM
                         # verbatim. Compound recipes always had this; simple
                         # trigger rules silently dropped it — the sentence the

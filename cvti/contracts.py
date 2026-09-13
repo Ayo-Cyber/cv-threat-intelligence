@@ -46,6 +46,9 @@ class CandidateAlert:
     # Optional rule-specific gate question (used by compound recipes); falls
     # back to the gate's per-rule default question when None.
     question: str | None = None
+    # Detector-owned measurements must survive the rules boundary so serving
+    # can audit why a candidate fired even when TrueSight rejects it.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +60,7 @@ class CandidateAlert:
             "object_label": self.object_label,
             "timestamp": self.timestamp,
             "reasons": self.reasons,
+            "metadata": self.metadata,
             "question": self.question,
         }
 

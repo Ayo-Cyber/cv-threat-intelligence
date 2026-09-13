@@ -9,8 +9,11 @@ the prompt, and (c) prompt wording that tells the model what the final image
 is. These tests hold that the crop is built safely (never costing an alert)
 and that the prompt actually carries the new evidence.
 """
+import json
+import tempfile
 import unittest
 from types import SimpleNamespace
+from pathlib import Path
 from unittest import mock
 
 import cv2
@@ -104,6 +107,7 @@ class ConcealmentCueFlowTest(unittest.TestCase):
         }]
         alert = engine.evaluate([event], {"environment_type": "retail"})[0]
         self.assertEqual(alert.reasons, assessment.reasons)
+        self.assertEqual(alert.metadata, event.extra)
 
 
 class ConcealmentVerificationIntegrationTest(unittest.TestCase):
@@ -168,7 +172,7 @@ class ConcealmentVerificationIntegrationTest(unittest.TestCase):
                     '"reason": "test", "alert_priority": "high"}')
 
         with mock.patch.object(gate, "_call_provider", side_effect=capture_provider):
-            gate.verify(payload["frames"], payload["candidate"], payload["scene"])
+            result = gate.verify(payload["frames"], payload["candidate"], payload["scene"])
 
         images = received["images"]
         self.assertEqual(len(images), 4)
@@ -176,6 +180,24 @@ class ConcealmentVerificationIntegrationTest(unittest.TestCase):
                          [10, 30, 50])
         self.assertTrue(all(image.shape[:2] == (480, 640) for image in images[:3]))
         self.assertGreaterEqual(min(images[-1].shape[:2]), 320)
+
+        from cvti.serving.alert_sink import AlertSink
+        with tempfile.TemporaryDirectory() as tmp:
+            sink = AlertSink(tmp, save_evidence=False)
+            try:
+                sink.handle(queued[0], result)
+            finally:
+                sink.close()
+            audit = json.loads((Path(tmp) / "concealment_audit.jsonl").read_text())
+
+        self.assertEqual(audit["camera_id"], "cam1")
+        self.assertEqual(audit["candidate_timestamp"], 0.5)
+        self.assertEqual(audit["track_id"], 7)
+        self.assertEqual(audit["peak_score"], 0.8)
+        self.assertEqual(audit["components"], assessment.components)
+        self.assertFalse(audit["limited"])
+        self.assertIsNone(audit["associated_bag"])
+        self.assertEqual(audit["verdict"], "rejected")
 
 
 class ThePromptCarriesTheEvidence(unittest.TestCase):

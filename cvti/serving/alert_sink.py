@@ -308,6 +308,7 @@ class AlertSink:
         self.events_dir = self.root / "events"
         self.events_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "events.db"
+        self.concealment_audit_path = self.root / "concealment_audit.jsonl"
         self.notifier = notifier or ConsoleNotifier()
         self.save_evidence = save_evidence
         # W1.6: camera_id -> full-resolution JPEG bytes | None. When detection
@@ -546,7 +547,60 @@ class AlertSink:
             return "resolved"
         return "acknowledged" if review == "ack" else "new"
 
+    def _audit_concealment(self, alert: Any, result: Any) -> None:
+        """Append the detector and gate facts for every concealment verdict."""
+        payload = alert.payload or {}
+        candidate = payload.get("candidate")
+        if getattr(candidate, "detector", None) != "concealment":
+            return
+        metadata = dict(getattr(candidate, "metadata", {}) or {})
+        verdict_at = time.time()
+        enqueued_at = payload.get("enqueued_at")
+        latency = (
+            round(verdict_at - enqueued_at, 3)
+            if isinstance(enqueued_at, (int, float)) else None
+        )
+        if result is None or getattr(result, "errored", False):
+            verdict = "unverified"
+        elif result.confirmed:
+            verdict = "confirmed"
+        else:
+            verdict = "rejected"
+        record = {
+            "schema_version": 1,
+            "camera_id": alert.camera_id,
+            "rule_name": alert.rule_name,
+            "candidate_timestamp": float(alert.timestamp),
+            "track_id": alert.track_id,
+            "destination": metadata.get("destination"),
+            "peak_score": metadata.get("score"),
+            "components": dict(metadata.get("components") or {}),
+            "limited": metadata.get("limited"),
+            "associated_bag": metadata.get("associated_bag"),
+            "reasons": list(metadata.get("reasons") or []),
+            "enqueued_at": enqueued_at,
+            "verdict_at": verdict_at,
+            "gate_result_timestamp": getattr(result, "timestamp", None),
+            "gate_latency_s": latency,
+            "verdict": verdict,
+            "confirmed": getattr(result, "confirmed", None),
+            "confidence": getattr(result, "confidence", None),
+            "reason": getattr(result, "reason", "") if result is not None else "",
+            "gate_error": (
+                getattr(result, "error", "")
+                if result is not None else "missing verification result"
+            ),
+            "prompt_version": getattr(result, "prompt_version", "") if result else "",
+        }
+        try:
+            with self._lock:
+                with self.concealment_audit_path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+        except Exception:  # noqa: BLE001 - audit I/O must not stop the gate
+            log.error("concealment audit write failed", exc_info=True)
+
     def handle(self, alert: Any, result: Any) -> None:
+        self._audit_concealment(alert, result)
         if result is None:
             return
         provisional_id = (alert.payload or {}).get("provisional_event_id")
