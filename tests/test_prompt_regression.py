@@ -286,6 +286,29 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(updated["measurement_status"], "measured")
 
+    def test_partial_replay_is_not_reported_or_compared_as_a_full_measurement(self):
+        args = types.SimpleNamespace(
+            golden_dir="unused", fresh=False, gate_provider="mock", gate_model="mock",
+            sensitivity="balanced", verbose=False, limit=1, update_baseline=False,
+        )
+        golden = mock.MagicMock()
+        golden.__len__.return_value = 3
+        golden.replay.return_value = [{"case_id": "one"}]
+        partial = {"errors": 0, "precision": 1.0, "recall": 1.0}
+        output = io.StringIO()
+
+        with mock.patch.object(prompt_regression, "GoldenSet", return_value=golden), \
+                mock.patch.object(prompt_regression, "score", return_value=partial), \
+                mock.patch.object(prompt_regression, "_model_digest", return_value="digest"), \
+                redirect_stdout(output):
+            result = prompt_regression.cmd_run(args)
+
+        reported = json.loads(output.getvalue())
+        self.assertEqual(result, 2)
+        self.assertEqual(reported["measurement_status"], "partial")
+        self.assertEqual(reported["golden_cases"], 1)
+        self.assertEqual(reported["corpus_cases"], 3)
+
     def test_tolerance_is_tighter_on_recall_than_precision(self):
         # Losing precision costs an operator a review. Losing recall means a
         # threat is not reported, and there is no second chance at that.

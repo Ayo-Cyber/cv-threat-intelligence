@@ -135,29 +135,35 @@ def cmd_run(args) -> int:
 
     verdicts = golden.replay(gate, progress=progress if args.verbose else None,
                              resume_path=resume, limit=args.limit)
-    if len(verdicts) < len(golden):
+    complete = len(verdicts) == len(golden)
+    if not complete:
         log.info("partial run: %d/%d case(s) answered so far — rerun to continue "
                  "(progress kept in %s)", len(verdicts), len(golden), resume)
     result = score(verdicts)
-    result.update({"measurement_status": "measured",
+    result.update({"measurement_status": "measured" if complete else "partial",
                    "fingerprint": fingerprint(), "prompts": describe()["constants"],
                    "sensitivity": args.sensitivity, "gate_model": args.gate_model,
                    "gate_model_digest": _model_digest(args.gate_model),
                    "measured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                   "golden_cases": len(golden)})
+                   "golden_cases": len(verdicts), "corpus_cases": len(golden)})
 
     print(json.dumps(result, indent=2))
     if result["errors"]:
         log.warning("%d case(s) errored and were excluded from scoring — a gate "
                     "error is not a rejection", result["errors"])
 
-    if args.update_baseline:
-        # An incomplete measurement must never become the yardstick.
-        if len(verdicts) < len(golden):
+    # Partial metrics are useful progress, but they are neither a baseline nor
+    # comparable with one measured over the complete frozen corpus.
+    if not complete:
+        if args.update_baseline:
             log.error("refusing --update-baseline: only %d/%d cases measured — "
                       "rerun (it resumes) until the set is complete",
                       len(verdicts), len(golden))
-            return 2
+        else:
+            log.warning("partial replay is not compared with the full baseline")
+        return 2
+
+    if args.update_baseline:
         BASELINE.write_text(json.dumps({"tolerance": TOLERANCE, **result}, indent=2) + "\n")
         log.info("baseline updated: %s", BASELINE)
         # Archive the progress file: the measurement is banked, and a future
