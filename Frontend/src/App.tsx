@@ -111,6 +111,19 @@ const names: Record<View, string> = {
 const resolved = (e: Incident) =>
   e.triage_state === "resolved" || ["true", "false"].includes(e.review);
 const title = (e: Incident) => e.title || e.rule.replaceAll("_", " ");
+
+type TrackingPreferenceState = {
+  operatorId: string;
+  globalVisible: boolean;
+  overrides: TrackingOverrides;
+};
+
+const emptyTrackingPreferences = (): TrackingPreferenceState => ({
+  operatorId: "",
+  globalVisible: false,
+  overrides: {},
+});
+
 export default function App() {
   const [mode, setMode] = useState<Mode>("demo");
   const api = useMemo(() => client(mode), [mode]);
@@ -124,10 +137,8 @@ export default function App() {
   const [branch, setBranch] = useState<LocationSelection>(ALL_LOCATIONS);
   const [area, setArea] = useState<LocationSelection>(ALL_LOCATIONS);
   const [preferenceUser, setPreferenceUser] = useState("");
-  const [trackingGlobal, setTrackingGlobal] = useState(false);
-  const [trackingOverrides, setTrackingOverrides] = useState<TrackingOverrides>(
-    {},
-  );
+  const [trackingPreferences, setTrackingPreferences] =
+    useState<TrackingPreferenceState>(emptyTrackingPreferences);
   const [filter, setFilter] = useState("open");
   const [dark, setDark] = useState(
     localStorage.getItem("argus.theme") === "dark",
@@ -146,14 +157,33 @@ export default function App() {
   const generation = useRef(0);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const canConfigureCameras = ws.auth.permissions.includes("configure_cameras");
+  const trackingPreferencesReady =
+    ws.auth.signed_in &&
+    Boolean(ws.auth.username) &&
+    trackingPreferences.operatorId === ws.auth.username;
+  const trackingGlobal = trackingPreferences.globalVisible;
+  const trackingOverrides = trackingPreferences.overrides;
   const refresh = useCallback(async () => {
     const current = generation.current;
     const auth = await api.invoke("auth_state");
     if (current !== generation.current) return;
     if (!auth.signed_in) {
+      setTrackingPreferences(emptyTrackingPreferences());
       setWs({ ...blank, auth });
       return;
     }
+    setTrackingPreferences((preferences) =>
+      preferences.operatorId === auth.username
+        ? preferences
+        : {
+            operatorId: auth.username,
+            globalVisible: loadGlobalTrackingPreference(
+              localStorage,
+              auth.username,
+            ),
+            overrides: {},
+          },
+    );
     const [cameras, events, areas, hierarchy, site, monitor, english] =
       await Promise.all([
         api.invoke("list_cameras"),
@@ -226,17 +256,11 @@ export default function App() {
       setPreferenceUser("");
       setBranch(ALL_LOCATIONS);
       setArea(ALL_LOCATIONS);
-      setTrackingGlobal(false);
-      setTrackingOverrides({});
       return;
     }
     const saved = loadWallFilterPreference(localStorage, ws.auth.username);
     setBranch(saved.branch);
     setArea(saved.area);
-    setTrackingGlobal(
-      loadGlobalTrackingPreference(localStorage, ws.auth.username),
-    );
-    setTrackingOverrides({});
     setPreferenceUser(ws.auth.username);
   }, [ws.auth.signed_in, ws.auth.username]);
   useEffect(() => {
@@ -247,13 +271,13 @@ export default function App() {
     });
   }, [area, branch, preferenceUser, ws.auth.signed_in, ws.auth.username]);
   useEffect(() => {
-    if (preferenceUser !== ws.auth.username || !ws.auth.signed_in) return;
+    if (!trackingPreferencesReady) return;
     saveGlobalTrackingPreference(
       localStorage,
-      ws.auth.username,
-      trackingGlobal,
+      trackingPreferences.operatorId,
+      trackingPreferences.globalVisible,
     );
-  }, [preferenceUser, trackingGlobal, ws.auth.signed_in, ws.auth.username]);
+  }, [trackingPreferences, trackingPreferencesReady]);
   useEffect(() => {
     const compatibleBranch = reconcileBranchSelection(ws.hierarchy, branch);
     if (!sameLocationSelection(compatibleBranch, branch)) {
@@ -340,11 +364,43 @@ export default function App() {
     cameraId: string,
     preference: TrackingPreference,
   ) => {
-    setTrackingOverrides((current) =>
-      updateTrackingOverride(current, cameraId, preference),
+    setTrackingPreferences((current) =>
+      current.operatorId === ws.auth.username
+        ? {
+            ...current,
+            overrides: updateTrackingOverride(
+              current.overrides,
+              cameraId,
+              preference,
+            ),
+          }
+        : current,
     );
   };
-  if (streamsOnly && ws.auth.signed_in) {
+  const setTrackingGlobal = (visible: boolean) => {
+    setTrackingPreferences((current) =>
+      current.operatorId === ws.auth.username
+        ? { ...current, globalVisible: visible }
+        : current,
+    );
+  };
+  const changeMode = (nextMode: Mode) => {
+    if (nextMode === mode) return;
+    generation.current++;
+    setWs(blank);
+    setLoading(true);
+    setError("");
+    setSelected(null);
+    setEventId(null);
+    setStreamsOnly(false);
+    setPreferenceUser("");
+    setBranch(ALL_LOCATIONS);
+    setArea(ALL_LOCATIONS);
+    setTrackingPreferences(emptyTrackingPreferences());
+    setLastSync(null);
+    setMode(nextMode);
+  };
+  if (streamsOnly && trackingPreferencesReady) {
     return (
       <StreamsWall
         hierarchy={ws.hierarchy}
@@ -497,13 +553,13 @@ export default function App() {
             >
               <button
                 className={mode === "demo" ? "active" : ""}
-                onClick={() => setMode("demo")}
+                onClick={() => changeMode("demo")}
               >
                 Demo
               </button>
               <button
                 className={mode === "engine" ? "active" : ""}
-                onClick={() => setMode("engine")}
+                onClick={() => changeMode("engine")}
               >
                 Local engine
               </button>
@@ -760,7 +816,7 @@ export default function App() {
                             title={
                               trackingGlobal ? "Hide tracking" : "Show tracking"
                             }
-                            onClick={() => setTrackingGlobal((shown) => !shown)}
+                            onClick={() => setTrackingGlobal(!trackingGlobal)}
                           >
                             <ScanLine size={16} />
                           </button>
@@ -838,7 +894,10 @@ export default function App() {
                               <CameraStream
                                 camera={c}
                                 api={api}
-                                active={overviewActive.has(c.id)}
+                                active={
+                                  trackingPreferencesReady &&
+                                  overviewActive.has(c.id)
+                                }
                                 tracking={trackingVisible(
                                   trackingGlobal,
                                   cameraTrackingPreference(
