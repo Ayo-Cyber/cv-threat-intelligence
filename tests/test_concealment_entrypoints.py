@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType
+from unittest.mock import patch
+
 from cvti.detector.core import PosePersonState
 from cvti.retail.concealment import ConcealmentDetector, PoseFrame
 
@@ -61,13 +65,23 @@ def test_retail_pipeline_scores_each_bag_for_only_one_track() -> None:
 
 
 def test_desktop_worker_scores_each_bag_for_only_one_track() -> None:
-    from cvti.app import worker
+    qtcore = ModuleType("PyQt6.QtCore")
+    qtcore.QThread = type("QThread", (), {})
+    qtcore.pyqtSignal = lambda *_args, **_kwargs: object()
+    pyqt6 = ModuleType("PyQt6")
+    pyqt6.QtCore = qtcore
 
-    detector = ConcealmentDetector()
-    poses = [_pose_frame(1, 0.0, 140.0), _pose_frame(2, 90.0, 150.0)]
-    assessments = worker.score_concealment_frame(
-        detector, poses, 0.0, [(125.0, 170.0, 145.0, 235.0)]
-    )
+    try:
+        with patch.dict(sys.modules, {"PyQt6": pyqt6, "PyQt6.QtCore": qtcore}):
+            from cvti.app import worker
+
+            detector = ConcealmentDetector()
+            poses = [_pose_frame(1, 0.0, 140.0), _pose_frame(2, 90.0, 150.0)]
+            assessments = worker.score_concealment_frame(
+                detector, poses, 0.0, [(125.0, 170.0, 145.0, 235.0)]
+            )
+    finally:
+        sys.modules.pop("cvti.app.worker", None)
     _assert_one_owner(assessments)
 
 
