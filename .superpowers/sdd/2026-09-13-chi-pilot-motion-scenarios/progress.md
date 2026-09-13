@@ -49,3 +49,5 @@
 - Task 5: fix round 2/3 (3 scorer-integrity findings addressed, 2 new Important acceptance blockers open: rate arithmetic and actual unique MJPEG evidence; commits `48c964b..2d5dcaa`).
 - Task 5: fix round 3/3 (rate arithmetic and unique structured MJPEG evidence addressed; final-round commit follows `2d5dcaa`).
 - Task 5: fix round 4 (scoped regression: performance `sample_count` now binds to frame `engine.units`, while `observation_count` separately binds to batch `engine.count`; commit follows `9b06251`).
+- Task 5: complete (commit `2c5bd9b`; scoped review clean. Reproducible scorer now rejects out-of-window false positives, incomplete person/frame coverage, inconsistent throughput arithmetic, malformed MJPEG captures, and reused capture evidence).
+- Task 5: empirical Chi acceptance remains explicitly unmeasured pending controlled labeled clips, a complete scenario-5 candidate audit, and three real hidden/shown capture pairs.
