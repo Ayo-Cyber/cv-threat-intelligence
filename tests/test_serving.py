@@ -3,6 +3,10 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 import sys
+from unittest import mock
+
+import numpy as np
+import supervision as sv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -208,6 +212,64 @@ class CameraMappingTests(unittest.TestCase):
         self.assertEqual(qa.zone, "shelf_right")
         self.assertEqual(qa.payload["candidate"], cand)
         self.assertEqual(qa.payload["frames"], ["F"])
+
+
+class ConcealmentBagWiringTests(unittest.TestCase):
+    def test_shared_bag_detection_is_grounded_to_only_the_matching_pose_track(self):
+        from cvti.detector.core import PosePersonState
+        from cvti.rules.customization import CustomizationEngine
+        from cvti.serving.camera import PerCameraState
+
+        def pose(track_id, bbox, wrist):
+            x1, y1, x2, y2 = bbox
+            return PosePersonState(
+                track_id=track_id,
+                bbox=bbox,
+                timestamp=0.0,
+                left_shoulder=(x1 + 20.0, y1 + 10.0),
+                right_shoulder=(x2 - 20.0, y1 + 10.0),
+                left_elbow=None,
+                right_elbow=None,
+                left_wrist=wrist,
+                right_wrist=None,
+                max_wrist_speed=0.0,
+                max_wrist_accel=0.0,
+                max_arm_extension_ratio=0.0,
+                weapon_labels=[],
+                left_hip=(x1 + 25.0, y2 - 10.0),
+                right_hip=(x2 - 25.0, y2 - 10.0),
+            )
+
+        detections = sv.Detections(
+            xyxy=np.array([
+                [60.0, 10.0, 140.0, 110.0],
+                [360.0, 10.0, 440.0, 110.0],
+                [145.0, 55.0, 190.0, 105.0],
+            ]),
+            class_id=np.array([0, 0, 26]),
+            confidence=np.array([0.95, 0.94, 0.88]),
+        )
+        pose_people = [
+            pose(1, (60, 10, 140, 110), (140.0, 80.0)),
+            pose(2, (360, 10, 440, 110), (400.0, 80.0)),
+        ]
+        state = PerCameraState(
+            "cam1",
+            CustomizationEngine(),
+            person_filter=False,
+            pose_model=object(),
+            concealment=True,
+            heavy_stride=1,
+        )
+
+        with mock.patch.object(PerCameraState, "_compute_pose", return_value=pose_people):
+            state.process(detections, np.zeros((160, 500, 3), dtype=np.uint8), timestamp=1.0)
+
+        first = state._conceal._buffers[1][-1]
+        second = state._conceal._buffers[2][-1]
+        self.assertGreater(first.hand_to_bag, 0.0)
+        self.assertLess(first.hand_to_bag, 0.6)
+        self.assertIsNone(second.hand_to_bag)
 
 
 if __name__ == "__main__":

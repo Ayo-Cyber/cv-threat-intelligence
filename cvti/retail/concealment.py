@@ -61,7 +61,7 @@ Point = tuple[float, float]
 # (they'll pay at the counter), and carts aren't COCO classes, so "hand into trolley"
 # never produces a bag bbox and never fires. Putting goods into your OWN bag does.
 BAG_CLASSES = ("backpack", "handbag", "suitcase")
-COCO_BAG_IDS = (24, 26, 28)  # backpack, handbag, suitcase in COCO
+COCO_BAG_IDS = frozenset({24, 26, 28})  # backpack, handbag, suitcase in COCO
 
 # ---- Tunables (all overridable via ConcealmentDetector.__init__) -------------
 WINDOW_SECONDS = 1.2      # how much recent history each decision looks at
@@ -109,6 +109,7 @@ class ConcealmentAssessment:
     reasons: list[str] = field(default_factory=list)
     components: dict[str, float] = field(default_factory=dict)
     limited: bool = False          # True when hips were never seen (occluded) -> degraded
+    associated_bag: tuple[float, float, float, float] | None = None
 
 
 def _dist(a: Point | None, b: Point | None) -> float | None:
@@ -136,6 +137,17 @@ def _point_to_bbox(p: Point, box: tuple[float, float, float, float]) -> float:
     return hypot(dx, dy)
 
 
+def _bbox_distance(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    dx = max(ax1 - bx2, bx1 - ax2, 0.0)
+    dy = max(ay1 - by2, by1 - ay2, 0.0)
+    return hypot(dx, dy)
+
+
 def _body_scale(kp: dict[str, Point | None], bbox: tuple[float, float, float, float] | None) -> float | None:
     shoulder_c = _mid(kp.get("left_shoulder"), kp.get("right_shoulder"))
     hip_c = _mid(kp.get("left_hip"), kp.get("right_hip"))
@@ -151,6 +163,42 @@ def _body_scale(kp: dict[str, Point | None], bbox: tuple[float, float, float, fl
         if height > 1e-3:
             return height * 0.5
     return None
+
+
+def personal_bag_boxes(detections: Any) -> list[tuple[float, float, float, float]]:
+    """Extract COCO personal-bag boxes from an existing detection pass."""
+    xyxy = getattr(detections, "xyxy", None)
+    class_ids = getattr(detections, "class_id", None)
+    if xyxy is None or class_ids is None:
+        return []
+    return [
+        tuple(float(value) for value in box[:4])
+        for box, class_id in zip(xyxy, class_ids)
+        if class_id is not None and int(class_id) in COCO_BAG_IDS
+    ]
+
+
+def bags_for_pose(
+    frame: PoseFrame,
+    bag_bboxes: list[tuple[float, float, float, float]],
+) -> list[tuple[float, float, float, float]]:
+    """Keep personal bags intersecting or within one body scale of this person."""
+    if frame.bbox is None:
+        return []
+    scale = _body_scale(frame.keypoints, frame.bbox)
+    if scale is None:
+        return []
+    return [box for box in bag_bboxes if _bbox_distance(frame.bbox, box) <= scale]
+
+
+def _bags_for_track(
+    track_id: int,
+    bag_bboxes: list[tuple[float, float, float, float]] | None = None,
+    bag_bboxes_by_track: dict[int, list[tuple[float, float, float, float]]] | None = None,
+) -> list[tuple[float, float, float, float]]:
+    if bag_bboxes_by_track is not None:
+        return bag_bboxes_by_track.get(track_id, [])
+    return bag_bboxes or []
 
 
 def _frame_features(
@@ -237,6 +285,9 @@ class ConcealmentDetector:
         pose_frames: list[PoseFrame],
         timestamp: float,
         bag_bboxes: list[tuple[float, float, float, float]] | None = None,
+        bag_bboxes_by_track: dict[
+            int, list[tuple[float, float, float, float]]
+        ] | None = None,
     ) -> list[ConcealmentAssessment]:
         """bag_bboxes: detected PERSONAL-bag boxes this frame (backpack/handbag/suitcase).
         Trolleys/baskets are not personal bags, so pass nothing for them — they stay safe."""
@@ -246,7 +297,12 @@ class ConcealmentDetector:
         for frame in pose_frames:
             self._last_seen[frame.track_id] = timestamp
             buf = self._buffers.setdefault(frame.track_id, deque())
-            buf.append(_frame_features(frame, bag_bboxes))
+            track_bags = _bags_for_track(
+                frame.track_id,
+                bag_bboxes=bag_bboxes,
+                bag_bboxes_by_track=bag_bboxes_by_track,
+            )
+            buf.append(_frame_features(frame, track_bags))
             cutoff = timestamp - self.window_seconds
             while buf and buf[0].timestamp < cutoff:
                 buf.popleft()
@@ -262,6 +318,7 @@ class ConcealmentDetector:
             results.append(ConcealmentAssessment(
                 track_id=frame.track_id, score=score, candidate=candidate, destination=destination,
                 reasons=reasons, components=components, limited=limited,
+                associated_bag=track_bags[0] if track_bags else None,
             ))
 
         return results

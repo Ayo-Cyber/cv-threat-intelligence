@@ -11,9 +11,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
+import supervision as sv
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from cvti.retail.concealment import ConcealmentDetector, PoseFrame  # noqa: E402
+from cvti.retail import concealment  # noqa: E402
+
+ConcealmentDetector = concealment.ConcealmentDetector
+PoseFrame = concealment.PoseFrame
 
 _SHOULDERS = {"left_shoulder": (80.0, 100.0), "right_shoulder": (120.0, 100.0)}
 _HIPS = {"left_hip": (85.0, 250.0), "right_hip": (115.0, 250.0)}
@@ -123,6 +129,65 @@ def test_trolley_destination_is_safe() -> None:
     assert not result.candidate, "placing an item in a trolley must not fire a concealment candidate"
     assert result.destination is None, result.destination
     print(f"PASS trolley destination stays safe (score={result.score:.2f}, dest={result.destination})")
+
+
+def test_personal_bag_boxes_extracts_only_coco_personal_bags() -> None:
+    detections = sv.Detections(
+        xyxy=np.array([
+            [10.0, 10.0, 80.0, 180.0],
+            [130.0, 100.0, 180.0, 160.0],
+            [190.0, 80.0, 290.0, 180.0],
+        ]),
+        class_id=np.array([0, 26, 56]),
+        confidence=np.array([0.95, 0.8, 0.9]),
+    )
+
+    assert concealment.personal_bag_boxes(detections) == [(130.0, 100.0, 180.0, 160.0)]
+
+
+def test_bag_evidence_is_grounded_to_the_nearby_pose_track() -> None:
+    bag = (145.0, 170.0, 190.0, 235.0)
+    nearby = frame(0.0, (160.0, 200.0))
+    far_away = PoseFrame(
+        track_id=2,
+        timestamp=0.0,
+        keypoints={
+            "left_shoulder": (380.0, 100.0),
+            "right_shoulder": (420.0, 100.0),
+            "left_wrist": (400.0, 200.0),
+            "right_wrist": None,
+            "left_hip": (385.0, 250.0),
+            "right_hip": (415.0, 250.0),
+        },
+        bbox=(360.0, 90.0, 440.0, 260.0),
+    )
+    poses = [nearby, far_away]
+    bags_by_track = {
+        pose.track_id: concealment.bags_for_pose(pose, [bag]) for pose in poses
+    }
+
+    assessments = ConcealmentDetector().update(
+        poses,
+        timestamp=0.0,
+        bag_bboxes_by_track=bags_by_track,
+    )
+
+    assert assessments[0].components["f_bag"] > 0.0
+    assert assessments[0].associated_bag == bag
+    assert assessments[1].components["f_bag"] == 0.0
+    assert assessments[1].associated_bag is None
+
+
+def test_track_specific_bags_take_precedence_over_legacy_global_bags() -> None:
+    result = ConcealmentDetector().update(
+        [frame(0.0, _DROP_IN_BAG)],
+        timestamp=0.0,
+        bag_bboxes=[_BAG_BBOX],
+        bag_bboxes_by_track={1: []},
+    )[0]
+
+    assert result.components["f_bag"] == 0.0
+    assert result.associated_bag is None
 
 
 def test_unsampled_gap_does_not_erase_concealment_history() -> None:

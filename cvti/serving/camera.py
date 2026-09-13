@@ -341,8 +341,10 @@ class PerCameraState:
 
         `detections` is sv.Detections (tracking/zones); `object_detections` is the
         core.py Detection list from the same frame (weapons/violence/theft)."""
+        from cvti.retail.concealment import personal_bag_boxes
         from cvti.retail.zones import filter_person_detections
 
+        bag_boxes = personal_bag_boxes(detections) if self._conceal is not None else []
         frame_hw = image.shape[:2]
         self._frame_buffer.append(image)
         # Continuous replay buffer: a rolling JPEG window with timestamps so a
@@ -488,9 +490,17 @@ class PerCameraState:
             if self._conceal is not None:
                 from cvti.detector.core import pose_people_to_concealment_frames
                 from cvti.event_adapters import concealment_to_events
+                from cvti.retail.concealment import bags_for_pose
                 if pose_ran:
+                    pose_frames = pose_people_to_concealment_frames(pose_people, timestamp)
                     assessments = self._conceal.update(
-                        pose_people_to_concealment_frames(pose_people, timestamp), timestamp)
+                        pose_frames,
+                        timestamp,
+                        bag_bboxes_by_track={
+                            pose.track_id: bags_for_pose(pose, bag_boxes)
+                            for pose in pose_frames
+                        },
+                    )
                     raw_events += concealment_to_events(assessments, timestamp)
             if self.violence or self.weapons or self.theft:
                 merged = self._merged_detections(object_detections, image,
