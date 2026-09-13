@@ -401,3 +401,60 @@ three real hidden/shown capture pairs are still unavailable, so scenario and
 overlay-impact cells remain unmeasured. The prior prompt fingerprint,
 unmeasured prompt metrics, previous-measurement provenance, and Ollama replay
 digest remain unchanged. No subagents were used.
+
+## Fix Round 4
+
+### Production Rate Semantics
+
+- Corrected the retained performance schema without renaming its public
+  `sample_count` field: it now means processed frame units and must equal
+  `detect_batch.engine.units`, the numerator production uses for
+  `rate_per_s`. This preserves the field while making its semantics accurate.
+- Added `observation_count` for inference observations/batches and require it
+  to equal `detect_batch.engine.count`. Both engine values must be positive
+  integers and are independently validated.
+- Rate consistency remains `sample_count / sample_duration_s`, including the
+  tight three-decimal serialization interval from fix round 3. Arbitrary rates
+  and every MJPEG structure, hash, uniqueness, pair, mode, and config rejection
+  remain enforced.
+- All performance fixtures now include `units` and represent genuine batching:
+  for example, 200 processed frame units across 100 batch observations in 20s
+  yields 10 FPS. The retained result records both counts per run.
+- Updated the capture command, operator guide, project handoff, replay evidence,
+  and SDD ledger to distinguish frame units from batch observations.
+
+### TDD And Verification
+
+RED was observed after converting the shared fixtures to authentic batched
+reports before changing production code:
+
+```text
+python -m pytest tests/test_score_chi_motion.py -q
+23 failed, 22 passed in 1.10s
+```
+
+The failures consistently originated at the old
+`sample_count == engine.count` check, including the direct retained-artifact
+case. After binding the fields to their production counterparts:
+
+```text
+python -m pytest tests/test_score_chi_motion.py -q
+45 passed in 0.26s
+
+python -m pytest tests/test_score_chi_motion.py tests/test_prompt_regression.py \
+  tests/test_perf_tells_where_time_goes.py \
+  tests/test_perf_readout_names_the_bottleneck.py -q
+103 passed, 14 warnings in 15.27s
+```
+
+The warnings remain the existing Matplotlib/pyparsing deprecations. No complete
+full-suite rerun was needed for this scorer-schema correction; the relevant
+production performance-board suites are included above.
+
+### Residuals
+
+Empirical scenario and overlay-impact metrics remain unmeasured for the same
+data-availability reasons recorded in prior rounds. The local replay remains
+opportunistic and scorer-ineligible because its capture bytes were not retained.
+The local Ultralytics 8.4.64 versus pinned 8.4.35 environment mismatch is
+unchanged. No subagents were used.

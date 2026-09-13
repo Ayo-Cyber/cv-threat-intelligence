@@ -97,6 +97,7 @@ def _write_perf(path: Path, rate: float, *, mode: str, pair_id: str) -> Path:
     capture.write_bytes(_mjpeg_capture(f"{pair_id}:{mode}"))
     capture_sha256 = hashlib.sha256(capture.read_bytes()).hexdigest()
     sample_count = int(rate * 20.0)
+    observation_count = 100
     path.write_text(json.dumps({
         "chi_motion_performance": {
             "schema_version": 1,
@@ -109,6 +110,7 @@ def _write_perf(path: Path, rate: float, *, mode: str, pair_id: str) -> Path:
             "config_sha256": "b" * 64,
             "sample_duration_s": 20.0,
             "sample_count": sample_count,
+            "observation_count": observation_count,
             "capture_path": capture.name,
             "capture_sha256": capture_sha256,
         },
@@ -116,7 +118,8 @@ def _write_perf(path: Path, rate: float, *, mode: str, pair_id: str) -> Path:
             "detect_batch": {
                 "engine": {
                     "rate_per_s": rate,
-                    "count": sample_count,
+                    "count": observation_count,
+                    "units": sample_count,
                     "span_s": 20.0,
                 }
             }
@@ -378,6 +381,8 @@ def test_scores_motion_acceptance_and_writes_a_retained_artifact(tmp_path: Path)
     ]
     assert performance["pairs"][0]["hidden"]["tracking_mode"] == "hidden"
     assert performance["pairs"][0]["shown"]["tracking_mode"] == "shown"
+    assert performance["pairs"][0]["hidden"]["sample_count"] == 200
+    assert performance["pairs"][0]["hidden"]["observation_count"] == 100
     assert result["scenario4"]["correct_observations"] == 8
     assert result["scenario4"]["scored_observations"] == 8
     captures = [path.with_suffix(".mjpeg") for path in [*hidden, *shown]]
@@ -573,6 +578,7 @@ def test_duplicate_observation_for_expected_sample_is_rejected(tmp_path: Path) -
         ("config", "performance reports must share config_sha256"),
         ("label_clip", "clip_sha256 does not match labels"),
         ("sample_count", "sample_count does not match"),
+        ("observation_count", "observation_count does not match"),
         ("sample_duration", "sample_duration_s does not match"),
         ("paired_sample_count", "paired reports must have equal sample_count"),
         ("paired_sample_duration", "paired reports must have equal sample_duration_s"),
@@ -604,13 +610,15 @@ def test_rejects_unpaired_or_unproven_performance_reports(
             _mutate_perf(report, clip_sha256="e" * 64)
     elif mutation == "sample_count":
         _mutate_perf(shown[0], sample_count=99)
+    elif mutation == "observation_count":
+        _mutate_perf(shown[0], observation_count=99)
     elif mutation == "sample_duration":
         _mutate_perf(shown[0], sample_duration_s=19.0)
     elif mutation == "paired_sample_count":
         report = json.loads(shown[0].read_text())
         report["chi_motion_performance"]["sample_count"] = 180
         report["stages"]["detect_batch"]["engine"].update({
-            "count": 180,
+            "units": 180,
             "rate_per_s": 9.0,
         })
         shown[0].write_text(json.dumps(report))
@@ -676,10 +684,12 @@ def test_accepts_rate_rounded_from_serialized_count_and_duration(
         report = json.loads(path.read_text())
         report["chi_motion_performance"].update({
             "sample_count": 48,
+            "observation_count": 24,
             "sample_duration_s": 14.595,
         })
         report["stages"]["detect_batch"]["engine"].update({
-            "count": 48,
+            "count": 24,
+            "units": 48,
             "span_s": 14.595,
             "rate_per_s": 3.289,
         })

@@ -628,8 +628,11 @@ def _load_perf_report(path: Path, mode: str, index: int) -> dict[str, Any]:
         raise InputError(
             f"{name}: detect_batch.engine.rate_per_s must be a positive number"
         )
-    stage_count = _positive_integer(
+    stage_observation_count = _positive_integer(
         engine.get("count"), name, "detect_batch.engine.count"
+    )
+    stage_units = _positive_integer(
+        engine.get("units"), name, "detect_batch.engine.units"
     )
     stage_duration = _number(
         engine.get("span_s"), name, "detect_batch.engine.span_s", minimum=0.0
@@ -650,9 +653,16 @@ def _load_perf_report(path: Path, mode: str, index: int) -> dict[str, Any]:
     sample_count = _positive_integer(
         metadata.get("sample_count"), name, "sample_count"
     )
-    if sample_count != stage_count:
+    if sample_count != stage_units:
         raise InputError(
-            f"{name}: sample_count does not match detect_batch.engine.count"
+            f"{name}: sample_count does not match detect_batch.engine.units"
+        )
+    observation_count = _positive_integer(
+        metadata.get("observation_count"), name, "observation_count"
+    )
+    if observation_count != stage_observation_count:
+        raise InputError(
+            f"{name}: observation_count does not match detect_batch.engine.count"
         )
     sample_duration = _number(
         metadata.get("sample_duration_s"), name, "sample_duration_s", minimum=0.0
@@ -699,6 +709,7 @@ def _load_perf_report(path: Path, mode: str, index: int) -> dict[str, Any]:
         ),
         "sample_duration_s": sample_duration,
         "sample_count": sample_count,
+        "observation_count": observation_count,
         "capture_path": capture_path,
         "capture_sha256": capture_sha256,
     }
@@ -784,6 +795,7 @@ def _performance_result_row(report: dict[str, Any]) -> dict[str, Any]:
         "tracking_query": report["tracking_query"],
         "rate_per_s": report["rate_per_s"],
         "sample_count": report["sample_count"],
+        "observation_count": report["observation_count"],
         "sample_duration_s": report["sample_duration_s"],
         "capture_path": str(report["capture_path"]),
         "capture_sha256": report["capture_sha256"],

@@ -48,3 +48,4 @@
 - Task 5: fix round 1/5 (5 original findings addressed, 3 new Important scorer-integrity findings open: out-of-window false positives, observation coverage, and paired/mode-qualified performance evidence; commits `be40ced..48c964b`).
 - Task 5: fix round 2/3 (3 scorer-integrity findings addressed, 2 new Important acceptance blockers open: rate arithmetic and actual unique MJPEG evidence; commits `48c964b..2d5dcaa`).
 - Task 5: fix round 3/3 (rate arithmetic and unique structured MJPEG evidence addressed; final-round commit follows `2d5dcaa`).
+- Task 5: fix round 4 (scoped regression: performance `sample_count` now binds to frame `engine.units`, while `observation_count` separately binds to batch `engine.count`; commit follows `9b06251`).

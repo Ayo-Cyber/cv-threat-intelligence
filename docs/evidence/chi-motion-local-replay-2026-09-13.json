@@ -87,12 +87,14 @@
   "performance": {
     "detect_batch": {
       "count": 48,
+      "units": 48,
       "span_s": 14.595,
       "rate_per_s": 3.289,
       "first_inference_ms": 5329.2
     },
     "decode": {
       "count": 108,
+      "units": 108,
       "span_s": 20.037,
       "rate_per_s": 5.39
     }

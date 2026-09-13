@@ -186,7 +186,7 @@ Report every numerator and denominator, not only percentages.
 | Duplicate candidates | Additional matched candidates after the first in one labeled positive interval. Expected: zero. Report queue `deduped` separately because it proves suppression, not latch correctness. |
 | Duplicate shown alerts | Additional persisted events after the first in one labeled incident. Expected: zero. |
 | Detection delay | First matched candidate timestamp minus positive interval start. Report every value and median; no maximum has yet been approved. |
-| Tracking visibility performance | Median `detect_batch.rate_per_s` from at least three paired hidden/shown runs, plus absolute FPS and percent delta. Every rate must agree with sample count / duration under the three-decimal serialization rule below. No numeric regression threshold has yet been approved. |
+| Tracking visibility performance | Median `detect_batch.rate_per_s` from at least three paired hidden/shown runs, plus absolute FPS and percent delta. `sample_count` is processed frame units, not inference-batch observations; every rate must agree with sample count / duration under the three-decimal serialization rule below. No numeric regression threshold has yet been approved. |
 
 Scenario 4 passes only if its permitted moving person-frames are boxed, its
 stationary/outside person-frames are not boxed, IDs remain stable, and it emits
@@ -419,7 +419,8 @@ report["chi_motion_performance"] = {
     "tracking_query": int(os.environ["TRACKING_QUERY"]),
     "config_sha256": os.environ["CONFIG_SHA256"],
     "sample_duration_s": engine["span_s"],
-    "sample_count": engine["count"],
+    "sample_count": engine["units"],
+    "observation_count": engine["count"],
     "capture_path": os.environ["CAPTURE_PATH"],
     "capture_sha256": os.environ["CAPTURE_SHA256"],
 }
@@ -440,11 +441,15 @@ copied capture content is invalid; rerun a capture that the timeout truncates.
 
 The scorer also requires unique run IDs, exactly matched pair IDs, one case and
 clip hash, one config hash, correct mode and query, schema version 1, sample
-count/duration equal to the detection stage, and equal sample count plus
-duration within 1 ms inside each pair. The performance board serializes
-`span_s` and `rate_per_s` to three decimal places. To account only for that
-serialization, the scorer treats each value as its recorded value plus or minus
-`0.0005` and requires the possible `rate_per_s` interval to overlap the possible
+count equal to `detect_batch.engine.units`, observation count equal to
+`detect_batch.engine.count`, duration equal to the stage span, and equal sample
+count plus duration within 1 ms inside each pair. `engine.count` is the number
+of inference observations/batches; `engine.units` is the number of frames
+processed across those batches and is the numerator used by production
+`rate_per_s`. The performance board serializes `span_s` and `rate_per_s` to
+three decimal places. To account only for that serialization, the scorer treats
+each value as its recorded value plus or minus `0.0005` and requires the
+possible `rate_per_s` interval to overlap the possible
 `sample_count / sample_duration_s` interval. A larger inconsistency invalidates
 the report. A single run, reused report or capture, run without an active
 viewer, or run under competing load is not a reproducible measurement.
