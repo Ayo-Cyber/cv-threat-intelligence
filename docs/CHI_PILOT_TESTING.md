@@ -2,9 +2,18 @@
 
 ## Scope And Current Status
 
-This document currently covers only Chi pilot scenario 10: a shopper pockets
-merchandise or places it into a personal bag. Motion scenarios 4 and 5 will be
-added later.
+This document covers Chi pilot scenarios 4, 5, and 10. Scenario 4 is
+non-alert telemetry: it draws boxes only around people classified as moving in
+permitted zones. Scenario 5 creates one latched aggregate candidate for a
+sustained interval with the configured number of simultaneous movers. It does
+not require a crowd, proximity, clustering, panic, or unsafe behavior.
+
+The motion implementation and focused automated suites pass. The full Python
+regression is not green in the validation environment: it detects the local
+Ultralytics 8.4.64 versus required 8.4.35 mismatch, and the committed prompt
+baseline fingerprint predates the scenario-5 gate wording. The local
+redistributable clips also do not cover every controlled acceptance case.
+Unmeasured cells below are deliberately not inferred from unrelated footage.
 
 The repaired architecture has automated regression coverage, but the changed
 TrueSight prompt is **unmeasured**. The frozen golden corpus is unavailable, so
@@ -12,6 +21,381 @@ TrueSight prompt is **unmeasured**. The frozen golden corpus is unavailable, so
 precision or recall.
 The matrix below is the required recording and acceptance protocol, not a claim
 that the seven Chi cases have already passed.
+
+## Scenarios 4 And 5 Product Contract
+
+YOLO person detections feed ByteTrack and the motion classifier whether or not
+boxes are visible. Hiding or showing tracking changes only the stream variant
+requested by the UI; it does not start, stop, enable, disable, or otherwise
+change detection. The raw stream remains canonical.
+
+Scenario 4 emits no candidate and no alert. A moving person receives a green
+tracking box only when `normal_movement=true` and the track is inside one of
+`permitted_movement_zones`. If that optional list is absent, the whole camera
+view is permitted. Stationary people and moving people outside configured
+permitted zones remain unboxed.
+
+Scenario 5 is a separate detector. When at least `movement_min_people` permitted
+tracks remain moving for `movement_persistence_seconds`, it emits one
+`multiple_people_moving` aggregate candidate containing all qualifying track
+IDs and their group box. The detector remains latched while the count stays at
+or above threshold and resets only after the count drops below threshold.
+Existing queue deduplication remains a second line of defense, but a queue
+drop is not evidence that the latch emitted exactly once.
+
+### Controls And Defaults
+
+| Scope | Control | Default and lifetime |
+| --- | --- | --- |
+| Camera config | `normal_movement` | `false` |
+| Camera config | `multiple_people_moving` | `false` |
+| Camera config | `movement_enter_speed_ratio` | `0.05` frame diagonals/second |
+| Camera config | `movement_exit_speed_ratio` | `0.02`; must be lower than enter |
+| Camera config | `movement_min_track_seconds` | `0.4` seconds |
+| Camera config | `movement_min_people` | `2` |
+| Camera config | `movement_persistence_seconds` | `0.5` seconds |
+| Camera config | `permitted_movement_zones` | absent, meaning the whole view |
+| Operator wall | Global **Show tracking** | hidden; persisted per signed-in operator |
+| Camera tile | **Use global**, **Show**, **Hide** | `Use global`; session-only override |
+
+Changing the global control remounts only visible streams whose resolved
+tracking value changes. Changing one camera override remounts only that camera.
+Monitoring continues during both operations.
+
+## Motion Recording Matrix
+
+Record fixed-camera clips without cuts or digital camera motion. Fix labels
+before the run and never move an interval after seeing a candidate or verdict.
+Use the same camera, resolution, target FPS, model files, package lock, and
+motion thresholds for the complete matrix.
+
+| ID | Required recording and labels | Scenario 4 expectation | Scenario 5 expectation |
+| --- | --- | --- | --- |
+| `S4-P01` | **One-person permitted movement:** one person stands for at least 2s, then walks for at least 4s wholly inside `movement_permitted`. Label stationary and moving intervals. | One stable moving box only during the permitted moving interval; no alert. | No candidate because only one person moves. |
+| `S4-N01` | **Stationary jitter:** one or more people remain stationary for at least 8s with ordinary detector/pose jitter. | No moving box; no alert. | No candidate. |
+| `S5-P01` | **Two simultaneous movers:** two people begin walking, overlap in motion for at least 3s, then both stop. Label the exact simultaneous interval. | Both moving people boxed when permitted; no scenario-4 alert. | Exactly one candidate inside the simultaneous interval and one resulting alert at most. |
+| `S5-N01` | At least three people stand close together for at least 8s. | No moving boxes. | No candidate: crowd proximity alone is irrelevant. |
+| `S5-P02` | Two people walk simultaneously for at least 3s on opposite sides of the view. | Both permitted movers boxed. | Exactly one candidate despite spatial separation. |
+| `S5-P03` | Two people move simultaneously; one is occluded for less than 1s and resumes the same path. Label mover visibility and the positive interval. | Visible moving tracks retain stable IDs where observable. | One incident and at most one shown alert; record any post-occlusion candidate as a duplicate candidate. |
+| `S4-P02` | One person starts outside `movement_permitted`, crosses its polygon boundary, remains inside for at least 3s, then exits. Label outside, crossing, and inside intervals. | Box absent outside and present only while the moving track is inside. No alert. | That track counts only while inside; use a second permitted mover if validating the scenario-5 threshold at the boundary. |
+
+The repository clips are not substitutes for this controlled matrix.
+`normal_street_01.mp4` visibly contains multiple spread-out movers and supports
+an exploratory scenario-5 replay. It does not provide a controlled stationary
+crowd, temporary occlusion, or authored zone-boundary case. The other retained
+clips do not complete those missing cells either.
+
+## Motion Annotation Contract
+
+Keep clips outside Git unless redistribution rights are documented. For each
+clip, retain its SHA-256 and a CSV named `<case-id>-labels.csv` with this exact
+header:
+
+```csv
+case_id,clip_sha256,start_s,end_s,label,person_ref,expected_zone,notes
+S4-P01,<sha256>,0.000,2.000,stationary,p01,movement_permitted,
+S4-P01,<sha256>,2.000,6.000,moving,p01,movement_permitted,
+S5-P01,<sha256>,2.500,5.500,simultaneous_movement,p01|p02,movement_permitted,
+```
+
+Allowed `label` values are `stationary`, `moving`,
+`simultaneous_movement`, `occluded`, `outside_permitted`,
+`zone_crossing`, and `inside_permitted`. Times use the decoder timeline,
+are seconds with millisecond precision, and define inclusive intervals.
+`person_ref` is the annotator's stable identity, not a model track ID. Add one
+row per person when computing person-frame recall.
+
+For frame-level scoring, add `<case-id>-tracks.csv`:
+
+```csv
+case_id,timestamp_s,person_ref,visible,expected_moving,expected_zone,observed_detected,observed_track_id
+S5-P01,2.600,p01,true,true,movement_permitted,true,17
+S5-P01,2.600,p02,true,true,movement_permitted,true,23
+```
+
+Sample at the configured `--target-fps`. A person-frame is scoreable only
+when `visible=true`; use `visible=false` for the occluded interval rather
+than counting an invisible person as a missed detection. Have a second person
+review the labels before running acceptance.
+
+## Motion Acceptance Metrics
+
+Report every numerator and denominator, not only percentages.
+
+| Metric | Calculation and expected acceptance result |
+| --- | --- |
+| Person-detection recall | Detected visible person-frames / all visible labeled person-frames. Report by case; the pilot team must approve a numeric floor before treating it as a release gate. |
+| ID switches | For each `person_ref`, count transitions between non-empty `observed_track_id` values across consecutive visible detections. Expected: zero in each controlled case, including across the temporary occlusion when the same ID is retained. |
+| Scenario-5 recall | Positive `simultaneous_movement` intervals containing a candidate timestamp / all positive intervals. Expected: every positive interval hit. |
+| Scenario-5 precision | Candidate timestamps matched to one positive interval / all scenario-5 candidates. Expected: every candidate matched; stationary crowd and jitter produce none. |
+| Duplicate candidates | Additional matched candidates after the first in one labeled positive interval. Expected: zero. Report queue `deduped` separately because it proves suppression, not latch correctness. |
+| Duplicate shown alerts | Additional persisted events after the first in one labeled incident. Expected: zero. |
+| Detection delay | First matched candidate timestamp minus positive interval start. Report every value and median; no maximum has yet been approved. |
+| Tracking visibility performance | Median `detect_batch.rate_per_s` from at least three paired hidden/shown runs, plus absolute FPS and percent delta. No numeric regression threshold has yet been approved. |
+
+Scenario 4 passes only if its permitted moving person-frames are boxed, its
+stationary/outside person-frames are not boxed, IDs remain stable, and it emits
+zero candidates or alerts. Scenario 5 passes only if every positive interval
+emits exactly one latched aggregate candidate, every negative interval emits
+none, and every incident produces at most one shown alert. A TrueSight verdict
+is reported separately from detector precision/recall.
+
+## Motion Operator Workflow
+
+### 1. Stage And Hash The Recordings
+
+Start with [Portable Shell Setup](#portable-shell-setup), then:
+
+```bash
+export CHI_MOTION_DIR="$REPO_ROOT/data/chi_motion"
+mkdir -p "$CHI_MOTION_DIR"
+cp "/absolute/path/to/S4-P01.mp4" "$CHI_MOTION_DIR/S4-P01.mp4"
+cp "/absolute/path/to/S4-N01.mp4" "$CHI_MOTION_DIR/S4-N01.mp4"
+cp "/absolute/path/to/S5-P01.mp4" "$CHI_MOTION_DIR/S5-P01.mp4"
+cp "/absolute/path/to/S5-N01.mp4" "$CHI_MOTION_DIR/S5-N01.mp4"
+cp "/absolute/path/to/S5-P02.mp4" "$CHI_MOTION_DIR/S5-P02.mp4"
+cp "/absolute/path/to/S5-P03.mp4" "$CHI_MOTION_DIR/S5-P03.mp4"
+cp "/absolute/path/to/S4-P02.mp4" "$CHI_MOTION_DIR/S4-P02.mp4"
+shasum -a 256 "$CHI_MOTION_DIR"/*.mp4
+```
+
+Create the two CSV files described above, review them, and make them read-only
+for the run:
+
+```bash
+chmod 444 "$CHI_MOTION_DIR"/*-labels.csv "$CHI_MOTION_DIR"/*-tracks.csv
+```
+
+The absolute source paths are operator inputs.
+
+### 2. Draw The Permitted Zone
+
+For `S4-P01` and `S4-P02`, draw the real permitted polygon on the clip's
+first frame and name it exactly `movement_permitted`:
+
+```bash
+export CASE_ID="S4-P02"
+export CASE_CLIP="$CHI_MOTION_DIR/$CASE_ID.mp4"
+export CASE_ZONES="$CHI_MOTION_DIR/$CASE_ID-zones.json"
+"$PYTHON" tools/draw_zones.py --source "$CASE_CLIP" --out "$CASE_ZONES"
+```
+
+Left-click polygon vertices, right-click to finish, enter
+`movement_permitted`, and press `s`. Do not fabricate a polygon for a clip
+that does not visibly cross a meaningful operational boundary.
+
+### 3. Build A Disposable One-Camera Site
+
+Set `CASE_EXPECTED` to `positive` for `S5-P01`, `S5-P02`, and
+`S5-P03`; otherwise use `negative`. Use an empty `CASE_ZONES` for
+whole-view cases.
+
+```bash
+export CASE_ID="S5-P01"
+export CASE_CLIP="$CHI_MOTION_DIR/$CASE_ID.mp4"
+export CASE_LABELS="$CHI_MOTION_DIR/$CASE_ID-labels.csv"
+export CASE_EXPECTED="positive"
+export CASE_ZONES=""
+export RUN_ID="$(date +%Y%m%d-%H%M%S)"
+export CHI_SITE="/private/tmp/chi-motion-$CASE_ID-$RUN_ID.json"
+export CHI_OUT="$REPO_ROOT/runs/chi_motion/$CASE_ID-$RUN_ID"
+test -f "$CASE_CLIP"
+test -f "$CASE_LABELS"
+mkdir -p "$CHI_OUT"
+
+"$PYTHON" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+camera = {
+    "id": os.environ["CASE_ID"],
+    "source": os.environ["CASE_CLIP"],
+    "config": str(Path("configs/chi_pilot_v1.json").resolve()),
+    "normal_movement": True,
+    "multiple_people_moving": True,
+    "movement_enter_speed_ratio": 0.05,
+    "movement_exit_speed_ratio": 0.02,
+    "movement_min_track_seconds": 0.4,
+    "movement_min_people": 2,
+    "movement_persistence_seconds": 0.5,
+    "scene_context_mode": "manual",
+    "environment_type": "public_space",
+    "scene_description": "Operator-authored description of the recorded motion test.",
+}
+zones = os.environ.get("CASE_ZONES", "")
+if zones:
+    camera["zones"] = zones
+    camera["permitted_movement_zones"] = ["movement_permitted"]
+site = {
+    "name": "Chi motion acceptance",
+    "configured": True,
+    "scene_context_policy": "auto",
+    "cameras": [camera],
+}
+Path(os.environ["CHI_SITE"]).write_text(json.dumps(site, indent=2) + "\n")
+PY
+```
+
+### 4. Run Real TrueSight And Exercise Both Overlay States
+
+Confirm `gemma3:4b` is installed as described in
+[Real TrueSight Acceptance Workflow](#real-truesight-acceptance-workflow).
+In terminal 1, launch the operator app against the case:
+
+```bash
+MPLCONFIGDIR="$MPLCONFIGDIR" "$PYTHON" -m cvti.app.shell \
+  --site-config "$CHI_SITE" \
+  --db "$CHI_OUT/events.db"
+```
+
+Start monitoring and leave the global **Show tracking** control off for the
+hidden run. In terminal 2, run the engine:
+
+```bash
+MPLCONFIGDIR="$MPLCONFIGDIR" OLLAMA_API_KEY=ollama "$PYTHON" -m cvti.serving.pipeline \
+  --site-config "$CHI_SITE" \
+  --gate-provider ollama \
+  --gate-model gemma3:4b \
+  --gate-base-url http://127.0.0.1:11434/v1 \
+  --mapper-provider ollama \
+  --mapper-model gemma3:4b \
+  --mapper-base-url http://127.0.0.1:11434/v1 \
+  --gate-sensitivity balanced \
+  --notify console \
+  --output-dir "$CHI_OUT" \
+  --target-fps 5 \
+  --publish-fps 24 \
+  --imgsz 640 \
+  --seconds 30 \
+  --gate-drain 180 \
+  --mobile-port 8710 2>&1 | tee "$CHI_OUT/operator.log"
+```
+
+During the shown run, turn on global **Show tracking**, verify the tile
+reconnects with `tracking=true`, then test that one camera's **Hide** and
+**Use global** override only that tile. Confirm the detection engine remains
+running and candidate counts do not change merely because visibility changed.
+
+For performance, use three independent hidden runs and three independent shown
+runs in alternating order after model warm-up. Keep all other inputs fixed,
+use a fresh `CHI_OUT` for each run, and run no tests or unrelated workloads
+concurrently. Extract `stages.detect_batch.engine.rate_per_s` and
+`stages.decode[CASE_ID].rate_per_s` from each `perf_report.json`. A single
+run, a run without an active tracking viewer, or a run under competing load is
+not a reproducible hidden-versus-shown measurement.
+
+### 5. Extract Scenario-5 Results
+
+```bash
+"$PYTHON" - <<'PY'
+import hashlib
+import json
+import os
+import sqlite3
+from pathlib import Path
+
+out = Path(os.environ["CHI_OUT"])
+case_id = os.environ["CASE_ID"]
+gate_rows = []
+for gate_dir in sorted((out / "gate").glob("gate_*")):
+    alert_path = gate_dir / "alert.json"
+    verification_path = gate_dir / "verification.json"
+    if not alert_path.exists():
+        continue
+    alert = json.loads(alert_path.read_text())
+    if alert.get("detector") != "multiple_people_moving":
+        continue
+    gate_rows.append({
+        "gate_dir": gate_dir.name,
+        "candidate_timestamp_s": alert.get("timestamp"),
+        "people_count": alert.get("metadata", {}).get("people_count"),
+        "track_ids": alert.get("metadata", {}).get("track_ids"),
+        "motions": alert.get("metadata", {}).get("motions"),
+        "verification": (
+            json.loads(verification_path.read_text())
+            if verification_path.exists() else None
+        ),
+    })
+
+con = sqlite3.connect(out / "events.db")
+con.row_factory = sqlite3.Row
+try:
+    events = [dict(row) for row in con.execute(
+        "SELECT id, camera_id, rule, confidence, reason, evidence_dir, "
+        "unverified, prompt_version FROM events "
+        "WHERE camera_id = ? AND rule = 'chi_multiple_people_moving' ORDER BY id",
+        (case_id,),
+    )]
+finally:
+    con.close()
+
+clip = Path(os.environ["CASE_CLIP"])
+hasher = hashlib.sha256()
+with clip.open("rb") as source:
+    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+        hasher.update(chunk)
+digest = hasher.hexdigest()
+perf = json.loads((out / "perf_report.json").read_text())
+result = {
+    "case_id": case_id,
+    "clip_sha256": digest,
+    "labels_path": os.environ["CASE_LABELS"],
+    "expected": os.environ["CASE_EXPECTED"],
+    "scenario5_candidates_reaching_gate": gate_rows,
+    "persisted_scenario5_events": events,
+    "detect_stage": perf.get("stages", {}).get("detect_batch", {}).get("engine"),
+    "decode_stage": perf.get("stages", {}).get("decode", {}).get(case_id),
+}
+target = out / "motion_result.json"
+target.write_text(json.dumps(result, indent=2) + "\n")
+print(json.dumps(result, indent=2))
+PY
+
+grep -E 'alerts_queued|CONFIRMED|REJECTED|UNVERIFIED|deduped' "$CHI_OUT/operator.log"
+```
+
+This extractor cannot recover candidates dropped by the shared queue because
+scenario 5 does not have a dedicated candidate-audit table. Treat
+`gate.*.deduped > 0` as a separately reported unknown candidate count, not as
+proof of zero duplicate candidates. Complete the frame-level CSV by reviewing
+the raw and tracking recordings, then calculate the formulas above.
+
+## Local Motion Replay - 2026-09-13
+
+The most representative retained clip was replayed through the production
+pipeline with real local TrueSight and an authenticated tracking viewer:
+
+- Clip: `data/test_clips/normal_street_01.mp4`
+- SHA-256: `2ca3549f53d02f645106edadf97f52f3c0760d1f9b07e32e5befba6df1c894c8`
+- Media: 640x360, 25 FPS, 13.64 seconds
+- Config: both motion scenarios enabled, default thresholds, two-person
+  threshold, whole view permitted
+- Tracking stream: 205,828 MJPEG bytes received over an authenticated
+  `tracking=1` connection before its intentional 8-second client timeout
+- Candidate: timestamp 10.0s, tracks 35 and 52, spatially separated group box,
+  one candidate admitted and one additional queue duplicate suppressed
+- TrueSight: one verified and confirmed result, confidence 0.90, zero errors,
+  zero unverified results; one non-provisional event persisted
+- Evidence: three gate frames, 17 retained event frames, subject crop, replay
+  clip, alert JSON, and verification JSON
+- Performance observation: 48 detection samples in a 14.595s retained window
+  (`detect_batch.rate_per_s=3.289`), 108 decoded samples in 20.037s
+  (`decode.rate_per_s=5.39`); first inference was 5.329s
+
+This is a plumbing smoke result, not a Chi acceptance result.
+`normal_street_01.mp4` had no frozen pre-run frame/identity labels, no
+controlled negative companion, and no permitted-zone boundary. Therefore
+person-detection recall, ID switches, scenario-5 precision/recall, formal
+detection delay, stationary-crowd behavior, temporary-occlusion behavior, and
+zone-boundary behavior remain **unmeasured**. Persisted duplicate alerts were
+observed as 0, but the queue's one suppressed duplicate must be investigated
+with a dedicated candidate audit before claiming zero duplicate candidates.
+
+Hidden-versus-shown FPS is also **unmeasured**. The shown run overlapped another
+validation workload and there is no overlay-specific timing series; presenting
+its single throughput sample against a separate run would not be reproducible.
+Use the paired protocol above.
 
 ## Repaired End-To-End Path
 

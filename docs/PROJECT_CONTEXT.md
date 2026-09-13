@@ -1,6 +1,68 @@
 # Project Context
 
-## Current Authoritative Handoff - 2026-09-13
+## Current Authoritative Handoff - 2026-09-13 - Motion Scenarios 4 And 5
+
+Chi pilot scenarios 4 and 5 are implemented and have a repeatable acceptance
+workflow in `docs/CHI_PILOT_TESTING.md`.
+
+- Scenario 4 is non-alert telemetry. It boxes only tracks classified as moving
+  in configured permitted zones; with no permitted-zone list, the whole view is
+  eligible. It never creates a candidate merely because a person moves.
+- Scenario 5 creates one aggregate `multiple_people_moving` candidate per
+  sustained above-threshold interval. It counts permitted moving tracks and is
+  independent of crowd proximity, clustering, density, panic, or the existing
+  crowd-formation detector.
+- YOLO person detection and ByteTrack continue regardless of whether tracking
+  boxes are hidden or shown. Overlay visibility only selects the raw or
+  authenticated annotated stream variant.
+- Both motion detectors default off. Movement defaults are enter `0.05`, exit
+  `0.02`, minimum track age `0.4s`, minimum people `2`, and persistence `0.5s`.
+- Tracking boxes default hidden. The global control persists per operator;
+  per-camera `Use global`/`Show`/`Hide` overrides last only for the current
+  desktop session. Visibility changes do not stop monitoring.
+
+Task 5 validation on 2026-09-13 produced:
+
+- focused backend: `123 passed, 15 warnings`;
+- frontend unit: `118 passed`;
+- frontend production build: passed;
+- full Python: `1446 passed, 8 skipped, 2 failed`;
+- real local replay of `data/test_clips/normal_street_01.mp4`: one admitted
+  scenario-5 candidate at clip timestamp 10.0s for tracks 35 and 52, one real
+  `gemma3:4b` confirmation, one persisted event, zero gate errors/unverified
+  results, and one additional queue duplicate suppressed;
+- authenticated shown-overlay path: exercised with 205,828 MJPEG bytes received.
+
+The full regression failures are not motion-code failures, but they keep this
+checkout from being a green acceptance environment:
+
+1. The shared environment has Ultralytics 8.4.64 while `requirements.txt` pins
+   8.4.35. The DirectML seam test intentionally fails on that mismatch.
+2. `docs/prompt_baseline.json` has fingerprint `a2e093837f82...`, while the
+   current gate prompt fingerprint is `0bf660f4a024...`. The scenario-5 wording
+   changed without a completed frozen-corpus measurement.
+
+The retained clips do not provide the controlled stationary-crowd,
+temporary-occlusion, or permitted-zone-boundary cases. They also lack frozen
+person-frame and identity annotations. Detection recall, ID switches,
+scenario-5 precision/recall, formal detection delay, candidate duplicate rate,
+and the complete acceptance cells remain **unmeasured**. The local replay is
+plumbing evidence only. Hidden-versus-shown FPS is also unmeasured because the
+single shown run overlapped regression load and no overlay-specific timing
+series exists.
+
+The frontend's full Playwright suite completed with `19 passed, 2 failed`.
+Both existing failures are caused by the absent ignored
+`Frontend/public/demo` media: the overview finds zero videos and the zone
+workspace cannot obtain a snapshot's natural image ratio. These must not be
+interpreted as tracking-overlay regressions or silently omitted from release
+reporting.
+
+No video fixture was added: the repository media do not cover all required
+cases, and no new recording with documented redistribution rights was
+available.
+
+## Scenario 10 Handoff - 2026-09-13
 
 Chi pilot scenario 10 (pocketing and personal-bag concealment) has an
 architecture repair through `0da99f9`. The production serving path now:
@@ -30,16 +92,16 @@ architecture repair through `0da99f9`. The production serving path now:
 The deterministic regression coverage exercises the repaired timeline, bag
 grounding, rules metadata, audit persistence, pose timing, evidence selection,
 and prompt versioning. This is
-not yet an empirical scenario-10 pass. The current prompt fingerprint is
-recorded as **unmeasured** in `docs/prompt_baseline.json` because the frozen
-golden corpus is unavailable; its precision and recall are therefore unknown.
-Do not reuse the previous prompt's metrics for this wording and do not tune the
-`0.63` candidate threshold or four-sample persistence until labeled Chi clips
-have been run.
+not yet an empirical scenario-10 pass. `docs/prompt_baseline.json` remains
+marked **unmeasured** because the frozen golden corpus is unavailable, but its
+fingerprint is stale after the scenario-5 wording change and the regression
+test fails visibly. Precision and recall are unknown. Do not reuse the previous
+prompt's metrics for this wording and do not tune the `0.63` candidate threshold
+or four-sample persistence until labeled Chi clips have been run.
 
-The repeatable concealment-only recording matrix, commands, acceptance gates,
-and reporting fields are in `docs/CHI_PILOT_TESTING.md`. The later motion plan
-will extend that document for scenarios 4 and 5.
+The repeatable scenario-10 recording matrix, commands, acceptance gates, and
+reporting fields are in `docs/CHI_PILOT_TESTING.md`, alongside the completed
+scenarios 4 and 5 validation workflow.
 
 ## Previous Authoritative Handoff - 2026-09-03
 
