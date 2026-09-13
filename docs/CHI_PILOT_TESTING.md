@@ -8,7 +8,8 @@ added later.
 
 The repaired architecture has automated regression coverage, but the changed
 TrueSight prompt is **unmeasured**. The frozen golden corpus is unavailable, so
-`docs/prompt_baseline.json` records zero scored cases and no precision or recall.
+[the prompt baseline](prompt_baseline.json) records zero scored cases and no
+precision or recall.
 The matrix below is the required recording and acceptance protocol, not a claim
 that the seven Chi cases have already passed.
 
@@ -102,31 +103,351 @@ Scenario 10 passes only when all of the following are true in one recorded run:
    remains explicitly labeled `unmeasured`; previous-prompt metrics are never
    presented as current results.
 
-## Exact Regression Commands
+## Portable Shell Setup
 
-Run from the repository worktree root. This worktree intentionally uses the
-shared project virtual environment at the absolute path below.
-
-Prompt fingerprint/status check:
+Run commands from a repository checkout. A normal checkout uses its own
+`.venv`:
 
 ```bash
-MPLCONFIGDIR=/private/tmp "/Users/macbook/Desktop/Career/CV Threat Intelligence/cv-threat-intelligence/.venv/bin/python" tools/prompt_regression.py check
+export REPO_ROOT="$(git rev-parse --show-toplevel)"
+export PYTHON="${PYTHON:-$REPO_ROOT/.venv/bin/python}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/private/tmp}"
+cd "$REPO_ROOT"
+test -x "$PYTHON"
 ```
 
-Focused concealment regression:
+For this linked worktree only, the source checkout owns the shared environment.
+Set this before `test -x "$PYTHON"` when the worktree has no `.venv`:
 
 ```bash
-MPLCONFIGDIR=/private/tmp "/Users/macbook/Desktop/Career/CV Threat Intelligence/cv-threat-intelligence/.venv/bin/python" -m pytest tests/test_concealment.py tests/test_heavy_models_earn_their_frames.py tests/test_serving.py tests/test_prompt_regression.py tests/test_gate_evidence_quality.py -q
+export PYTHON="/Users/macbook/Desktop/Career/CV Threat Intelligence/cv-threat-intelligence/.venv/bin/python"
 ```
 
-Full Python regression:
+For a new checkout without an environment, create it first. The desktop UI
+dependencies are listed separately because they are not in the
+[Python requirements](../requirements.txt):
 
 ```bash
-MPLCONFIGDIR=/private/tmp "/Users/macbook/Desktop/Career/CV Threat Intelligence/cv-threat-intelligence/.venv/bin/python" -m pytest
+python3 -m venv "$REPO_ROOT/.venv"
+export PYTHON="$REPO_ROOT/.venv/bin/python"
+"$PYTHON" -m pip install --upgrade pip
+"$PYTHON" -m pip install -r "$REPO_ROOT/requirements.txt"
+"$PYTHON" -m pip install PyQt6 PyQt6-WebEngine
 ```
 
-These commands validate the implementation contracts. They do not replace the
-seven-clip Chi run or measure the changed prompt.
+## Automated Mock And Stub Smoke
+
+This command uses synthetic poses and mocked/stubbed model and provider calls.
+It proves the concealment, serving, prompt, and evidence contracts without
+running a real Chi clip or asking TrueSight to judge one:
+
+```bash
+MPLCONFIGDIR="$MPLCONFIGDIR" "$PYTHON" -m pytest tests/test_concealment.py tests/test_heavy_models_earn_their_frames.py tests/test_serving.py tests/test_prompt_regression.py tests/test_gate_evidence_quality.py -q
+```
+
+The prompt fingerprint/status check is also non-measuring:
+
+```bash
+MPLCONFIGDIR="$MPLCONFIGDIR" "$PYTHON" tools/prompt_regression.py check
+```
+
+Do not use `--gate-provider mock` for acceptance. The engine normally refuses
+that provider, and the development override confirms candidates without looking
+at the images. A mock run demonstrates plumbing only.
+
+## Real TrueSight Acceptance Workflow
+
+The production CLI accepts file paths through each camera's `source` field; it
+does not expose a clip-upload endpoint. The steps below therefore submit one
+clip at a time by creating a disposable one-camera site config. Running one case
+per output directory keeps its context, gate counts, database, and evidence
+unambiguous.
+
+### 1. Name And Stage The Clips
+
+Create the local, uncommitted clip directory and place the seven recordings at
+these exact paths:
+
+```bash
+export CHI_CLIP_DIR="$REPO_ROOT/data/chi_s10"
+mkdir -p "$CHI_CLIP_DIR"
+cp "/absolute/path/to/pocket-positive.mp4" "$CHI_CLIP_DIR/S10-P01-pocket-positive.mp4"
+cp "/absolute/path/to/bag-positive.mp4" "$CHI_CLIP_DIR/S10-P02-bag-positive.mp4"
+cp "/absolute/path/to/trolley-safe.mp4" "$CHI_CLIP_DIR/S10-N01-trolley-safe.mp4"
+cp "/absolute/path/to/phone-to-pocket.mp4" "$CHI_CLIP_DIR/S10-N02-phone-to-pocket.mp4"
+cp "/absolute/path/to/clothing-adjustment.mp4" "$CHI_CLIP_DIR/S10-N03-clothing-adjustment.mp4"
+cp "/absolute/path/to/browsing.mp4" "$CHI_CLIP_DIR/S10-N04-browsing.mp4"
+cp "/absolute/path/to/open-carry.mp4" "$CHI_CLIP_DIR/S10-N05-open-carry.mp4"
+shasum -a 256 "$CHI_CLIP_DIR"/*.mp4
+```
+
+The `/absolute/path/to/...` values are operator inputs, not repository paths.
+Retain the resulting hashes with the matrix labels.
+
+### 2. Start The Local Provider
+
+Install the model once:
+
+```bash
+ollama pull gemma3:4b
+```
+
+In terminal 1, start Ollama and leave it running. If it is already running, do
+not start a second server.
+
+```bash
+ollama serve
+```
+
+From another terminal, verify the provider and model before each acceptance
+session:
+
+```bash
+curl -fsS http://127.0.0.1:11434/api/tags
+ollama list
+```
+
+The output must include `gemma3:4b`.
+
+### 3. Select One Case And Build Its Site Config
+
+Repeat steps 3-8 for every row in the matrix. Set the case and clip for the
+current run; this example selects the pocket-positive case:
+
+```bash
+export CASE_ID="S10-P01"
+export CASE_CLIP="$CHI_CLIP_DIR/S10-P01-pocket-positive.mp4"
+export RUN_ID="$(date +%Y%m%d-%H%M%S)"
+export CHI_SITE="/private/tmp/chi-${CASE_ID}-${RUN_ID}.json"
+export CHI_OUT="$REPO_ROOT/runs/chi_s10/${CASE_ID}-${RUN_ID}"
+test -f "$CASE_CLIP"
+mkdir -p "$CHI_OUT"
+```
+
+Use the filename table below for the other six runs:
+
+| Case | `CASE_CLIP` basename |
+| --- | --- |
+| `S10-P01` | `S10-P01-pocket-positive.mp4` |
+| `S10-P02` | `S10-P02-bag-positive.mp4` |
+| `S10-N01` | `S10-N01-trolley-safe.mp4` |
+| `S10-N02` | `S10-N02-phone-to-pocket.mp4` |
+| `S10-N03` | `S10-N03-clothing-adjustment.mp4` |
+| `S10-N04` | `S10-N04-browsing.mp4` |
+| `S10-N05` | `S10-N05-open-carry.mp4` |
+
+Generate a config using the production site schema. `require_reviewed` makes
+Agent Mapper output wait for operator approval. The accepted `merchandise` role
+makes the [retail shoplifting rule](../configs/retail_pipeline_v1.json)
+applicable after the scene is reviewed. See
+[Agent Mapper Operations](AGENT_MAPPER_OPERATIONS.md) for lifecycle and recovery
+details.
+
+```bash
+"$PYTHON" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+root = Path(os.environ["REPO_ROOT"])
+case_id = os.environ["CASE_ID"]
+site = {
+    "name": f"Chi scenario 10 - {case_id}",
+    "configured": True,
+    "notify": "console",
+    "scene_context_policy": "require_reviewed",
+    "cameras": [{
+        "id": case_id,
+        "source": os.environ["CASE_CLIP"],
+        "config": str(root / "configs" / "retail_pipeline_v1.json"),
+        "concealment": True,
+        "heavy_stride": 2,
+        "accepted_zone_roles": ["merchandise"],
+    }],
+}
+Path(os.environ["CHI_SITE"]).write_text(json.dumps(site, indent=2) + "\n")
+PY
+"$PYTHON" -c 'import json, os; from cvti.serving.camera import load_site_config; site=load_site_config(os.environ["CHI_SITE"]); assert len(site["cameras"]) == 1; print(site["cameras"][0])'
+```
+
+### 4. Map The Camera With The Production Preflight
+
+Run the serving layer's synchronous mapping contract before scoring the short
+file. This writes the same site-scoped context, representative frame, source
+fingerprint, and lifecycle artifacts that engine startup consumes:
+
+```bash
+MPLCONFIGDIR="$MPLCONFIGDIR" OLLAMA_API_KEY=ollama "$PYTHON" - <<'PY'
+import json
+import os
+
+from cvti.serving.camera import load_site_config
+from cvti.serving.pipeline import prepare_scene_mapping
+
+site = load_site_config(os.environ["CHI_SITE"])
+result = prepare_scene_mapping(
+    site,
+    output_dir=os.environ["CHI_OUT"],
+    gate_provider="ollama",
+    gate_model="gemma3:4b",
+    gate_base_url="http://127.0.0.1:11434/v1",
+    mapper_provider="ollama",
+    mapper_model="gemma3:4b",
+    mapper_base_url="http://127.0.0.1:11434/v1",
+)
+print(json.dumps(result.statuses, indent=2))
+PY
+```
+
+The case must report `ready_unreviewed`, and these paths must exist:
+
+```bash
+test -f "$CHI_OUT/context/$CASE_ID/scene_context.json"
+test -f "$CHI_OUT/context/$CASE_ID/source_frame.jpg"
+test -f "$CHI_OUT/context/$CASE_ID/mapping_status.json"
+cat "$CHI_OUT/context/$CASE_ID/mapping_status.json"
+```
+
+A mapping failure or missing representative frame blocks the case; record it as
+an infrastructure error instead of changing the label or enabling mock.
+
+### 5. Approve And Associate The Scene
+
+In terminal 2, launch the operator application against the generated site and
+its case-specific database:
+
+```bash
+cd "$REPO_ROOT"
+MPLCONFIGDIR="$MPLCONFIGDIR" "$PYTHON" -m cvti.app.shell \
+  --site-config "$CHI_SITE" \
+  --db "$CHI_OUT/events.db"
+```
+
+Create/sign in as an owner or installer if prompted. In **Scene review** (or the
+camera's **Rules** scene panel), select `$CASE_ID`, inspect the mapper's saved
+representative frame, correct the environment to `retail_shop` if necessary,
+retain a truthful scene description, and approve it. Do not accept a suggested
+zone for this test: the config already associates the camera with the accepted
+`merchandise` role, while mapper suggestions deliberately remain inert.
+
+Confirm the context is approved for this camera and source:
+
+```bash
+cat "$CHI_OUT/context/$CASE_ID/mapping_status.json"
+```
+
+The lifecycle must now be `ready_reviewed`. Leave the app running for the live
+wall and evidence inspection.
+
+### 6. Run The Clip Through Real TrueSight
+
+In terminal 3, run the production serving path. The file is processed once and
+then the gate drains before shutdown; this avoids repeated incidents changing
+the case denominator.
+
+```bash
+cd "$REPO_ROOT"
+set -o pipefail
+MPLCONFIGDIR="$MPLCONFIGDIR" OLLAMA_API_KEY=ollama "$PYTHON" -m cvti.serving.pipeline \
+  --site-config "$CHI_SITE" \
+  --gate-provider ollama \
+  --gate-model gemma3:4b \
+  --gate-base-url http://127.0.0.1:11434/v1 \
+  --mapper-provider ollama \
+  --mapper-model gemma3:4b \
+  --mapper-base-url http://127.0.0.1:11434/v1 \
+  --gate-sensitivity balanced \
+  --notify console \
+  --output-dir "$CHI_OUT" \
+  --target-fps 5 \
+  --imgsz 640 \
+  --seconds 30 \
+  --gate-drain 180 \
+  --mobile-port 8710 2>&1 | tee "$CHI_OUT/operator.log"
+```
+
+This exact run uses the reviewed mapper cache, the configured retail rule, the
+shared pose/concealment path, local TrueSight, the alert sink, and the live UI.
+
+### 7. Record Candidate And TrueSight Outcomes
+
+Watch terminal 3 and retain `operator.log`. A candidate that reaches TrueSight
+produces a `[CONFIRMED]` or `[REJECTED]` line naming `shoplifting` and a title
+such as `POSSIBLE CONCEALMENT (waist)` or `(bag)`. No such line after the
+single-file processing completes means `not_gated`, not a TrueSight rejection.
+
+The engine exits after the file ends and its queued verdicts drain. Its final
+lines report `alerts_queued` and gate `verified`, `confirmed`, `rejected`,
+`errors`, `unverified`, and `deduped` counts. Extract the case-specific audit
+lines with:
+
+```bash
+grep -E 'ready_reviewed|POSSIBLE CONCEALMENT|CONFIRMED|REJECTED|UNVERIFIED|alerts_queued|gate=' "$CHI_OUT/operator.log"
+```
+
+Only the two positive cases may end in `[CONFIRMED]`. Any `UNVERIFIED`, gate
+error, or breaker-open result invalidates the case.
+
+### 8. Retrieve Persistence, Replay, And UI Evidence
+
+Query the actual SQLite event store without requiring the external `sqlite3`
+program:
+
+```bash
+"$PYTHON" - <<'PY'
+import json
+import os
+import sqlite3
+
+db = os.path.join(os.environ["CHI_OUT"], "events.db")
+con = sqlite3.connect(db)
+con.row_factory = sqlite3.Row
+rows = con.execute(
+    "SELECT id, camera_id, rule, confidence, reason, evidence_dir, "
+    "unverified, prompt_version FROM events "
+    "WHERE camera_id = ? AND rule = 'shoplifting' ORDER BY id",
+    (os.environ["CASE_ID"],),
+).fetchall()
+print(json.dumps([dict(row) for row in rows], indent=2))
+con.close()
+PY
+```
+
+For `S10-P01` and `S10-P02`, exactly one row must be present with
+`unverified=0`, a non-empty `prompt_version`, and an evidence directory. Verify
+the replay and stills directly:
+
+```bash
+find "$CHI_OUT/events" -type f \( -name 'event.json' -o -name 'subject.jpg' -o -name 'clip.mp4' -o -name 'frame_*.jpg' \) -print
+```
+
+The positive evidence directory must contain `event.json`, `subject.jpg`,
+`clip.mp4`, and chronological `frame_*.jpg` files. In the still-running desktop
+app, open **Alerts**, select the case's event, and verify that the subject image
+points to the actor and the event replay plays through the labeled action. This
+UI action exercises
+[`ConsoleBackend.event_clip()`](../cvti/app/console_backend.py), the
+application's supported replay contract.
+
+For negative cases, an empty query result is correct when no candidate was
+gated or when a high-priority shoplifting candidate was rejected. Use the
+retained `[REJECTED]` line to distinguish rejection from `not_gated`; neither
+outcome may leave a confirmed or unverified event in the UI.
+
+After recording the matrix row, close the app and repeat from step 3 with the
+next case ID and filename. Keep every timestamped output directory.
+
+## Full Python Regression
+
+No full-suite rerun is needed for a recorded clip, but the repository-wide
+command is:
+
+```bash
+MPLCONFIGDIR="$MPLCONFIGDIR" "$PYTHON" -m pytest
+```
+
+The automated commands validate implementation contracts. They do not replace
+the seven real TrueSight runs or measure the changed prompt.
 
 ## Prompt Measurement When The Corpus Returns
 
@@ -134,7 +455,7 @@ First verify that the restored golden directory contains its manifest, cases,
 and frames. Start Ollama with the pilot model, then run a complete fresh replay:
 
 ```bash
-MPLCONFIGDIR=/private/tmp "/Users/macbook/Desktop/Career/CV Threat Intelligence/cv-threat-intelligence/.venv/bin/python" tools/prompt_regression.py run --golden-dir runs/eval/golden --gate-provider ollama --gate-model gemma3:4b --sensitivity balanced --fresh --verbose
+MPLCONFIGDIR="$MPLCONFIGDIR" "$PYTHON" tools/prompt_regression.py run --golden-dir runs/eval/golden --gate-provider ollama --gate-model gemma3:4b --sensitivity balanced --fresh --verbose
 ```
 
 Only a complete replay with zero errored cases is a measurement. Review the
