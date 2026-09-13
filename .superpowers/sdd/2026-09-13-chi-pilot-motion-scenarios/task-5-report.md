@@ -56,16 +56,19 @@ Full Python:
 1446 passed, 8 skipped, 2 failed, 15 warnings in 159.86s
 ```
 
-The two failures are:
+The initial run had two failures with different causes:
 
 1. `test_ultralytics_is_pinned_and_the_seam_looks_as_assumed`: installed
-   Ultralytics is 8.4.64; `requirements.txt` pins 8.4.35.
+   Ultralytics is 8.4.64; `requirements.txt` pins 8.4.35. This is the only
+   environment-caused failure.
 2. `test_the_committed_baseline_matches_the_current_prompts`: committed
    fingerprint is `a2e093837f82...`; current prompt fingerprint is
-   `0bf660f4a024...`.
+   `0bf660f4a024...`. This was feature-caused by the scenario-5 prompt change,
+   not by the environment.
 
-The prompt baseline was not rewritten because the frozen corpus is unavailable
-and no replacement metrics were fabricated.
+The initial pass did not rewrite the prompt baseline. Fix round 1 updates only
+the current fingerprint and prompt counts; the measurement remains explicitly
+unmeasured and no replacement metrics are fabricated.
 
 Full Playwright, with Vite started separately as required by
 `Frontend/playwright.config.ts`:
@@ -131,18 +134,112 @@ and a three-pair hidden/shown protocol for the team to complete these cells.
   smoke result.
 - Confirmed global/per-camera controls, lifetimes, defaults, and detection
   independence are explicit.
-- Confirmed the environment mismatch, prompt fingerprint failure, and absent
-  frontend media are visible.
+- Confirmed the Ultralytics environment mismatch, the feature-caused historical
+  prompt fingerprint failure, and absent frontend media are visible.
 - Confirmed no subagents were used.
 
 ## Concerns
 
 - The shared Python environment must be rebuilt at the pinned Ultralytics
   8.4.35 before a release-quality rerun.
-- The prompt fingerprint needs a complete frozen-corpus measurement before the
-  baseline can be updated honestly.
+- The current prompt needs a complete frozen-corpus measurement before its null
+  precision and recall can be replaced honestly.
 - Controlled, rights-cleared Chi recordings and independently reviewed labels
   are still required to complete acceptance.
 - Scenario 5 currently lacks a dedicated candidate-audit record before queue
   admission, so a queue duplicate cannot be reconstructed as precisely as a
   concealment candidate.
+
+## Fix Round 1
+
+### Changes
+
+- Updated `docs/prompt_baseline.json` to scenario-5-aware fingerprint
+  `0bf660f4a02480122fc35b7b961672f9d151420d38d450a0779cf2f2bd2f41c6`
+  and detector-question count 8. `measurement_status=unmeasured`, its reason,
+  all null current metrics, and the complete previous measurement provenance
+  are unchanged.
+- Added `tools/score_chi_motion.py` and focused tests. The executable validates
+  half-open labels, per-frame observations, generated-candidate/gate audit rows
+  from SQLite or exported JSON, and exactly three distinct hidden plus three
+  distinct shown performance reports. It atomically writes a retained JSON
+  artifact with input hashes, person recall, ID switches, scenario-4 box
+  checks, scenario-5 precision/recall, admission/gate counts, duplicate
+  candidates and alerts per incident, detection delay, and hidden/shown FPS
+  impact.
+- Replaced the old generic `expected` workflow with separate
+  `scenario4_expected` and `scenario5_expected` fields. Documented half-open
+  `[start_s,end_s)` intervals and the exact final-frame exception.
+- Added exact capture, candidate-audit export, and scoring commands. The docs
+  explicitly require a complete pre-queue scenario-5 audit and reject gate
+  directories as a substitute.
+- Retained sanitized replay evidence in
+  `docs/evidence/chi-motion-local-replay-2026-09-13.json`, including the source
+  hash, transient artifact hashes, runtime versions, limitations, and Ollama
+  `gemma3:4b` digest
+  `a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a`.
+
+### RED And GREEN
+
+RED was observed before implementation:
+
+```text
+python -m pytest tests/test_score_chi_motion.py -q
+ModuleNotFoundError: No module named 'tools.score_chi_motion'
+
+python tools/prompt_regression.py check
+committed a2e093837f82... != current 0bf660f4a024...
+```
+
+Additional red tests demonstrated that impossible audit state combinations and
+scenario-4 box mismatches were accepted before their focused validation was
+added. Final green results:
+
+```text
+python tools/prompt_regression.py check
+fingerprint 0bf660f4a024... recorded; metrics UNMEASURED
+
+python -m pytest tests/test_score_chi_motion.py -q
+18 passed in 0.12s
+
+python -m pytest tests/test_prompt_regression.py tests/test_score_chi_motion.py \
+  tests/test_person_motion.py tests/test_retail_zones.py tests/test_serving.py \
+  tests/test_frame_publisher.py tests/test_engine_api.py -q
+161 passed, 15 warnings in 35.62s
+```
+
+The first focused invocation inside the filesystem sandbox produced 27
+localhost-bind permission failures and was rerun with bind permission; those
+failures were harness restrictions, not product failures.
+
+After the broad runs, a final parser-hardening check added two focused cases
+for malformed JSON structures and case-qualified incident keys:
+
+```text
+python -m pytest tests/test_score_chi_motion.py tests/test_prompt_regression.py -q
+41 passed in 0.33s
+```
+
+Post-fix full Python regression:
+
+```text
+1462 passed, 8 skipped, 1 failed, 15 warnings in 160.51s
+```
+
+The only failure is
+`test_ultralytics_is_pinned_and_the_seam_looks_as_assumed`: local Ultralytics
+8.4.64 differs from pinned 8.4.35. The feature-caused prompt fingerprint
+failure is resolved. Frontend suites were not rerun because fix round 1 changes
+only Python tooling and documentation; the prior 118 unit tests/build pass and
+the two absent-demo-media Playwright failures remain the latest frontend
+result.
+
+### Remaining Unmeasured Work
+
+The repository still lacks rights-cleared controlled two-mover,
+stationary-crowd, occlusion, and zone-boundary recordings with reviewed labels.
+The current runtime also lacks a scenario-5 pre-queue audit hook, and no six-pair
+isolated overlay captures exist. Therefore person recall, ID switches,
+scenario-5 precision/recall, duplicate alerts, formal delay, and hidden/shown
+FPS impact remain unmeasured. The scorer and exact operator workflow are ready
+for those inputs; no acceptance value was inferred or fabricated.

@@ -33,14 +33,29 @@ Task 5 validation on 2026-09-13 produced:
   results, and one additional queue duplicate suppressed;
 - authenticated shown-overlay path: exercised with 205,828 MJPEG bytes received.
 
-The full regression failures are not motion-code failures, but they keep this
-checkout from being a green acceptance environment:
+Sanitized replay facts, source/transient-artifact hashes, and the exact local
+Ollama model digest are retained in
+`docs/evidence/chi-motion-local-replay-2026-09-13.json`. The original output
+directory was transient, so the manifest supports provenance checks and source
+replay, not re-inspection of every original output byte.
+
+The original Task 5 regression found two different causes; they must not be
+grouped as environment failures:
 
 1. The shared environment has Ultralytics 8.4.64 while `requirements.txt` pins
-   8.4.35. The DirectML seam test intentionally fails on that mismatch.
-2. `docs/prompt_baseline.json` has fingerprint `a2e093837f82...`, while the
-   current gate prompt fingerprint is `0bf660f4a024...`. The scenario-5 wording
-   changed without a completed frozen-corpus measurement.
+   8.4.35. This is the sole environment-caused failure; the DirectML seam test
+   intentionally detects it.
+2. The stale `docs/prompt_baseline.json` fingerprint was feature-caused by the
+   scenario-5 prompt wording. Fix round 1 updated it to
+   `0bf660f4a024...` and detector-question count 8. Current metrics remain null
+   and unmeasured, with the prior measured baseline retained as provenance,
+   because the frozen corpus is unavailable.
+
+Post-fix verification is `161 passed` for the combined focused backend/prompt/
+scorer set and `1462 passed, 8 skipped, 1 failed` for full Python. The sole
+remaining full-suite failure is the Ultralytics environment mismatch above;
+the prompt regression check now passes while explicitly reporting unmeasured
+metrics.
 
 The retained clips do not provide the controlled stationary-crowd,
 temporary-occlusion, or permitted-zone-boundary cases. They also lack frozen
@@ -50,6 +65,16 @@ and the complete acceptance cells remain **unmeasured**. The local replay is
 plumbing evidence only. Hidden-versus-shown FPS is also unmeasured because the
 single shown run overlapped regression load and no overlay-specific timing
 series exists.
+
+`tools/score_chi_motion.py` is the acceptance scorer. It validates combined
+half-open interval labels, per-frame observations, complete generated-candidate
+and gate audit rows from SQLite or JSON, and exactly three hidden plus three
+shown performance reports. It writes a retained JSON result with input hashes,
+person recall, ID switches, scenario-5 precision/recall, duplicate candidates
+and persisted alerts, detection delay, and overlay FPS impact. The current
+runtime has no scenario-5 pre-queue audit hook, so candidate-derived acceptance
+metrics remain unmeasured until that input is captured; gate directories are
+insufficient.
 
 The frontend's full Playwright suite completed with `19 passed, 2 failed`.
 Both existing failures are caused by the absent ignored
@@ -93,11 +118,11 @@ The deterministic regression coverage exercises the repaired timeline, bag
 grounding, rules metadata, audit persistence, pose timing, evidence selection,
 and prompt versioning. This is
 not yet an empirical scenario-10 pass. `docs/prompt_baseline.json` remains
-marked **unmeasured** because the frozen golden corpus is unavailable, but its
-fingerprint is stale after the scenario-5 wording change and the regression
-test fails visibly. Precision and recall are unknown. Do not reuse the previous
-prompt's metrics for this wording and do not tune the `0.63` candidate threshold
-or four-sample persistence until labeled Chi clips have been run.
+marked **unmeasured** because the frozen golden corpus is unavailable; its
+fingerprint and prompt counts now match the scenario-5-aware prompt. Precision
+and recall are unknown. Do not reuse the previous prompt's metrics for this
+wording and do not tune the `0.63` candidate threshold or four-sample
+persistence until labeled Chi clips have been run.
 
 The repeatable scenario-10 recording matrix, commands, acceptance gates, and
 reporting fields are in `docs/CHI_PILOT_TESTING.md`, alongside the completed

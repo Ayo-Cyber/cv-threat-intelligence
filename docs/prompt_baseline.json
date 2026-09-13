@@ -18,11 +18,11 @@
   "recall": null,
   "recall_ci": null,
   "recall_n": 0,
-  "fingerprint": "a2e093837f82bd3aca2e1487437ef89f3d3859d1a4d3dc95eb1fa7d89b46e48a",
+  "fingerprint": "0bf660f4a02480122fc35b7b961672f9d151420d38d450a0779cf2f2bd2f41c6",
   "prompts": {
     "SENSITIVITY_QUESTIONS": 3,
     "_COT_PROMPT_TEMPLATE": 2055,
-    "_DETECTOR_QUESTIONS": 7,
+    "_DETECTOR_QUESTIONS": 8,
     "_PROMPT_TEMPLATE": 2209,
     "_QUESTIONS": 16
   },
