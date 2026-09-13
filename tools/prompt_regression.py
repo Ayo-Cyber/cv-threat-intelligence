@@ -139,7 +139,8 @@ def cmd_run(args) -> int:
         log.info("partial run: %d/%d case(s) answered so far — rerun to continue "
                  "(progress kept in %s)", len(verdicts), len(golden), resume)
     result = score(verdicts)
-    result.update({"fingerprint": fingerprint(), "prompts": describe()["constants"],
+    result.update({"measurement_status": "measured",
+                   "fingerprint": fingerprint(), "prompts": describe()["constants"],
                    "sensitivity": args.sensitivity, "gate_model": args.gate_model,
                    "gate_model_digest": _model_digest(args.gate_model),
                    "measured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -224,6 +225,11 @@ def cmd_check(args) -> int:
     base = json.loads(BASELINE.read_text())
     recorded = base.get("fingerprint")
     if recorded == current:
+        if base.get("measurement_status", "measured") == "unmeasured":
+            reason = base.get("unmeasured_reason", "no completed replay is recorded")
+            print(f"Prompt fingerprint is recorded ({current[:12]}…), but metrics are "
+                  f"UNMEASURED: {reason}.")
+            return 0
         print(f"Prompt fingerprint matches the recorded measurement "
               f"({current[:12]}…): precision {_pct(base.get('precision'))}, "
               f"recall {_pct(base.get('recall'))} on {base.get('golden_cases')} candidates.")

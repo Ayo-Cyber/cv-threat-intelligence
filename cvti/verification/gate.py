@@ -355,11 +355,12 @@ class VerificationGate:
     TIMEOUT_FLOOR_S = 90.0
     TIMEOUT_CEIL_S = 360.0
     # Frames per verdict on a LOCAL model (11 Sep pilot): the vision tower
-    # pays per image, so a CPU box gets two — one full frame for context plus
-    # the LAST image, which is where the evidence builder appends the zoomed
-    # subject crop that decides appearance verdicts (W5). Site override:
+    # pays per image, so a CPU box normally gets two. Concealment is temporal:
+    # its rule contract is three chronological full frames plus the final
+    # subject crop, so its derived default preserves all four. Site override:
     # "gate_max_frames".
     LOCAL_MAX_FRAMES = 2
+    LOCAL_CONCEALMENT_MAX_FRAMES = 4
     # Conventional API-key env var per provider.
     DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY",
                        "ollama": "OLLAMA_API_KEY"}
@@ -456,7 +457,11 @@ class VerificationGate:
         frames = frame if isinstance(frame, list) else [frame]
         cap = self.max_frames
         if cap is None:
-            cap = self.LOCAL_MAX_FRAMES if self.provider in ("ollama", "local") else 0
+            if self.provider in ("ollama", "local"):
+                cap = (self.LOCAL_CONCEALMENT_MAX_FRAMES
+                       if alert.detector == "concealment" else self.LOCAL_MAX_FRAMES)
+            else:
+                cap = 0
         if cap and len(frames) > cap:
             # The LAST image always survives the cap — evidence builders
             # append the zoomed subject crop there, and it is the frame that

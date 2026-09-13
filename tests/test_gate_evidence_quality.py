@@ -13,14 +13,15 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import cv2
 import numpy as np
+import supervision as sv
 
 from cvti.contracts import CandidateAlert
 from cvti.event_adapters import concealment_to_events
 from cvti.rules.customization import CustomizationEngine
 from cvti.verification.frame_select import (
     append_subject_crop,
-    select_evidence_frames,
     subject_crop,
 )
 from cvti.verification.gate import VerificationGate
@@ -70,18 +71,6 @@ class SubjectCropTest(unittest.TestCase):
         frames = [_frame()]
         self.assertIs(append_subject_crop(frames, _frame(), None), frames)
 
-    def test_concealment_evidence_keeps_three_chronological_frames_then_crop(self):
-        recent = [np.full((480, 640, 3), value, dtype=np.uint8)
-                  for value in range(5)]
-
-        selected, _ = select_evidence_frames(recent, "shoplifting")
-        evidence = append_subject_crop(selected, recent[-1], (300, 200, 330, 260))
-
-        self.assertEqual([int(frame[0, 0, 0]) for frame in evidence[:3]], [0, 2, 4])
-        self.assertEqual(len(evidence), 4)
-        self.assertGreaterEqual(min(evidence[-1].shape[:2]), 320)
-
-
 class ConcealmentCueFlowTest(unittest.TestCase):
     def test_assessment_cues_survive_the_event_and_simple_rule(self):
         assessment = SimpleNamespace(
@@ -115,6 +104,78 @@ class ConcealmentCueFlowTest(unittest.TestCase):
         }]
         alert = engine.evaluate([event], {"environment_type": "retail"})[0]
         self.assertEqual(alert.reasons, assessment.reasons)
+
+
+class ConcealmentVerificationIntegrationTest(unittest.TestCase):
+    def test_true_sight_receives_three_chronological_full_frames_then_subject_crop(self):
+        from cvti.detector.core import PosePersonState
+        from cvti.retail.concealment import ConcealmentAssessment
+        from cvti.serving.camera import PerCameraState
+
+        engine = CustomizationEngine()
+        engine.rules = [{
+            "name": "shoplifting",
+            "priority": "high",
+            "trigger": {"detector": "concealment"},
+        }]
+        state = PerCameraState(
+            "cam1", engine, person_filter=False, pose_model=object(),
+            concealment=True, heavy_stride=1,
+        )
+        state._frame_buffer.extend(
+            np.full((480, 640, 3), value, dtype=np.uint8)
+            for value in (10, 20, 30, 40)
+        )
+        moment = np.full((480, 640, 3), 50, dtype=np.uint8)
+        detections = sv.Detections(
+            xyxy=np.array([[300.0, 200.0, 330.0, 260.0]]),
+            class_id=np.array([0]),
+            confidence=np.array([0.95]),
+            tracker_id=np.array([7]),
+        )
+        pose = PosePersonState(
+            track_id=7, bbox=(300.0, 200.0, 330.0, 260.0), timestamp=0.5,
+            left_shoulder=(305.0, 210.0), right_shoulder=(325.0, 210.0),
+            left_elbow=None, right_elbow=None, left_wrist=(315.0, 250.0),
+            right_wrist=None, max_wrist_speed=0.0, max_wrist_accel=0.0,
+            max_arm_extension_ratio=0.0, weapon_labels=[],
+            left_hip=(307.0, 250.0), right_hip=(323.0, 250.0),
+        )
+        assessment = ConcealmentAssessment(
+            track_id=7, score=0.8, candidate=True, destination="waist",
+            reasons=["hand reached the waist line"],
+            components={"f_waist": 0.9, "f_bag": 0.0,
+                        "f_retract": 0.8, "f_dwell": 0.7},
+        )
+
+        with mock.patch.object(state._tracker, "update_with_detections",
+                               return_value=detections), \
+                mock.patch.object(state, "_compute_pose", return_value=[pose]), \
+                mock.patch.object(state._conceal, "update", return_value=[assessment]):
+            queued = state.process(detections, moment, timestamp=0.5)
+
+        self.assertEqual(len(queued), 1)
+        payload = queued[0].payload
+        received = {}
+        gate = VerificationGate(provider="ollama", cot=False)
+
+        def capture_provider(prompt, frames_bytes, alert):
+            received["images"] = [
+                cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                for data in frames_bytes
+            ]
+            return ('{"confirmed": false, "confidence": 0.9, '
+                    '"reason": "test", "alert_priority": "high"}')
+
+        with mock.patch.object(gate, "_call_provider", side_effect=capture_provider):
+            gate.verify(payload["frames"], payload["candidate"], payload["scene"])
+
+        images = received["images"]
+        self.assertEqual(len(images), 4)
+        self.assertEqual([round(float(image.mean())) for image in images[:3]],
+                         [10, 30, 50])
+        self.assertTrue(all(image.shape[:2] == (480, 640) for image in images[:3]))
+        self.assertGreaterEqual(min(images[-1].shape[:2]), 320)
 
 
 class ThePromptCarriesTheEvidence(unittest.TestCase):
