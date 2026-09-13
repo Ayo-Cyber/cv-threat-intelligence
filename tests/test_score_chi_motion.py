@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import csv
 import hashlib
 import json
@@ -54,6 +55,21 @@ AUDIT_FIELDS = [
     "gate_status",
     "persisted_event_id",
 ]
+JPEG_1X1 = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAME"
+    "BgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUD"
+    "AwUKBwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoK"
+    "CgoKCgr/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBg"
+    "cICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0K"
+    "xwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZn"
+    "aGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXG"
+    "x8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAA"
+    "AAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhc"
+    "RMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1"
+    "RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO"
+    "0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIR"
+    "AxEAPwD8B6KKKzND/9k="
+)
 
 
 def _write_csv(path: Path, fields: list[str], rows: list[dict]) -> Path:
@@ -64,10 +80,23 @@ def _write_csv(path: Path, fields: list[str], rows: list[dict]) -> Path:
     return path
 
 
+def _mjpeg_capture(tag: str) -> bytes:
+    comment = tag.encode()
+    marker = b"\xff\xfe" + (len(comment) + 2).to_bytes(2, "big") + comment
+    jpeg = JPEG_1X1[:-2] + marker + JPEG_1X1[-2:]
+    return (
+        b"--argusframe\r\nContent-Type: image/jpeg\r\n"
+        + f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
+        + jpeg
+        + b"\r\n"
+    )
+
+
 def _write_perf(path: Path, rate: float, *, mode: str, pair_id: str) -> Path:
     capture = path.with_suffix(".mjpeg")
-    capture.write_bytes(f"{pair_id}:{mode}:captured-mjpeg".encode())
+    capture.write_bytes(_mjpeg_capture(f"{pair_id}:{mode}"))
     capture_sha256 = hashlib.sha256(capture.read_bytes()).hexdigest()
+    sample_count = int(rate * 20.0)
     path.write_text(json.dumps({
         "chi_motion_performance": {
             "schema_version": 1,
@@ -79,7 +108,7 @@ def _write_perf(path: Path, rate: float, *, mode: str, pair_id: str) -> Path:
             "tracking_query": 0 if mode == "hidden" else 1,
             "config_sha256": "b" * 64,
             "sample_duration_s": 20.0,
-            "sample_count": 100,
+            "sample_count": sample_count,
             "capture_path": capture.name,
             "capture_sha256": capture_sha256,
         },
@@ -87,7 +116,7 @@ def _write_perf(path: Path, rate: float, *, mode: str, pair_id: str) -> Path:
             "detect_batch": {
                 "engine": {
                     "rate_per_s": rate,
-                    "count": 100,
+                    "count": sample_count,
                     "span_s": 20.0,
                 }
             }
@@ -276,7 +305,7 @@ def _valid_inputs(tmp_path: Path) -> tuple[Path, Path, Path, list[Path], list[Pa
             tmp_path / f"shown-{index}.json", rate,
             mode="shown", pair_id=f"pair-{index}",
         )
-        for index, rate in enumerate((9.0, 10.0, 8.0), 1)
+        for index, rate in enumerate((10.0, 12.0, 11.0), 1)
     ]
     return labels, observations, audit, hidden, shown
 
@@ -339,11 +368,11 @@ def test_scores_motion_acceptance_and_writes_a_retained_artifact(tmp_path: Path)
     assert result["detection_delay_s"]["median"] == 1.0
     performance = result["tracking_visibility_fps"]
     assert performance["hidden_runs"] == [10.0, 12.0, 11.0]
-    assert performance["shown_runs"] == [9.0, 10.0, 8.0]
+    assert performance["shown_runs"] == [10.0, 12.0, 11.0]
     assert performance["hidden_median"] == 11.0
-    assert performance["shown_median"] == 9.0
-    assert performance["delta_fps"] == -2.0
-    assert performance["impact_percent"] == pytest.approx(-18.1818181818)
+    assert performance["shown_median"] == 11.0
+    assert performance["delta_fps"] == 0.0
+    assert performance["impact_percent"] == 0.0
     assert [pair["pair_id"] for pair in performance["pairs"]] == [
         "pair-1", "pair-2", "pair-3"
     ]
@@ -579,13 +608,19 @@ def test_rejects_unpaired_or_unproven_performance_reports(
         _mutate_perf(shown[0], sample_duration_s=19.0)
     elif mutation == "paired_sample_count":
         report = json.loads(shown[0].read_text())
-        report["chi_motion_performance"]["sample_count"] = 99
-        report["stages"]["detect_batch"]["engine"]["count"] = 99
+        report["chi_motion_performance"]["sample_count"] = 180
+        report["stages"]["detect_batch"]["engine"].update({
+            "count": 180,
+            "rate_per_s": 9.0,
+        })
         shown[0].write_text(json.dumps(report))
     elif mutation == "paired_sample_duration":
         report = json.loads(shown[0].read_text())
         report["chi_motion_performance"]["sample_duration_s"] = 19.0
-        report["stages"]["detect_batch"]["engine"]["span_s"] = 19.0
+        report["stages"]["detect_batch"]["engine"].update({
+            "span_s": 19.0,
+            "rate_per_s": round(200 / 19.0, 3),
+        })
         shown[0].write_text(json.dumps(report))
     elif mutation == "schema_version":
         _mutate_perf(shown[0], schema_version=2)
@@ -616,7 +651,66 @@ def test_performance_pairs_are_matched_by_pair_id_not_argument_order(
         "pair-1", "pair-2", "pair-3"
     ]
     assert result["tracking_visibility_fps"]["hidden_runs"] == [10.0, 12.0, 11.0]
-    assert result["tracking_visibility_fps"]["shown_runs"] == [9.0, 10.0, 8.0]
+    assert result["tracking_visibility_fps"]["shown_runs"] == [10.0, 12.0, 11.0]
+
+
+def test_rejects_rate_inconsistent_with_sample_count_and_duration(
+    tmp_path: Path,
+) -> None:
+    labels, observations, audit, hidden, shown = _valid_inputs(tmp_path)
+    report = json.loads(hidden[0].read_text())
+    report["stages"]["detect_batch"]["engine"]["rate_per_s"] = 9.5
+    hidden[0].write_text(json.dumps(report))
+
+    with pytest.raises(InputError, match="rate_per_s is inconsistent with"):
+        score_inputs(
+            labels, observations, audit, hidden, shown, tmp_path / "result.json"
+        )
+
+
+def test_accepts_rate_rounded_from_serialized_count_and_duration(
+    tmp_path: Path,
+) -> None:
+    labels, observations, audit, hidden, shown = _valid_inputs(tmp_path)
+    for path in (hidden[0], shown[0]):
+        report = json.loads(path.read_text())
+        report["chi_motion_performance"].update({
+            "sample_count": 48,
+            "sample_duration_s": 14.595,
+        })
+        report["stages"]["detect_batch"]["engine"].update({
+            "count": 48,
+            "span_s": 14.595,
+            "rate_per_s": 3.289,
+        })
+        path.write_text(json.dumps(report))
+
+    score_inputs(labels, observations, audit, hidden, shown, tmp_path / "result.json")
+
+
+def test_rejects_text_disguised_as_mjpeg_capture(tmp_path: Path) -> None:
+    labels, observations, audit, hidden, shown = _valid_inputs(tmp_path)
+    capture = hidden[0].with_suffix(".mjpeg")
+    capture.write_bytes(b"not an mjpeg capture")
+    _mutate_perf(hidden[0], capture_sha256=hashlib.sha256(capture.read_bytes()).hexdigest())
+
+    with pytest.raises(InputError, match="valid MJPEG with a complete JPEG frame"):
+        score_inputs(
+            labels, observations, audit, hidden, shown, tmp_path / "result.json"
+        )
+
+
+def test_rejects_copied_capture_content_under_a_different_path(tmp_path: Path) -> None:
+    labels, observations, audit, hidden, shown = _valid_inputs(tmp_path)
+    source = hidden[0].with_suffix(".mjpeg")
+    copied = shown[0].with_suffix(".mjpeg")
+    copied.write_bytes(source.read_bytes())
+    _mutate_perf(shown[0], capture_sha256=hashlib.sha256(copied.read_bytes()).hexdigest())
+
+    with pytest.raises(InputError, match="six unique capture_sha256 values"):
+        score_inputs(
+            labels, observations, audit, hidden, shown, tmp_path / "result.json"
+        )
 
 
 def test_loads_candidate_and_gate_audit_rows_from_sqlite(tmp_path: Path) -> None:

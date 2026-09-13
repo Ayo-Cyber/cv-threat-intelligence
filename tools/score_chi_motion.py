@@ -54,6 +54,8 @@ ADMISSION_STATUSES = {"admitted", "deduplicated", "capacity_dropped"}
 GATE_STATUSES = {"confirmed", "rejected", "unverified", "not_gated", "pending"}
 FINAL_FRAME_EPSILON = 1e-9
 MAX_OBSERVATION_TOLERANCE_S = 0.001
+PERF_DECIMAL_HALF_STEP = 0.0005
+MJPEG_BOUNDARY = b"--argusframe\r\n"
 
 
 class InputError(ValueError):
@@ -532,6 +534,70 @@ def _positive_integer(value: Any, source: str, field: str) -> int:
     return int(number)
 
 
+def _rate_matches_serialized_measurement(
+    rate: float, sample_count: int, sample_duration: float
+) -> bool:
+    duration_low = sample_duration - PERF_DECIMAL_HALF_STEP
+    if duration_low <= 0:
+        return False
+    expected_low = sample_count / (sample_duration + PERF_DECIMAL_HALF_STEP)
+    expected_high = sample_count / duration_low
+    reported_low = rate - PERF_DECIMAL_HALF_STEP
+    reported_high = rate + PERF_DECIMAL_HALF_STEP
+    return (
+        reported_high + FINAL_FRAME_EPSILON >= expected_low
+        and reported_low - FINAL_FRAME_EPSILON <= expected_high
+    )
+
+
+def _validate_mjpeg_capture(path: Path, source: str) -> None:
+    data = path.read_bytes()
+    cursor = 0
+    frame_count = 0
+    while cursor < len(data):
+        if not data.startswith(MJPEG_BOUNDARY, cursor):
+            break
+        cursor += len(MJPEG_BOUNDARY)
+        header_end = data.find(b"\r\n\r\n", cursor)
+        if header_end < 0:
+            break
+        headers: dict[bytes, bytes] = {}
+        for line in data[cursor:header_end].split(b"\r\n"):
+            if b":" not in line:
+                break
+            key, value = line.split(b":", 1)
+            headers[key.strip().lower()] = value.strip().lower()
+        else:
+            if headers.get(b"content-type") != b"image/jpeg":
+                break
+            try:
+                content_length = int(headers.get(b"content-length", b""))
+            except ValueError:
+                break
+            frame_start = header_end + 4
+            frame_end = frame_start + content_length
+            jpeg = data[frame_start:frame_end]
+            if (
+                content_length <= 0
+                or frame_end + 2 > len(data)
+                or data[frame_end:frame_end + 2] != b"\r\n"
+                or len(jpeg) != content_length
+                or not jpeg.startswith(b"\xff\xd8")
+                or b"\xff\xda" not in jpeg
+                or not jpeg.endswith(b"\xff\xd9")
+            ):
+                break
+            frame_count += 1
+            cursor = frame_end + 2
+            continue
+        break
+    if frame_count == 0 or cursor != len(data):
+        raise InputError(
+            f"{source}: capture evidence must be valid MJPEG with a complete "
+            "JPEG frame"
+        )
+
+
 def _load_perf_report(path: Path, mode: str, index: int) -> dict[str, Any]:
     name = f"{mode} performance report {index}"
     _require_file(path, name)
@@ -598,6 +664,12 @@ def _load_perf_report(path: Path, mode: str, index: int) -> dict[str, Any]:
         raise InputError(
             f"{name}: sample_duration_s does not match detect_batch.engine.span_s"
         )
+    if not _rate_matches_serialized_measurement(rate, sample_count, sample_duration):
+        expected_rate = sample_count / sample_duration
+        raise InputError(
+            f"{name}: detect_batch.engine.rate_per_s is inconsistent with "
+            f"sample_count / sample_duration_s ({expected_rate:.6f})"
+        )
     capture_value = _text(metadata.get("capture_path"), name, "capture_path")
     capture_path = Path(capture_value)
     if not capture_path.is_absolute():
@@ -610,6 +682,7 @@ def _load_perf_report(path: Path, mode: str, index: int) -> dict[str, Any]:
     )
     if _sha256(capture_path) != capture_sha256:
         raise InputError(f"{name}: capture_sha256 does not match {capture_path}")
+    _validate_mjpeg_capture(capture_path, name)
     return {
         "path": path,
         "rate_per_s": rate,
@@ -667,6 +740,8 @@ def _validate_performance_pairs(
     capture_paths = [report["capture_path"].resolve() for report in reports]
     if len(set(capture_paths)) != 6:
         raise InputError("performance reports must reference six distinct captures")
+    if len({report["capture_sha256"] for report in reports}) != 6:
+        raise InputError("performance reports must have six unique capture_sha256 values")
     pairs = []
     for pair_id in sorted(hidden_by_pair):
         hidden_report = hidden_by_pair[pair_id]

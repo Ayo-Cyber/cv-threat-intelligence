@@ -333,3 +333,71 @@ the sole failure was that same Ultralytics environment mismatch.
   isolated performance captures was created in this round. All empirical
   scenario-4/scenario-5 and overlay-impact acceptance values remain unmeasured.
 - No subagents were used.
+
+## Fix Round 3
+
+### Acceptance Blockers Closed
+
+- The scorer now validates every `detect_batch.engine.rate_per_s` against
+  `sample_count / sample_duration_s`. Because the production performance board
+  serializes span and rate to three decimals, validation expands each serialized
+  decimal by exactly half a unit (`0.0005`) and requires the two possible rate
+  intervals to overlap. This accepts authentic rounded values such as
+  `48 / 14.595 -> 3.289` and rejects materially inconsistent rates.
+- Focused performance fixtures now contain internally consistent count,
+  duration, and rate values. Hidden and shown members still have equal sampling
+  within each of exactly three pairs, preserving round-2 pairing checks.
+- Capture validation now parses the production `--argusframe` multipart body.
+  Every part needs JPEG content type, a valid content length, and a complete
+  JPEG carrying SOI, scan, and EOI markers. Arbitrary text, standalone or
+  truncated data, and trailing junk fail before metrics are computed.
+- Six distinct capture paths and six unique SHA-256 values are mandatory.
+  Copying capture bytes to another path and updating its declared hash still
+  fails as reused evidence.
+- The operator guide and project context document the exact arithmetic and
+  capture rules. The retained opportunistic replay evidence now explicitly says
+  its transient capture is not scorer-eligible because the original bytes
+  cannot be structurally revalidated or checked against five paired captures.
+
+### TDD And Verification
+
+RED was observed after adding one test for each reported failure mode:
+
+```text
+python -m pytest tests/test_score_chi_motion.py -q
+3 failed, 41 passed in 0.29s
+```
+
+The three failures were inconsistent FPS accepted, plain text accepted as
+capture evidence, and copied bytes accepted under a second path. GREEN and the
+relevant performance regression run were:
+
+```text
+python -m pytest tests/test_score_chi_motion.py -q
+44 passed in 0.28s
+
+python -m pytest tests/test_score_chi_motion.py tests/test_prompt_regression.py \
+  tests/test_perf_tells_where_time_goes.py \
+  tests/test_perf_readout_names_the_bottleneck.py -q
+102 passed, 14 warnings in 15.31s
+
+python -m pytest tests/test_frame_publisher.py -q
+31 passed in 18.10s
+```
+
+The warnings are existing Matplotlib/pyparsing deprecations. The frame-publisher
+suite was run with localhost-bind permission because its HTTP tests cannot run
+inside the restricted filesystem sandbox. The complete full suite was not
+repeated: fix round 2 established that a sandboxed run cannot bind localhost
+and causes a non-diagnostic failure cascade. Its latest completed result remains
+`1462 passed, 8 skipped, 1 failed`, with only the known environment mismatch
+between local Ultralytics 8.4.64 and pinned 8.4.35.
+
+### Residuals
+
+No empirical acceptance metrics were added. Controlled rights-cleared motion
+clips, reviewed person-frame labels, a complete scenario-5 pre-queue audit, and
+three real hidden/shown capture pairs are still unavailable, so scenario and
+overlay-impact cells remain unmeasured. The prior prompt fingerprint,
+unmeasured prompt metrics, previous-measurement provenance, and Ollama replay
+digest remain unchanged. No subagents were used.

@@ -38,7 +38,10 @@
     "authenticated": true,
     "bytes_received": 205828,
     "client_timeout_s": 8.0,
-    "capture_sha256": "5d620fd5c0d33a7627e749a1527420e63ed6537bb69ebf7a090e3a02df757c90"
+    "capture_sha256": "5d620fd5c0d33a7627e749a1527420e63ed6537bb69ebf7a090e3a02df757c90",
+    "capture_retained": false,
+    "motion_scorer_eligible": false,
+    "ineligible_reason": "The original capture bytes were transient, so MJPEG/JPEG structure and content uniqueness cannot be revalidated."
   },
   "candidate_reaching_gate": {
     "candidate_id": "gate_0001",
@@ -111,6 +114,7 @@
     "The replay does not cover a controlled stationary crowd, temporary occlusion, or a permitted-zone boundary.",
     "One queue duplicate was counted, but no pre-queue scenario-5 candidate audit exists to reconstruct it.",
     "The run overlapped another validation workload and cannot measure hidden-versus-shown FPS impact.",
+    "The tracking capture was not retained; its hash alone is not eligible evidence for the motion scorer's MJPEG structure or six-unique-capture requirements.",
     "The runtime used Ultralytics 8.4.64 instead of the required pinned 8.4.35."
   ]
 }

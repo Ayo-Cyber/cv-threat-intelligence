@@ -186,7 +186,7 @@ Report every numerator and denominator, not only percentages.
 | Duplicate candidates | Additional matched candidates after the first in one labeled positive interval. Expected: zero. Report queue `deduped` separately because it proves suppression, not latch correctness. |
 | Duplicate shown alerts | Additional persisted events after the first in one labeled incident. Expected: zero. |
 | Detection delay | First matched candidate timestamp minus positive interval start. Report every value and median; no maximum has yet been approved. |
-| Tracking visibility performance | Median `detect_batch.rate_per_s` from at least three paired hidden/shown runs, plus absolute FPS and percent delta. No numeric regression threshold has yet been approved. |
+| Tracking visibility performance | Median `detect_batch.rate_per_s` from at least three paired hidden/shown runs, plus absolute FPS and percent delta. Every rate must agree with sample count / duration under the three-decimal serialization rule below. No numeric regression threshold has yet been approved. |
 
 Scenario 4 passes only if its permitted moving person-frames are boxed, its
 stationary/outside person-frames are not boxed, IDs remain stable, and it emits
@@ -432,14 +432,25 @@ MJPEG captures as proof that each report had an active raw (`tracking=0`) or
 shown (`tracking=1`) viewer. Repeat the complete block for hidden and shown in
 each of `pair-1`, `pair-2`, and `pair-3`, changing both `TRACKING_MODE` and
 `TRACKING_QUERY` together. The scorer hashes the capture named by each report
-and requires six distinct, non-empty captures. It also requires unique run IDs,
-exactly matched pair IDs, one case and clip hash, one config hash, correct mode
-and query, schema version 1, sample count/duration equal to the detection stage,
-and equal sample count plus duration within 1 ms inside each pair. A single run,
-reused report or capture, run without an active viewer, or run under competing
-load is not a reproducible measurement. Exercise global **Show tracking** and
-the per-camera **Hide** / **Use global** controls separately in the app; those
-controls select the same stream query and do not change detection.
+and requires six distinct paths and six unique content hashes. Each file must
+be a complete `--argusframe` multipart stream with `Content-Type: image/jpeg`,
+a correct `Content-Length`, and at least one JPEG carrying SOI, scan, and EOI
+markers. Plain text, a standalone JPEG, a truncated part, trailing junk, or
+copied capture content is invalid; rerun a capture that the timeout truncates.
+
+The scorer also requires unique run IDs, exactly matched pair IDs, one case and
+clip hash, one config hash, correct mode and query, schema version 1, sample
+count/duration equal to the detection stage, and equal sample count plus
+duration within 1 ms inside each pair. The performance board serializes
+`span_s` and `rate_per_s` to three decimal places. To account only for that
+serialization, the scorer treats each value as its recorded value plus or minus
+`0.0005` and requires the possible `rate_per_s` interval to overlap the possible
+`sample_count / sample_duration_s` interval. A larger inconsistency invalidates
+the report. A single run, reused report or capture, run without an active
+viewer, or run under competing load is not a reproducible measurement.
+Exercise global **Show tracking** and the per-camera **Hide** / **Use global**
+controls separately in the app; those controls select the same stream query and
+do not change detection.
 
 ### 5. Export The Candidate Audit
 
@@ -512,7 +523,9 @@ coverage, person recall counts, ID switches, scenario-4 observation checks,
 per-candidate positive/negative/out-of-window classification, scenario-5
 precision/recall, admission/gate counts, duplicate candidates and persisted
 alerts per incident, detection delay, all three matched performance pairs, and
-the median hidden/shown FPS impact. Pass the SQLite database as
+the median hidden/shown FPS impact. Performance scoring occurs only after rate
+arithmetic, multipart/JPEG structure, and unique capture hashes validate. Pass
+the SQLite database as
 `--audit "$CHI_AUDIT_DB"` to skip the JSON export.
 
 ## Local Motion Replay - 2026-09-13

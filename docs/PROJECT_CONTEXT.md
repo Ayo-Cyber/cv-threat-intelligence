@@ -79,11 +79,14 @@ The scorer also validates complete generated-candidate and gate audit rows from
 SQLite or JSON and exactly three paired hidden/shown performance runs. Every run
 must declare schema, case/clip, pair/run ID, mode/query, config hash, and sample
 count/duration; each pair must have equal sampling. Six distinct non-empty
-capture files are hash-verified and included in the retained result's input
-hashes. The result contains observation coverage, person recall, ID switches,
-scenario-5 precision/recall, per-candidate classification, duplicate candidates
-and persisted alerts, detection delay, and paired overlay FPS impact. The
-current runtime has no scenario-5 pre-queue audit hook, so candidate-derived
+capture files must be complete `--argusframe` MJPEG streams containing valid
+JPEG framing, and all six content hashes must be unique. Every serialized rate
+must agree with count / duration within the exact three-decimal rounding
+interval. The hash-verified captures are included in the retained result's
+input hashes. The result contains observation coverage, person recall, ID
+switches, scenario-5 precision/recall, per-candidate classification, duplicate
+candidates and persisted alerts, detection delay, and paired overlay FPS impact.
+The current runtime has no scenario-5 pre-queue audit hook, so candidate-derived
 acceptance metrics remain unmeasured until that input is captured; gate
 directories are insufficient.
 
