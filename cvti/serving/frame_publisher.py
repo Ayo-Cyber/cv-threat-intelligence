@@ -36,7 +36,7 @@ from cvti.logging_setup import get_logger
 log = get_logger(__name__)
 
 # Boxes are drawn in the engine (it owns the tracks), so the UI stays a dumb viewer.
-_BOX_COLOUR = (0, 200, 255)      # BGR amber for a normal tracked person
+_BOX_COLOUR = (0, 200, 0)        # BGR green for ordinary scenario-4 movement
 _ALERT_COLOUR = (60, 60, 220)    # red once that track is part of an active alert
 
 
@@ -69,6 +69,7 @@ class FramePublisher:
         self._alerting: dict[str, set] = {}
         self._raw_seq: dict[str, int] = {}
         self._tracking_seq: dict[str, int] = {}
+        self._issued_seq: dict[str, int] = {}
         # Who is being WATCHED right now. Every tile on the Watch grid holds
         # one long-lived /stream connection, so an open stream IS a viewer —
         # no config, no heartbeat file, works for any client including the
@@ -92,6 +93,7 @@ class FramePublisher:
                 overlays: Sequence[FrameOverlay | tuple] = ()) -> None:
         """Store raw glass and, on demand, an annotated variant of the same frame."""
         import cv2
+        publication = self._begin_publish(camera_id)
         img = frame
         h, w = img.shape[:2]
         if self.max_width and w > self.max_width:      # the wall is small; don't ship 1080p
@@ -118,13 +120,14 @@ class FramePublisher:
             )
         self._commit(
             camera_id, raw_buf.tobytes(), tracking_jpeg, overlays,
-            tracking_generation if tracking_watched else None,
+            tracking_generation if tracking_watched else None, publication,
         )
 
     def publish_jpeg(self, camera_id: str, jpeg: bytes,
                      overlays: Sequence[FrameOverlay | tuple] = (),
                      source_size: tuple[int, int] | None = None) -> None:
         """Store paced raw bytes; decode a tracking copy only while requested."""
+        publication = self._begin_publish(camera_id)
         with self._lock:
             tracking_watched = self._tracking_viewers.get(camera_id, 0) > 0
             tracking_generation = self._tracking_generation.get(camera_id, 0)
@@ -147,15 +150,23 @@ class FramePublisher:
 
         self._commit(
             camera_id, jpeg, tracking_jpeg, overlays,
-            tracking_generation if tracking_watched else None,
+            tracking_generation if tracking_watched else None, publication,
         )
+
+    def _begin_publish(self, camera_id: str) -> int:
+        with self._lock:
+            publication = self._issued_seq.get(camera_id, 0) + 1
+            self._issued_seq[camera_id] = publication
+            return publication
 
     def _commit(self, camera_id: str, raw_jpeg: bytes,
                 tracking_jpeg: bytes | None,
                 overlays: Sequence[FrameOverlay | tuple],
-                tracking_generation: int | None) -> None:
+                tracking_generation: int | None, publication: int) -> None:
         with self._lock:
-            sequence = self._raw_seq.get(camera_id, 0) + 1
+            if publication <= self._raw_seq.get(camera_id, 0):
+                return
+            sequence = publication
             self._raw_frames[camera_id] = raw_jpeg
             self._raw_seq[camera_id] = sequence
             tracking_current = (

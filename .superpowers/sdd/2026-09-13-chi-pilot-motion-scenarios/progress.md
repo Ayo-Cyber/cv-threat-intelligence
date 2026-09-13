@@ -51,3 +51,23 @@
 - Task 5: fix round 4 (scoped regression: performance `sample_count` now binds to frame `engine.units`, while `observation_count` separately binds to batch `engine.count`; commit follows `9b06251`).
 - Task 5: complete (commit `2c5bd9b`; scoped review clean. Reproducible scorer now rejects out-of-window false positives, incomplete person/frame coverage, inconsistent throughput arithmetic, malformed MJPEG captures, and reused capture evidence).
 - Task 5: empirical Chi acceptance remains explicitly unmeasured pending controlled labeled clips, a complete scenario-5 candidate audit, and three real hidden/shown capture pairs.
+- Combined final fix wave: sub-expiry observation dropouts preserve tracker
+  output and the same scenario-5 latch; expiry and observed below-threshold
+  motion reset it. Unit and pipeline tests cover return before/after expiry.
+- Combined final fix wave: scenario-4 overlays are green, active scenario-5
+  constituents are amber even on scenario-5-only cameras, confirmed/associated
+  tracks use the alert colour, and aggregate `track_ids` reach publisher state.
+- Combined final fix wave: every generated scenario-5 candidate receives a
+  retained scorer-compatible `motion_candidate_audit` lifecycle row covering
+  admission, deduplication, capacity drop, gate/error, and persistence outcomes.
+- Combined final fix wave: motion constructors validate finite and ordered
+  values, detector flags require booleans, and stale overlapping publisher
+  completion cannot replace a newer same-session publication.
+- Final constrained verification: focused backend `262 passed, 14 warnings in
+  37.85s`; final edited aggregate-ID regression `1 passed, 14 warnings in
+  0.98s`; frontend `22` files / `118` tests and production build passed; prompt
+  check passed with metrics **UNMEASURED**. The user-stopped broad run reached
+  `1418 passed, 8 skipped, 1 failed, 15 warnings in 162.18s`; the sole observed
+  failure was Ultralytics 8.4.64 versus pinned 8.4.35.
+- Empirical Chi accuracy remains unmeasured pending controlled rights-cleared
+  clips, the frozen prompt corpus, and three real hidden/shown capture pairs.

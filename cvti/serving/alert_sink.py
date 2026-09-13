@@ -328,6 +328,32 @@ CREATE TABLE IF NOT EXISTS concealment_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_concealment_audit_generated
     ON concealment_audit(generated_at);
+
+-- Scenario-5's acceptance scorer reads these six leading fields directly.
+-- Extra columns retain the runtime lifecycle without changing alert policy.
+CREATE TABLE IF NOT EXISTS motion_candidate_audit (
+    candidate_id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    timestamp_s REAL NOT NULL,
+    admission_status TEXT NOT NULL DEFAULT 'generated',
+    gate_status TEXT NOT NULL DEFAULT 'pending',
+    persisted_event_id TEXT NOT NULL DEFAULT '',
+    generated_at REAL NOT NULL,
+    camera_id TEXT NOT NULL,
+    rule_name TEXT NOT NULL,
+    track_ids_json TEXT NOT NULL DEFAULT '[]',
+    admitted_at REAL,
+    verdict_at REAL,
+    confidence REAL,
+    reason TEXT,
+    gate_error TEXT,
+    prompt_version TEXT,
+    persistence_status TEXT NOT NULL DEFAULT 'pending',
+    persistence_error TEXT,
+    user_event_id TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_motion_candidate_audit_generated
+    ON motion_candidate_audit(generated_at);
 """
 
 
@@ -589,11 +615,41 @@ class AlertSink:
         except (TypeError, ValueError, RecursionError) as exc:
             return json.dumps(fallback, separators=(",", ":")), f"{field}: {exc}"
 
-    def audit_candidate_generated(self, alert: Any) -> int | None:
-        """Persist a concealment row before queue admission is decided."""
+    def audit_candidate_generated(self, alert: Any) -> int | str | None:
+        """Persist auditable pilot candidates before queue admission is decided."""
         payload = alert.payload or {}
         candidate = payload.get("candidate")
-        if getattr(candidate, "detector", None) != "concealment":
+        detector = getattr(candidate, "detector", None)
+        if detector == "multiple_people_moving":
+            metadata = getattr(candidate, "metadata", {}) or {}
+            candidate_id = f"motion-{uuid.uuid4().hex}"
+            track_ids, track_error = self._audit_json(
+                metadata.get("track_ids") or [], [], "track_ids"
+            )
+            try:
+                with self._lock:
+                    self._db.execute(
+                        "INSERT INTO motion_candidate_audit ("
+                        "candidate_id, case_id, timestamp_s, generated_at, camera_id, "
+                        "rule_name, track_ids_json, persistence_error"
+                        ") VALUES (?,?,?,?,?,?,?,?)",
+                        (
+                            candidate_id,
+                            str(metadata.get("case_id") or alert.camera_id),
+                            float(alert.timestamp),
+                            time.time(),
+                            alert.camera_id,
+                            alert.rule_name,
+                            track_ids,
+                            track_error,
+                        ),
+                    )
+                    self._db.commit()
+                return candidate_id
+            except Exception:  # noqa: BLE001 - audit I/O must not stop detection
+                log.error("motion candidate audit write failed", exc_info=True)
+                return None
+        if detector != "concealment":
             return None
         metadata = getattr(candidate, "metadata", {}) or {}
         components, components_error = self._audit_json(
@@ -633,7 +689,28 @@ class AlertSink:
 
     def audit_candidate_admission(self, alert: Any, status: str) -> None:
         """Record whether a generated row entered, duplicated, or left the queue."""
-        audit_id = (alert.payload or {}).get("concealment_audit_id")
+        payload = alert.payload or {}
+        motion_id = payload.get("motion_candidate_audit_id")
+        if motion_id is not None:
+            gate_status = "pending" if status == "admitted" else "not_gated"
+            persistence_status = "pending" if status == "admitted" else "not_applicable"
+            try:
+                with self._lock:
+                    self._db.execute(
+                        "UPDATE motion_candidate_audit SET admission_status = ?, "
+                        "gate_status = ?, persistence_status = ?, admitted_at = "
+                        "CASE WHEN ? = 'admitted' THEN COALESCE(admitted_at, ?) "
+                        "ELSE admitted_at END WHERE candidate_id = ?",
+                        (
+                            status, gate_status, persistence_status, status,
+                            time.time(), motion_id,
+                        ),
+                    )
+                    self._db.commit()
+            except Exception:  # noqa: BLE001 - audit I/O must not stop detection
+                log.error("motion admission audit write failed", exc_info=True)
+            return
+        audit_id = payload.get("concealment_audit_id")
         if audit_id is None:
             return
         try:
@@ -695,8 +772,76 @@ class AlertSink:
         except Exception:  # noqa: BLE001 - audit I/O must not stop the gate
             log.error("concealment audit write failed", exc_info=True)
 
+    def _audit_motion_verdict(self, alert: Any, result: Any) -> None:
+        payload = alert.payload or {}
+        candidate = payload.get("candidate")
+        if getattr(candidate, "detector", None) != "multiple_people_moving":
+            return
+        audit_id = payload.get("motion_candidate_audit_id")
+        if audit_id is None:
+            audit_id = self.audit_candidate_generated(alert)
+            if audit_id is None:
+                return
+            payload["motion_candidate_audit_id"] = audit_id
+            self.audit_candidate_admission(alert, "admitted")
+        if result is None or getattr(result, "errored", False):
+            gate_status = "unverified"
+        elif result.confirmed:
+            gate_status = "confirmed"
+        else:
+            gate_status = "rejected"
+        persistence_status = "pending" if result is not None and result.confirmed \
+            else "not_applicable"
+        try:
+            with self._lock:
+                self._db.execute(
+                    "UPDATE motion_candidate_audit SET gate_status = ?, verdict_at = ?, "
+                    "confidence = ?, reason = ?, gate_error = ?, prompt_version = ?, "
+                    "persistence_status = ? WHERE candidate_id = ?",
+                    (
+                        gate_status, time.time(), getattr(result, "confidence", None),
+                        getattr(result, "reason", "") if result is not None else "",
+                        (getattr(result, "error", "") if result is not None
+                         else "missing verification result"),
+                        getattr(result, "prompt_version", "") if result else "",
+                        persistence_status, audit_id,
+                    ),
+                )
+                self._db.commit()
+        except Exception:  # noqa: BLE001 - audit I/O must not stop the gate
+            log.error("motion verdict audit write failed", exc_info=True)
+
+    def _audit_motion_persistence(
+        self, alert: Any, event_id: int | None, error: str = ""
+    ) -> None:
+        audit_id = (alert.payload or {}).get("motion_candidate_audit_id")
+        if audit_id is None:
+            return
+        status = "persisted" if event_id is not None else "failed"
+        try:
+            with self._lock:
+                gate_row = self._db.execute(
+                    "SELECT gate_status FROM motion_candidate_audit WHERE candidate_id = ?",
+                    (audit_id,),
+                ).fetchone()
+                gate_status = gate_row[0] if gate_row else ""
+                self._db.execute(
+                    "UPDATE motion_candidate_audit SET persistence_status = ?, "
+                    "persistence_error = ?, user_event_id = ?, persisted_event_id = ? "
+                    "WHERE candidate_id = ?",
+                    (
+                        status, error or None, str(event_id or ""),
+                        str(event_id) if event_id is not None and gate_status == "confirmed" else "",
+                        audit_id,
+                    ),
+                )
+                self._db.commit()
+        except Exception:  # noqa: BLE001 - audit I/O must not stop alert delivery
+            log.error("motion persistence audit write failed", exc_info=True)
+
     def handle(self, alert: Any, result: Any) -> None:
         self._audit_concealment(alert, result)
+        self._audit_motion_verdict(alert, result)
         if result is None:
             return
         provisional_id = (alert.payload or {}).get("provisional_event_id")
@@ -721,8 +866,11 @@ class AlertSink:
         if not result.confirmed:
             return None
         try:
-            return self._persist(alert, result)
+            event_id = self._persist(alert, result)
+            self._audit_motion_persistence(alert, event_id)
+            return event_id
         except Exception as exc:  # noqa: BLE001 - persistence must not kill the gate
+            self._audit_motion_persistence(alert, None, str(exc))
             log.error(f"[alert-sink error] {str(exc)[:140]}", exc_info=True)
 
     # --- routing ---------------------------------------------------------

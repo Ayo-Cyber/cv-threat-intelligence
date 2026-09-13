@@ -58,6 +58,32 @@ def _alert(cam="cam0", rule="shoplifting", track=3, priority="high", ts=4.25):
                                 "enqueued_at": time.time() - 0.25})
 
 
+def _motion_alert(cam="S5-P01", ts=2.0, priority="high"):
+    candidate = CandidateAlert(
+        rule_name="chi_multiple_people_moving",
+        priority=priority,
+        detector="multiple_people_moving",
+        title="MULTIPLE PEOPLE MOVING",
+        person_id=None,
+        object_label=None,
+        timestamp=ts,
+        metadata={"track_ids": [1, 2], "people_count": 2},
+    )
+    return QueuedAlert(
+        camera_id=cam,
+        rule_name=candidate.rule_name,
+        priority=priority,
+        title=candidate.title,
+        timestamp=ts,
+        payload={
+            "candidate": candidate,
+            "frames": [],
+            "scene": None,
+            "enqueued_at": time.time() - 0.1,
+        },
+    )
+
+
 class AlertSinkTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -195,6 +221,70 @@ class AlertSinkTests(unittest.TestCase):
         row = self._audit_rows()[0]
         self.assertEqual(row["admission_status"], "admitted")
         self.assertIsNotNone(row["audit_error"])
+
+    def test_runtime_motion_audit_is_scorer_compatible_end_to_end(self):
+        from tools.score_chi_motion import load_audit_rows
+
+        queue = AlertQueue(
+            cooldown_seconds=60.0,
+            max_pending=4,
+            on_generated=self.sink.audit_candidate_generated,
+            on_admission=self.sink.audit_candidate_admission,
+        )
+        admitted = _motion_alert(ts=2.0)
+        duplicate = _motion_alert(ts=2.1)
+
+        self.assertTrue(queue.add(admitted))
+        self.assertFalse(queue.add(duplicate))
+        self.sink.handle(
+            queue.drain()[0],
+            _Result(confirmed=True, confidence=0.9, reason="simultaneous movement"),
+        )
+
+        rows = load_audit_rows(self.sink.db_path)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["case_id"], "S5-P01")
+        self.assertEqual(rows[0]["timestamp_s"], 2.0)
+        self.assertEqual(rows[0]["admission_status"], "admitted")
+        self.assertEqual(rows[0]["gate_status"], "confirmed")
+        self.assertTrue(rows[0]["persisted_event_id"])
+        self.assertEqual(rows[1]["admission_status"], "deduplicated")
+        self.assertEqual(rows[1]["gate_status"], "not_gated")
+        self.assertEqual(rows[1]["persisted_event_id"], "")
+
+    def test_motion_audit_records_capacity_gate_error_and_persistence_outcomes(self):
+        queue = AlertQueue(
+            cooldown_seconds=0.0,
+            max_pending=1,
+            on_generated=self.sink.audit_candidate_generated,
+            on_admission=self.sink.audit_candidate_admission,
+        )
+        displaced = _motion_alert(cam="S5-P01", ts=1.0, priority="low")
+        errored = _motion_alert(cam="S5-N01", ts=2.0, priority="high")
+        self.assertTrue(queue.add(displaced))
+        self.assertTrue(queue.add(errored))
+        self.sink.handle(
+            queue.drain()[0],
+            _Result(
+                confirmed=False,
+                confidence=0.0,
+                reason="provider unavailable",
+                error="connection refused",
+            ),
+        )
+
+        con = sqlite3.connect(self.sink.db_path)
+        con.row_factory = sqlite3.Row
+        rows = [dict(row) for row in con.execute(
+            "SELECT * FROM motion_candidate_audit ORDER BY generated_at"
+        )]
+        con.close()
+        self.assertEqual(rows[0]["admission_status"], "capacity_dropped")
+        self.assertEqual(rows[0]["gate_status"], "not_gated")
+        self.assertEqual(rows[1]["admission_status"], "admitted")
+        self.assertEqual(rows[1]["gate_status"], "unverified")
+        self.assertEqual(rows[1]["gate_error"], "connection refused")
+        self.assertEqual(rows[1]["persistence_status"], "not_applicable")
 
 
 class VideoClipTests(unittest.TestCase):

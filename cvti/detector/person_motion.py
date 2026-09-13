@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import hypot
+from math import hypot, isfinite
 from typing import Mapping, Sequence
 
 
@@ -15,6 +15,7 @@ class PersonMotion:
     moving: bool
     moving_seconds: float
     zone_names: tuple[str, ...]
+    observed: bool = True
 
 
 @dataclass
@@ -26,6 +27,7 @@ class _TrackState:
     speed_ratio: float = 0.0
     moving: bool = False
     moving_since: float | None = None
+    zone_names: tuple[str, ...] = ()
 
 
 class PersonMotionTracker:
@@ -40,6 +42,28 @@ class PersonMotionTracker:
         ema_alpha: float = 0.20,
         track_expiry_seconds: float = 1.0,
     ) -> None:
+        values = {
+            "enter_speed_ratio": enter_speed_ratio,
+            "exit_speed_ratio": exit_speed_ratio,
+            "min_track_seconds": min_track_seconds,
+            "ema_alpha": ema_alpha,
+            "track_expiry_seconds": track_expiry_seconds,
+        }
+        if any(isinstance(value, bool) or not isinstance(value, (int, float))
+               for value in values.values()):
+            raise ValueError("motion tracker settings must be finite numbers")
+        if not all(isfinite(float(value)) for value in values.values()):
+            raise ValueError("motion tracker settings must be finite numbers")
+        if enter_speed_ratio <= 0:
+            raise ValueError("enter_speed_ratio must be positive")
+        if exit_speed_ratio <= 0 or exit_speed_ratio >= enter_speed_ratio:
+            raise ValueError("exit_speed_ratio must be positive and lower than enter_speed_ratio")
+        if min_track_seconds < 0:
+            raise ValueError("min_track_seconds must be nonnegative")
+        if not 0 < ema_alpha <= 1:
+            raise ValueError("ema_alpha must satisfy 0 < ema_alpha <= 1")
+        if track_expiry_seconds <= 0:
+            raise ValueError("track_expiry_seconds must be positive")
         self.enter_speed_ratio = enter_speed_ratio
         self.exit_speed_ratio = exit_speed_ratio
         self.min_track_seconds = min_track_seconds
@@ -66,8 +90,10 @@ class PersonMotionTracker:
         frame_height, frame_width = frame_shape[:2]
         frame_diagonal = max(hypot(float(frame_width), float(frame_height)), 1.0)
         snapshots: list[PersonMotion] = []
+        observed_ids: set[int] = set()
 
         for track_id, x1, y1, x2, y2 in people:
+            observed_ids.add(int(track_id))
             bbox = (float(x1), float(y1), float(x2), float(y2))
             center = ((bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0)
             state = self._tracks.get(track_id)
@@ -105,6 +131,7 @@ class PersonMotionTracker:
                 state.center = center
                 state.bbox = bbox
                 state.last_seen = timestamp
+            state.zone_names = tuple((zones_by_track or {}).get(track_id, ()))
 
             moving_seconds = (
                 max(0.0, timestamp - state.moving_since)
@@ -118,7 +145,26 @@ class PersonMotionTracker:
                     speed_ratio=state.speed_ratio,
                     moving=state.moving,
                     moving_seconds=moving_seconds,
-                    zone_names=tuple((zones_by_track or {}).get(track_id, ())),
+                    zone_names=state.zone_names,
+                )
+            )
+
+        for track_id in sorted(self._tracks):
+            if track_id in observed_ids:
+                continue
+            state = self._tracks[track_id]
+            snapshots.append(
+                PersonMotion(
+                    track_id=track_id,
+                    bbox=state.bbox,
+                    speed_ratio=state.speed_ratio,
+                    moving=state.moving,
+                    moving_seconds=(
+                        max(0.0, timestamp - state.moving_since)
+                        if state.moving and state.moving_since is not None else 0.0
+                    ),
+                    zone_names=state.zone_names,
+                    observed=False,
                 )
             )
 
@@ -157,13 +203,32 @@ class SimultaneousMovementDetector:
     persistence_seconds: float = 0.5
     _active_since: float | None = field(default=None, init=False)
     _latched: bool = field(default=False, init=False)
+    _active_track_ids: tuple[int, ...] = field(default=(), init=False)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.min_people, bool) or not isinstance(self.min_people, int):
+            raise ValueError("min_people must be an integer")
+        if self.min_people < 2:
+            raise ValueError("min_people must be at least 2")
+        if (isinstance(self.persistence_seconds, bool)
+                or not isinstance(self.persistence_seconds, (int, float))
+                or not isfinite(float(self.persistence_seconds))):
+            raise ValueError("persistence_seconds must be a finite number")
+        if self.persistence_seconds < 0:
+            raise ValueError("persistence_seconds must be nonnegative")
+
+    @property
+    def active_track_ids(self) -> tuple[int, ...]:
+        return self._active_track_ids
 
     def update(self, motions: Sequence[PersonMotion], timestamp: float) -> dict | None:
         qualifying = [motion for motion in motions if motion.moving]
         if len(qualifying) < self.min_people:
             self._active_since = None
             self._latched = False
+            self._active_track_ids = ()
             return None
+        self._active_track_ids = tuple(motion.track_id for motion in qualifying)
         if self._active_since is None:
             self._active_since = timestamp
         if self._latched or timestamp - self._active_since < self.persistence_seconds:

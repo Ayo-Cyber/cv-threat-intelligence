@@ -8,11 +8,17 @@ permitted zones. Scenario 5 creates one latched aggregate candidate for a
 sustained interval with the configured number of simultaneous movers. It does
 not require a crowd, proximity, clustering, panic, or unsafe behavior.
 
-The motion implementation and focused automated suites pass. The current
+The motion implementation and focused automated suites pass. Runtime
+`motion_candidate_audit` persistence captures generated, admitted,
+deduplicated, capacity-dropped, gate, error, and persistence outcomes in the
+shape consumed by the scorer. A tracker miss shorter than expiry preserves the
+same latched scenario-5 incident; expiry or a genuinely observed
+below-threshold state resets it. The current
 prompt fingerprint includes the scenario-5 gate wording, while its precision
 and recall remain unmeasured because the frozen corpus is unavailable. The
-full Python regression is not green in this validation environment only
-because local Ultralytics 8.4.64 differs from required 8.4.35. The local
+final broad Python run was stopped at the user's request after `1418` passes,
+`8` skips, and the one known failure: local Ultralytics 8.4.64 differs from
+required 8.4.35. It was not a completed full-suite run. The local
 redistributable clips also do not cover every controlled acceptance case.
 Unmeasured cells below are deliberately not inferred from unrelated footage.
 
@@ -40,7 +46,8 @@ Scenario 5 is a separate detector. When at least `movement_min_people` permitted
 tracks remain moving for `movement_persistence_seconds`, it emits one
 `multiple_people_moving` aggregate candidate containing all qualifying track
 IDs and their group box. The detector remains latched while the count stays at
-or above threshold and resets only after the count drops below threshold.
+or above threshold. A detector/tracker miss shorter than track expiry preserves
+that incident; an observed count below threshold or track expiry resets it.
 Existing queue deduplication remains a second line of defense, but a queue
 drop is not evidence that the latch emitted exactly once.
 
@@ -459,15 +466,15 @@ do not change detection.
 
 ### 5. Export The Candidate Audit
 
-Scenario-5 acceptance requires an audit hook that records every generated
+Scenario-5 acceptance uses the runtime audit hook that records every generated
 candidate before `AlertQueue.add()`, updates admission to `admitted`,
 `deduplicated`, or `capacity_dropped`, and appends the eventual gate status and
-persisted event ID. The current build has that retained table for concealment,
-but not for scenario 5. Until the same hook is enabled for
-`multiple_people_moving`, this acceptance input and all candidate-derived
-metrics remain **unmeasured**. Do not reconstruct it from gate directories.
+persisted event ID. The current build writes those lifecycle outcomes to
+`motion_candidate_audit` for `multiple_people_moving`. Candidate-derived
+metrics remain **unmeasured** until controlled runs produce this input and the
+scorer is executed. Do not reconstruct it from gate directories.
 
-When the capture hook writes the schema above to the run's
+When runtime writes the schema above to the run's
 `motion_candidate_audit` table, either pass `events.db` directly to the scorer
 or export its rows with structured SQLite and JSON parsing:
 

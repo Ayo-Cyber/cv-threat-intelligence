@@ -44,10 +44,24 @@ def _frame_overlays(state: Any) -> list[FrameOverlay]:
             track_id=int(item["track_id"]),
             bbox=tuple(item["bbox"]),
             label=str(item["label"]),
-            colour=(0, 200, 255),
+            colour=tuple(item.get("colour", (0, 200, 0))),
         )
         for item in (getattr(state, "_motion_overlays", ()) or ())
     ]
+
+
+def _alert_track_ids(alerts: Any) -> set[int]:
+    track_ids: set[int] = set()
+    for alert in alerts:
+        scalar = getattr(alert, "track_id", getattr(alert, "person_id", None))
+        if scalar is not None:
+            track_ids.add(int(scalar))
+        payload = getattr(alert, "payload", {}) or {}
+        candidate = payload.get("candidate") if isinstance(payload, dict) else None
+        metadata = getattr(candidate or alert, "metadata", {}) or {}
+        for track_id in metadata.get("track_ids", ()):
+            track_ids.add(int(track_id))
+    return track_ids
 
 
 def _gate_workers_for(requested: int, n_cameras: int, *, provider: str = "",
@@ -503,7 +517,7 @@ class MultiStreamPipeline:
             self.latest_boxes[frame.camera_id] = boxes
             if alerts:
                 self.publisher.mark_alerting(
-                    frame.camera_id, {a.track_id for a in alerts if a.track_id is not None})
+                    frame.camera_id, _alert_track_ids(alerts))
             if not self.smooth_publish:
                 self.publisher.publish(
                     frame.camera_id, frame.image, _frame_overlays(state)

@@ -11,6 +11,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from cvti.serving.retention import RetentionManager, RetentionPolicy, disk_status
 
@@ -323,6 +324,64 @@ class DiskTest(unittest.TestCase):
 
             self.assertEqual(site.audit_ids(), set())
             self.assertEqual(result["audit_deleted"], 2)
+
+    def test_emergency_audit_purge_reclaims_sqlite_and_wal_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site = _Site(tmp)
+            writer = sqlite3.connect(site.db)
+            writer.execute("PRAGMA journal_mode=WAL")
+            writer.execute("ALTER TABLE concealment_audit ADD COLUMN payload BLOB")
+            writer.executemany(
+                "INSERT INTO concealment_audit (generated_at, payload) VALUES (?, ?)",
+                ((time.time(), b"x" * 65536) for _ in range(96)),
+            )
+            writer.commit()
+            writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            before = sum(
+                path.stat().st_size
+                for path in (site.db, Path(f"{site.db}-wal"))
+                if path.exists()
+            )
+
+            with mock.patch(
+                "cvti.serving.retention.disk_status",
+                return_value={"available": True, "level": "critical", "used_pct": 99.0},
+            ):
+                result = site.mgr.emergency_purge()
+
+            after = sum(
+                path.stat().st_size
+                for path in (site.db, Path(f"{site.db}-wal"))
+                if path.exists()
+            )
+            freelist = writer.execute("PRAGMA freelist_count").fetchone()[0]
+            writer.close()
+
+            self.assertEqual(result["audit_deleted"], 96)
+            self.assertTrue(result["database_reclaimed"])
+            self.assertEqual(freelist, 0)
+            self.assertLess(after, before)
+
+    def test_failed_database_reclaim_stops_before_event_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site = _Site(tmp)
+            site.add_audit(age_days=2)
+            event_id = site.add(age_days=40, review="true")
+            critical = {"available": True, "level": "critical", "used_pct": 99.0}
+
+            with mock.patch(
+                "cvti.serving.retention.disk_status", return_value=critical
+            ), mock.patch.object(
+                site.mgr,
+                "_reclaim_database_bytes",
+                return_value={"reclaimed": False, "error": "database is locked"},
+                create=True,
+            ):
+                result = site.mgr.emergency_purge()
+
+            self.assertIn(event_id, site.ids())
+            self.assertEqual(result["deleted"], 0)
+            self.assertEqual(result["reclaim_error"], "database is locked")
 
 
 class PolicyTest(unittest.TestCase):

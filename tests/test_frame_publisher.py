@@ -264,6 +264,53 @@ class PublisherTests(unittest.TestCase):
         self.assertNotEqual(normal, self.pub.frame("c", tracking=True))
 
 
+    def test_late_completion_cannot_overwrite_a_newer_same_session_publish(self):
+        import threading
+
+        pub = FramePublisher(max_width=0)
+        pub._viewer_started("cam1", tracking=True)
+        first_started = threading.Event()
+        release_first = threading.Event()
+        real_encode = pub._encode_tracking
+
+        def ordered_encode(image, *args):
+            if int(image[0, 0, 0]) == 10:
+                first_started.set()
+                self.assertTrue(release_first.wait(2))
+            return real_encode(image, *args)
+
+        pub._encode_tracking = ordered_encode
+        overlay = frame_publisher.FrameOverlay(1, (5, 5, 30, 30), "#1", (0, 255, 0))
+        older = threading.Thread(
+            target=pub.publish,
+            args=("cam1", np.full((48, 64, 3), 10, np.uint8), [overlay]),
+        )
+        newer = threading.Thread(
+            target=pub.publish,
+            args=("cam1", np.full((48, 64, 3), 200, np.uint8), [overlay]),
+        )
+
+        older.start()
+        self.assertTrue(first_started.wait(2))
+        newer.start()
+        newer.join(2)
+        release_first.set()
+        older.join(2)
+        self.assertFalse(older.is_alive())
+        self.assertFalse(newer.is_alive())
+
+        import cv2
+        raw = cv2.imdecode(np.frombuffer(pub.frame("cam1"), np.uint8), cv2.IMREAD_COLOR)
+        tracking = cv2.imdecode(
+            np.frombuffer(pub.frame("cam1", tracking=True), np.uint8), cv2.IMREAD_COLOR
+        )
+        self.assertGreater(float(raw.mean()), 180.0)
+        self.assertGreater(float(tracking.mean()), 150.0)
+        self.assertEqual(
+            pub.frame_seq("cam1")[1], pub.frame_seq("cam1", tracking=True)[1]
+        )
+
+
     # --- EP-03-T1: no unauthenticated route to a camera ---------------------
     def test_every_route_rejects_an_unauthenticated_request(self):
         self.pub.publish("cam1", self.frame, [])

@@ -95,6 +95,98 @@ def test_stale_track_expires_before_track_id_is_reused() -> None:
     assert not reused.moving
 
 
+def test_missing_track_is_returned_as_unobserved_until_expiry() -> None:
+    tracker = PersonMotionTracker(
+        enter_speed_ratio=0.05,
+        exit_speed_ratio=0.02,
+        min_track_seconds=0.0,
+        ema_alpha=1.0,
+        track_expiry_seconds=0.5,
+    )
+    tracker.update([person(1, 10)], 0.0, FRAME)
+    assert tracker.update([person(1, 20)], 0.1, FRAME)[0].moving
+
+    retained = tracker.update([], 0.5, FRAME)
+
+    assert len(retained) == 1
+    assert retained[0].track_id == 1
+    assert retained[0].moving
+    assert not retained[0].observed
+    assert tracker.update([], 0.61, FRAME) == []
+
+
+def test_sub_expiry_miss_preserves_latch_but_expiry_starts_a_new_incident() -> None:
+    tracker = PersonMotionTracker(
+        enter_speed_ratio=0.05,
+        exit_speed_ratio=0.02,
+        min_track_seconds=0.0,
+        ema_alpha=1.0,
+        track_expiry_seconds=0.5,
+    )
+    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.0)
+    tracker.update([person(1, 0), person(2, 20)], 0.0, FRAME)
+    together = tracker.update([person(1, 10), person(2, 30)], 0.1, FRAME)
+    assert detector.update(together, 0.1) is not None
+
+    assert detector.update(tracker.update([], 0.4, FRAME), 0.4) is None
+    returned = tracker.update([person(1, 20), person(2, 40)], 0.5, FRAME)
+    assert detector.update(returned, 0.5) is None
+
+    assert detector.update(tracker.update([], 1.1, FRAME), 1.1) is None
+    tracker.update([person(1, 30), person(2, 50)], 1.2, FRAME)
+    moving_again = tracker.update([person(1, 40), person(2, 60)], 1.3, FRAME)
+    assert detector.update(moving_again, 1.3) is not None
+
+
+def test_observed_stationary_state_resets_the_aggregate_latch() -> None:
+    detector = SimultaneousMovementDetector(min_people=2, persistence_seconds=0.0)
+    together = [
+        motion(1, (10.0, 20.0, 30.0, 80.0)),
+        motion(2, (40.0, 20.0, 60.0, 80.0)),
+    ]
+    assert detector.update(together, 0.0) is not None
+
+    observed_stop = [
+        motion(1, (10.0, 20.0, 30.0, 80.0)),
+        motion(2, (40.0, 20.0, 60.0, 80.0), moving=False),
+    ]
+    assert detector.update(observed_stop, 0.1) is None
+    assert detector.update(together, 0.2) is not None
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"enter_speed_ratio": float("nan")}, "finite"),
+        ({"exit_speed_ratio": float("inf")}, "finite"),
+        ({"enter_speed_ratio": 0.0}, "positive"),
+        ({"enter_speed_ratio": 0.02, "exit_speed_ratio": 0.02}, "lower"),
+        ({"min_track_seconds": -0.1}, "nonnegative"),
+        ({"ema_alpha": 0.0}, "ema_alpha"),
+        ({"ema_alpha": 1.01}, "ema_alpha"),
+        ({"track_expiry_seconds": 0.0}, "track_expiry_seconds"),
+    ],
+)
+def test_motion_tracker_rejects_invalid_constructor_values(kwargs, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        PersonMotionTracker(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"min_people": True}, "min_people"),
+        ({"min_people": 1}, "min_people"),
+        ({"min_people": 2.5}, "min_people"),
+        ({"persistence_seconds": -0.1}, "persistence_seconds"),
+        ({"persistence_seconds": float("nan")}, "finite"),
+    ],
+)
+def test_aggregate_rejects_invalid_constructor_values(kwargs, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        SimultaneousMovementDetector(**kwargs)
+
+
 def test_motion_snapshot_contains_bbox_and_zone_names() -> None:
     tracker = PersonMotionTracker(min_track_seconds=0.0)
 

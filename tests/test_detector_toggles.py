@@ -181,6 +181,22 @@ class MovementConfigurationTests(unittest.TestCase):
                     ):
                         build_camera_states(self._site(**{field: value}))
 
+    def test_detector_feature_flags_reject_strings_and_numbers(self):
+        from cvti.serving.camera import build_camera_states
+
+        flags = (
+            "concealment", "violence", "weapons", "theft", "tamper", "fall",
+            "fire_smoke", "running", "crowd_formation", "normal_movement",
+            "multiple_people_moving", "video_action",
+        )
+        for flag in flags:
+            for value in ("false", "true", 0, 1, 0.0, 1.0):
+                with self.subTest(flag=flag, value=value):
+                    with self.assertRaisesRegex(
+                        ValueError, f"camera chi_gate: {flag} must be a boolean"
+                    ):
+                        build_camera_states(self._site(**{flag: value}))
+
     def test_permitted_movement_zones_require_a_string_sequence(self):
         from cvti.serving.camera import build_camera_states
 

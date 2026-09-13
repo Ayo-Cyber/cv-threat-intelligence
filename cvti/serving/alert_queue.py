@@ -84,7 +84,13 @@ class AlertQueue:
             except Exception:  # noqa: BLE001 - audit must not block detection
                 log.error("candidate generation audit failed", exc_info=True)
         if audit_token is not None and isinstance(alert.payload, dict):
-            alert.payload["concealment_audit_id"] = audit_token
+            candidate = alert.payload.get("candidate")
+            audit_key = (
+                "motion_candidate_audit_id"
+                if getattr(candidate, "detector", None) == "multiple_people_moving"
+                else "concealment_audit_id"
+            )
+            alert.payload[audit_key] = audit_token
 
         # The same (camera, rule, track, zone, object) should not re-fire every
         # frame; suppress within the cooldown. object_label matters for object

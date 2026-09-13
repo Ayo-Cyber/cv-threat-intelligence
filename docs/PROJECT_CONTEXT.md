@@ -1,5 +1,41 @@
 # Project Context
 
+## Combined Final Fix Wave - 2026-09-13
+
+The four Important final-review blockers are addressed in the current branch:
+
+- emergency SQLite audit purges checkpoint the WAL and VACUUM after committing
+  row deletion, then stop before deleting event evidence if database bytes
+  cannot be reclaimed safely;
+- scenario-5 state and its aggregate latch survive a tracker miss shorter than
+  expiry, while an observed below-threshold state or expiry resets the incident;
+- overlays use green for ordinary scenario-4 movement, amber for active
+  scenario-5 constituents (including scenario-5-only cameras), and the alert
+  colour for confirmed/associated tracks, with aggregate `track_ids` carried
+  into publisher alert state; and
+- runtime persistence records every generated scenario-5 candidate in the
+  scorer-compatible `motion_candidate_audit` table, including queue admission,
+  gate, error, and persistence outcomes without changing user-alert policy.
+
+The same wave validates public motion constructor invariants, rejects
+non-boolean feature flags, and prevents an older overlapping publisher
+completion from overwriting a newer frame in the same session.
+
+Exact verification: the combined focused backend set passed `262` tests with
+`14` dependency warnings in `37.85s`; the one test edited afterward passed
+separately (`1 passed`, `14` dependency warnings in `0.98s`); frontend unit
+tests passed `118` tests across `22` files and the production build passed;
+prompt regression exited successfully with fingerprint `0bf660f4a024...` while
+reporting metrics as **UNMEASURED**. Per the user's stop request, the broad
+Python run was interrupted after `1418 passed, 8 skipped, 1 failed, 15 warnings`
+in `162.18s`; its sole observed failure was Ultralytics 8.4.64 versus required
+8.4.35. This is not represented as a completed full-suite run.
+
+No measured Chi accuracy is claimed. Controlled rights-cleared Chi clips, the
+frozen prompt corpus, and three real hidden/shown capture pairs remain
+unavailable. Geometry-based bag identity remains an empirical risk, and the
+shared environment still does not match the pinned Ultralytics version.
+
 ## Current Authoritative Handoff - 2026-09-13 - Motion Scenarios 4 And 5
 
 Chi pilot scenarios 4 and 5 are implemented and have a repeatable acceptance
@@ -89,9 +125,10 @@ interval. The hash-verified captures are included in the retained result's
 input hashes. The result contains observation coverage, person recall, ID
 switches, scenario-5 precision/recall, per-candidate classification, duplicate
 candidates and persisted alerts, detection delay, and paired overlay FPS impact.
-The current runtime has no scenario-5 pre-queue audit hook, so candidate-derived
-acceptance metrics remain unmeasured until that input is captured; gate
-directories are insufficient.
+The runtime now writes the complete scenario-5 pre-queue lifecycle to
+`motion_candidate_audit`. Candidate-derived acceptance metrics nevertheless
+remain unmeasured until the controlled matrix is captured and scored; gate
+directories alone remain insufficient.
 
 The frontend's full Playwright suite completed with `19 passed, 2 failed`.
 Both existing failures are caused by the absent ignored

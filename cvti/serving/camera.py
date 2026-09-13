@@ -519,18 +519,6 @@ class PerCameraState:
                 motion for motion in motions
                 if self._movement_zone_allows(motion.zone_names)
             ]
-            self._motion_overlays = [
-                {
-                    "track_id": motion.track_id,
-                    "bbox": tuple(int(v) for v in motion.bbox),
-                    "label": f"#{motion.track_id} MOVING",
-                    "zone_names": list(motion.zone_names),
-                    "speed_ratio": motion.speed_ratio,
-                }
-                for motion in permitted_motions
-                if self.normal_movement
-                and motion.moving
-            ]
             if self.multiple_people_moving:
                 movement_event = self._simultaneous_movement_det.update(
                     permitted_motions, timestamp
@@ -540,6 +528,24 @@ class PerCameraState:
                     raw_events.append(
                         simultaneous_movement_to_event(movement_event, timestamp)
                     )
+            active_track_ids = (
+                set(self._simultaneous_movement_det.active_track_ids)
+                if self.multiple_people_moving else set()
+            )
+            self._motion_overlays = [
+                {
+                    "track_id": motion.track_id,
+                    "bbox": tuple(int(v) for v in motion.bbox),
+                    "label": f"#{motion.track_id} MOVING",
+                    "zone_names": list(motion.zone_names),
+                    "speed_ratio": motion.speed_ratio,
+                    "colour": ((0, 200, 255) if motion.track_id in active_track_ids
+                               else (0, 200, 0)),
+                }
+                for motion in permitted_motions
+                if motion.observed and motion.moving
+                and (self.normal_movement or motion.track_id in active_track_ids)
+            ]
 
         try:
             if self._conceal is not None:
@@ -690,6 +696,14 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
     out: dict[str, dict] = {}
     for cam in site_config["cameras"]:
         cam_id = cam["id"]
+        detector_flags = (
+            "concealment", "violence", "weapons", "theft", "tamper", "fall",
+            "fire_smoke", "running", "crowd_formation", "normal_movement",
+            "multiple_people_moving", "video_action",
+        )
+        for flag in detector_flags:
+            if flag in cam and not isinstance(cam[flag], bool):
+                raise ValueError(f"camera {cam_id}: {flag} must be a boolean")
         if cam.get("view_only"):
             # A view-only camera is glass, not a detector (4 Sep, pilot): it
             # streams to the wall and runs nothing — no state, no rules, no
@@ -797,13 +811,15 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 # same imgsz as the shared detector, not a leaked default.
                 imgsz=imgsz,
                 heavy_stride=int(cam.get("heavy_stride", 2)),
-                concealment=bool(cam.get("concealment")), violence=bool(cam.get("violence")),
-                weapons=bool(cam.get("weapons")), theft=bool(cam.get("theft")),
-                tamper=bool(cam.get("tamper")), fall=bool(cam.get("fall")),
-                fire_smoke=bool(cam.get("fire_smoke")), running=bool(cam.get("running")),
-                crowd_formation=bool(cam.get("crowd_formation")),
-                normal_movement=bool(cam.get("normal_movement")),
-                multiple_people_moving=bool(cam.get("multiple_people_moving")),
+                concealment=cam.get("concealment", False),
+                violence=cam.get("violence", False),
+                weapons=cam.get("weapons", False), theft=cam.get("theft", False),
+                tamper=cam.get("tamper", False), fall=cam.get("fall", False),
+                fire_smoke=cam.get("fire_smoke", False),
+                running=cam.get("running", False),
+                crowd_formation=cam.get("crowd_formation", False),
+                normal_movement=cam.get("normal_movement", False),
+                multiple_people_moving=cam.get("multiple_people_moving", False),
                 running_min_speed_ratio=float(cam.get("running_min_speed_ratio", 0.18)),
                 running_min_frames=int(cam.get("running_min_frames", 3)),
                 crowd_min_people=int(cam.get("crowd_min_people", 4)),
@@ -817,7 +833,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 movement_min_people=movement_min_people,
                 movement_persistence_seconds=movement_persistence,
                 permitted_movement_zones=permitted_zones,
-                video_action=bool(cam.get("video_action")),
+                video_action=cam.get("video_action", False),
                 zone_min_person_area_ratio=cam.get("zone_min_person_area_ratio"),
             ),
         }
