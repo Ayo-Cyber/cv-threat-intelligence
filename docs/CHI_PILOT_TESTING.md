@@ -78,7 +78,7 @@ Retain one row per case with these fields:
 | Identity | case ID, clip path, SHA-256, camera ID, recording date |
 | Labels | actual reach interval, destination-action interval, expected class |
 | Context | mapper lifecycle, reviewed status, environment, active zone roles |
-| Candidate | first candidate timestamp or `none`, destination, peak score, components, limited flag, associated bag, track ID |
+| Candidate | all callback-ordered rows; timestamp-sorted rows; inclusive-window rows; for positives, first in-window timestamp or `none`; destination, in-window peak score, components, limited flag, associated bag, track ID |
 | Gate | `confirmed`, `rejected`, `not_gated`, or `unverified`; confidence, reason, prompt fingerprint, model tag and digest |
 | Delivery | event ID, duplicate count, evidence directory, full frames present, subject crop present, replay clip present, UI visibility |
 | Performance | detection delay from destination-action start and pose-stage FPS |
@@ -219,6 +219,9 @@ current run; this example selects the pocket-positive case:
 ```bash
 export CASE_ID="S10-P01"
 export CASE_CLIP="$CHI_CLIP_DIR/S10-P01-pocket-positive.mp4"
+export EXPECTED_CLASS="positive"
+export ACTION_WINDOW_START_S="4.0"
+export ACTION_WINDOW_END_S="8.0"
 export RUN_ID="$(date +%Y%m%d-%H%M%S)"
 export CHI_SITE="/private/tmp/chi-${CASE_ID}-${RUN_ID}.json"
 export CHI_OUT="$REPO_ROOT/runs/chi_s10/${CASE_ID}-${RUN_ID}"
@@ -228,15 +231,20 @@ mkdir -p "$CHI_OUT"
 
 Use the filename table below for the other six runs:
 
-| Case | `CASE_CLIP` basename |
-| --- | --- |
-| `S10-P01` | `S10-P01-pocket-positive.mp4` |
-| `S10-P02` | `S10-P02-bag-positive.mp4` |
-| `S10-N01` | `S10-N01-trolley-safe.mp4` |
-| `S10-N02` | `S10-N02-phone-to-pocket.mp4` |
-| `S10-N03` | `S10-N03-clothing-adjustment.mp4` |
-| `S10-N04` | `S10-N04-browsing.mp4` |
-| `S10-N05` | `S10-N05-open-carry.mp4` |
+Set all five inputs for the selected row before generating its config. The
+window is inclusive and must match the observed action label fixed before the
+run; update these values if the retained observed interval differs from the
+planned interval in the recording matrix.
+
+| Case | `CASE_CLIP` basename | `EXPECTED_CLASS` | `ACTION_WINDOW_START_S` | `ACTION_WINDOW_END_S` |
+| --- | --- | --- | --- | --- |
+| `S10-P01` | `S10-P01-pocket-positive.mp4` | `positive` | `4.0` | `8.0` |
+| `S10-P02` | `S10-P02-bag-positive.mp4` | `positive` | `4.0` | `8.0` |
+| `S10-N01` | `S10-N01-trolley-safe.mp4` | `negative` | `4.0` | `7.0` |
+| `S10-N02` | `S10-N02-phone-to-pocket.mp4` | `negative` | `4.0` | `5.5` |
+| `S10-N03` | `S10-N03-clothing-adjustment.mp4` | `negative` | `2.0` | `4.0` |
+| `S10-N04` | `S10-N04-browsing.mp4` | `negative` | `2.0` | `7.0` |
+| `S10-N05` | `S10-N05-open-carry.mp4` | `negative` | `4.0` | `10.0` |
 
 Generate a config using the production site schema. `require_reviewed` makes
 Agent Mapper output wait for operator approval. The accepted `merchandise` role
@@ -392,10 +400,11 @@ grep -E 'ready_reviewed|POSSIBLE CONCEALMENT|CONFIRMED|REJECTED|UNVERIFIED|alert
 Only the two positive cases may end in `[CONFIRMED]`. Any `UNVERIFIED`, gate
 error, or breaker-open result invalidates the case.
 
-After shutdown, run this exact extractor. It reads all audit rows for the
-current camera, reports the first candidate and maximum detector score, derives
-positive-case detection delay from the fixed destination-action start in the
-matrix, and reads sampled pose-stage throughput from the final
+After shutdown, run this exact extractor. It retains all audit rows for the
+current camera in verdict-callback order, sorts a separate view by clip-relative
+candidate timestamp, filters an inclusive copy to the explicit labeled action
+window, and derives positive recall/delay only from that filtered copy. It also
+reads sampled pose-stage throughput from the final
 `perf_report.json`. It writes the reusable case artifact
 `$CHI_OUT/scenario10_result.json`.
 
@@ -406,39 +415,65 @@ import os
 from pathlib import Path
 
 case_id = os.environ["CASE_ID"]
+expected_class = os.environ["EXPECTED_CLASS"]
+if expected_class not in {"positive", "negative"}:
+    raise SystemExit("EXPECTED_CLASS must be 'positive' or 'negative'")
+window_start = float(os.environ["ACTION_WINDOW_START_S"])
+window_end = float(os.environ["ACTION_WINDOW_END_S"])
+if window_start > window_end:
+    raise SystemExit("ACTION_WINDOW_START_S must be <= ACTION_WINDOW_END_S")
 out = Path(os.environ["CHI_OUT"])
 audit_path = out / "concealment_audit.jsonl"
-rows = []
+all_rows = []
 if audit_path.exists():
-    rows = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
-rows = [row for row in rows if row["camera_id"] == case_id]
+    all_rows = [
+        json.loads(line)
+        for line in audit_path.read_text().splitlines()
+        if line.strip()
+    ]
+all_rows = [row for row in all_rows if row["camera_id"] == case_id]
 required = {
     "candidate_timestamp", "track_id", "destination", "peak_score",
     "components", "limited", "associated_bag", "enqueued_at", "verdict_at",
     "gate_result_timestamp", "gate_latency_s", "verdict", "confirmed",
     "confidence", "reason", "gate_error", "prompt_version",
 }
-for row in rows:
+for row in all_rows:
     missing = sorted(required - row.keys())
     if missing:
         raise SystemExit(f"incomplete concealment audit row: {missing}")
 
-# Fixed before execution by the matrix. Delay is meaningful only for positives.
-action_start = {"S10-P01": 4.0, "S10-P02": 4.0}.get(case_id)
-for row in rows:
-    row["detection_delay_s"] = (
-        round(row["candidate_timestamp"] - action_start, 3)
-        if action_start is not None else None
-    )
+chronological = sorted(all_rows, key=lambda row: row["candidate_timestamp"])
+window_rows = [
+    row for row in chronological
+    if window_start <= row["candidate_timestamp"] <= window_end
+]
+first_in_window = window_rows[0] if window_rows else None
+detection_delay = (
+    round(first_in_window["candidate_timestamp"] - window_start, 3)
+    if expected_class == "positive" and first_in_window else None
+)
+scored_rows = window_rows if expected_class == "positive" else chronological
 
 perf = json.loads((out / "perf_report.json").read_text())
 pose = perf.get("stages", {}).get("pose_infer", {}).get(case_id)
 record = {
     "case_id": case_id,
-    "candidate_count": len(rows),
-    "first_candidate_timestamp": rows[0]["candidate_timestamp"] if rows else None,
-    "peak_score": max((row["peak_score"] for row in rows), default=None),
-    "candidates": rows,
+    "expected_class": expected_class,
+    "labeled_action_window": {
+        "start_s": window_start, "end_s": window_end, "inclusive": True,
+    },
+    "candidate_count": len(all_rows),
+    "window_candidate_count": len(window_rows),
+    "candidate_recall_hit": bool(window_rows) if expected_class == "positive" else None,
+    "first_in_window_candidate_timestamp": (
+        first_in_window["candidate_timestamp"] if first_in_window else None
+    ),
+    "detection_delay_s": detection_delay,
+    "peak_score": max((row["peak_score"] for row in scored_rows), default=None),
+    "all_candidates": all_rows,
+    "chronological_candidates": chronological,
+    "window_candidates": window_rows,
     "pose_stage": pose,
     "pose_stage_fps": pose.get("rate_per_s") if pose else None,
 }
@@ -457,13 +492,20 @@ receipt. `pose_stage_fps` is the observed pose invocation rate over the retained
 performance window; retain `count`, `per_unit_ms`, `p50_ms`, and `p95_ms` with
 it. A null rate from a one-sample window is insufficient performance evidence.
 
-For positives, use the first candidate timestamp and its derived
-`detection_delay_s`; use the maximum `peak_score` and its row for components,
-destination, limited status, associated bag, and track ownership. For negatives,
-zero rows means `not_gated`; one or more rows must all say `rejected`. Any
-`unverified` row invalidates the case. Candidate recall is the number of
-positive case IDs with at least one in-window row divided by two, not the number
-of confirmed SQLite events.
+For positives, use `first_in_window_candidate_timestamp` and
+`detection_delay_s`; `candidate_recall_hit` is true only when the inclusive
+labeled window contains a candidate. Use the maximum in-window `peak_score` and
+its row for components, destination, limited status, associated bag, and track
+ownership. `all_candidates` preserves verdict callback order for false-positive
+and duplicate analysis, while `chronological_candidates` and
+`window_candidates` are sorted by candidate timestamp.
+
+For negatives, `candidate_recall_hit` and `detection_delay_s` are always null;
+their explicit action windows support analysis but can never satisfy positive
+recall. Zero `all_candidates` means `not_gated`; one or more rows must all say
+`rejected`. Any `unverified` row invalidates the case. Candidate recall is the
+number of positive case IDs with `candidate_recall_hit=true` divided by two,
+not the number of confirmed SQLite events.
 
 ### 8. Retrieve Persistence, Replay, And UI Evidence
 

@@ -211,3 +211,63 @@ Remaining concerns are unchanged: the seven Chi clips have not yet been run,
 and the changed prompt remains unmeasured while the frozen golden corpus is
 unavailable. The audit records candidates admitted to the deduplicated queue;
 the queue's separate `deduped` count remains the source for suppressed repeats.
+
+## Fix Round 3
+
+Review found that the documented acceptance extractor trusted verdict callback
+order and did not restrict positive recall or delay to the labeled action
+window. Because asynchronous callbacks can complete out of candidate-timestamp
+order, an out-of-window or later candidate could become the reported first hit.
+
+Documentation changes:
+
+- Added explicit `EXPECTED_CLASS`, `ACTION_WINDOW_START_S`, and
+  `ACTION_WINDOW_END_S` inputs for each of the seven cases. Every negative has
+  its own labeled action interval rather than inheriting a positive interval.
+- Preserved `all_candidates` in original verdict callback order for
+  false-positive and duplicate analysis.
+- Added `chronological_candidates`, sorted by clip-relative
+  `candidate_timestamp`, and inclusive `window_candidates` filtered from that
+  sorted view.
+- Positive `candidate_recall_hit`, first timestamp, detection delay, and peak
+  score now use only `window_candidates`. Negative recall and detection delay
+  are always null, while their complete rows and labeled windows remain
+  available for false-positive analysis.
+
+RED evidence:
+
+```text
+callback timestamps: 9.0, 6.5, 5.25
+expected first in-window timestamp: 5.25
+current extractor result: 9.0
+AssertionError; exit 1
+```
+
+GREEN fixture evidence used the exact Bash/Python extractor block parsed from
+`docs/CHI_PILOT_TESTING.md`, with verdict order different from candidate order
+and an out-of-window candidate carrying the highest overall score:
+
+```text
+positive fixture: first=5.25 delay=1.25 peak=0.80; callback order preserved
+negative fixture: own window retained; recall_hit=null delay=null
+```
+
+The positive fixture proved that callback-ordered timestamps remained
+`[9.0, 6.5, 5.25]`, chronological timestamps became `[5.25, 6.5, 9.0]`, the
+inclusive `4.0-8.0` window contained `[5.25, 6.5]`, and the out-of-window
+`9.0/0.99` row could satisfy neither recall nor the selected `peak_score`.
+The negative fixture used `EXPECTED_CLASS=negative` and its own inclusive
+`4.0-5.5` interval; even with a candidate at `5.25`, both
+`candidate_recall_hit` and `detection_delay_s` remained null.
+
+Round-3 self-review:
+
+- Removed the remaining ambiguous “first candidate” wording from the result
+  contract; positive selection now consistently says timestamp-sorted and
+  in-window.
+- Kept every raw audit row available and did not mutate rows with derived delay
+  fields, avoiding contamination of false-positive/duplicate evidence.
+- Confirmed window bounds are inclusive and invalid reversed windows fail
+  visibly.
+- Made no runtime changes. The deferred concurrency/serialization and
+  lazy-import timing minors remain outside this round.
