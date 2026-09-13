@@ -6,9 +6,16 @@ async function mountEngine(
   rejectBranchCreate = false,
   reservedIds = false,
   cameraCount = 1,
+  monitoringRunning = false,
 ) {
   await page.addInitScript(
-    ({ initialPermissions, rejectBranch, useReservedIds, mountedCameraCount }) => {
+    ({
+      initialPermissions,
+      rejectBranch,
+      useReservedIds,
+      mountedCameraCount,
+      initialMonitoringRunning,
+    }) => {
       const state = {
         permissions: initialPermissions,
         calls: [] as string[],
@@ -70,7 +77,8 @@ async function mountEngine(
           if (method === "hierarchy") return hierarchy;
           if (method === "get_site")
             return { name: "Test Site", notify: "console" };
-          if (method === "monitoring_status") return { running: false };
+          if (method === "monitoring_status")
+            return { running: initialMonitoringRunning };
           if (method === "english_rules_status") return { available: false };
           if (method === "feed_sources") return { active: "", sources: [] };
           if (method === "gate_status") return { ready: false };
@@ -98,6 +106,7 @@ async function mountEngine(
       rejectBranch: rejectBranchCreate,
       useReservedIds: reservedIds,
       mountedCameraCount: cameraCount,
+      initialMonitoringRunning: monitoringRunning,
     },
   );
   await page.reload();
@@ -457,6 +466,120 @@ test("streams-only wall supports filtering, focus, fullscreen, and ordered escap
   await expect(
     page.getByRole("heading", { name: "Every camera. One clear picture." }),
   ).toBeVisible();
+});
+
+test("tracking overlay controls persist globally and keep camera overrides session-only", async ({
+  page,
+}) => {
+  await mountEngine(page, ["view_live"], false, false, 2, true);
+
+  const globalToggle = page.getByRole("button", { name: "Show tracking" });
+  const frontOverride = page.getByLabel("Tracking overlay for camera-001");
+  await expect(globalToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(frontOverride).toHaveValue("global");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const requests = (window as any).__argusTest.invocations.filter(
+          (entry: { method: string; args: unknown[] }) =>
+            entry.method === "camera_stream" &&
+            /^camera-\d+$/.test(String(entry.args[0])),
+        );
+        return {
+          cameraIds: [
+            ...new Set(
+              requests.map((entry: { args: unknown[] }) => entry.args[0]),
+            ),
+          ],
+          allHidden: requests.every(
+            (entry: { args: unknown[] }) => entry.args[1] === false,
+          ),
+        };
+      }),
+    )
+    .toEqual({ cameraIds: ["camera-001", "camera-002"], allHidden: true });
+  await page.evaluate(() => {
+    (window as any).__argusTest.invocations = [];
+  });
+
+  await frontOverride.selectOption("show");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).__argusTest.invocations.filter(
+            (entry: { method: string; args: unknown[] }) =>
+              entry.method === "camera_stream" &&
+              entry.args[0] === "camera-001" &&
+              entry.args[1] === true,
+          ).length,
+      ),
+    )
+    .toBe(1);
+
+  await globalToggle.click();
+  await expect(globalToggle).toHaveAttribute("aria-pressed", "true");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).__argusTest.invocations.filter(
+            (entry: { method: string; args: unknown[] }) =>
+              entry.method === "camera_stream" &&
+              entry.args[0] === "camera-002" &&
+              entry.args[1] === true,
+          ).length,
+      ),
+    )
+    .toBe(1);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__argusTest.invocations.filter(
+          (entry: { method: string; args: unknown[] }) =>
+            entry.method === "camera_stream" &&
+            entry.args[0] === "camera-001" &&
+            entry.args[1] === true,
+        ).length,
+    ),
+  ).toBe(1);
+  await expect(
+    page.locator(".metrics").getByText("Running", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      (window as any).__argusTest.calls.includes("stop_monitoring"),
+    ),
+  ).toBe(false);
+
+  await page.getByRole("button", { name: "Open streams wall" }).click();
+  const wall = page.getByRole("region", { name: "Streams-only camera wall" });
+  await expect(
+    wall.getByRole("button", { name: "Show tracking" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(wall.getByLabel("Tracking overlay for camera-001")).toHaveValue(
+    "show",
+  );
+
+  await page.reload();
+  await page.getByRole("button", { name: "Local engine", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Show tracking" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("Tracking overlay for camera-001")).toHaveValue(
+    "global",
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).__argusTest.invocations.filter(
+            (entry: { method: string; args: unknown[] }) =>
+              entry.method === "camera_stream" && entry.args[1] === true,
+          ).length,
+      ),
+    )
+    .toBeGreaterThanOrEqual(2);
 });
 
 test("overview caps 100 camera descriptors and releases the previous page", async ({

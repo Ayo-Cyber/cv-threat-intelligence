@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Maximize2,
   Minimize2,
+  ScanLine,
   Search,
   X,
 } from "lucide-react";
@@ -23,6 +24,12 @@ import {
 } from "../hooks/useVisibleStreams";
 import CameraStream from "./CameraStream";
 import { CameraMedia, Empty } from "./common";
+import {
+  cameraTrackingPreference,
+  trackingVisible,
+  type TrackingOverrides,
+  type TrackingPreference,
+} from "../lib/tracking-overlay";
 
 const DENSITIES = [4, 9, 16] as const;
 
@@ -40,6 +47,10 @@ export default function StreamsWall({
   api,
   mode,
   running,
+  trackingGlobal,
+  trackingOverrides,
+  onTrackingGlobalChange,
+  onTrackingOverrideChange,
   branch,
   area,
   onBranchChange,
@@ -51,6 +62,13 @@ export default function StreamsWall({
   api: Transport;
   mode: Mode;
   running: boolean;
+  trackingGlobal: boolean;
+  trackingOverrides: TrackingOverrides;
+  onTrackingGlobalChange: (visible: boolean) => void;
+  onTrackingOverrideChange: (
+    cameraId: string,
+    preference: TrackingPreference,
+  ) => void;
   branch: LocationSelection;
   area: LocationSelection;
   onBranchChange: (selection: LocationSelection) => void;
@@ -293,6 +311,15 @@ export default function StreamsWall({
         </div>
         <div className="streams-actions">
           <button
+            className="icon-button tracking-toggle"
+            aria-label="Show tracking"
+            aria-pressed={trackingGlobal}
+            title={trackingGlobal ? "Hide tracking" : "Show tracking"}
+            onClick={() => onTrackingGlobalChange(!trackingGlobal)}
+          >
+            <ScanLine size={18} />
+          </button>
+          <button
             className="icon-button"
             aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             title={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
@@ -327,6 +354,10 @@ export default function StreamsWall({
                   camera={camera}
                   api={api}
                   active={subscribedIds.has(camera.id)}
+                  tracking={trackingVisible(
+                    trackingGlobal,
+                    cameraTrackingPreference(trackingOverrides, camera.id),
+                  )}
                 />
               )}
               <div className="streams-caption">
@@ -336,14 +367,46 @@ export default function StreamsWall({
                     {areasById.get(camera.area_id || "") || "Unassigned"}
                   </small>
                 </span>
-                <button
-                  className="icon-button"
-                  aria-label={`Focus ${camera.id}`}
-                  title={`Focus ${camera.id}`}
-                  onClick={() => setFocusedId(camera.id)}
-                >
-                  <Maximize2 size={16} />
-                </button>
+                <div className="camera-actions">
+                  <label
+                    className="tracking-menu"
+                    data-preference={cameraTrackingPreference(
+                      trackingOverrides,
+                      camera.id,
+                    )}
+                    title={`Tracking: ${cameraTrackingPreference(
+                      trackingOverrides,
+                      camera.id,
+                    )}`}
+                  >
+                    <ScanLine size={15} />
+                    <select
+                      aria-label={`Tracking overlay for ${camera.id}`}
+                      value={cameraTrackingPreference(
+                        trackingOverrides,
+                        camera.id,
+                      )}
+                      onChange={(event) =>
+                        onTrackingOverrideChange(
+                          camera.id,
+                          event.target.value as TrackingPreference,
+                        )
+                      }
+                    >
+                      <option value="global">Use global</option>
+                      <option value="show">Show</option>
+                      <option value="hide">Hide</option>
+                    </select>
+                  </label>
+                  <button
+                    className="icon-button"
+                    aria-label={`Focus ${camera.id}`}
+                    title={`Focus ${camera.id}`}
+                    onClick={() => setFocusedId(camera.id)}
+                  >
+                    <Maximize2 size={16} />
+                  </button>
+                </div>
               </div>
             </article>
           );
@@ -365,6 +428,7 @@ export default function StreamsWall({
                 camera={camera}
                 api={api}
                 active={subscribedIds.has(id)}
+                tracking={false}
               />
             ) : null;
           })}

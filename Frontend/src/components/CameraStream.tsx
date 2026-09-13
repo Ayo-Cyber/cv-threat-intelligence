@@ -20,11 +20,13 @@ export default function CameraStream({
   camera,
   api,
   active,
+  tracking = false,
   onOpen,
 }: {
   camera: Camera;
   api: Transport;
   active: boolean;
+  tracking?: boolean;
   onOpen?: () => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
@@ -47,6 +49,7 @@ export default function CameraStream({
     if (video.current)
       void resolveCameraStream({
         cameraId: camera.id,
+        tracking,
         active,
         api,
         video: video.current,
@@ -62,7 +65,7 @@ export default function CameraStream({
             });
         });
     return () => controller.abort();
-  }, [active, api, camera.id, retry]);
+  }, [active, api, camera.id, retry, tracking]);
 
   const transport: StreamTransport =
     state.kind === "webrtc"

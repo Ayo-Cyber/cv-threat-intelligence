@@ -6,6 +6,11 @@ import {
   reconcileFocusedStream,
   subscribedStreamIds,
 } from "../src/hooks/useVisibleStreams";
+import {
+  cameraTrackingPreference,
+  trackingVisible,
+  updateTrackingOverride,
+} from "../src/lib/tracking-overlay";
 
 const cameraIds = Array.from(
   { length: 100 },
@@ -13,6 +18,17 @@ const cameraIds = Array.from(
 );
 
 describe("streams wall subscription state", () => {
+  it("changes only the selected camera when applying one overlay override", () => {
+    const overrides = updateTrackingOverride({}, "camera-001", "show");
+
+    expect(
+      trackingVisible(false, cameraTrackingPreference(overrides, "camera-001")),
+    ).toBe(true);
+    expect(
+      trackingVisible(false, cameraTrackingPreference(overrides, "camera-002")),
+    ).toBe(false);
+  });
+
   it("keeps a 16-tile page within a 20-stream hard budget", () => {
     const state = createVisibleStreamState(cameraIds, 16, 1);
 
