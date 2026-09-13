@@ -17,7 +17,9 @@ from typing import Any, Iterable
 
 LABEL_COLUMNS = {
     "case_id",
+    "clip_sha256",
     "clip_duration_s",
+    "target_fps",
     "start_s",
     "end_s",
     "label",
@@ -51,6 +53,7 @@ SCENARIO5_EXPECTED = {"positive", "negative", "not_scored"}
 ADMISSION_STATUSES = {"admitted", "deduplicated", "capacity_dropped"}
 GATE_STATUSES = {"confirmed", "rejected", "unverified", "not_gated", "pending"}
 FINAL_FRAME_EPSILON = 1e-9
+MAX_OBSERVATION_TOLERANCE_S = 0.001
 
 
 class InputError(ValueError):
@@ -124,9 +127,17 @@ def load_labels(path: Path) -> list[dict[str, Any]]:
     rows = _read_csv(path, "labels", LABEL_COLUMNS)
     labels: list[dict[str, Any]] = []
     durations: dict[str, float] = {}
+    target_rates: dict[str, float] = {}
+    clip_hashes: dict[str, str] = {}
     for line, raw in enumerate(rows, 2):
         source = f"labels row {line}"
         case_id = _text(raw.get("case_id"), source, "case_id")
+        clip_sha256 = _sha256_field(
+            raw.get("clip_sha256"), source, "clip_sha256"
+        )
+        previous_hash = clip_hashes.setdefault(case_id, clip_sha256)
+        if previous_hash != clip_sha256:
+            raise InputError(f"{source}: clip_sha256 conflicts within case {case_id}")
         duration = _number(
             raw.get("clip_duration_s"), source, "clip_duration_s", minimum=0.0
         )
@@ -135,11 +146,19 @@ def load_labels(path: Path) -> list[dict[str, Any]]:
         previous = durations.setdefault(case_id, duration)
         if not math.isclose(previous, duration):
             raise InputError(f"{source}: clip_duration_s conflicts within case {case_id}")
+        target_fps = _number(raw.get("target_fps"), source, "target_fps", minimum=0.0)
+        if target_fps <= 0:
+            raise InputError(f"{source}: target_fps must be greater than zero")
+        previous_rate = target_rates.setdefault(case_id, target_fps)
+        if not math.isclose(previous_rate, target_fps):
+            raise InputError(f"{source}: target_fps conflicts within case {case_id}")
         start = _number(raw.get("start_s"), source, "start_s", minimum=0.0)
         end = _number(raw.get("end_s"), source, "end_s", minimum=0.0)
         if end <= start:
             raise InputError(f"{source}: interval must satisfy start_s < end_s")
-        if end > duration and not math.isclose(end, duration):
+        if end > duration and not math.isclose(
+            end, duration, rel_tol=0.0, abs_tol=FINAL_FRAME_EPSILON
+        ):
             raise InputError(f"{source}: end_s exceeds clip_duration_s")
         person_ref = _text(raw.get("person_ref"), source, "person_ref")
         refs = tuple(ref.strip() for ref in person_ref.split("|") if ref.strip())
@@ -147,7 +166,9 @@ def load_labels(path: Path) -> list[dict[str, Any]]:
             raise InputError(f"{source}: person_ref must contain unique non-empty IDs")
         labels.append({
             "case_id": case_id,
+            "clip_sha256": clip_sha256,
             "clip_duration_s": duration,
+            "target_fps": target_fps,
             "start_s": start,
             "end_s": end,
             "label": _text(raw.get("label"), source, "label"),
@@ -194,10 +215,29 @@ def _validate_label_intervals(labels: list[dict[str, Any]]) -> None:
         ordered = sorted(rows, key=lambda row: (row["start_s"], row["end_s"]))
         for left, right in zip(ordered, ordered[1:]):
             if right["start_s"] < left["end_s"] and not math.isclose(
-                right["start_s"], left["end_s"]
+                right["start_s"], left["end_s"], rel_tol=0.0,
+                abs_tol=FINAL_FRAME_EPSILON,
             ):
                 raise InputError(
                     f"labels: overlapping intervals for {key[0]}:{key[1]}"
+                )
+    scenario5_intervals: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for label in labels:
+        if label["scenario5_expected"] != "not_scored":
+            scenario5_intervals[label["case_id"]].setdefault(
+                label["incident_id"], label
+            )
+    for case_id, by_incident in scenario5_intervals.items():
+        ordered = sorted(
+            by_incident.values(), key=lambda row: (row["start_s"], row["end_s"])
+        )
+        for index, left in enumerate(ordered):
+            for right in ordered[index + 1:]:
+                if right["start_s"] >= left["end_s"]:
+                    break
+                raise InputError(
+                    f"labels: ambiguous scenario-5 intervals for {case_id}: "
+                    f"{left['incident_id']} overlaps {right['incident_id']}"
                 )
 
 
@@ -227,6 +267,93 @@ def load_observations(path: Path) -> list[dict[str, Any]]:
             "boxed": _boolean(raw.get("boxed"), source, "boxed"),
         })
     return observations
+
+
+def _expected_observation_slots(
+    labels: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    slots: list[dict[str, Any]] = []
+    tolerances: dict[str, float] = {}
+    for label in labels:
+        fps = label["target_fps"]
+        tolerance = min(MAX_OBSERVATION_TOLERANCE_S, 0.25 / fps)
+        tolerances[label["case_id"]] = tolerance
+        index = math.ceil((label["start_s"] - FINAL_FRAME_EPSILON) * fps)
+        while True:
+            timestamp = index / fps
+            if timestamp >= label["end_s"] - FINAL_FRAME_EPSILON:
+                break
+            for person_ref in label["person_refs"]:
+                slots.append({
+                    "case_id": label["case_id"],
+                    "person_ref": person_ref,
+                    "timestamp_s": timestamp,
+                    "label": label,
+                })
+            index += 1
+        if math.isclose(
+            label["end_s"], label["clip_duration_s"], rel_tol=0.0,
+            abs_tol=FINAL_FRAME_EPSILON,
+        ):
+            for person_ref in label["person_refs"]:
+                slots.append({
+                    "case_id": label["case_id"],
+                    "person_ref": person_ref,
+                    "timestamp_s": label["clip_duration_s"],
+                    "label": label,
+                })
+    return slots, tolerances
+
+
+def _validate_observation_coverage(
+    labels: list[dict[str, Any]], observations: list[dict[str, Any]]
+) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], dict[str, Any]]:
+    slots, tolerances = _expected_observation_slots(labels)
+    matched_slots: dict[int, dict[str, Any]] = {}
+    labeled_observations = []
+    for observation in observations:
+        tolerance = tolerances.get(observation["case_id"])
+        matches = [] if tolerance is None else [
+            (index, slot)
+            for index, slot in enumerate(slots)
+            if slot["case_id"] == observation["case_id"]
+            and slot["person_ref"] == observation["person_ref"]
+            and abs(slot["timestamp_s"] - observation["timestamp_s"]) <= tolerance
+        ]
+        if not matches:
+            raise InputError(
+                "observations: row does not match an expected sample: "
+                f"{observation['case_id']}:{observation['person_ref']} at "
+                f"{observation['timestamp_s']}"
+            )
+        if len(matches) > 1:
+            raise InputError(
+                "observations: row ambiguously matches expected samples: "
+                f"{observation['case_id']}:{observation['person_ref']} at "
+                f"{observation['timestamp_s']}"
+            )
+        slot_index, slot = matches[0]
+        if slot_index in matched_slots:
+            raise InputError(
+                "observations: duplicate observation for expected sample "
+                f"{slot['case_id']}:{slot['person_ref']} at {slot['timestamp_s']}"
+            )
+        matched_slots[slot_index] = observation
+        labeled_observations.append((observation, slot["label"]))
+    missing = [
+        slot for index, slot in enumerate(slots) if index not in matched_slots
+    ]
+    if missing:
+        slot = missing[0]
+        raise InputError(
+            "observations: missing expected person sample "
+            f"{slot['case_id']}:{slot['person_ref']} at {slot['timestamp_s']}"
+        )
+    return labeled_observations, {
+        "expected_person_samples": len(slots),
+        "observed_person_samples": len(observations),
+        "timestamp_tolerance_s": dict(sorted(tolerances.items())),
+    }
 
 
 def _validate_audit_rows(raw_rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -347,60 +474,86 @@ def _matches_timestamp(label: dict[str, Any], timestamp: float) -> bool:
     )
 
 
-def _observation_label(
-    labels: list[dict[str, Any]], observation: dict[str, Any]
-) -> dict[str, Any]:
-    matches = [
-        label
-        for label in labels
-        if label["case_id"] == observation["case_id"]
-        and observation["person_ref"] in label["person_refs"]
-        and _matches_timestamp(label, observation["timestamp_s"])
-    ]
-    if len(matches) != 1:
-        raise InputError(
-            "observations: each row must match exactly one labeled half-open "
-            f"interval; {observation['case_id']}:{observation['person_ref']} at "
-            f"{observation['timestamp_s']} matched {len(matches)}"
-        )
-    return matches[0]
-
-
-def _candidate_label(
+def _candidate_match(
     labels: list[dict[str, Any]], candidate: dict[str, Any]
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any] | None, str]:
+    case_labels = [
+        label for label in labels if label["case_id"] == candidate["case_id"]
+    ]
+    if not case_labels:
+        raise InputError(
+            f"audit: candidate {candidate['candidate_id']} has unknown case_id "
+            f"{candidate['case_id']!r}"
+        )
+    duration = case_labels[0]["clip_duration_s"]
+    if candidate["timestamp_s"] > duration and not math.isclose(
+        candidate["timestamp_s"], duration, rel_tol=0.0,
+        abs_tol=FINAL_FRAME_EPSILON,
+    ):
+        raise InputError(
+            f"audit: candidate {candidate['candidate_id']} timestamp is outside "
+            f"clip bounds [0,{duration}]"
+        )
     matches: dict[str, dict[str, Any]] = {}
-    for label in labels:
+    for label in case_labels:
         if (
-            label["case_id"] == candidate["case_id"]
-            and label["scenario5_expected"] != "not_scored"
+            label["scenario5_expected"] != "not_scored"
             and _matches_timestamp(label, candidate["timestamp_s"])
         ):
             matches[label["incident_id"]] = label
-    if len(matches) != 1:
+    if len(matches) > 1:
         raise InputError(
-            "audit: each candidate must match exactly one scored scenario-5 "
-            f"incident; {candidate['candidate_id']} matched {len(matches)}"
+            "audit: candidate matched ambiguous scenario-5 intervals; "
+            f"{candidate['candidate_id']} matched {len(matches)}"
         )
-    return next(iter(matches.values()))
+    if not matches:
+        return None, "out_of_window"
+    label = next(iter(matches.values()))
+    if label["scenario5_expected"] == "positive":
+        return label, "positive_interval"
+    return label, "negative_interval"
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
     return numerator / denominator if denominator else None
 
 
-def _load_perf_rate(path: Path, mode: str, index: int) -> float:
+def _sha256_field(value: Any, source: str, field: str) -> str:
+    result = _text(value, source, field).lower()
+    if len(result) != 64 or any(char not in "0123456789abcdef" for char in result):
+        raise InputError(f"{source}: {field} must be a 64-character SHA-256")
+    return result
+
+
+def _positive_integer(value: Any, source: str, field: str) -> int:
+    number = _number(value, source, field, minimum=0.0)
+    if number <= 0 or not number.is_integer():
+        raise InputError(f"{source}: {field} must be a positive integer")
+    return int(number)
+
+
+def _load_perf_report(path: Path, mode: str, index: int) -> dict[str, Any]:
     name = f"{mode} performance report {index}"
     _require_file(path, name)
     try:
         report = json.loads(path.read_text())
-        value = report["stages"]["detect_batch"]["engine"]["rate_per_s"]
+        metadata = report["chi_motion_performance"]
+        engine = report["stages"]["detect_batch"]["engine"]
     except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
         raise InputError(
-            f"{name}: missing stages.detect_batch.engine.rate_per_s"
+            f"{name}: missing chi_motion_performance metadata or detect_batch stage"
         ) from exc
+    if not isinstance(metadata, dict) or not isinstance(engine, dict):
+        raise InputError(f"{name}: performance metadata and engine stage must be objects")
+    if metadata.get("schema_version") != 1 or isinstance(
+        metadata.get("schema_version"), bool
+    ):
+        raise InputError(f"{name}: schema_version must be 1")
     try:
-        rate = _number(value, name, "detect_batch.engine.rate_per_s", minimum=0.0)
+        rate = _number(
+            engine.get("rate_per_s"), name, "detect_batch.engine.rate_per_s",
+            minimum=0.0,
+        )
     except InputError as exc:
         raise InputError(
             f"{name}: detect_batch.engine.rate_per_s must be a positive number"
@@ -409,7 +562,157 @@ def _load_perf_rate(path: Path, mode: str, index: int) -> float:
         raise InputError(
             f"{name}: detect_batch.engine.rate_per_s must be a positive number"
         )
-    return rate
+    stage_count = _positive_integer(
+        engine.get("count"), name, "detect_batch.engine.count"
+    )
+    stage_duration = _number(
+        engine.get("span_s"), name, "detect_batch.engine.span_s", minimum=0.0
+    )
+    if stage_duration <= 0:
+        raise InputError(f"{name}: detect_batch.engine.span_s must be positive")
+    declared_mode = _enum(
+        metadata.get("tracking_mode"), name, "tracking_mode", {"hidden", "shown"}
+    )
+    if declared_mode != mode:
+        raise InputError(
+            f"{name} declares tracking_mode={declared_mode}; expected {mode}"
+        )
+    tracking_query = metadata.get("tracking_query")
+    expected_query = 0 if mode == "hidden" else 1
+    if isinstance(tracking_query, bool) or tracking_query != expected_query:
+        raise InputError(f"{name}: tracking_query does not prove {mode} mode")
+    sample_count = _positive_integer(
+        metadata.get("sample_count"), name, "sample_count"
+    )
+    if sample_count != stage_count:
+        raise InputError(
+            f"{name}: sample_count does not match detect_batch.engine.count"
+        )
+    sample_duration = _number(
+        metadata.get("sample_duration_s"), name, "sample_duration_s", minimum=0.0
+    )
+    if sample_duration <= 0 or not math.isclose(
+        sample_duration, stage_duration, rel_tol=0.0,
+        abs_tol=MAX_OBSERVATION_TOLERANCE_S,
+    ):
+        raise InputError(
+            f"{name}: sample_duration_s does not match detect_batch.engine.span_s"
+        )
+    capture_value = _text(metadata.get("capture_path"), name, "capture_path")
+    capture_path = Path(capture_value)
+    if not capture_path.is_absolute():
+        capture_path = path.parent / capture_path
+    _require_file(capture_path, f"{name} capture")
+    if capture_path.stat().st_size <= 0:
+        raise InputError(f"{name}: capture evidence is empty: {capture_path}")
+    capture_sha256 = _sha256_field(
+        metadata.get("capture_sha256"), name, "capture_sha256"
+    )
+    if _sha256(capture_path) != capture_sha256:
+        raise InputError(f"{name}: capture_sha256 does not match {capture_path}")
+    return {
+        "path": path,
+        "rate_per_s": rate,
+        "case_id": _text(metadata.get("case_id"), name, "case_id"),
+        "clip_sha256": _sha256_field(
+            metadata.get("clip_sha256"), name, "clip_sha256"
+        ),
+        "pair_id": _text(metadata.get("pair_id"), name, "pair_id"),
+        "run_id": _text(metadata.get("run_id"), name, "run_id"),
+        "tracking_mode": declared_mode,
+        "tracking_query": tracking_query,
+        "config_sha256": _sha256_field(
+            metadata.get("config_sha256"), name, "config_sha256"
+        ),
+        "sample_duration_s": sample_duration,
+        "sample_count": sample_count,
+        "capture_path": capture_path,
+        "capture_sha256": capture_sha256,
+    }
+
+
+def _validate_performance_pairs(
+    hidden_paths: list[Path], shown_paths: list[Path], case_clips: dict[str, str]
+) -> tuple[list[dict[str, Any]], list[Path]]:
+    hidden = [
+        _load_perf_report(Path(path), "hidden", index)
+        for index, path in enumerate(hidden_paths, 1)
+    ]
+    shown = [
+        _load_perf_report(Path(path), "shown", index)
+        for index, path in enumerate(shown_paths, 1)
+    ]
+    hidden_by_pair = {report["pair_id"]: report for report in hidden}
+    shown_by_pair = {report["pair_id"]: report for report in shown}
+    if len(hidden_by_pair) != 3 or len(shown_by_pair) != 3:
+        raise InputError("performance pair_id values must be unique within each mode")
+    if set(hidden_by_pair) != set(shown_by_pair):
+        raise InputError("hidden/shown pair IDs do not match")
+    reports = [*hidden, *shown]
+    run_ids = [report["run_id"] for report in reports]
+    if len(set(run_ids)) != 6:
+        raise InputError("performance run_id values must be unique")
+    for field in ("case_id", "clip_sha256", "config_sha256"):
+        values = {report[field] for report in reports}
+        if len(values) != 1:
+            raise InputError(f"performance reports must share {field}")
+    case_id = reports[0]["case_id"]
+    if case_id not in case_clips:
+        raise InputError(f"performance reports have unknown case_id {case_id!r}")
+    if reports[0]["clip_sha256"] != case_clips[case_id]:
+        raise InputError(
+            "performance report clip_sha256 does not match labels for "
+            f"case_id {case_id}"
+        )
+    capture_paths = [report["capture_path"].resolve() for report in reports]
+    if len(set(capture_paths)) != 6:
+        raise InputError("performance reports must reference six distinct captures")
+    pairs = []
+    for pair_id in sorted(hidden_by_pair):
+        hidden_report = hidden_by_pair[pair_id]
+        shown_report = shown_by_pair[pair_id]
+        if hidden_report["sample_count"] != shown_report["sample_count"]:
+            raise InputError(
+                f"performance pair {pair_id}: paired reports must have equal "
+                "sample_count"
+            )
+        if not math.isclose(
+            hidden_report["sample_duration_s"],
+            shown_report["sample_duration_s"],
+            rel_tol=0.0,
+            abs_tol=MAX_OBSERVATION_TOLERANCE_S,
+        ):
+            raise InputError(
+                f"performance pair {pair_id}: paired reports must have equal "
+                "sample_duration_s"
+            )
+        pair = {
+            "pair_id": pair_id,
+            "case_id": case_id,
+            "clip_sha256": hidden_report["clip_sha256"],
+            "config_sha256": hidden_report["config_sha256"],
+            "hidden": _performance_result_row(hidden_report),
+            "shown": _performance_result_row(shown_report),
+        }
+        pair["delta_fps"] = shown_report["rate_per_s"] - hidden_report["rate_per_s"]
+        pair["impact_percent"] = (
+            pair["delta_fps"] / hidden_report["rate_per_s"] * 100.0
+        )
+        pairs.append(pair)
+    return pairs, capture_paths
+
+
+def _performance_result_row(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "run_id": report["run_id"],
+        "tracking_mode": report["tracking_mode"],
+        "tracking_query": report["tracking_query"],
+        "rate_per_s": report["rate_per_s"],
+        "sample_count": report["sample_count"],
+        "sample_duration_s": report["sample_duration_s"],
+        "capture_path": str(report["capture_path"]),
+        "capture_sha256": report["capture_sha256"],
+    }
 
 
 def _sha256(path: Path) -> str:
@@ -428,11 +731,6 @@ def score_inputs(
     shown_perf_paths: list[Path],
     output_path: Path,
 ) -> dict[str, Any]:
-    paths = (
-        [Path(labels_path), Path(observations_path), Path(audit_path)]
-        + [Path(path) for path in hidden_perf_paths]
-        + [Path(path) for path in shown_perf_paths]
-    )
     if len(hidden_perf_paths) != 3 or len(shown_perf_paths) != 3:
         raise InputError(
             "exactly 3 hidden and 3 shown performance reports are required"
@@ -447,14 +745,30 @@ def score_inputs(
     labels = load_labels(Path(labels_path))
     observations = load_observations(Path(observations_path))
     candidates = load_audit_rows(Path(audit_path))
-    labeled_observations = [
-        (observation, _observation_label(labels, observation))
-        for observation in observations
-    ]
-    labeled_candidates = [
-        (candidate, _candidate_label(labels, candidate))
-        for candidate in candidates
-    ]
+    labeled_observations, observation_coverage = _validate_observation_coverage(
+        labels, observations
+    )
+    candidate_results = []
+    labeled_candidates = []
+    for candidate in candidates:
+        label, match = _candidate_match(labels, candidate)
+        classification = (
+            "true_positive"
+            if label is not None and label["scenario5_expected"] == "positive"
+            else "false_positive"
+        )
+        incident_id = (
+            f"{label['case_id']}:{label['incident_id']}" if label is not None else None
+        )
+        candidate_results.append({
+            "candidate_id": candidate["candidate_id"],
+            "case_id": candidate["case_id"],
+            "timestamp_s": candidate["timestamp_s"],
+            "classification": classification,
+            "match": match,
+            "incident_id": incident_id,
+        })
+        labeled_candidates.append((candidate, label))
 
     visible = [row for row, _label in labeled_observations if row["visible"]]
     detected_visible = [row for row in visible if row["detected"]]
@@ -529,7 +843,7 @@ def score_inputs(
     matched_positive = [
         (candidate, label)
         for candidate, label in labeled_candidates
-        if label["scenario5_expected"] == "positive"
+        if label is not None and label["scenario5_expected"] == "positive"
     ]
     candidate_groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for candidate, label in matched_positive:
@@ -558,27 +872,35 @@ def score_inputs(
             duplicate_alerts[name] = duplicates
 
     delays = [value for value in delay_by_incident.values() if value is not None]
-    hidden_rates = [
-        _load_perf_rate(Path(path), "hidden", index)
-        for index, path in enumerate(hidden_perf_paths, 1)
-    ]
-    shown_rates = [
-        _load_perf_rate(Path(path), "shown", index)
-        for index, path in enumerate(shown_perf_paths, 1)
-    ]
+    performance_pairs, capture_paths = _validate_performance_pairs(
+        hidden_perf_paths,
+        shown_perf_paths,
+        {label["case_id"]: label["clip_sha256"] for label in labels},
+    )
+    hidden_rates = [pair["hidden"]["rate_per_s"] for pair in performance_pairs]
+    shown_rates = [pair["shown"]["rate_per_s"] for pair in performance_pairs]
     hidden_median = median(hidden_rates)
     shown_median = median(shown_rates)
     delta = shown_median - hidden_median
 
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "interval_semantics": (
             "[start_s,end_s), except timestamp_s == clip_duration_s belongs "
             "to the final interval ending at clip_duration_s"
         ),
         "inputs": {
-            "sha256": {str(path): _sha256(path) for path in paths},
+            "sha256": {
+                str(path): _sha256(path)
+                for path in [
+                    Path(labels_path), Path(observations_path), Path(audit_path),
+                    *[Path(path) for path in hidden_perf_paths],
+                    *[Path(path) for path in shown_perf_paths],
+                    *capture_paths,
+                ]
+            },
         },
+        "observation_coverage": observation_coverage,
         "person_detection_recall": {
             "detected_visible_person_frames": len(detected_visible),
             "visible_person_frames": len(visible),
@@ -620,6 +942,7 @@ def score_inputs(
                 "total": sum(duplicate_candidates.values()),
                 "by_incident": dict(sorted(duplicate_candidates.items())),
             },
+            "candidate_results": candidate_results,
         },
         "duplicate_alerts": {
             "total": sum(duplicate_alerts.values()),
@@ -630,6 +953,7 @@ def score_inputs(
             "median": median(delays) if delays else None,
         },
         "tracking_visibility_fps": {
+            "pairs": performance_pairs,
             "hidden_runs": hidden_rates,
             "shown_runs": shown_rates,
             "hidden_median": hidden_median,

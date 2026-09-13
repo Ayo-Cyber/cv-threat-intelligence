@@ -243,3 +243,93 @@ isolated overlay captures exist. Therefore person recall, ID switches,
 scenario-5 precision/recall, duplicate alerts, formal delay, and hidden/shown
 FPS impact remain unmeasured. The scorer and exact operator workflow are ready
 for those inputs; no acceptance value was inferred or fabricated.
+
+## Fix Round 2
+
+### Scorer Integrity Changes
+
+- Candidate-to-clip association is now deterministic through the audited
+  `case_id` and the label manifest's per-case clip hash. Unknown cases and
+  timestamps outside `[0,clip_duration_s]` fail as malformed. A valid candidate
+  inside the clip but outside every scored scenario-5 interval is retained and
+  counted as a false positive. Distinct scored incidents may not overlap.
+- Labels now declare `target_fps` and stable `person_ref` IDs. The scorer builds
+  the complete expected person/sample grid for every labeled interval and
+  rejects missing, duplicate, off-grid, or unexpected observations. Detection
+  misses must therefore be explicit rows. Sampling uses the clip-anchored
+  `n/target_fps` grid. Intervals are half-open `[start_s,end_s)`; an interval
+  ending on the final decoded-frame timestamp additionally requires that exact
+  frame. Timestamp tolerance is
+  `min(0.001s,0.25/target_fps)`: 1 ms accommodates the documented timestamp
+  precision, while one quarter-frame prevents adjacent-sample ambiguity.
+- Each performance report now requires schema version 1, case and clip hash,
+  pair and unique run IDs, tracking mode and matching stream query, config hash,
+  sample count and duration, plus a non-empty capture path and matching capture
+  SHA-256. The scorer requires exactly three matched hidden/shown pairs, equal
+  count and duration within 1 ms inside each pair, one clip/config across all
+  runs, six distinct reports and captures, and hashes all evidence into the
+  retained schema-version-2 result.
+- The operator guide now includes the exact label/observation formats,
+  final-frame extraction, paired capture metadata injection, SQLite/JSON audit
+  export, and retained scoring commands. The project handoff documents the same
+  validity rules. Prompt baseline and replay evidence from fix round 1 remain
+  unchanged and continue to report unmeasured acceptance cells honestly.
+
+### RED And GREEN
+
+The initial round-2 RED suite exposed all three reported integrity gaps:
+
+```text
+python -m pytest tests/test_score_chi_motion.py -q
+16 failed, 17 passed in 0.39s
+```
+
+Incremental RED tests then caught clip-label consistency, mode/query proof, and
+pair-level sampling/schema enforcement before each implementation step. The
+pair-level enforcement RED was `3 failed, 36 passed`. Final self-review added a
+clip-grid anchoring test, which first failed `1 failed, 39 passed` before the
+sampling rule was corrected. Final focused results are:
+
+```text
+python -m pytest tests/test_score_chi_motion.py -q
+40 passed in 0.25s
+
+python tools/prompt_regression.py check
+Prompt fingerprint is recorded (0bf660f4a024...), but metrics are UNMEASURED
+
+python -m pytest tests/test_score_chi_motion.py tests/test_prompt_regression.py -q
+63 passed in 0.42s
+
+PYTHONPYCACHEPREFIX=/private/tmp/chi-motion-pycache \
+  python -m py_compile tools/score_chi_motion.py
+passed
+```
+
+A sandboxed full regression was bounded and interrupted at 48% after socket
+permissions produced a broad, non-diagnostic failure cascade:
+
+```text
+701 passed, 7 skipped, 56 failed, 8 errors in 100.13s; interrupted
+```
+
+The errors include repeated `PermissionError: [Errno 1] Operation not
+permitted` from localhost binds. The known Ultralytics 8.4.64 versus pinned
+8.4.35 assertion also failed. This incomplete sandbox run does not supersede
+fix round 1's completed full result: `1462 passed, 8 skipped, 1 failed`, where
+the sole failure was that same Ultralytics environment mismatch.
+
+### Self-Review And Remaining Concerns
+
+- Confirmed an out-of-window candidate contributes to the precision denominator
+  and appears as `false_positive` / `out_of_window` in retained candidate rows.
+- Confirmed absent person samples, duplicate slots, timestamps beyond tolerance,
+  ambiguous scenario-5 overlaps, swapped modes/queries, unmatched IDs,
+  mismatched clips/configs/sampling, reused captures, and altered capture hashes
+  all fail clearly.
+- Confirmed argument order does not pair reports; `pair_id` does.
+- Confirmed `docs/prompt_baseline.json` retains null current metrics and previous
+  measurement provenance, and retained replay evidence remains present.
+- No controlled, rights-cleared motion corpus, complete candidate audit, or six
+  isolated performance captures was created in this round. All empirical
+  scenario-4/scenario-5 and overlay-impact acceptance values remain unmeasured.
+- No subagents were used.

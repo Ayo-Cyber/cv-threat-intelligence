@@ -93,10 +93,10 @@ SHA-256 manifest separately from the scoring labels. Combine every case in one
 `labels.csv` with this exact header:
 
 ```csv
-case_id,clip_duration_s,start_s,end_s,label,person_ref,expected_zone,scenario4_expected,scenario5_expected,incident_id
-S4-P01,6.000,0.000,2.000,stationary,p01,movement_permitted,not_moving,negative,s4p01-stationary
-S4-P01,6.000,2.000,6.000,moving,p01,movement_permitted,moving,negative,s4p01-moving
-S5-P01,7.000,2.500,5.500,simultaneous_movement,p01|p02,movement_permitted,moving,positive,s5p01-move-1
+case_id,clip_sha256,clip_duration_s,target_fps,start_s,end_s,label,person_ref,expected_zone,scenario4_expected,scenario5_expected,incident_id
+S4-P01,<sha256>,5.800,5,0.000,2.000,stationary,p01,movement_permitted,not_moving,negative,s4p01-stationary
+S4-P01,<sha256>,5.800,5,2.000,5.800,moving,p01,movement_permitted,moving,negative,s4p01-moving
+S5-P01,<sha256>,6.800,5,2.500,5.500,simultaneous_movement,p01|p02,movement_permitted,moving,positive,s5p01-move-1
 ```
 
 `label` is an operator description; the scorer uses the separately named
@@ -106,13 +106,20 @@ expectations. `scenario4_expected` must be `moving`, `not_moving`, or
 scenario-4 positive. Rows sharing an `incident_id` must have identical bounds
 and scenario-5 expectation. `person_ref` is the annotator's stable identity,
 not a model track ID; join multiple people with `|` only when they share an
-incident row.
+incident row. `clip_sha256`, `clip_duration_s`, and `target_fps` must be
+identical on every row for one case. Here `clip_duration_s` means the timestamp
+of the final decoded frame, not the container's nominal duration.
 
 Times use the decoder timeline in seconds and intervals are half-open:
 `[start_s,end_s)`. A sample exactly on a shared boundary belongs to the later
-interval. The sole exception is the exact final decoded frame at
-`timestamp_s == clip_duration_s`; it belongs to the final interval whose
-`end_s == clip_duration_s`.
+interval. Expected observation times use the clip-anchored grid
+`timestamp_s = n / target_fps` and include every grid timestamp inside the
+interval. For example, the first 5 FPS sample inside `[2.500s,5.500s)` is
+`2.600s`. The final interval also requires the exact decoded frame at
+`timestamp_s == clip_duration_s`. A row may differ from its expected timestamp
+by at most `min(0.001s, 0.25 / target_fps)`; the 1ms ceiling matches the
+documented timestamp precision, while the quarter-period ceiling prevents one
+row from matching adjacent samples at high rates.
 
 Combine frame-level observations for every case in `observations.csv`:
 
@@ -127,7 +134,11 @@ when `visible=true`; use `visible=false` for the occluded interval rather
 than counting an invisible person as a missed detection. Have a second person
 review the labels before running acceptance. Use an empty `track_id` when
 `detected=false`. Record `boxed` from the shown tracking capture; scenario 4
-expects it only for moving people in a permitted zone.
+expects it only for moving people in a permitted zone. Write exactly one row
+for every expected timestamp and every `person_ref` in its interval. A visible
+miss is a row with `visible=true,detected=false`; never omit it. Missing,
+duplicate, off-grid, or unexpected-person rows invalidate scoring so recall and
+ID switches cannot improve through missing data.
 
 Capture every generated scenario-5 candidate before queue admission and append
 the eventual gate result to the same row. The scorer accepts either an exported
@@ -156,6 +167,11 @@ gate states; deduplicated and capacity-dropped rows use `not_gated` and an
 empty persisted event ID. An empty `rows` list is a valid observed
 zero-candidate run. Gate directories alone are not a complete candidate audit:
 they omit pre-gate queue drops and must not be used to claim zero duplicates.
+`case_id` associates a candidate with one labeled clip. Unknown cases and
+timestamps outside `[0,clip_duration_s]` are malformed; candidates in that clip
+but outside every positive scenario-5 interval are valid false positives.
+Overlapping scored scenario-5 incidents are ambiguous labels and invalidate
+the input.
 
 ## Motion Acceptance Metrics
 
@@ -166,7 +182,7 @@ Report every numerator and denominator, not only percentages.
 | Person-detection recall | Detected visible person-frames / all visible labeled person-frames. Report by case; the pilot team must approve a numeric floor before treating it as a release gate. |
 | ID switches | For each `person_ref`, count transitions between non-empty `observed_track_id` values across consecutive visible detections. Expected: zero in each controlled case, including across the temporary occlusion when the same ID is retained. |
 | Scenario-5 recall | Positive `simultaneous_movement` intervals containing a candidate timestamp / all positive intervals. Expected: every positive interval hit. |
-| Scenario-5 precision | Candidate timestamps matched to one positive interval / all scenario-5 candidates. Expected: every candidate matched; stationary crowd and jitter produce none. |
+| Scenario-5 precision | Candidate timestamps matched to one positive interval / all scenario-5 candidates. In-window negatives and candidates outside every positive interval are false positives. Expected: every candidate matched; stationary crowd and jitter produce none. |
 | Duplicate candidates | Additional matched candidates after the first in one labeled positive interval. Expected: zero. Report queue `deduped` separately because it proves suppression, not latch correctness. |
 | Duplicate shown alerts | Additional persisted events after the first in one labeled incident. Expected: zero. |
 | Detection delay | First matched candidate timestamp minus positive interval start. Report every value and median; no maximum has yet been approved. |
@@ -203,11 +219,29 @@ them read-only for the run:
 
 ```bash
 shasum -a 256 "$CHI_MOTION_DIR"/*.mp4 > "$CHI_MOTION_DIR/clips.sha256"
+export CASE_CLIP="$CHI_MOTION_DIR/S5-P01.mp4"
+"$PYTHON" - "$CASE_CLIP" <<'PY'
+import cv2
+import sys
+
+capture = cv2.VideoCapture(sys.argv[1])
+last_timestamp_s = None
+while True:
+    ok, _frame = capture.read()
+    if not ok:
+        break
+    last_timestamp_s = capture.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+capture.release()
+if last_timestamp_s is None:
+    raise SystemExit("clip has no decoded frames")
+print(f"final decoded frame timestamp: {last_timestamp_s:.6f}")
+PY
 chmod 444 "$CHI_MOTION_DIR/clips.sha256" \
   "$CHI_MOTION_DIR/labels.csv" "$CHI_MOTION_DIR/observations.csv"
 ```
 
-The absolute source paths are operator inputs.
+Run the timestamp block for every case and put its result in that case's
+`clip_duration_s` cells. The absolute source paths are operator inputs.
 
 ### 2. Draw The Permitted Zone
 
@@ -322,9 +356,15 @@ workloads concurrently. Start the pipeline command above in the background,
 then attach exactly one capture client while it runs:
 
 ```bash
-export PAIR_RUN="hidden-1"   # then shown-1, hidden-2, shown-2, hidden-3, shown-3
-export TRACKING_QUERY="0"    # use 1 for every shown-N run
+export PAIR_NUMBER="1"
+export PAIR_ID="pair-$PAIR_NUMBER"
+export TRACKING_MODE="hidden"  # alternate hidden, shown for pair 1, 2, and 3
+export TRACKING_QUERY="0"      # hidden=0; shown=1
+export PERF_RUN_ID="$PAIR_ID-$TRACKING_MODE"
+export PAIR_RUN="$TRACKING_MODE-$PAIR_NUMBER"
 export CHI_OUT="$REPO_ROOT/runs/chi_motion/perf-$PAIR_RUN"
+export CAPTURE_PATH="$CHI_MOTION_DIR/captures/$PAIR_RUN.mjpeg"
+export PERF_PATH="$CHI_MOTION_DIR/perf/$PAIR_RUN.json"
 mkdir -p "$CHI_OUT" "$CHI_MOTION_DIR/perf" "$CHI_MOTION_DIR/captures"
 
 MPLCONFIGDIR="$MPLCONFIGDIR" OLLAMA_API_KEY=ollama "$PYTHON" -m cvti.serving.pipeline \
@@ -351,20 +391,55 @@ $("$PYTHON" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["port"]
 EOF
 curl --silent --show-error --max-time 12 \
   "http://127.0.0.1:$FRAME_PORT/stream/$CASE_ID?tracking=$TRACKING_QUERY&token=$FRAME_TOKEN" \
-  --output "$CHI_MOTION_DIR/captures/$PAIR_RUN.mjpeg"
+  --output "$CAPTURE_PATH"
 CAPTURE_STATUS="$?"
 test "$CAPTURE_STATUS" -eq 0 -o "$CAPTURE_STATUS" -eq 28
 wait "$ENGINE_PID"
-cp "$CHI_OUT/perf_report.json" "$CHI_MOTION_DIR/perf/$PAIR_RUN.json"
+cp "$CHI_OUT/perf_report.json" "$PERF_PATH"
+
+export CLIP_SHA256="$(shasum -a 256 "$CASE_CLIP" | awk '{print $1}')"
+export CONFIG_SHA256="$(shasum -a 256 "$CHI_SITE" | awk '{print $1}')"
+export CAPTURE_SHA256="$(shasum -a 256 "$CAPTURE_PATH" | awk '{print $1}')"
+"$PYTHON" - "$PERF_PATH" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+report = json.loads(path.read_text())
+engine = report["stages"]["detect_batch"]["engine"]
+report["chi_motion_performance"] = {
+    "schema_version": 1,
+    "case_id": os.environ["CASE_ID"],
+    "clip_sha256": os.environ["CLIP_SHA256"],
+    "pair_id": os.environ["PAIR_ID"],
+    "run_id": os.environ["PERF_RUN_ID"],
+    "tracking_mode": os.environ["TRACKING_MODE"],
+    "tracking_query": int(os.environ["TRACKING_QUERY"]),
+    "config_sha256": os.environ["CONFIG_SHA256"],
+    "sample_duration_s": engine["span_s"],
+    "sample_count": engine["count"],
+    "capture_path": os.environ["CAPTURE_PATH"],
+    "capture_sha256": os.environ["CAPTURE_SHA256"],
+}
+path.write_text(json.dumps(report, indent=2) + "\n")
+PY
 ```
 
 The client timeout is expected if the finite clip has not ended. Keep the six
 MJPEG captures as proof that each report had an active raw (`tracking=0`) or
-shown (`tracking=1`) viewer. A single run, reused report, run without an active
-viewer, or run under competing load is not a reproducible measurement. Exercise
-global **Show tracking** and the per-camera **Hide** / **Use global** controls
-separately in the app; those controls select the same stream query and do not
-change detection.
+shown (`tracking=1`) viewer. Repeat the complete block for hidden and shown in
+each of `pair-1`, `pair-2`, and `pair-3`, changing both `TRACKING_MODE` and
+`TRACKING_QUERY` together. The scorer hashes the capture named by each report
+and requires six distinct, non-empty captures. It also requires unique run IDs,
+exactly matched pair IDs, one case and clip hash, one config hash, correct mode
+and query, schema version 1, sample count/duration equal to the detection stage,
+and equal sample count plus duration within 1 ms inside each pair. A single run,
+reused report or capture, run without an active viewer, or run under competing
+load is not a reproducible measurement. Exercise global **Show tracking** and
+the per-camera **Hide** / **Use global** controls separately in the app; those
+controls select the same stream query and do not change detection.
 
 ### 5. Export The Candidate Audit
 
@@ -430,12 +505,15 @@ configured 5 FPS, then run:
 shasum -a 256 "$CHI_MOTION_DIR/chi-motion-score.json"
 ```
 
-The tool fails with exit 2 for missing or malformed inputs. It writes input
-hashes, person recall counts, ID switches, scenario-4 observation checks,
-scenario-5 precision/recall, admission/gate counts, duplicate candidates and
-persisted alerts per incident, detection delay, and the median hidden/shown FPS
-impact. Pass the
-SQLite database as `--audit "$CHI_AUDIT_DB"` to skip the JSON export.
+The tool fails with exit 2 for missing, incomplete, ambiguous, or malformed
+inputs. Its retained schema-version-2 JSON hashes labels, observations, audit,
+all six reports, and all six capture files. It records expected/observed sample
+coverage, person recall counts, ID switches, scenario-4 observation checks,
+per-candidate positive/negative/out-of-window classification, scenario-5
+precision/recall, admission/gate counts, duplicate candidates and persisted
+alerts per incident, detection delay, all three matched performance pairs, and
+the median hidden/shown FPS impact. Pass the SQLite database as
+`--audit "$CHI_AUDIT_DB"` to skip the JSON export.
 
 ## Local Motion Replay - 2026-09-13
 

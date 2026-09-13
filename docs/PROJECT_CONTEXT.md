@@ -67,14 +67,25 @@ single shown run overlapped regression load and no overlay-specific timing
 series exists.
 
 `tools/score_chi_motion.py` is the acceptance scorer. It validates combined
-half-open interval labels, per-frame observations, complete generated-candidate
-and gate audit rows from SQLite or JSON, and exactly three hidden plus three
-shown performance reports. It writes a retained JSON result with input hashes,
-person recall, ID switches, scenario-5 precision/recall, duplicate candidates
-and persisted alerts, detection delay, and overlay FPS impact. The current
-runtime has no scenario-5 pre-queue audit hook, so candidate-derived acceptance
-metrics remain unmeasured until that input is captured; gate directories are
-insufficient.
+half-open interval labels with case clip hashes and target sampling rates. It
+requires every expected person/sample observation, including explicit misses
+on the clip-anchored target-FPS grid and the documented final-frame sample, so
+absent rows cannot improve recall or ID-switch results. Candidate `case_id`
+provides deterministic clip association: unknown/out-of-bounds candidates are
+malformed, while valid candidates outside a scored positive interval are false
+positives. Ambiguous scored interval overlaps remain errors.
+
+The scorer also validates complete generated-candidate and gate audit rows from
+SQLite or JSON and exactly three paired hidden/shown performance runs. Every run
+must declare schema, case/clip, pair/run ID, mode/query, config hash, and sample
+count/duration; each pair must have equal sampling. Six distinct non-empty
+capture files are hash-verified and included in the retained result's input
+hashes. The result contains observation coverage, person recall, ID switches,
+scenario-5 precision/recall, per-candidate classification, duplicate candidates
+and persisted alerts, detection delay, and paired overlay FPS impact. The
+current runtime has no scenario-5 pre-queue audit hook, so candidate-derived
+acceptance metrics remain unmeasured until that input is captured; gate
+directories are insufficient.
 
 The frontend's full Playwright suite completed with `19 passed, 2 failed`.
 Both existing failures are caused by the absent ignored
