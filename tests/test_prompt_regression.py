@@ -309,6 +309,44 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(reported["golden_cases"], 1)
         self.assertEqual(reported["corpus_cases"], 3)
 
+    def test_corpus_sized_replay_with_errors_cannot_become_a_measurement(self):
+        golden = mock.MagicMock()
+        golden.__len__.return_value = 3
+        golden.replay.return_value = [
+            {"case_id": "one"}, {"case_id": "two"}, {"case_id": "three"},
+        ]
+        errored = {"errors": 1, "scored": 2, "precision": 1.0, "recall": 0.5}
+        original_baseline = {
+            "fingerprint": fp.fingerprint(), "measurement_status": "unmeasured",
+            "precision": None, "recall": None, "tolerance": {},
+        }
+
+        for update_baseline in (False, True):
+            args = types.SimpleNamespace(
+                golden_dir="unused", fresh=False, gate_provider="mock",
+                gate_model="mock", sensitivity="balanced", verbose=False,
+                limit=0, update_baseline=update_baseline,
+            )
+            output = io.StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                baseline = Path(tmp) / "baseline.json"
+                baseline.write_text(json.dumps(original_baseline))
+                with mock.patch.object(prompt_regression, "BASELINE", baseline), \
+                        mock.patch.object(prompt_regression, "GoldenSet", return_value=golden), \
+                        mock.patch.object(prompt_regression, "score", return_value=errored), \
+                        mock.patch.object(prompt_regression, "_model_digest",
+                                          return_value="digest"), \
+                        redirect_stdout(output):
+                    result = prompt_regression.cmd_run(args)
+
+                self.assertEqual(json.loads(baseline.read_text()), original_baseline)
+
+            reported = json.loads(output.getvalue())
+            self.assertEqual(result, 2)
+            self.assertEqual(reported["measurement_status"], "partial")
+            self.assertEqual(reported["golden_cases"], 2)
+            self.assertEqual(reported["corpus_cases"], 3)
+
     def test_tolerance_is_tighter_on_recall_than_precision(self):
         # Losing precision costs an operator a review. Losing recall means a
         # threat is not reported, and there is no second chance at that.

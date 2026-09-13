@@ -135,17 +135,20 @@ def cmd_run(args) -> int:
 
     verdicts = golden.replay(gate, progress=progress if args.verbose else None,
                              resume_path=resume, limit=args.limit)
-    complete = len(verdicts) == len(golden)
-    if not complete:
+    corpus_covered = len(verdicts) == len(golden)
+    if not corpus_covered:
         log.info("partial run: %d/%d case(s) answered so far — rerun to continue "
                  "(progress kept in %s)", len(verdicts), len(golden), resume)
     result = score(verdicts)
+    error_count = int(result.get("errors", 0) or 0)
+    scored_cases = int(result.get("scored", max(0, len(verdicts) - error_count)))
+    complete = corpus_covered and error_count == 0
     result.update({"measurement_status": "measured" if complete else "partial",
                    "fingerprint": fingerprint(), "prompts": describe()["constants"],
                    "sensitivity": args.sensitivity, "gate_model": args.gate_model,
                    "gate_model_digest": _model_digest(args.gate_model),
                    "measured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                   "golden_cases": len(verdicts), "corpus_cases": len(golden)})
+                   "golden_cases": scored_cases, "corpus_cases": len(golden)})
 
     print(json.dumps(result, indent=2))
     if result["errors"]:
@@ -156,9 +159,9 @@ def cmd_run(args) -> int:
     # comparable with one measured over the complete frozen corpus.
     if not complete:
         if args.update_baseline:
-            log.error("refusing --update-baseline: only %d/%d cases measured — "
+            log.error("refusing --update-baseline: only %d/%d cases scored successfully — "
                       "rerun (it resumes) until the set is complete",
-                      len(verdicts), len(golden))
+                      scored_cases, len(golden))
         else:
             log.warning("partial replay is not compared with the full baseline")
         return 2
