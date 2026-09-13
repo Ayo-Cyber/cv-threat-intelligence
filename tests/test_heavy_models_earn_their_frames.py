@@ -158,6 +158,24 @@ class PersonGateTests(_GateHarness):
             "reach-then-waist samples should reach concealment candidate state",
         )
 
+    def test_pose_failure_does_not_bypass_concealment_expiration(self):
+        state = PerCameraState(
+            "cam1", CustomizationEngine(), person_filter=False,
+            pose_model=object(), concealment=True, heavy_stride=1,
+        )
+        with mock.patch.object(
+            PerCameraState,
+            "_compute_pose",
+            side_effect=[[_pose_person((200.0, 20.0))], RuntimeError("pose failed")],
+        ):
+            state.process(_person(), _frame(), timestamp=100.0)
+            self.assertIn(1, state._conceal._buffers)
+            state.process(_person(), _frame(), timestamp=101.51)
+
+        self.assertNotIn(1, state._conceal._buffers)
+        self.assertNotIn(1, state._conceal._over_threshold)
+        self.assertNotIn(1, state._conceal._last_seen)
+
     def test_cheap_detectors_ignore_the_gate(self):
         """Tamper works on an EMPTY scene — that's its whole point."""
         state = self._state(tamper=True)

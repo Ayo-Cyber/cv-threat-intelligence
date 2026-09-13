@@ -240,6 +240,7 @@ class ConcealmentDetector:
     ) -> list[ConcealmentAssessment]:
         """bag_bboxes: detected PERSONAL-bag boxes this frame (backpack/handbag/suitcase).
         Trolleys/baskets are not personal bags, so pass nothing for them — they stay safe."""
+        self.expire(timestamp)
         results: list[ConcealmentAssessment] = []
 
         for frame in pose_frames:

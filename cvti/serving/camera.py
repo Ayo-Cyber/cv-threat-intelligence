@@ -462,6 +462,8 @@ class PerCameraState:
                            if e.extra.get("zone")}
 
         try:
+            if self._conceal is not None:
+                self._conceal.expire(timestamp)
             # Person-gate + cadence for the HEAVY per-camera models (audit
             # 1 Sep, D3). Pose and weapon are full forward passes per camera
             # per frame, and they ran unconditionally — on empty corridors,
@@ -490,7 +492,6 @@ class PerCameraState:
                     assessments = self._conceal.update(
                         pose_people_to_concealment_frames(pose_people, timestamp), timestamp)
                     raw_events += concealment_to_events(assessments, timestamp)
-                self._conceal.expire(timestamp)
             if self.violence or self.weapons or self.theft:
                 merged = self._merged_detections(object_detections, image,
                                                  include_weapon=run_heavy)

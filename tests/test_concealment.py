@@ -142,6 +142,15 @@ def test_stale_track_is_expired_after_grace() -> None:
     assert 1 not in det._last_seen
 
 
+def test_empty_update_expires_stale_track_for_standalone_callers() -> None:
+    det = ConcealmentDetector(state_grace_seconds=1.0)
+    det.update([frame(0.0, (200.0, 110.0))], 0.0)
+    det.update([], 1.01, bag_bboxes=[])
+    assert 1 not in det._buffers
+    assert 1 not in det._over_threshold
+    assert 1 not in det._last_seen
+
+
 if __name__ == "__main__":
     test_concealment_motion_fires()
     test_normal_browsing_does_not_fire()
@@ -151,4 +160,5 @@ if __name__ == "__main__":
     test_trolley_destination_is_safe()
     test_unsampled_gap_does_not_erase_concealment_history()
     test_stale_track_is_expired_after_grace()
+    test_empty_update_expires_stale_track_for_standalone_callers()
     print("\nAll concealment tests passed.")
