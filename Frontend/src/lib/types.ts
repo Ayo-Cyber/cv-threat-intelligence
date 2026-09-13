@@ -94,6 +94,7 @@ export type StreamDescriptor =
       mjpeg_fallback?: string | null;
     }
   | { kind: "mjpeg"; url: string };
+export type CameraStreamArgs = [cameraId: string, tracking?: boolean];
 export type PushEvent = {
   type: "health" | "triage" | "alert.new" | "alert.update";
   data: unknown;

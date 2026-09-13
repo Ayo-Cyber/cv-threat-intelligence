@@ -487,9 +487,123 @@ class SmoothPublishTest(unittest.TestCase):
         import inspect
         from cvti.serving import pipeline as pl
         src = inspect.getsource(pl.run_site)
-        self.assertIn("FramePublisher(draw_boxes=False)", src)
+        self.assertIn("FramePublisher().start(output_dir)", src)
         loop = inspect.getsource(pl.MultiStreamPipeline._smooth_publish_loop)
         self.assertNotIn("latest_boxes", loop)
+
+    def test_smooth_publish_passes_the_latest_motion_overlays(self):
+        from cvti.serving.frame_publisher import FrameOverlay
+        from cvti.serving.pipeline import MultiStreamPipeline
+
+        class StopLoop(BaseException):
+            pass
+
+        class Publisher:
+            def __init__(self):
+                self.call = None
+
+            def has_viewers(self, _camera_id):
+                return True
+
+            def publish(self, camera_id, frame, overlays=()):
+                self.call = (camera_id, frame, overlays)
+                raise StopLoop
+
+        decoder = SimpleNamespace(
+            display_fps=0,
+            playout=None,
+            peek_latest=lambda: (SimpleNamespace(image="decoded-frame"), 1),
+        )
+        publisher = Publisher()
+        pipe = MultiStreamPipeline.__new__(MultiStreamPipeline)
+        pipe.publish_fps = 12
+        pipe.publisher = publisher
+        pipe._decoders = {"cam": decoder}
+        pipe.view_only = set()
+        pipe._camera_states = {
+            "cam": SimpleNamespace(
+                _motion_overlays=[{
+                    "track_id": 9,
+                    "bbox": (10, 20, 30, 40),
+                    "label": "#9 MOVING",
+                }]
+            )
+        }
+
+        with self.assertRaises(StopLoop):
+            pipe._smooth_publish_loop()
+
+        camera_id, frame, overlays = publisher.call
+        self.assertEqual((camera_id, frame), ("cam", "decoded-frame"))
+        self.assertEqual(overlays, [FrameOverlay(
+            track_id=9,
+            bbox=(10, 20, 30, 40),
+            label="#9 MOVING",
+            colour=(0, 200, 255),
+        )])
+
+    def test_motion_overlay_records_are_mapped_for_every_publish_path(self):
+        from cvti.serving.frame_publisher import FrameOverlay
+        from cvti.serving import pipeline
+
+        self.assertTrue(hasattr(pipeline, "_frame_overlays"))
+        state = SimpleNamespace(_motion_overlays=[{
+            "track_id": 3,
+            "bbox": (1, 2, 30, 40),
+            "label": "#3 MOVING",
+        }])
+        self.assertEqual(pipeline._frame_overlays(state), [FrameOverlay(
+            track_id=3,
+            bbox=(1, 2, 30, 40),
+            label="#3 MOVING",
+            colour=(0, 200, 255),
+        )])
+        self.assertEqual(pipeline._frame_overlays(None), [])
+
+    def test_paced_playout_passes_motion_overlays_and_source_size(self):
+        from cvti.serving.frame_publisher import FrameOverlay
+        from cvti.serving.pipeline import MultiStreamPipeline
+
+        class StopLoop(BaseException):
+            pass
+
+        class Publisher:
+            def has_viewers(self, _camera_id):
+                return True
+
+            def publish_jpeg(self, camera_id, jpeg, overlays=(), source_size=None):
+                self.call = (camera_id, jpeg, overlays, source_size)
+                raise StopLoop
+
+        decoded = np.zeros((480, 640, 3), np.uint8)
+        decoder = SimpleNamespace(
+            display_fps=0,
+            playout=SimpleNamespace(pop_due=lambda _now: b"paced-jpeg"),
+            peek_latest=lambda: (SimpleNamespace(image=decoded), 1),
+        )
+        publisher = Publisher()
+        pipe = MultiStreamPipeline.__new__(MultiStreamPipeline)
+        pipe.publish_fps = 12
+        pipe.publisher = publisher
+        pipe._decoders = {"cam": decoder}
+        pipe.view_only = set()
+        pipe._camera_states = {
+            "cam": SimpleNamespace(_motion_overlays=[{
+                "track_id": 5,
+                "bbox": (10, 20, 30, 40),
+                "label": "#5 MOVING",
+            }])
+        }
+
+        with self.assertRaises(StopLoop):
+            pipe._smooth_publish_loop()
+
+        self.assertEqual(publisher.call, (
+            "cam",
+            b"paced-jpeg",
+            [FrameOverlay(5, (10, 20, 30, 40), "#5 MOVING", (0, 200, 255))],
+            (480, 640),
+        ))
 
     def test_live_sources_play_from_the_playout_buffer(self):
         """Two prior designs both failed the operator: pacing through an HLS

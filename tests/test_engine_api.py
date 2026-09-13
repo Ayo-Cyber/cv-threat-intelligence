@@ -189,6 +189,37 @@ class RealApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 503)
         self.assertEqual(r.json()["error"]["code"], "engine_unavailable")
 
+    def test_tracking_stream_forces_authenticated_local_mjpeg(self):
+        tmp = Path(self._tmp.name)
+        (tmp / "frames.json").write_text(json.dumps({
+            "port": 5599,
+            "token": "publisher-secret",
+        }))
+        (tmp / "stream_gateway.json").write_text(json.dumps({
+            "api_port": 1984,
+            "streams": {"Dublin Street": "dublin-street"},
+        }))
+        headers = self._auth()
+
+        raw = self.client.get(
+            f"{PREFIX}/cameras/Dublin%20Street/stream", headers=headers
+        )
+        tracking = self.client.get(
+            f"{PREFIX}/cameras/Dublin%20Street/stream?tracking=true",
+            headers=headers,
+        )
+
+        self.assertEqual(raw.status_code, 200, raw.text)
+        self.assertEqual(raw.json()["kind"], "webrtc")
+        self.assertEqual(tracking.status_code, 200, tracking.text)
+        self.assertEqual(tracking.json(), {
+            "kind": "mjpeg",
+            "url": (
+                "http://127.0.0.1:5599/stream/Dublin%20Street"
+                "?tracking=1&token=publisher-secret"
+            ),
+        })
+
     def test_monitor_says_running_while_the_owned_engine_lives_through_a_long_preflight(self):
         # Heartbeat stale (scene mapping ran minutes without one), process
         # alive: the button must keep reading "Stop monitoring", not flip to

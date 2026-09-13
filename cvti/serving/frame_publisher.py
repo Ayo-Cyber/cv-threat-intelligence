@@ -5,11 +5,12 @@ independently: the engine to detect, the app's live wall to display. That double
 decode cost (the dominant per-camera cost) and capped the wall at ~4 cameras — and
 the app, having no detection state, could never draw a box on anyone.
 
-The engine already decodes every stream AND knows where every tracked person is,
-so it publishes instead: the latest frame per camera, optionally with the tracked
-boxes drawn on, over a localhost HTTP port. The app just fetches images.
+The engine already decodes every stream and knows where tracked movement is, so
+it publishes the latest raw frame plus an on-demand tracking variant over a
+localhost HTTP port. The app just fetches images.
 
-    GET /frame/<camera_id>   -> image/jpeg  (latest, boxes drawn)
+    GET /frame/<camera_id>   -> image/jpeg  (latest raw frame)
+    GET /stream/<camera_id>?tracking=1 -> MJPEG (movement overlays on demand)
     GET /cameras             -> {"cameras": [...], "tracks": {...}}
 
 The port is written to <output_dir>/frames.json so the app can find it without
@@ -25,10 +26,11 @@ import select
 import socket
 import threading
 import time
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
-from urllib.parse import unquote
+from typing import Any, Sequence
+from urllib.parse import parse_qs, unquote, urlparse
 from cvti.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -36,6 +38,14 @@ log = get_logger(__name__)
 # Boxes are drawn in the engine (it owns the tracks), so the UI stays a dumb viewer.
 _BOX_COLOUR = (0, 200, 255)      # BGR amber for a normal tracked person
 _ALERT_COLOUR = (60, 60, 220)    # red once that track is part of an active alert
+
+
+@dataclass(frozen=True)
+class FrameOverlay:
+    track_id: int
+    bbox: tuple[int, int, int, int]
+    label: str
+    colour: tuple[int, int, int]
 
 
 class FramePublisher:
@@ -53,10 +63,12 @@ class FramePublisher:
         self.quality = quality
         self.draw_boxes = draw_boxes
         self.max_width = max_width
-        self._frames: dict[str, bytes] = {}
+        self._raw_frames: dict[str, bytes] = {}
+        self._tracking_frames: dict[str, bytes] = {}
         self._tracks: dict[str, list] = {}
         self._alerting: dict[str, set] = {}
-        self._seq: dict[str, int] = {}      # per-camera publish counter (MJPEG)
+        self._raw_seq: dict[str, int] = {}
+        self._tracking_seq: dict[str, int] = {}
         # Who is being WATCHED right now. Every tile on the Watch grid holds
         # one long-lived /stream connection, so an open stream IS a viewer —
         # no config, no heartbeat file, works for any client including the
@@ -64,6 +76,7 @@ class FramePublisher:
         # eyes actually are (3 Sep). `viewer_linger` keeps the boost through a
         # tab switch or MJPEG reconnect instead of flapping the decoder.
         self._viewers: dict[str, int] = {}
+        self._tracking_viewers: dict[str, int] = {}
         self._viewer_last: dict[str, float] = {}
         self.viewer_linger = 5.0
         self._lock = threading.Lock()
@@ -74,8 +87,9 @@ class FramePublisher:
         self.published = 0
 
     # --- engine side ------------------------------------------------------
-    def publish(self, camera_id: str, frame: Any, boxes: list | None = None) -> None:
-        """Store the latest frame for a camera. `boxes`: [(track_id, x1,y1,x2,y2), ...]"""
+    def publish(self, camera_id: str, frame: Any,
+                overlays: Sequence[FrameOverlay | tuple] = ()) -> None:
+        """Store raw glass and, on demand, an annotated variant of the same frame."""
         import cv2
         img = frame
         h, w = img.shape[:2]
@@ -84,45 +98,121 @@ class FramePublisher:
             img = cv2.resize(img, (self.max_width, max(1, int(h * scale))))
         else:
             scale = 1.0
-        if self.draw_boxes and boxes:
-            img = img.copy()
-            alerting = self._alerting.get(camera_id, set())
-            for tid, x1, y1, x2, y2 in boxes:
-                col = _ALERT_COLOUR if tid in alerting else _BOX_COLOUR
-                p1 = (int(x1 * scale), int(y1 * scale))
-                p2 = (int(x2 * scale), int(y2 * scale))
-                cv2.rectangle(img, p1, p2, col, 2)
-                cv2.putText(img, f"#{tid}", (p1[0] + 3, max(12, p1[1] - 5)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, col, 1, cv2.LINE_AA)
-        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+        ok, raw_buf = cv2.imencode(
+            ".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, self.quality]
+        )
         if not ok:
             return
+
         with self._lock:
-            self._frames[camera_id] = buf.tobytes()
-            self._seq[camera_id] = self._seq.get(camera_id, 0) + 1
-            self._tracks[camera_id] = [int(b[0]) for b in (boxes or [])]
+            tracking_watched = self._tracking_viewers.get(camera_id, 0) > 0
+            alerting = set(self._alerting.get(camera_id, set()))
+
+        tracking_jpeg = None
+        if tracking_watched:
+            tracking_jpeg = (
+                self._encode_tracking(img, overlays, scale, alerting)
+                if self.draw_boxes and overlays else raw_buf.tobytes()
+            )
+        with self._lock:
+            self._raw_frames[camera_id] = raw_buf.tobytes()
+            self._raw_seq[camera_id] = self._raw_seq.get(camera_id, 0) + 1
+            if tracking_jpeg is not None:
+                self._tracking_frames[camera_id] = tracking_jpeg
+                self._tracking_seq[camera_id] = self._tracking_seq.get(camera_id, 0) + 1
+            self._tracks[camera_id] = [
+                int(o.track_id if isinstance(o, FrameOverlay) else o[0])
+                for o in overlays
+            ]
             self.published += 1
 
-    def publish_jpeg(self, camera_id: str, jpeg: bytes) -> None:
-        """Store a frame the playout buffer already sized and encoded."""
+    def publish_jpeg(self, camera_id: str, jpeg: bytes,
+                     overlays: Sequence[FrameOverlay | tuple] = (),
+                     source_size: tuple[int, int] | None = None) -> None:
+        """Store paced raw bytes; decode a tracking copy only while requested."""
         with self._lock:
-            self._frames[camera_id] = jpeg
-            self._seq[camera_id] = self._seq.get(camera_id, 0) + 1
+            self._raw_frames[camera_id] = jpeg
+            self._raw_seq[camera_id] = self._raw_seq.get(camera_id, 0) + 1
+            tracking_watched = self._tracking_viewers.get(camera_id, 0) > 0
+            alerting = set(self._alerting.get(camera_id, set()))
+            self._tracks[camera_id] = [
+                int(o.track_id if isinstance(o, FrameOverlay) else o[0])
+                for o in overlays
+            ]
             self.published += 1
+        if not tracking_watched:
+            return
+
+        if not self.draw_boxes or not overlays:
+            with self._lock:
+                self._tracking_frames[camera_id] = jpeg
+                self._tracking_seq[camera_id] = \
+                    self._tracking_seq.get(camera_id, 0) + 1
+            return
+
+        import cv2
+        import numpy as np
+        image = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return
+        scale = (image.shape[1] / float(source_size[1])
+                 if source_size and source_size[1] else 1.0)
+        tracking_jpeg = self._encode_tracking(image, overlays, scale, alerting)
+        if tracking_jpeg is not None:
+            with self._lock:
+                self._tracking_frames[camera_id] = tracking_jpeg
+                self._tracking_seq[camera_id] = \
+                    self._tracking_seq.get(camera_id, 0) + 1
+
+    def _encode_tracking(self, image: Any,
+                         overlays: Sequence[FrameOverlay | tuple], scale: float,
+                         alerting: set) -> bytes | None:
+        import cv2
+        annotated = image.copy()
+        for overlay in overlays:
+            if isinstance(overlay, FrameOverlay):
+                tid = overlay.track_id
+                x1, y1, x2, y2 = overlay.bbox
+                label = overlay.label
+                colour = overlay.colour
+            else:
+                tid, x1, y1, x2, y2 = overlay
+                label = f"#{tid}"
+                colour = _BOX_COLOUR
+            if tid in alerting:
+                colour = _ALERT_COLOUR
+            p1 = (int(x1 * scale), int(y1 * scale))
+            p2 = (int(x2 * scale), int(y2 * scale))
+            cv2.rectangle(annotated, p1, p2, colour, 2)
+            cv2.putText(
+                annotated, label, (p1[0] + 3, max(12, p1[1] - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, colour, 1, cv2.LINE_AA,
+            )
+        ok, buf = cv2.imencode(
+            ".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, self.quality]
+        )
+        return buf.tobytes() if ok else None
 
     def mark_alerting(self, camera_id: str, track_ids) -> None:
         """Tracks to draw in alert colour (cleared by passing an empty set)."""
         with self._lock:
             self._alerting[camera_id] = set(track_ids or ())
 
-    def _viewer_started(self, camera_id: str) -> None:
+    def _viewer_started(self, camera_id: str, tracking: bool = False) -> None:
         with self._lock:
             self._viewers[camera_id] = self._viewers.get(camera_id, 0) + 1
+            if tracking:
+                self._tracking_viewers[camera_id] = \
+                    self._tracking_viewers.get(camera_id, 0) + 1
             self._viewer_last[camera_id] = time.time()
 
-    def _viewer_stopped(self, camera_id: str) -> None:
+    def _viewer_stopped(self, camera_id: str, tracking: bool = False) -> None:
         with self._lock:
             self._viewers[camera_id] = max(0, self._viewers.get(camera_id, 0) - 1)
+            if tracking:
+                self._tracking_viewers[camera_id] = max(
+                    0, self._tracking_viewers.get(camera_id, 0) - 1
+                )
             self._viewer_last[camera_id] = time.time()
 
     def has_viewers(self, camera_id: str) -> bool:
@@ -134,18 +224,21 @@ class FramePublisher:
             last = self._viewer_last.get(camera_id, 0.0)
         return bool(last and (time.time() - last) < self.viewer_linger)
 
-    def frame(self, camera_id: str) -> bytes | None:
+    def frame(self, camera_id: str, tracking: bool = False) -> bytes | None:
         with self._lock:
-            return self._frames.get(camera_id)
+            frames = self._tracking_frames if tracking else self._raw_frames
+            return frames.get(camera_id)
 
-    def frame_seq(self, camera_id: str) -> tuple:
+    def frame_seq(self, camera_id: str, tracking: bool = False) -> tuple:
         """(jpeg, seq) — seq bumps per publish so a stream sends only new frames."""
         with self._lock:
-            return self._frames.get(camera_id), self._seq.get(camera_id, 0)
+            frames = self._tracking_frames if tracking else self._raw_frames
+            sequences = self._tracking_seq if tracking else self._raw_seq
+            return frames.get(camera_id), sequences.get(camera_id, 0)
 
     def snapshot(self) -> dict:
         with self._lock:
-            return {"cameras": sorted(self._frames), "tracks": dict(self._tracks),
+            return {"cameras": sorted(self._raw_frames), "tracks": dict(self._tracks),
                     "published": self.published}
 
     # --- server -----------------------------------------------------------
@@ -205,6 +298,8 @@ class FramePublisher:
                     # sluggish" was. The browser decodes this natively with no
                     # JavaScript in the loop at all. (26 Aug.)
                     cam = unquote(path[len("/stream/"):])
+                    tracking = (parse_qs(urlparse(self.path).query).get("tracking")
+                                or [""])[0].lower() in ("1", "true")
                     self.send_response(200)
                     self.send_header("Content-Type",
                                      "multipart/x-mixed-replace; boundary=argusframe")
@@ -214,10 +309,10 @@ class FramePublisher:
                     self.end_headers()
                     last = -1
                     last_probe = time.monotonic()
-                    pub._viewer_started(cam)   # an open stream IS a viewer
+                    pub._viewer_started(cam, tracking)   # an open stream IS a viewer
                     try:
                         while True:
-                            data, seq = pub.frame_seq(cam)
+                            data, seq = pub.frame_seq(cam, tracking)
                             if data is not None and seq != last:
                                 last = seq
                                 self.wfile.write(b"--argusframe\r\n")
@@ -245,7 +340,7 @@ class FramePublisher:
                     except (BrokenPipeError, ConnectionResetError, OSError):
                         pass          # the viewer navigated away; drop the stream
                     finally:
-                        pub._viewer_stopped(cam)
+                        pub._viewer_stopped(cam, tracking)
                     return
                 if path.startswith("/frame/"):
                     cam = unquote(path[len("/frame/"):])
