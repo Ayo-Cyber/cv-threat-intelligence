@@ -20,6 +20,7 @@ import json
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -698,10 +699,23 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
             movement_enter = float(cam.get("movement_enter_speed_ratio", 0.05))
             movement_exit = float(cam.get("movement_exit_speed_ratio", 0.02))
             movement_min_track = float(cam.get("movement_min_track_seconds", 0.4))
-            movement_min_people = int(cam.get("movement_min_people", 2))
             movement_persistence = float(cam.get("movement_persistence_seconds", 0.5))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"camera {cam_id}: invalid movement configuration: {exc}") from exc
+        movement_min_people_raw = cam.get("movement_min_people", 2)
+        if isinstance(movement_min_people_raw, bool):
+            raise ValueError(f"camera {cam_id}: movement_min_people must be an integer")
+        try:
+            movement_min_people_number = float(movement_min_people_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"camera {cam_id}: invalid movement configuration: {exc}") from exc
+        if not isfinite(movement_min_people_number) or not movement_min_people_number.is_integer():
+            raise ValueError(f"camera {cam_id}: movement_min_people must be an integer")
+        movement_min_people = int(movement_min_people_number)
+        if not all(isfinite(value) for value in (
+            movement_enter, movement_exit, movement_min_track, movement_persistence,
+        )):
+            raise ValueError(f"camera {cam_id}: movement thresholds must be finite")
         if movement_enter <= 0:
             raise ValueError(f"camera {cam_id}: movement_enter_speed_ratio must be positive")
         if movement_exit <= 0 or movement_exit >= movement_enter:
@@ -715,10 +729,34 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
             raise ValueError(f"camera {cam_id}: movement_min_people must be at least 2")
         if movement_persistence <= 0:
             raise ValueError(f"camera {cam_id}: movement_persistence_seconds must be positive")
+        permitted_raw = cam.get("permitted_movement_zones")
+        permitted_zones: tuple[str, ...] | None = None
+        if permitted_raw is not None:
+            if not isinstance(permitted_raw, (list, tuple)):
+                raise ValueError(
+                    f"camera {cam_id}: permitted_movement_zones must be a list or tuple"
+                )
+            if any(not isinstance(zone, str) or not zone.strip() for zone in permitted_raw):
+                raise ValueError(
+                    f"camera {cam_id}: permitted_movement_zones must contain non-empty strings"
+                )
+            if not cam.get("zones"):
+                raise ValueError(
+                    f"camera {cam_id}: permitted_movement_zones requires a zone config"
+                )
+            permitted_zones = tuple(permitted_raw)
         engine = CustomizationEngine(cam["config"], baseline_path=baseline_config)
         zone_monitor = None
         if cam.get("zones"):
-            zone_monitor = RetailZoneMonitor(load_zone_config(cam["zones"]))
+            zone_specs = load_zone_config(cam["zones"])
+            if permitted_zones is not None:
+                configured_names = {spec.name for spec in zone_specs}
+                unknown_names = sorted(set(permitted_zones) - configured_names)
+                if unknown_names:
+                    raise ValueError(
+                        f"camera {cam_id}: unknown permitted movement zones: {unknown_names}"
+                    )
+            zone_monitor = RetailZoneMonitor(zone_specs)
         scene = (scene_contexts or {}).get(cam_id)
         if scene is None and cam.get("scene_description"):
             scene = {"environment_type": cam.get("environment_type", "unknown"),
@@ -767,10 +805,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 movement_min_track_seconds=movement_min_track,
                 movement_min_people=movement_min_people,
                 movement_persistence_seconds=movement_persistence,
-                permitted_movement_zones=(
-                    tuple(str(zone) for zone in cam["permitted_movement_zones"])
-                    if cam.get("permitted_movement_zones") is not None else None
-                ),
+                permitted_movement_zones=permitted_zones,
                 video_action=bool(cam.get("video_action")),
                 zone_min_person_area_ratio=cam.get("zone_min_person_area_ratio"),
             ),

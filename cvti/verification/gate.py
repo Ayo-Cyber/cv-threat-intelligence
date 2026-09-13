@@ -175,7 +175,8 @@ _DETECTOR_QUESTIONS: dict[str, str] = {
     "crowd_formation": "Does this frame show an unsafe crowd or tight group formation blocking movement or exits? A few people spread out normally is NOT unsafe.",
     "multiple_people_moving": (
         "Do these frames show multiple distinct people visibly moving at the same time? "
-        "Verify simultaneous movement only; crowd density, proximity, and panic are not required."
+        "Verify simultaneous movement only; proximity is not required. "
+        "Crowd density and panic are not required."
     ),
 }
 
@@ -361,10 +362,11 @@ class VerificationGate:
     # Frames per verdict on a LOCAL model (11 Sep pilot): the vision tower
     # pays per image, so a CPU box normally gets two. Concealment is temporal:
     # its rule contract is three chronological full frames plus the final
-    # subject crop, so its derived default preserves all four. Site override:
-    # "gate_max_frames".
+    # subject crop, so its derived default preserves all four. Simultaneous
+    # movement keeps its three-frame chronology. Site override: "gate_max_frames".
     LOCAL_MAX_FRAMES = 2
     LOCAL_CONCEALMENT_MAX_FRAMES = 4
+    LOCAL_MOVEMENT_MAX_FRAMES = 3
     # Conventional API-key env var per provider.
     DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY",
                        "ollama": "OLLAMA_API_KEY"}
@@ -462,8 +464,12 @@ class VerificationGate:
         cap = self.max_frames
         if cap is None:
             if self.provider in ("ollama", "local"):
-                cap = (self.LOCAL_CONCEALMENT_MAX_FRAMES
-                       if alert.detector == "concealment" else self.LOCAL_MAX_FRAMES)
+                if alert.detector == "concealment":
+                    cap = self.LOCAL_CONCEALMENT_MAX_FRAMES
+                elif alert.detector == "multiple_people_moving":
+                    cap = self.LOCAL_MOVEMENT_MAX_FRAMES
+                else:
+                    cap = self.LOCAL_MAX_FRAMES
             else:
                 cap = 0
         if cap and len(frames) > cap:

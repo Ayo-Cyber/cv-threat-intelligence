@@ -318,26 +318,38 @@ class ThePromptCarriesTheEvidence(unittest.TestCase):
 
     def test_simultaneous_movement_uses_three_frames_and_a_specific_question(self):
         self.assertEqual(frames_for_rule("chi_multiple_people_moving"), 3)
-        seen = {}
-        gate = VerificationGate(provider="ollama", cot=False)
-
-        def fake_provider(prompt, frames_bytes, alert):
-            seen["prompt"] = prompt.lower()
-            return ('{"confirmed": true, "confidence": 0.9, '
-                    '"reason": "movement", "alert_priority": "high"}')
-
         alert = CandidateAlert(
             rule_name="chi_multiple_people_moving", priority="high",
             detector="multiple_people_moving", title="MULTIPLE PEOPLE MOVING",
             person_id=None, object_label=None, timestamp=1.0,
         )
-        with mock.patch.object(gate, "_call_provider", side_effect=fake_provider):
-            gate.verify([_frame(), _frame(), _frame()], alert, {})
+        for provider in ("ollama", "local"):
+            with self.subTest(provider=provider):
+                seen = {}
+                gate = VerificationGate(provider=provider, cot=False)
 
-        self.assertIn("multiple distinct people", seen["prompt"])
-        self.assertIn("moving at the same time", seen["prompt"])
-        self.assertIn("crowd density", seen["prompt"])
-        self.assertIn("panic", seen["prompt"])
+                def fake_provider(prompt, frames_bytes, candidate):
+                    seen["prompt"] = prompt.lower()
+                    seen["frame_values"] = [
+                        int(cv2.imdecode(
+                            np.frombuffer(value, dtype=np.uint8), cv2.IMREAD_COLOR
+                        ).mean())
+                        for value in frames_bytes
+                    ]
+                    return ('{"confirmed": true, "confidence": 0.9, '
+                            '"reason": "movement", "alert_priority": "high"}')
+
+                with mock.patch.object(gate, "_call_provider", side_effect=fake_provider):
+                    gate.verify([
+                        np.full((40, 40, 3), 20, dtype=np.uint8),
+                        np.full((40, 40, 3), 100, dtype=np.uint8),
+                        np.full((40, 40, 3), 220, dtype=np.uint8),
+                    ], alert, {})
+
+                self.assertEqual(seen["frame_values"], [20, 100, 220])
+                self.assertIn("multiple distinct people", seen["prompt"])
+                self.assertIn("moving at the same time", seen["prompt"])
+                self.assertIn("crowd density and panic are not required", seen["prompt"])
 
 
 if __name__ == "__main__":

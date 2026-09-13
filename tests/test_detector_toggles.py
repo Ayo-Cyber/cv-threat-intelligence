@@ -97,6 +97,17 @@ class TogglePersistenceTests(unittest.TestCase):
 
 
 class MovementConfigurationTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = Path(tempfile.mkdtemp())
+
+    def _zones(self, *names):
+        path = self.directory / "zones.json"
+        path.write_text(json.dumps({"zones": [
+            {"name": name, "polygon": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]]}
+            for name in names
+        ]}))
+        return str(path)
+
     def _site(self, **camera):
         return {"cameras": [{
             "id": "chi_gate",
@@ -117,6 +128,7 @@ class MovementConfigurationTests(unittest.TestCase):
             movement_min_people=3,
             movement_persistence_seconds=0.8,
             permitted_movement_zones=["gate", "yard"],
+            zones=self._zones("gate", "yard"),
         ))["chi_gate"]["state"]
 
         self.assertTrue(state.normal_movement)
@@ -133,17 +145,50 @@ class MovementConfigurationTests(unittest.TestCase):
 
         invalid = (
             {"movement_enter_speed_ratio": "fast"},
+            {"movement_enter_speed_ratio": float("nan")},
+            {"movement_exit_speed_ratio": float("inf")},
+            {"movement_min_track_seconds": float("-inf")},
+            {"movement_persistence_seconds": float("nan")},
             {"movement_enter_speed_ratio": 0.0},
             {"movement_exit_speed_ratio": 0.0},
             {"movement_enter_speed_ratio": 0.03, "movement_exit_speed_ratio": 0.03},
             {"movement_min_track_seconds": 0.0},
             {"movement_min_people": 1},
+            {"movement_min_people": True},
+            {"movement_min_people": 2.9},
             {"movement_persistence_seconds": 0.0},
         )
         for values in invalid:
             with self.subTest(values=values):
                 with self.assertRaisesRegex(ValueError, "chi_gate"):
                     build_camera_states(self._site(multiple_people_moving=True, **values))
+
+    def test_permitted_movement_zones_require_a_string_sequence(self):
+        from cvti.serving.camera import build_camera_states
+
+        invalid = ("gate", 7, ["gate", ""], ["gate", 7])
+        for permitted in invalid:
+            with self.subTest(permitted=permitted):
+                with self.assertRaisesRegex(ValueError, "chi_gate"):
+                    build_camera_states(self._site(
+                        zones=self._zones("gate"),
+                        permitted_movement_zones=permitted,
+                    ))
+
+    def test_permitted_movement_zones_require_a_zone_config(self):
+        from cvti.serving.camera import build_camera_states
+
+        with self.assertRaisesRegex(ValueError, "chi_gate"):
+            build_camera_states(self._site(permitted_movement_zones=["gate"]))
+
+    def test_permitted_movement_zones_must_name_configured_zones(self):
+        from cvti.serving.camera import build_camera_states
+
+        with self.assertRaisesRegex(ValueError, "chi_gate"):
+            build_camera_states(self._site(
+                zones=self._zones("gate"),
+                permitted_movement_zones=["yard"],
+            ))
 
 
 if __name__ == "__main__":
