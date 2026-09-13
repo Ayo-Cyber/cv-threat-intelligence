@@ -8,8 +8,8 @@ architecture repair through `0da99f9`. The production serving path now:
 - keeps per-person concealment history across unsampled `heavy_stride` frames
   and expires abandoned tracks after a grace period;
 - reuses the shared COCO detections for backpacks, handbags, and suitcases,
-  assigns each bag to at most one nearby pose track, and leaves ambiguous ties
-  unassigned;
+  assigns each physical bag to at most one nearby pose track, and retains that
+  owner across near-equal frame jitter for the concealment scoring window;
 - scores a sampled pose window for destination proximity, reach/retract, and
   dwell, producing a candidate with a `waist` or `bag` destination rather than
   declaring theft;
@@ -20,9 +20,10 @@ architecture repair through `0da99f9`. The production serving path now:
 - sends TrueSight three chronological concealment frames plus a subject crop,
   with prompt instructions to reject browsing, phone handling, clothing
   adjustment, openly carried goods, and trolley/basket placement; and
-- appends every queued concealment outcome, including rejection and gate
-  failure, to `concealment_audit.jsonl` with detector and gate timing; only a
-  confirmed high-priority result becomes a persisted/notified user alert; and
+- stores every generated concealment candidate in the retained
+  `concealment_audit` SQLite table before queue admission, including admitted,
+  deduplicated, and capacity-dropped outcomes, then attaches any gate verdict;
+  only a confirmed high-priority result becomes a persisted/notified user alert; and
 - records per-camera `pose_infer` latency and invocation throughput in
   `perf_report.json`.
 

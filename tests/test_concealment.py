@@ -249,6 +249,63 @@ def test_frame_level_bag_association_leaves_an_equidistant_tie_unassigned() -> N
     assert bags_by_track == {1: [], 2: []}
 
 
+def test_physical_bag_owner_does_not_jitter_between_near_equal_tracks() -> None:
+    """A frame-local nearest-track flip must not seed both temporal buffers."""
+    bag = (135.0, 170.0, 155.0, 235.0)
+    detector = ConcealmentDetector(window_seconds=1.2)
+
+    for index in range(10):
+        # Alternate a tiny horizontal shift that makes each shopper nearest on
+        # every other sampled frame. Both remain plausible owners throughout.
+        left_offset, right_offset = ((0.0, 91.0) if index % 2 == 0 else (-1.0, 90.0))
+        poses = [
+            translated_frame(1, left_offset, (140.0, 200.0)),
+            translated_frame(2, right_offset, (150.0, 200.0)),
+        ]
+        timestamp = index * 0.1
+        poses = [
+            PoseFrame(
+                track_id=pose.track_id,
+                timestamp=timestamp,
+                keypoints=pose.keypoints,
+                bbox=pose.bbox,
+            )
+            for pose in poses
+        ]
+        detector.update_with_bag_detections(poses, timestamp, [bag])
+
+    tracks_with_bag_evidence = {
+        track_id
+        for track_id, window in detector._buffers.items()
+        if any(feature.hand_to_bag is not None for feature in window)
+    }
+    assert tracks_with_bag_evidence == {1}
+
+
+def test_physical_bag_can_transfer_after_prior_evidence_ages_out() -> None:
+    bag = (135.0, 170.0, 155.0, 235.0)
+    detector = ConcealmentDetector(window_seconds=1.2, state_grace_seconds=1.5)
+    first = [
+        translated_frame(1, 0.0, (140.0, 200.0)),
+        translated_frame(2, 91.0, (150.0, 200.0)),
+    ]
+    detector.update_with_bag_detections(first, 0.0, [bag])
+
+    second = [
+        translated_frame(1, -1.0, (140.0, 200.0)),
+        translated_frame(2, 90.0, (150.0, 200.0)),
+    ]
+    second = [
+        PoseFrame(poses.track_id, 2.0, poses.keypoints, poses.bbox)
+        for poses in second
+    ]
+    assessments = detector.update_with_bag_detections(second, 2.0, [bag])
+
+    by_track = {assessment.track_id: assessment for assessment in assessments}
+    assert by_track[1].components["f_bag"] == 0.0
+    assert by_track[2].components["f_bag"] > 0.0
+
+
 def test_assessment_reports_the_bag_that_drove_the_temporal_score() -> None:
     scoring_bag = (180.0, 170.0, 240.0, 235.0)
     farther_bag = (250.0, 170.0, 300.0, 235.0)

@@ -113,6 +113,14 @@ class ConcealmentAssessment:
     associated_bag: tuple[float, float, float, float] | None = None
 
 
+@dataclass
+class _BagOwnership:
+    bbox: tuple[float, float, float, float]
+    owner_track_id: int | None
+    last_seen: float
+    last_owned: float
+
+
 def _dist(a: Point | None, b: Point | None) -> float | None:
     if a is None or b is None:
         return None
@@ -147,6 +155,34 @@ def _bbox_distance(
     dx = max(ax1 - bx2, bx1 - ax2, 0.0)
     dy = max(ay1 - by2, by1 - ay2, 0.0)
     return hypot(dx, dy)
+
+
+def _bbox_iou(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    x1 = max(a[0], b[0])
+    y1 = max(a[1], b[1])
+    x2 = min(a[2], b[2])
+    y2 = min(a[3], b[3])
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    area_a = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+    area_b = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+    union = area_a + area_b - intersection
+    return intersection / union if union > 0.0 else 0.0
+
+
+def _bbox_center_distance_ratio(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    ax = (a[0] + a[2]) / 2.0
+    ay = (a[1] + a[3]) / 2.0
+    bx = (b[0] + b[2]) / 2.0
+    by = (b[1] + b[3]) / 2.0
+    scale = max(hypot(a[2] - a[0], a[3] - a[1]),
+                hypot(b[2] - b[0], b[3] - b[1]), 1.0)
+    return hypot(ax - bx, ay - by) / scale
 
 
 def _body_scale(kp: dict[str, Point | None], bbox: tuple[float, float, float, float] | None) -> float | None:
@@ -321,6 +357,90 @@ class ConcealmentDetector:
         self._buffers: dict[int, deque[_FrameFeatures]] = {}
         self._over_threshold: dict[int, int] = {}
         self._last_seen: dict[int, float] = {}
+        self._bag_owners: dict[int, _BagOwnership] = {}
+        self._next_bag_id = 1
+
+    def _match_bag_owner(
+        self,
+        bag: tuple[float, float, float, float],
+        unmatched: set[int],
+    ) -> int | None:
+        matches = []
+        for bag_id in unmatched:
+            previous = self._bag_owners[bag_id].bbox
+            overlap = _bbox_iou(bag, previous)
+            distance = _bbox_center_distance_ratio(bag, previous)
+            if overlap >= 0.2 or distance <= 0.75:
+                matches.append((overlap, -distance, bag_id))
+        if not matches:
+            return None
+        return max(matches)[2]
+
+    def _expire_bag_owners(self, timestamp: float) -> None:
+        stale_after = max(self.window_seconds, self.state_grace_seconds)
+        for bag_id, state in list(self._bag_owners.items()):
+            if timestamp - state.last_seen > stale_after:
+                self._bag_owners.pop(bag_id, None)
+
+    def associate_bags_to_tracks(
+        self,
+        pose_frames: list[PoseFrame],
+        bag_bboxes: list[tuple[float, float, float, float]],
+        timestamp: float,
+    ) -> dict[int, list[tuple[float, float, float, float]]]:
+        """Assign physical bags exclusively, holding ownership for one score window."""
+        by_track = {frame.track_id: [] for frame in pose_frames}
+        self._expire_bag_owners(timestamp)
+        unmatched = set(self._bag_owners)
+        for bag in bag_bboxes:
+            bag_id = self._match_bag_owner(bag, unmatched)
+            if bag_id is None:
+                bag_id = self._next_bag_id
+                self._next_bag_id += 1
+                state = _BagOwnership(bag, None, timestamp, float("-inf"))
+                self._bag_owners[bag_id] = state
+            else:
+                unmatched.discard(bag_id)
+                state = self._bag_owners[bag_id]
+
+            frame_assignment = associate_bags_to_tracks(pose_frames, [bag])
+            winner = next((
+                track_id for track_id, boxes in frame_assignment.items() if boxes
+            ), None)
+            plausible = {
+                frame.track_id for frame in pose_frames if bags_for_pose(frame, [bag])
+            }
+            if state.owner_track_id in plausible:
+                owner = state.owner_track_id
+            elif (state.owner_track_id is not None
+                  and timestamp - state.last_owned <= self.window_seconds):
+                owner = None
+            else:
+                owner = winner
+
+            state.bbox = bag
+            state.last_seen = timestamp
+            if owner is not None:
+                state.owner_track_id = owner
+                state.last_owned = timestamp
+                by_track[owner].append(bag)
+
+        return by_track
+
+    def update_with_bag_detections(
+        self,
+        pose_frames: list[PoseFrame],
+        timestamp: float,
+        bag_bboxes: list[tuple[float, float, float, float]] | None,
+    ) -> list[ConcealmentAssessment]:
+        bags = bag_bboxes or []
+        return self.update(
+            pose_frames,
+            timestamp,
+            bag_bboxes_by_track=self.associate_bags_to_tracks(
+                pose_frames, bags, timestamp
+            ),
+        )
 
     def update(
         self,
@@ -551,7 +671,9 @@ def main() -> None:
             obj = object_model(result.orig_img, classes=list(COCO_BAG_IDS), conf=0.35, verbose=False)[0]
             if obj.boxes is not None and len(obj.boxes) > 0:
                 bag_bboxes = [tuple(float(v) for v in b) for b in obj.boxes.xyxy]
-        assessments = detector.update(pose_frames, n * dt, bag_bboxes=bag_bboxes)
+        assessments = detector.update_with_bag_detections(
+            pose_frames, n * dt, bag_bboxes
+        )
         assess_by_id = {a.track_id: a for a in assessments}
         for a in assessments:
             peak[a.track_id] = max(peak.get(a.track_id, 0.0), a.score)

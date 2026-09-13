@@ -26,14 +26,17 @@ camera frame
      Mapper scene compatibility
   -> deduplicated shared alert queue with video and wall-clock timestamps
   -> TrueSight with 3 chronological full frames plus the subject crop
-  -> concealment_audit.jsonl for every confirmed/rejected/unverified verdict
+  -> retained SQLite concealment_audit row for every generated candidate,
+     including queue admission outcome and any eventual gate verdict
   -> confirmed-only event persistence, notification, and UI evidence
 ```
 
 Skipped pose frames do not erase temporal history. `expire(timestamp)` still
 runs every video frame and removes stale tracks after the grace period. Personal
 bags are limited to COCO backpack, handbag, and suitcase classes and are
-assigned to one nearby pose track; an exact ownership tie is left unassigned.
+assigned to one nearby pose track. The physical-bag owner remains stable across
+near-equal frame jitter for at least the concealment scoring window; an initial
+exact ownership tie is left unassigned.
 Shopping baskets and trolleys are not concealment destinations.
 
 The pose heuristic is a recall-oriented candidate generator. It uses the
@@ -78,7 +81,7 @@ Retain one row per case with these fields:
 | Identity | case ID, clip path, SHA-256, camera ID, recording date |
 | Labels | actual reach interval, destination-action interval, expected class |
 | Context | mapper lifecycle, reviewed status, environment, active zone roles |
-| Candidate | all callback-ordered rows; timestamp-sorted rows; inclusive-window rows; for positives, first in-window timestamp or `none`; destination, in-window peak score, components, limited flag, associated bag, track ID |
+| Candidate | all generation-ordered rows with queue outcome; timestamp-sorted rows; inclusive-window rows; for positives, first in-window timestamp or `none`; destination, in-window peak score, components, limited flag, associated bag, track ID |
 | Gate | `confirmed`, `rejected`, `not_gated`, or `unverified`; confidence, reason, prompt fingerprint, model tag and digest |
 | Delivery | event ID, duplicate count, evidence directory, full frames present, subject crop present, replay clip present, UI visibility |
 | Performance | detection delay from destination-action start and pose-stage FPS |
@@ -382,11 +385,14 @@ shared pose/concealment path, local TrueSight, the alert sink, and the live UI.
 ### 7. Extract Candidate, TrueSight, And Performance Outcomes
 
 Watch terminal 3 and retain `operator.log`. The structured production record is
-`$CHI_OUT/concealment_audit.jsonl`: the alert sink appends one row for every
-queued concealment candidate after TrueSight returns `confirmed`, `rejected`,
-or `unverified`. A missing file means no concealment candidate reached the
-gate only when `operator.log` also contains no `concealment audit write failed`
-error. It is never evidence that TrueSight rejected the clip.
+the `concealment_audit` table in `$CHI_OUT/events.db`. The alert sink inserts one
+row for every generated concealment candidate before queue admission, records
+`admitted`, `deduplicated`, or `capacity_dropped`, and later attaches a
+`confirmed`, `rejected`, or `unverified` verdict to admitted rows that reach
+TrueSight. An empty table means no concealment candidate was generated only
+when `operator.log` also contains no concealment audit error. It is never
+evidence that TrueSight rejected the clip. These rows follow the site's normal
+retention period and emergency disk purge.
 
 The engine exits after the file ends and its queued verdicts drain. Its final
 lines report `alerts_queued` and gate `verified`, `confirmed`, `rejected`,
@@ -401,7 +407,7 @@ Only the two positive cases may end in `[CONFIRMED]`. Any `UNVERIFIED`, gate
 error, or breaker-open result invalidates the case.
 
 After shutdown, run this exact extractor. It retains all audit rows for the
-current camera in verdict-callback order, sorts a separate view by clip-relative
+current camera in candidate-generation order, sorts a separate view by clip-relative
 candidate timestamp, filters an inclusive copy to the explicit labeled action
 window, and derives positive recall/delay only from that filtered copy. It also
 reads sampled pose-stage throughput from the final
@@ -412,6 +418,7 @@ reads sampled pose-stage throughput from the final
 "$PYTHON" - <<'PY'
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 case_id = os.environ["CASE_ID"]
@@ -423,20 +430,25 @@ window_end = float(os.environ["ACTION_WINDOW_END_S"])
 if window_start > window_end:
     raise SystemExit("ACTION_WINDOW_START_S must be <= ACTION_WINDOW_END_S")
 out = Path(os.environ["CHI_OUT"])
-audit_path = out / "concealment_audit.jsonl"
-all_rows = []
-if audit_path.exists():
-    all_rows = [
-        json.loads(line)
-        for line in audit_path.read_text().splitlines()
-        if line.strip()
-    ]
-all_rows = [row for row in all_rows if row["camera_id"] == case_id]
+con = sqlite3.connect(out / "events.db")
+con.row_factory = sqlite3.Row
+try:
+    all_rows = [dict(row) for row in con.execute(
+        "SELECT * FROM concealment_audit WHERE camera_id = ? ORDER BY id",
+        (case_id,),
+    )]
+finally:
+    con.close()
+for row in all_rows:
+    row["components"] = json.loads(row.pop("components_json"))
+    bag_json = row.pop("associated_bag_json")
+    row["associated_bag"] = json.loads(bag_json) if bag_json is not None else None
+    row["reasons"] = json.loads(row.pop("reasons_json"))
 required = {
     "candidate_timestamp", "track_id", "destination", "peak_score",
     "components", "limited", "associated_bag", "enqueued_at", "verdict_at",
     "gate_result_timestamp", "gate_latency_s", "verdict", "confirmed",
-    "confidence", "reason", "gate_error", "prompt_version",
+    "confidence", "reason", "gate_error", "prompt_version", "admission_status",
 }
 for row in all_rows:
     missing = sorted(required - row.keys())
@@ -464,6 +476,15 @@ record = {
         "start_s": window_start, "end_s": window_end, "inclusive": True,
     },
     "candidate_count": len(all_rows),
+    "admitted_candidate_count": sum(
+        row["admission_status"] == "admitted" for row in all_rows
+    ),
+    "deduplicated_candidate_count": sum(
+        row["admission_status"] == "deduplicated" for row in all_rows
+    ),
+    "capacity_dropped_candidate_count": sum(
+        row["admission_status"] == "capacity_dropped" for row in all_rows
+    ),
     "window_candidate_count": len(window_rows),
     "candidate_recall_hit": bool(window_rows) if expected_class == "positive" else None,
     "first_in_window_candidate_timestamp": (
@@ -483,10 +504,12 @@ print(json.dumps(record, indent=2))
 PY
 ```
 
-Each candidate row contains `candidate_timestamp`, `track_id`, `destination`,
+Each generated candidate row contains `candidate_timestamp`, `track_id`, `destination`,
 `peak_score`, `components`, `limited`, `associated_bag`, `reasons`,
-`enqueued_at`, `verdict_at`, `gate_result_timestamp`, `gate_latency_s`, verdict,
-confidence/reason/error, and `prompt_version`. `candidate_timestamp` is seconds
+`admission_status`, `enqueued_at`, `verdict_at`, `gate_result_timestamp`,
+`gate_latency_s`, verdict, confidence/reason/error, and `prompt_version`.
+Verdict fields are null for deduplicated or capacity-dropped rows.
+`candidate_timestamp` is seconds
 from the clip's decoder timeline. `gate_latency_s` is queue entry through sink
 receipt. `pose_stage_fps` is the observed pose invocation rate over the retained
 performance window; retain `count`, `per_unit_ms`, `p50_ms`, and `p95_ms` with
@@ -496,14 +519,16 @@ For positives, use `first_in_window_candidate_timestamp` and
 `detection_delay_s`; `candidate_recall_hit` is true only when the inclusive
 labeled window contains a candidate. Use the maximum in-window `peak_score` and
 its row for components, destination, limited status, associated bag, and track
-ownership. `all_candidates` preserves verdict callback order for false-positive
-and duplicate analysis, while `chronological_candidates` and
+ownership. `all_candidates` preserves candidate-generation order for
+false-positive and duplicate analysis, while `chronological_candidates` and
 `window_candidates` are sorted by candidate timestamp.
 
 For negatives, `candidate_recall_hit` and `detection_delay_s` are always null;
 their explicit action windows support analysis but can never satisfy positive
-recall. Zero `all_candidates` means `not_gated`; one or more rows must all say
-`rejected`. Any `unverified` row invalidates the case. Candidate recall is the
+recall. Zero `all_candidates` means no candidate was generated. If generated
+rows were admitted, every completed verdict must say `rejected`; deduplicated
+and capacity-dropped rows have no verdict. Any `unverified` row invalidates the
+case. Candidate recall is the
 number of positive case IDs with `candidate_recall_hit=true` divided by two,
 not the number of confirmed SQLite events.
 

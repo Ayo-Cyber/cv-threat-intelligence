@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import tempfile
+import threading
 import time
 import unittest
 from dataclasses import dataclass
@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cvti.contracts import CandidateAlert
-from cvti.serving.alert_queue import QueuedAlert
+from cvti.serving.alert_queue import AlertQueue, QueuedAlert
 from cvti.serving.alert_sink import AlertSink, build_notifier
 
 
@@ -37,11 +37,11 @@ class _RecordingNotifier:
         self.events.append(event)
 
 
-def _alert(cam="cam0", rule="shoplifting"):
+def _alert(cam="cam0", rule="shoplifting", track=3, priority="high", ts=4.25):
     candidate = CandidateAlert(
-        rule_name=rule, priority="high", detector="concealment",
-        title="POSSIBLE CONCEALMENT (bag)", person_id=3,
-        object_label=None, timestamp=4.25,
+        rule_name=rule, priority=priority, detector="concealment",
+        title="POSSIBLE CONCEALMENT (bag)", person_id=track,
+        object_label=None, timestamp=ts,
         reasons=["hand reached a personal bag"],
         metadata={
             "destination": "bag", "score": 0.84,
@@ -52,8 +52,8 @@ def _alert(cam="cam0", rule="shoplifting"):
             "associated_bag": (180.0, 170.0, 240.0, 235.0),
         },
     )
-    return QueuedAlert(camera_id=cam, rule_name=rule, priority="high", title="T",
-                       timestamp=4.25, track_id=3, zone="shelf", object_label=None,
+    return QueuedAlert(camera_id=cam, rule_name=rule, priority=priority, title="T",
+                       timestamp=ts, track_id=track, zone="shelf", object_label=None,
                        payload={"candidate": candidate, "frames": [], "scene": None,
                                 "enqueued_at": time.time() - 0.25})
 
@@ -66,6 +66,16 @@ class AlertSinkTests(unittest.TestCase):
 
     def tearDown(self):
         self.sink.close()
+
+    def _audit_rows(self):
+        con = sqlite3.connect(self.sink.db_path)
+        con.row_factory = sqlite3.Row
+        try:
+            return [dict(row) for row in con.execute(
+                "SELECT * FROM concealment_audit ORDER BY id"
+            )]
+        finally:
+            con.close()
         self._tmp.cleanup()
 
     def test_confirmed_persists_and_notifies(self):
@@ -88,15 +98,15 @@ class AlertSinkTests(unittest.TestCase):
         self.assertEqual(self.notifier.events, [])
         rows = sqlite3.connect(self.sink.db_path).execute("SELECT id FROM events").fetchall()
         self.assertEqual(rows, [])
-        audit = json.loads((Path(self._tmp.name) / "concealment_audit.jsonl").read_text())
+        audit = self._audit_rows()[0]
         self.assertEqual(audit["verdict"], "rejected")
         self.assertEqual(audit["candidate_timestamp"], 4.25)
         self.assertEqual(audit["track_id"], 3)
         self.assertEqual(audit["destination"], "bag")
         self.assertEqual(audit["peak_score"], 0.84)
-        self.assertEqual(audit["components"]["f_bag"], 0.9)
-        self.assertFalse(audit["limited"])
-        self.assertEqual(audit["associated_bag"], [180.0, 170.0, 240.0, 235.0])
+        self.assertIn('"f_bag":0.9', audit["components_json"])
+        self.assertEqual(audit["limited"], 0)
+        self.assertEqual(audit["associated_bag_json"], "[180.0,170.0,240.0,235.0]")
         self.assertGreaterEqual(audit["gate_latency_s"], 0.2)
 
     def test_unverified_concealment_is_audited_without_a_user_alert(self):
@@ -107,7 +117,7 @@ class AlertSinkTests(unittest.TestCase):
         )
         self.assertEqual(self.sink.persisted, 0)
         self.assertEqual(self.notifier.events, [])
-        audit = json.loads((Path(self._tmp.name) / "concealment_audit.jsonl").read_text())
+        audit = self._audit_rows()[0]
         self.assertEqual(audit["verdict"], "unverified")
         self.assertEqual(audit["gate_error"], "connection refused")
 
@@ -115,7 +125,7 @@ class AlertSinkTests(unittest.TestCase):
         self.sink.handle(
             _alert(), _Result(confirmed=True, confidence=0.91, reason="concealment visible")
         )
-        audit = json.loads((Path(self._tmp.name) / "concealment_audit.jsonl").read_text())
+        audit = self._audit_rows()[0]
         self.assertEqual(audit["verdict"], "confirmed")
         self.assertEqual(self.sink.persisted, 1)
         self.assertEqual(len(self.notifier.events), 1)
@@ -123,9 +133,68 @@ class AlertSinkTests(unittest.TestCase):
     def test_missing_result_is_audited_as_unverified(self):
         self.sink.handle(_alert(), None)   # gate error path
         self.assertEqual(self.sink.persisted, 0)
-        audit = json.loads((Path(self._tmp.name) / "concealment_audit.jsonl").read_text())
+        audit = self._audit_rows()[0]
         self.assertEqual(audit["verdict"], "unverified")
         self.assertEqual(audit["gate_error"], "missing verification result")
+
+    def test_generation_audit_records_admitted_deduplicated_and_capacity_dropped(self):
+        queue = AlertQueue(
+            cooldown_seconds=60.0,
+            max_pending=1,
+            on_generated=self.sink.audit_candidate_generated,
+            on_admission=self.sink.audit_candidate_admission,
+        )
+        first = _alert(track=1, priority="low", ts=10.0)
+        duplicate = _alert(track=1, priority="low", ts=10.1)
+        urgent = _alert(track=2, priority="high", ts=10.2)
+
+        self.assertTrue(queue.add(first))
+        self.assertFalse(queue.add(duplicate))
+        self.assertTrue(queue.add(urgent))
+
+        rows = self._audit_rows()
+        self.assertEqual(len(rows), 3, "every generated candidate must be auditable")
+        self.assertEqual(
+            [(row["track_id"], row["admission_status"]) for row in rows],
+            [(1, "capacity_dropped"), (1, "deduplicated"), (2, "admitted")],
+        )
+
+    def test_concurrent_candidate_audit_writes_are_complete(self):
+        queue = AlertQueue(
+            cooldown_seconds=0.0,
+            max_pending=64,
+            on_generated=self.sink.audit_candidate_generated,
+            on_admission=self.sink.audit_candidate_admission,
+        )
+        threads = [
+            threading.Thread(target=queue.add, args=(_alert(track=i, ts=float(i)),))
+            for i in range(24)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        rows = self._audit_rows()
+        self.assertEqual(len(rows), 24)
+        self.assertEqual({row["track_id"] for row in rows}, set(range(24)))
+        self.assertEqual({row["admission_status"] for row in rows}, {"admitted"})
+
+    def test_unserializable_metadata_does_not_drop_the_candidate_audit_row(self):
+        alert = _alert()
+        cyclic = {}
+        cyclic["self"] = cyclic
+        alert.payload["candidate"].metadata["components"] = cyclic
+        queue = AlertQueue(
+            on_generated=self.sink.audit_candidate_generated,
+            on_admission=self.sink.audit_candidate_admission,
+        )
+
+        self.assertTrue(queue.add(alert))
+
+        row = self._audit_rows()[0]
+        self.assertEqual(row["admission_status"], "admitted")
+        self.assertIsNotNone(row["audit_error"])
 
 
 class VideoClipTests(unittest.TestCase):

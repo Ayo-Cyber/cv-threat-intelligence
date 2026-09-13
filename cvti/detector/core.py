@@ -842,6 +842,20 @@ def pose_people_to_concealment_frames(pose_people: list[PosePersonState], timest
     ]
 
 
+def score_concealment_frame(
+    detector: Any,
+    pose_people: list[PosePersonState],
+    timestamp: float,
+    bag_bboxes: list[tuple[float, float, float, float]] | None,
+) -> list[Any]:
+    """Production adapter: score one frame with exclusive physical-bag ownership."""
+    return detector.update_with_bag_detections(
+        pose_people_to_concealment_frames(pose_people, timestamp),
+        timestamp,
+        bag_bboxes,
+    )
+
+
 def assign_pose_tracks(
     current_people: list[PosePersonState],
     previous_people: list[PosePersonState],
@@ -2080,10 +2094,8 @@ def main() -> None:
                 if concealment_detector is not None:
                     bag_bboxes = [d.bbox for d in detections
                                   if normalize_label(d.label) in CONCEALMENT_BAG_CLASSES]
-                    conceal = concealment_detector.update(
-                        pose_people_to_concealment_frames(pose_people, ts_now),
-                        ts_now,
-                        bag_bboxes=bag_bboxes or None,
+                    conceal = score_concealment_frame(
+                        concealment_detector, pose_people, ts_now, bag_bboxes or None
                     )
                     concealment_events = concealment_to_events(conceal, ts_now)
                     raw_events += concealment_events

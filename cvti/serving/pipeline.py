@@ -841,6 +841,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     # instead of only printed. sink.handle is the gate's verdict callback.
     from cvti.serving.alert_sink import AlertSink, build_notifier
     sink = AlertSink(output_dir, notifier=build_notifier(notify))
+    queue.on_generated = sink.audit_candidate_generated
+    queue.on_admission = sink.audit_candidate_admission
     # W1.6: when detection rides a substream, the sink can still attach one
     # full-resolution mainstream frame per alert — go2rtc hands it over
     # without the engine decoding that stream at all.
@@ -869,7 +871,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                               base_url=gate_base_url, save_dir=save_dir,
                                               sensitivity=gate_sensitivity,
                                               # frames per verdict; None derives
-                                              # (local models get 1 — 11 Sep pilot)
+                                              # (local models get 2, concealment 4)
                                               max_frames=site.get("gate_max_frames")),
         workers=_gate_workers_for(gate_workers, len(cams_cfg),
                                   provider=gate_provider, device=device),

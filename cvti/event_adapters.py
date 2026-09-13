@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from cvti.contracts import RawEvent
@@ -110,8 +111,8 @@ def concealment_to_events(assessments: list[Any], timestamp: float = 0.0) -> lis
                 extra={
                     "destination": destination,
                     "score": float(getattr(assessment, "score", 0.0)),
-                    "components": dict(getattr(assessment, "components", {}) or {}),
-                    "reasons": list(getattr(assessment, "reasons", []) or []),
+                    "components": deepcopy(getattr(assessment, "components", {}) or {}),
+                    "reasons": deepcopy(getattr(assessment, "reasons", []) or []),
                     "limited": bool(getattr(assessment, "limited", False)),
                     "associated_bag": getattr(assessment, "associated_bag", None),
                 },

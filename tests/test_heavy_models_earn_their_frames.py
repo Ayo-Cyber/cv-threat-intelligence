@@ -15,6 +15,8 @@ violence, theft, weapons) is about a person doing something. The contract:
 from __future__ import annotations
 
 import sys
+import time
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -130,33 +132,37 @@ class PersonGateTests(_GateHarness):
         pose, _ = self._run(state, [_person(10.0 + i) for i in range(6)])
         self.assertEqual(pose, 6)
 
-    def test_concealment_history_survives_heavy_stride_sampling_gaps(self):
-        engine = CustomizationEngine()
-        engine.rules = [
-            {"name": "shoplifting", "trigger": {"detector": "concealment"},
-             "priority": "high"}
-        ]
-        state = PerCameraState(
-            "cam1", engine, person_filter=False, pose_model=object(),
-            concealment=True, heavy_stride=2,
-        )
-        pose_sequence = (
-            [[_pose_person((200.0, 20.0))] for _ in range(4)]
-            + [[_pose_person((105.0, 95.0))] for _ in range(9)]
-        )
+    def test_concealment_candidate_behavior_matches_at_pose_stride_one_and_two(self):
+        for stride, frame_count in ((1, 13), (2, 24)):
+            with self.subTest(heavy_stride=stride):
+                engine = CustomizationEngine()
+                engine.rules = [
+                    {"name": "shoplifting", "trigger": {"detector": "concealment"},
+                     "priority": "high"}
+                ]
+                state = PerCameraState(
+                    "cam1", engine, person_filter=False, pose_model=object(),
+                    concealment=True, heavy_stride=stride,
+                )
+                pose_sequence = (
+                    [[_pose_person((200.0, 20.0))] for _ in range(4)]
+                    + [[_pose_person((105.0, 95.0))] for _ in range(9)]
+                )
 
-        alerts = []
-        with mock.patch.object(
-            PerCameraState, "_compute_pose", side_effect=pose_sequence,
-        ) as pose:
-            for i in range(24):
-                alerts.extend(state.process(_person(), _frame(), timestamp=100.0 + i * 0.1))
+                alerts = []
+                with mock.patch.object(
+                    PerCameraState, "_compute_pose", side_effect=pose_sequence,
+                ) as pose:
+                    for i in range(frame_count):
+                        alerts.extend(state.process(
+                            _person(), _frame(), timestamp=100.0 + i * 0.1
+                        ))
 
-        self.assertEqual(pose.call_count, len(pose_sequence))
-        self.assertTrue(
-            any(alert.rule_name == "shoplifting" for alert in alerts),
-            "reach-then-waist samples should reach concealment candidate state",
-        )
+                self.assertEqual(pose.call_count, len(pose_sequence))
+                self.assertTrue(
+                    any(alert.rule_name == "shoplifting" for alert in alerts),
+                    "reach-then-waist samples should reach concealment candidate state",
+                )
 
     def test_pose_failure_does_not_bypass_concealment_expiration(self):
         state = PerCameraState(
@@ -187,6 +193,32 @@ class PersonGateTests(_GateHarness):
 
 
 class ImgszPlumbingTests(unittest.TestCase):
+    def test_first_pose_timing_excludes_lazy_performance_import(self):
+        observed = []
+
+        class _Board:
+            def observe(self, stage, unit, duration_ms):
+                observed.append(duration_ms)
+
+        class _DelayedPerf(types.ModuleType):
+            def __getattribute__(self, name):
+                if name == "BOARD":
+                    time.sleep(0.06)
+                return super().__getattribute__(name)
+
+        delayed = _DelayedPerf("cvti.serving.perf")
+        delayed.BOARD = _Board()
+        state = PerCameraState(
+            "pose-import-contract", CustomizationEngine(), person_filter=False,
+            pose_model=object(), concealment=True,
+        )
+        with mock.patch.dict(sys.modules, {"cvti.serving.perf": delayed}), \
+                mock.patch("cvti.detector.core.extract_pose_people", return_value=[]):
+            state._compute_pose(_frame(), timestamp=100.0)
+
+        self.assertEqual(len(observed), 1)
+        self.assertLess(observed[0], 40.0)
+
     def test_pose_forward_pass_reports_per_camera_throughput(self):
         from cvti.serving.perf import BOARD
 

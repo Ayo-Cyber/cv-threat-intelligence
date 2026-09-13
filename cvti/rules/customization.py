@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import re
 from datetime import datetime
@@ -142,8 +143,8 @@ class CustomizationEngine:
                         person_id=event.person_id,
                         object_label=event.object_label,
                         timestamp=event.timestamp,
-                        reasons=list(event.extra.get("reasons", []) or []),
-                        metadata=dict(event.extra),
+                        reasons=deepcopy(event.extra.get("reasons", []) or []),
+                        metadata=deepcopy(event.extra),
                         # A rule's own plain-English question reaches the VLM
                         # verbatim. Compound recipes always had this; simple
                         # trigger rules silently dropped it — the sentence the

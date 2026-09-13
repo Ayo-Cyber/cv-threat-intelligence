@@ -10,6 +10,7 @@ is. These tests hold that the crop is built safely (never costing an alert)
 and that the prompt actually carries the new evidence.
 """
 import json
+import sqlite3
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -109,6 +110,40 @@ class ConcealmentCueFlowTest(unittest.TestCase):
         self.assertEqual(alert.reasons, assessment.reasons)
         self.assertEqual(alert.metadata, event.extra)
 
+    def test_nested_assessment_metadata_is_detached_at_each_boundary(self):
+        components = {"destination": {"bag": 0.9}}
+        reasons = [{"cue": ["hand", "bag"]}]
+        assessment = SimpleNamespace(
+            track_id=7,
+            score=0.8125,
+            candidate=True,
+            destination="bag",
+            components=components,
+            reasons=reasons,
+            limited=False,
+            associated_bag=(180.0, 170.0, 240.0, 235.0),
+        )
+        event = concealment_to_events([assessment], timestamp=3.5)[0]
+        engine = CustomizationEngine()
+        engine.rules = [{
+            "name": "shoplifting",
+            "priority": "high",
+            "trigger": {"detector": "concealment"},
+        }]
+        alert = engine.evaluate([event], {"environment_type": "retail"})[0]
+
+        components["destination"]["bag"] = 0.1
+        reasons[0]["cue"].append("mutated")
+        self.assertEqual(event.extra["components"], {"destination": {"bag": 0.9}})
+        self.assertEqual(event.extra["reasons"], [{"cue": ["hand", "bag"]}])
+
+        event.extra["components"]["destination"]["bag"] = 0.2
+        event.extra["reasons"][0]["cue"].append("event-mutated")
+
+        self.assertEqual(alert.metadata["components"], {"destination": {"bag": 0.9}})
+        self.assertEqual(alert.metadata["reasons"], [{"cue": ["hand", "bag"]}])
+        self.assertEqual(alert.reasons, [{"cue": ["hand", "bag"]}])
+
 
 class ConcealmentVerificationIntegrationTest(unittest.TestCase):
     def test_true_sight_receives_three_chronological_full_frames_then_subject_crop(self):
@@ -188,15 +223,22 @@ class ConcealmentVerificationIntegrationTest(unittest.TestCase):
                 sink.handle(queued[0], result)
             finally:
                 sink.close()
-            audit = json.loads((Path(tmp) / "concealment_audit.jsonl").read_text())
+            con = sqlite3.connect(Path(tmp) / "events.db")
+            con.row_factory = sqlite3.Row
+            try:
+                audit = dict(con.execute(
+                    "SELECT * FROM concealment_audit ORDER BY id DESC LIMIT 1"
+                ).fetchone())
+            finally:
+                con.close()
 
         self.assertEqual(audit["camera_id"], "cam1")
         self.assertEqual(audit["candidate_timestamp"], 0.5)
         self.assertEqual(audit["track_id"], 7)
         self.assertEqual(audit["peak_score"], 0.8)
-        self.assertEqual(audit["components"], assessment.components)
-        self.assertFalse(audit["limited"])
-        self.assertIsNone(audit["associated_bag"])
+        self.assertEqual(json.loads(audit["components_json"]), assessment.components)
+        self.assertEqual(audit["limited"], 0)
+        self.assertIsNone(audit["associated_bag_json"])
         self.assertEqual(audit["verdict"], "rejected")
 
 

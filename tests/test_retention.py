@@ -29,6 +29,8 @@ class _Site:
         con.execute("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, "
                     "iso TEXT, camera_id TEXT, rule TEXT, evidence_dir TEXT, review TEXT, "
                     "legal_hold INTEGER DEFAULT 0, state TEXT, owner TEXT)")
+        con.execute("CREATE TABLE concealment_audit ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, generated_at REAL NOT NULL)")
         con.commit()
         con.close()
         self.mgr = RetentionManager(self.root, RetentionPolicy(days=retention_days))
@@ -61,8 +63,37 @@ class _Site:
     def dirs(self) -> set:
         return {p.name for p in self.events_dir.iterdir() if p.is_dir()}
 
+    def add_audit(self, *, age_days: float) -> int:
+        con = sqlite3.connect(self.db)
+        cur = con.execute(
+            "INSERT INTO concealment_audit (generated_at) VALUES (?)",
+            (time.time() - age_days * DAY,),
+        )
+        con.commit()
+        audit_id = cur.lastrowid
+        con.close()
+        return audit_id
+
+    def audit_ids(self) -> set:
+        con = sqlite3.connect(self.db)
+        out = {row[0] for row in con.execute("SELECT id FROM concealment_audit")}
+        con.close()
+        return out
+
 
 class PurgesWhatItShouldTest(unittest.TestCase):
+    def test_concealment_audit_rows_follow_the_configured_retention_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site = _Site(tmp, retention_days=7)
+            old = site.add_audit(age_days=8)
+            recent = site.add_audit(age_days=6)
+
+            result = site.mgr.purge()
+
+            self.assertEqual(site.audit_ids(), {recent})
+            self.assertNotIn(old, site.audit_ids())
+            self.assertEqual(result["audit_deleted"], 1)
+
     def test_expired_and_settled_events_are_deleted_with_their_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             site = _Site(tmp)
@@ -280,6 +311,18 @@ class DiskTest(unittest.TestCase):
             site.add(age_days=500, review=None)         # everything is on hold
             result = site.mgr.emergency_purge()
             self.assertEqual(result["deleted"], 0)      # terminates instead of spinning
+
+    def test_emergency_purge_can_delete_oldest_concealment_audit_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site = _Site(tmp)
+            site.mgr.policy.disk_critical_pct = 0.0
+            site.add_audit(age_days=2)
+            site.add_audit(age_days=1)
+
+            result = site.mgr.emergency_purge()
+
+            self.assertEqual(site.audit_ids(), set())
+            self.assertEqual(result["audit_deleted"], 2)
 
 
 class PolicyTest(unittest.TestCase):

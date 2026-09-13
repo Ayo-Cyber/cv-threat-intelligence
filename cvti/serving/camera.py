@@ -268,13 +268,13 @@ class PerCameraState:
         from cvti.detector.core import (
             assign_pose_tracks, enrich_pose_people_with_history, extract_pose_people,
         )
+        from cvti.serving.perf import BOARD
         started = time.perf_counter()
         try:
             pose_people = extract_pose_people(
                 self.pose_model, image, self.pose_conf, self.imgsz
             )
         finally:
-            from cvti.serving.perf import BOARD
             BOARD.observe(
                 "pose_infer", self.camera_id,
                 (time.perf_counter() - started) * 1000.0,
@@ -500,13 +500,10 @@ class PerCameraState:
             if self._conceal is not None:
                 from cvti.detector.core import pose_people_to_concealment_frames
                 from cvti.event_adapters import concealment_to_events
-                from cvti.retail.concealment import associate_bags_to_tracks
                 if pose_ran:
                     pose_frames = pose_people_to_concealment_frames(pose_people, timestamp)
-                    assessments = self._conceal.update(
-                        pose_frames,
-                        timestamp,
-                        bag_bboxes_by_track=associate_bags_to_tracks(pose_frames, bag_boxes),
+                    assessments = self._conceal.update_with_bag_detections(
+                        pose_frames, timestamp, bag_boxes
                     )
                     raw_events += concealment_to_events(assessments, timestamp)
             if self.violence or self.weapons or self.theft:

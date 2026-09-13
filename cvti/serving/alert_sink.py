@@ -294,6 +294,40 @@ CREATE TABLE IF NOT EXISTS suppression_daily (
     errors INTEGER DEFAULT 0,    -- the gate failed; counted, never hidden
     updated_at REAL
 );
+
+-- Every generated concealment candidate, including rows the queue suppresses
+-- or evicts before TrueSight. RetentionManager purges this operational evidence
+-- on the same site policy as event evidence.
+CREATE TABLE IF NOT EXISTS concealment_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_version INTEGER NOT NULL DEFAULT 2,
+    generated_at REAL NOT NULL,
+    camera_id TEXT NOT NULL,
+    rule_name TEXT NOT NULL,
+    candidate_timestamp REAL NOT NULL,
+    track_id INTEGER,
+    destination TEXT,
+    peak_score REAL,
+    components_json TEXT NOT NULL DEFAULT '{}',
+    limited INTEGER,
+    associated_bag_json TEXT,
+    reasons_json TEXT NOT NULL DEFAULT '[]',
+    enqueued_at REAL,
+    admission_status TEXT NOT NULL DEFAULT 'generated',
+    admitted_at REAL,
+    verdict_at REAL,
+    gate_result_timestamp REAL,
+    gate_latency_s REAL,
+    verdict TEXT,
+    confirmed INTEGER,
+    confidence REAL,
+    reason TEXT,
+    gate_error TEXT,
+    prompt_version TEXT,
+    audit_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_concealment_audit_generated
+    ON concealment_audit(generated_at);
 """
 
 
@@ -308,7 +342,6 @@ class AlertSink:
         self.events_dir = self.root / "events"
         self.events_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "events.db"
-        self.concealment_audit_path = self.root / "concealment_audit.jsonl"
         self.notifier = notifier or ConsoleNotifier()
         self.save_evidence = save_evidence
         # W1.6: camera_id -> full-resolution JPEG bytes | None. When detection
@@ -547,13 +580,88 @@ class AlertSink:
             return "resolved"
         return "acknowledged" if review == "ack" else "new"
 
+    @staticmethod
+    def _audit_json(value: Any, fallback: Any, field: str) -> tuple[str | None, str | None]:
+        if value is None:
+            return None, None
+        try:
+            return json.dumps(value, separators=(",", ":")), None
+        except (TypeError, ValueError, RecursionError) as exc:
+            return json.dumps(fallback, separators=(",", ":")), f"{field}: {exc}"
+
+    def audit_candidate_generated(self, alert: Any) -> int | None:
+        """Persist a concealment row before queue admission is decided."""
+        payload = alert.payload or {}
+        candidate = payload.get("candidate")
+        if getattr(candidate, "detector", None) != "concealment":
+            return None
+        metadata = getattr(candidate, "metadata", {}) or {}
+        components, components_error = self._audit_json(
+            metadata.get("components") or {}, {}, "components"
+        )
+        associated_bag, bag_error = self._audit_json(
+            metadata.get("associated_bag"), None, "associated_bag"
+        )
+        reasons, reasons_error = self._audit_json(
+            metadata.get("reasons") or [], [], "reasons"
+        )
+        errors = [error for error in (components_error, bag_error, reasons_error) if error]
+        generated_at = time.time()
+        try:
+            with self._lock:
+                cursor = self._db.execute(
+                    "INSERT INTO concealment_audit ("
+                    "generated_at, camera_id, rule_name, candidate_timestamp, track_id, "
+                    "destination, peak_score, components_json, limited, "
+                    "associated_bag_json, reasons_json, enqueued_at, audit_error"
+                    ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        generated_at, alert.camera_id, alert.rule_name,
+                        float(alert.timestamp), alert.track_id,
+                        metadata.get("destination"), metadata.get("score"), components,
+                        None if metadata.get("limited") is None
+                        else int(bool(metadata.get("limited"))),
+                        associated_bag, reasons, payload.get("enqueued_at"),
+                        "; ".join(errors) or None,
+                    ),
+                )
+                self._db.commit()
+                return int(cursor.lastrowid)
+        except Exception:  # noqa: BLE001 - audit I/O must not stop detection
+            log.error("concealment candidate audit write failed", exc_info=True)
+            return None
+
+    def audit_candidate_admission(self, alert: Any, status: str) -> None:
+        """Record whether a generated row entered, duplicated, or left the queue."""
+        audit_id = (alert.payload or {}).get("concealment_audit_id")
+        if audit_id is None:
+            return
+        try:
+            with self._lock:
+                self._db.execute(
+                    "UPDATE concealment_audit SET admission_status = ?, admitted_at = "
+                    "CASE WHEN ? = 'admitted' THEN COALESCE(admitted_at, ?) "
+                    "ELSE admitted_at END "
+                    "WHERE id = ?",
+                    (status, status, time.time(), audit_id),
+                )
+                self._db.commit()
+        except Exception:  # noqa: BLE001 - audit I/O must not stop detection
+            log.error("concealment admission audit write failed", exc_info=True)
+
     def _audit_concealment(self, alert: Any, result: Any) -> None:
-        """Append the detector and gate facts for every concealment verdict."""
+        """Attach the eventual gate outcome to its pre-admission audit row."""
         payload = alert.payload or {}
         candidate = payload.get("candidate")
         if getattr(candidate, "detector", None) != "concealment":
             return
-        metadata = dict(getattr(candidate, "metadata", {}) or {})
+        audit_id = payload.get("concealment_audit_id")
+        if audit_id is None:
+            audit_id = self.audit_candidate_generated(alert)
+            if audit_id is None:
+                return
+            payload["concealment_audit_id"] = audit_id
+            self.audit_candidate_admission(alert, "admitted")
         verdict_at = time.time()
         enqueued_at = payload.get("enqueued_at")
         latency = (
@@ -566,36 +674,24 @@ class AlertSink:
             verdict = "confirmed"
         else:
             verdict = "rejected"
-        record = {
-            "schema_version": 1,
-            "camera_id": alert.camera_id,
-            "rule_name": alert.rule_name,
-            "candidate_timestamp": float(alert.timestamp),
-            "track_id": alert.track_id,
-            "destination": metadata.get("destination"),
-            "peak_score": metadata.get("score"),
-            "components": dict(metadata.get("components") or {}),
-            "limited": metadata.get("limited"),
-            "associated_bag": metadata.get("associated_bag"),
-            "reasons": list(metadata.get("reasons") or []),
-            "enqueued_at": enqueued_at,
-            "verdict_at": verdict_at,
-            "gate_result_timestamp": getattr(result, "timestamp", None),
-            "gate_latency_s": latency,
-            "verdict": verdict,
-            "confirmed": getattr(result, "confirmed", None),
-            "confidence": getattr(result, "confidence", None),
-            "reason": getattr(result, "reason", "") if result is not None else "",
-            "gate_error": (
-                getattr(result, "error", "")
-                if result is not None else "missing verification result"
-            ),
-            "prompt_version": getattr(result, "prompt_version", "") if result else "",
-        }
         try:
             with self._lock:
-                with self.concealment_audit_path.open("a", encoding="utf-8") as stream:
-                    stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+                self._db.execute(
+                    "UPDATE concealment_audit SET verdict_at = ?, gate_result_timestamp = ?, "
+                    "gate_latency_s = ?, verdict = ?, confirmed = ?, confidence = ?, "
+                    "reason = ?, gate_error = ?, prompt_version = ? WHERE id = ?",
+                    (
+                        verdict_at, getattr(result, "timestamp", None), latency, verdict,
+                        None if result is None else int(bool(getattr(result, "confirmed", False))),
+                        getattr(result, "confidence", None),
+                        getattr(result, "reason", "") if result is not None else "",
+                        (getattr(result, "error", "") if result is not None
+                         else "missing verification result"),
+                        getattr(result, "prompt_version", "") if result else "",
+                        audit_id,
+                    ),
+                )
+                self._db.commit()
         except Exception:  # noqa: BLE001 - audit I/O must not stop the gate
             log.error("concealment audit write failed", exc_info=True)
 

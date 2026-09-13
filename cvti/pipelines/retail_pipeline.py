@@ -50,6 +50,16 @@ from cvti.logging_setup import get_logger
 log = get_logger(__name__)
 
 
+def score_concealment_frame(
+    detector: ConcealmentDetector,
+    pose_frames: list[PoseFrame],
+    timestamp: float,
+    bag_bboxes: list[tuple[float, float, float, float]] | None,
+) -> list:
+    """Production adapter: score one frame with exclusive physical-bag ownership."""
+    return detector.update_with_bag_detections(pose_frames, timestamp, bag_bboxes)
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Full retail shoplifting pipeline.")
     p.add_argument("--source", required=True, help="Video path / RTSP URL / webcam index.")
@@ -161,7 +171,7 @@ def main() -> None:
             obj = object_model(frame, classes=list(COCO_BAG_IDS), conf=0.35, verbose=False)[0]
             if obj.boxes is not None and len(obj.boxes) > 0:
                 bag_bboxes = [tuple(float(v) for v in b) for b in obj.boxes.xyxy]
-        conceal = concealment.update(pose_frames, ts, bag_bboxes=bag_bboxes)
+        conceal = score_concealment_frame(concealment, pose_frames, ts, bag_bboxes)
         evidence.append((frame_copy, {a.track_id: a.score for a in conceal}))
 
         # Merge every signal into one event stream, then let the USER's rules decide.
