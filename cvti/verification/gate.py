@@ -123,11 +123,17 @@ how sure you are of YOUR OWN verdict: high when the evidence is unmistakable, lo
 are guessing.
 """
 
+_CONCEALMENT_NORMAL_ACTION_POLICY = (
+    "Reject normal browsing, phone handling, clothing adjustment, openly carried goods, "
+    "and placement into a trolley or shopping basket."
+)
+
 _QUESTIONS: dict[str, str] = {
     "shoplifting": ("Is a person CONCEALING merchandise in this {environment_type} — slipping it "
                     "into clothing, a pocket, a waistband, or a personal bag? Handling, examining "
                     "or carrying goods openly, or putting them in a shop basket or trolley, is "
-                    "normal shopping and is NOT shoplifting."),
+                    "normal shopping and is NOT shoplifting. "
+                    + _CONCEALMENT_NORMAL_ACTION_POLICY),
     "violence_in_store": "Does this frame show genuine physical violence or assault in a {environment_type}?",
     "weapon_sighting": "Does this frame show a real weapon being carried or brandished by a person?",
     "after_hours_intrusion": "Does this frame show unauthorized presence in a {environment_type} outside business hours?",
@@ -201,7 +207,7 @@ _STRICT_SHOPLIFTING_Q = (
     "Is a person CONCEALING merchandise in this {environment_type} — slipping it into "
     "clothing, a pocket, a waistband, or a personal bag? Handling, examining or carrying "
     "goods openly, or putting them in a shop basket or trolley, is normal shopping and is "
-    "NOT shoplifting.")
+    "NOT shoplifting. " + _CONCEALMENT_NORMAL_ACTION_POLICY)
 
 SENSITIVITY_QUESTIONS: dict[str, dict[str, str]] = {
     "sensitive": {},                       # use the defaults above

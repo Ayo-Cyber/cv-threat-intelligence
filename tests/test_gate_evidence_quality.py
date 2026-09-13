@@ -10,12 +10,19 @@ is. These tests hold that the crop is built safely (never costing an alert)
 and that the prompt actually carries the new evidence.
 """
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
 
 from cvti.contracts import CandidateAlert
-from cvti.verification.frame_select import append_subject_crop, subject_crop
+from cvti.event_adapters import concealment_to_events
+from cvti.rules.customization import CustomizationEngine
+from cvti.verification.frame_select import (
+    append_subject_crop,
+    select_evidence_frames,
+    subject_crop,
+)
 from cvti.verification.gate import VerificationGate
 
 
@@ -62,6 +69,52 @@ class SubjectCropTest(unittest.TestCase):
     def test_no_bbox_means_no_crop_and_no_error(self):
         frames = [_frame()]
         self.assertIs(append_subject_crop(frames, _frame(), None), frames)
+
+    def test_concealment_evidence_keeps_three_chronological_frames_then_crop(self):
+        recent = [np.full((480, 640, 3), value, dtype=np.uint8)
+                  for value in range(5)]
+
+        selected, _ = select_evidence_frames(recent, "shoplifting")
+        evidence = append_subject_crop(selected, recent[-1], (300, 200, 330, 260))
+
+        self.assertEqual([int(frame[0, 0, 0]) for frame in evidence[:3]], [0, 2, 4])
+        self.assertEqual(len(evidence), 4)
+        self.assertGreaterEqual(min(evidence[-1].shape[:2]), 320)
+
+
+class ConcealmentCueFlowTest(unittest.TestCase):
+    def test_assessment_cues_survive_the_event_and_simple_rule(self):
+        assessment = SimpleNamespace(
+            track_id=7,
+            score=0.8125,
+            candidate=True,
+            destination="bag",
+            components={"f_waist": 0.1, "f_bag": 0.9,
+                        "f_retract": 0.8, "f_dwell": 0.75},
+            reasons=["hand reached a personal bag", "arm retracted to body"],
+            limited=False,
+            associated_bag=(180.0, 170.0, 240.0, 235.0),
+        )
+
+        event = concealment_to_events([assessment], timestamp=3.5)[0]
+
+        self.assertEqual(event.extra, {
+            "destination": "bag",
+            "score": 0.8125,
+            "components": assessment.components,
+            "reasons": assessment.reasons,
+            "limited": False,
+            "associated_bag": assessment.associated_bag,
+        })
+
+        engine = CustomizationEngine()
+        engine.rules = [{
+            "name": "shoplifting",
+            "priority": "high",
+            "trigger": {"detector": "concealment"},
+        }]
+        alert = engine.evaluate([event], {"environment_type": "retail"})[0]
+        self.assertEqual(alert.reasons, assessment.reasons)
 
 
 class ThePromptCarriesTheEvidence(unittest.TestCase):
@@ -112,6 +165,30 @@ class ThePromptCarriesTheEvidence(unittest.TestCase):
         # tower pays per image) — but the cap keeps the LAST image, so the
         # subject crop still travels as its own image.
         self.assertEqual(seen["n"], 2, "one context frame + the subject crop")
+
+    def test_concealment_question_rejects_common_normal_actions(self):
+        policy = (
+            "Reject normal browsing, phone handling, clothing adjustment, openly carried "
+            "goods, and placement into a trolley or shopping basket."
+        )
+        for sensitivity in ("balanced", "strict"):
+            gate = VerificationGate(provider="ollama", cot=False,
+                                    sensitivity=sensitivity)
+            seen = {}
+
+            def fake_provider(prompt, frames_bytes, alert):
+                seen["prompt"] = prompt
+                return ('{"confirmed": false, "confidence": 0.9, '
+                        '"reason": "normal action", "alert_priority": "high"}')
+
+            with mock.patch.object(gate, "_call_provider", side_effect=fake_provider):
+                gate.verify([_frame()], CandidateAlert(
+                    rule_name="shoplifting", priority="high", detector="concealment",
+                    title="POSSIBLE CONCEALMENT", person_id=3, object_label=None,
+                    timestamp=0.0,
+                ), {"environment_type": "retail"})
+
+            self.assertIn(policy, seen["prompt"], sensitivity)
 
 
 if __name__ == "__main__":

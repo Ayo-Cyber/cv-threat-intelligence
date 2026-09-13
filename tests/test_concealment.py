@@ -81,6 +81,37 @@ def test_normal_browsing_does_not_fire() -> None:
     print(f"PASS normal browsing stays quiet (score={result.score:.2f})")
 
 
+def test_phone_to_pocket_stays_below_candidate_persistence() -> None:
+    det = ConcealmentDetector()
+    frames = [frame(i * 0.1, (105.0, 130.0)) for i in range(4)]
+    frames += [frame((i + 4) * 0.1, (105.0, 245.0)) for i in range(7)]
+
+    result = _run(det, frames)
+
+    assert not result.candidate, "putting a phone into a pocket must not persist as concealment"
+    assert det._over_threshold[1] < det.min_candidate_frames
+
+
+def test_brief_clothing_adjustment_stays_below_candidate_persistence() -> None:
+    det = ConcealmentDetector()
+    frames = [frame(i * 0.1, (105.0, 245.0)) for i in range(7)]
+
+    result = _run(det, frames)
+
+    assert not result.candidate, "a brief clothing adjustment must not persist as concealment"
+    assert det._over_threshold[1] < det.min_candidate_frames
+
+
+def test_openly_carried_item_stays_below_candidate_persistence() -> None:
+    det = ConcealmentDetector()
+    frames = [frame(i * 0.1, (180.0, 170.0)) for i in range(15)]
+
+    result = _run(det, frames)
+
+    assert not result.candidate, "openly carrying an item must not become concealment"
+    assert det._over_threshold[1] < det.min_candidate_frames
+
+
 def test_occluded_hips_degrades_gracefully() -> None:
     det = ConcealmentDetector()
     # No hips visible (caption banner / occlusion). Same motion, but waist features blind.

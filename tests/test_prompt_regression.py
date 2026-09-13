@@ -16,6 +16,7 @@ import numpy as np
 from cvti.contracts import VerificationResult
 from cvti.eval import prompt_fingerprint as fp
 from cvti.eval.golden import GoldenSet, GoldenSetWriter, score
+from cvti.verification import gate
 
 
 def _candidate(rule="shoplifting"):
@@ -57,6 +58,14 @@ class FingerprintTest(unittest.TestCase):
 
     def test_it_is_stable_across_calls(self):
         self.assertEqual(fp.fingerprint(), fp.fingerprint())
+
+    def test_versioned_concealment_questions_reject_normal_actions(self):
+        policy = (
+            "Reject normal browsing, phone handling, clothing adjustment, openly carried "
+            "goods, and placement into a trolley or shopping basket."
+        )
+        self.assertIn(policy, gate._QUESTIONS["shoplifting"])
+        self.assertIn(policy, gate.SENSITIVITY_QUESTIONS["strict"]["shoplifting"])
 
 
 class GoldenSetTest(unittest.TestCase):
