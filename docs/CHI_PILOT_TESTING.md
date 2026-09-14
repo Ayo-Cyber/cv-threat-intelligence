@@ -1256,3 +1256,22 @@ The retained score reports `object_match_recall`, `false_match_count`,
 `event_recall_by_state`, `event_precision_by_state`, duplicate candidates,
 duplicate persisted alerts, detection delays, gate-status counts, and SHA-256
 hashes of all scoring inputs.
+
+### KPI 3 Local Model Bakeoff
+
+Use the same frozen manifest for every provider so latency and proposal quality
+are comparable. The CI-safe provider is `generic-yolo-embeddings`; optional
+providers (`yolo-world`, `yoloe`, and `grounding-dino-offline`) must report
+`status=unavailable` when local dependencies or weights are missing, not a fake
+accuracy failure.
+
+```bash
+PYTHONPATH=. ./.venv/bin/python tools/object_model_bakeoff.py \
+  --manifest data/chi_objects/manifest.json \
+  --provider generic-yolo-embeddings \
+  --output-dir runs/eval/object_watch
+```
+
+Every output records `schema_version`, provider, manifest digest, model
+versions, median and p95 latency, optional peak memory, and per-case rows.
+Do not compare providers unless their `manifest_digest` values are identical.
