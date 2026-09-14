@@ -17,6 +17,7 @@ from cvti.object_watch.embeddings import (
     embed_examples,
     load_embedding_backend,
 )
+from cvti.object_watch.matcher import ObjectCandidate, ObjectMatch, ObjectMatcher
 
 __all__ = [
     "EmbeddingRecord",
@@ -32,4 +33,7 @@ __all__ = [
     "HashEmbeddingBackend",
     "embed_examples",
     "load_embedding_backend",
+    "ObjectCandidate",
+    "ObjectMatch",
+    "ObjectMatcher",
 ]
