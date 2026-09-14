@@ -191,6 +191,40 @@ def simultaneous_movement_to_event(event: dict, timestamp: float = 0.0) -> RawEv
     )
 
 
+def object_observations_to_events(events: list[Any], timestamp: float = 0.0) -> list[RawEvent]:
+    """Bridge object-watch state transitions into RawEvents."""
+    raw_events: list[RawEvent] = []
+    for event in events:
+        event_timestamp = float(getattr(event, "timestamp", timestamp))
+        state = str(getattr(event, "state", ""))
+        object_label = getattr(event, "object_label", None)
+        title_label = str(object_label or "WATCHED OBJECT").upper()
+        zone = getattr(event, "zone_id", None)
+        title = f"{title_label} {state.replace('_', ' ').upper()}"
+        raw_events.append(
+            RawEvent(
+                detector="object_watch",
+                active=True,
+                title=title,
+                level="medium",
+                state=state,
+                object_label=object_label,
+                timestamp=event_timestamp,
+                extra={
+                    "object_id": getattr(event, "object_id", None),
+                    "object_category": getattr(event, "category", None),
+                    "zone": zone,
+                    "track_id": getattr(event, "track_id", None),
+                    "bbox": getattr(event, "bbox", None),
+                    "similarity": float(getattr(event, "similarity", 0.0)),
+                    "dwell_seconds": float(getattr(event, "dwell_seconds", 0.0)),
+                    "reasons": deepcopy(getattr(event, "reasons", ()) or ()),
+                },
+            )
+        )
+    return raw_events
+
+
 def assessments_to_events(
     object_assessment: ThreatAssessment | None,
     violence_assessment: ThreatAssessment | None,
