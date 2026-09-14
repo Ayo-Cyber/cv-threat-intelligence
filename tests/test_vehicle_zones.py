@@ -69,6 +69,44 @@ def test_vehicle_entry_then_exit_fires_the_right_events():
     assert "LEFT ZONE GATE" in exits[0].title
 
 
+def test_line_tripwire_directional_and_parked_immune():
+    # The strengthened entry/exit: a directional line, counted once per track.
+    # A vehicle crossing one way is an ENTRY, the other way an EXIT; a PARKED
+    # vehicle never crosses so it never fires (14 Sep: the polygon spammed on
+    # parked cars and missed passing traffic).
+    import supervision as sv
+    from cvti.serving.camera import PerCameraState
+    from cvti.rules.customization import CustomizationEngine
+
+    eng = CustomizationEngine.__new__(CustomizationEngine)  # no rules file needed
+    st = PerCameraState.__new__(PerCameraState)
+    st.vehicle_line = {"name": "gate", "start": [0.5, 0.0], "end": [0.5, 1.0], "normalized": True}
+    st._vehicle_line_zone = None
+
+    def cars(specs):  # specs: [(cx, tid)]
+        if not specs:
+            return sv.Detections.empty()
+        return sv.Detections(
+            xyxy=np.array([[cx - 30, 150, cx + 30, 220] for cx, _ in specs], float),
+            confidence=np.array([0.9] * len(specs)),
+            class_id=np.array([2] * len(specs)),
+            tracker_id=np.array([t for _, t in specs]))
+
+    ent = exi = 0
+    # track 1 crosses left -> right (entry); track 9 parked far left the whole time
+    for cx in (100, 260, 340, 500):
+        for e in st._vehicle_line_events(cars([(cx, 1), (80, 9)]), (360, 640), cx / 100.0):
+            ent += e.detector == "vehicle_entry"; exi += e.detector == "vehicle_exit"
+    assert ent == 1 and exi == 0, (ent, exi)
+    # track 2 crosses right -> left (exit)
+    for cx in (520, 340, 260, 100):
+        for e in st._vehicle_line_events(cars([(cx, 2), (80, 9)]), (360, 640), 10 + cx / 100.0):
+            ent += e.detector == "vehicle_entry"; exi += e.detector == "vehicle_exit"
+    assert exi == 1, exi
+    # the parked car (id 9) never crossed -> contributed nothing
+    assert ent == 1, "parked car must not create an entry"
+
+
 def test_two_vehicles_each_get_their_own_entry():
     mon = RetailZoneMonitor([_gate_zone()], dwell_grace_seconds=1.0)
     dets = sv.Detections(
