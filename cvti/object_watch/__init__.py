@@ -18,6 +18,7 @@ from cvti.object_watch.embeddings import (
     load_embedding_backend,
 )
 from cvti.object_watch.matcher import ObjectCandidate, ObjectMatch, ObjectMatcher
+from cvti.object_watch.tracker import ObjectStateEvent, ObjectStateTracker
 
 __all__ = [
     "EmbeddingRecord",
@@ -36,4 +37,6 @@ __all__ = [
     "ObjectCandidate",
     "ObjectMatch",
     "ObjectMatcher",
+    "ObjectStateEvent",
+    "ObjectStateTracker",
 ]
