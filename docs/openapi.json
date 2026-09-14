@@ -386,6 +386,50 @@
     }
    }
   },
+  "/api/v1/cameras/presets": {
+   "get": {
+    "summary": "Get /Cameras/Presets (Presets)",
+    "operationId": "GET__cameras_presets__presets__api_v1_cameras_presets_get",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/cameras/{camera_id}": {
    "get": {
     "summary": "Camera",
@@ -710,6 +754,16 @@
       "schema": {
        "type": "string",
        "title": "Camera Id"
+      }
+     },
+     {
+      "name": "tracking",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Tracking"
       }
      },
      {
@@ -1655,50 +1709,6 @@
     }
    }
   },
-  "/api/v1/cameras/presets": {
-   "get": {
-    "summary": "Get /Cameras/Presets (Presets)",
-    "operationId": "GET__cameras_presets__presets__api_v1_cameras_presets_get",
-    "parameters": [
-     {
-      "name": "authorization",
-      "in": "header",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "title": "Authorization"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {}
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
   "/api/v1/cameras/{camera_id}/snapshot": {
    "get": {
     "summary": "Get /Cameras/{Camera Id}/Snapshot (Camera Snapshot)",
@@ -2009,6 +2019,224 @@
    "put": {
     "summary": "Put /Cameras/{Camera Id}/Rules (Set Camera Rules)",
     "operationId": "PUT__cameras__camera_id__rules__set_camera_rules__api_v1_cameras__camera_id__rules_put",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/object-targets": {
+   "get": {
+    "summary": "Get /Object-Targets (Object Targets)",
+    "operationId": "GET__object_targets__object_targets__api_v1_object_targets_get",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Post /Object-Targets (Create Object Target)",
+    "operationId": "POST__object_targets__create_object_target__api_v1_object_targets_post",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/object-targets/reembed": {
+   "post": {
+    "summary": "Post /Object-Targets/Reembed (Reembed Object Targets)",
+    "operationId": "POST__object_targets_reembed__reembed_object_targets__api_v1_object_targets_reembed_post",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/object-targets/{object_id}/examples": {
+   "post": {
+    "summary": "Post /Object-Targets/{Object Id}/Examples (Add Object Example)",
+    "operationId": "POST__object_targets__object_id__examples__add_object_example__api_v1_object_targets__object_id__examples_post",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/object-targets/{object_id}/activate": {
+   "post": {
+    "summary": "Post /Object-Targets/{Object Id}/Activate (Activate Object Target)",
+    "operationId": "POST__object_targets__object_id__activate__activate_object_target__api_v1_object_targets__object_id__activate_post",
     "parameters": [
      {
       "name": "authorization",

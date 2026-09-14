@@ -13,6 +13,7 @@ Covers the two core operator flows:
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import sqlite3
 import subprocess
@@ -36,6 +37,7 @@ _REVIEW_VALUES = {"ack", "true", "false", "new"}
 # every run and respawn — on a 24/7 site it grew without bound, and the crash
 # loops that make it valuable are exactly what makes it grow fastest.
 MONITOR_LOG_CAP_BYTES = 5 * 1024 * 1024
+OBJECT_EXAMPLE_MAX_BYTES = 8 * 1024 * 1024
 
 
 def _rotate_monitor_log(path: Path, cap_bytes: int = MONITOR_LOG_CAP_BYTES) -> None:
@@ -430,7 +432,7 @@ class ConsoleBackend:
     # Must stay in sync with PerCameraState's flags in cvti/serving/camera.py.
     RULE_FLAGS = ("concealment", "video_action", "violence", "weapons", "theft", "tamper",
                   "fire_smoke", "running", "crowd_formation", "fall", "normal_movement",
-                  "multiple_people_moving")
+                  "multiple_people_moving", "object_watch")
 
     # Tuning params a detector needs to behave sensibly. Applied when it is first
     # switched on so a toggle "just works" without hand-editing the site config;
@@ -495,6 +497,7 @@ class ConsoleBackend:
         "running": {"measured": False}, "fall": {"measured": False},
         "normal_movement": {"measured": False},
         "multiple_people_moving": {"measured": False},
+        "object_watch": {"measured": False},
         "weapons": {"measured": False}, "violence": {"measured": False},
         "tamper": {"measured": False}, "theft": {"measured": False},
     }
@@ -666,6 +669,151 @@ class ConsoleBackend:
                 cam["config"] = rules["config"]
         onboarding.add_camera(self.site_path, cam)   # upsert by id
         return {"ok": True, "camera": cam}
+
+    # --- object watchlists -------------------------------------------------
+    def _object_library_root(self) -> Path:
+        """Site-local object library. Stored beside events.db, not in Git."""
+        return Path(self.db_path).parent
+
+    @staticmethod
+    def _redact_object_example(example) -> dict:
+        return {
+            "id": example.id,
+            "source": example.source,
+            "bbox": list(example.bbox),
+            "sha256": example.sha256,
+            "reviewed": bool(example.reviewed),
+        }
+
+    @classmethod
+    def _redact_object_target(cls, target) -> dict:
+        return {
+            "id": target.id,
+            "label": target.label,
+            "category": target.category,
+            "aliases": list(target.aliases),
+            "review_state": target.review_state,
+            "min_similarity": target.min_similarity,
+            "allowed_zone_ids": list(target.allowed_zone_ids),
+            "examples": [cls._redact_object_example(e) for e in target.examples],
+            "negative_examples": [
+                cls._redact_object_example(e) for e in target.negative_examples
+            ],
+        }
+
+    def object_targets(self) -> dict:
+        self._require(perms.VIEW_LIVE)
+        from cvti.object_watch.store import load_targets
+        targets = [
+            self._redact_object_target(target)
+            for target in load_targets(self._object_library_root())
+        ]
+        return {"targets": targets}
+
+    def create_object_target(self, target: dict) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.object_watch.store import ObjectTarget, save_target
+
+        saved = save_target(self._object_library_root(), ObjectTarget(
+            id=str(target.get("id", "")).strip(),
+            label=str(target.get("label", "")).strip(),
+            category=str(target.get("category", "")).strip(),
+            aliases=tuple(target.get("aliases") or ()),
+            review_state=str(target.get("review_state", "draft")).strip() or "draft",
+            min_similarity=float(target.get("min_similarity", 0.72)),
+            allowed_zone_ids=tuple(target.get("allowed_zone_ids") or ()),
+            examples=(),
+            negative_examples=(),
+        ))
+        self.audit.record(
+            self._actor(), "config_change", f"object_target:{saved.id}",
+            {"action": "create", "label": saved.label, "category": saved.category},
+        )
+        return {"target": self._redact_object_target(saved)}
+
+    @staticmethod
+    def _decode_example_image(image_b64: str) -> bytes:
+        raw = str(image_b64 or "")
+        if "," in raw and raw.split(",", 1)[0].startswith("data:"):
+            raw = raw.split(",", 1)[1]
+        try:
+            data = base64.b64decode(raw, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("image_b64 must be valid base64 image data") from exc
+        if not data or len(data) > OBJECT_EXAMPLE_MAX_BYTES:
+            raise ValueError("image is empty or exceeds the upload size limit")
+        if not (
+            data.startswith(b"\xff\xd8\xff")
+            or data.startswith(b"\x89PNG\r\n\x1a\n")
+            or data.startswith(b"RIFF") and data[8:12] == b"WEBP"
+        ):
+            raise ValueError("image_b64 must contain a JPEG, PNG, or WebP image")
+        return data
+
+    def add_object_example(
+        self,
+        object_id: str,
+        image_b64: str,
+        bbox: list[int],
+        source: str,
+    ) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.object_watch.store import add_example, load_targets
+
+        image_bytes = self._decode_example_image(image_b64)
+        example = add_example(
+            self._object_library_root(),
+            object_id,
+            image_bytes,
+            tuple(int(v) for v in bbox),
+            str(source or "upload"),
+        )
+        target = next(t for t in load_targets(self._object_library_root()) if t.id == object_id)
+        self.audit.record(
+            self._actor(), "config_change", f"object_target:{object_id}",
+            {"action": "add_example", "label": target.label,
+             "example_id": example.id, "sha256": example.sha256},
+        )
+        return {
+            "target": self._redact_object_target(target),
+            "example": self._redact_object_example(example),
+        }
+
+    def activate_object_target(self, object_id: str) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        from dataclasses import replace
+        from cvti.object_watch.store import load_targets, save_target
+
+        target = next(
+            (t for t in load_targets(self._object_library_root()) if t.id == object_id),
+            None,
+        )
+        if target is None:
+            raise ValueError(f"unknown object target: {object_id}")
+        saved = save_target(self._object_library_root(), replace(target, review_state="active"))
+        self.audit.record(
+            self._actor(), "config_change", f"object_target:{saved.id}",
+            {"action": "activate", "label": saved.label},
+        )
+        return {"target": self._redact_object_target(saved)}
+
+    def reembed_object_targets(self, model: str = "hash") -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.object_watch.embeddings import embed_examples, load_embedding_backend
+
+        backend = load_embedding_backend(model or "hash")
+        written = embed_examples(self._object_library_root(), backend)
+        self.audit.record(
+            self._actor(), "config_change", "object_targets",
+            {"action": "reembed", "model": backend.name,
+             "model_fingerprint": backend.fingerprint, "written": written},
+        )
+        return {
+            "ok": True,
+            "written": written,
+            "model": backend.name,
+            "model_fingerprint": backend.fingerprint,
+        }
 
     # --- zones (draw in-app -> geometry + a loitering rule the engine runs) ---
     def camera_snapshot(self, camera_id: str) -> dict:

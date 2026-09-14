@@ -113,7 +113,10 @@ def load_embedding_backend(name: str = "hash") -> EmbeddingBackend:
 
 
 def _example_bytes(root: str | Path, relative_path: str) -> bytes:
-    path = Path(root) / "object_library" / relative_path
+    library = Path(root)
+    if library.name != "object_library":
+        library = library / "object_library"
+    path = library / relative_path
     try:
         return path.read_bytes()
     except OSError as exc:
