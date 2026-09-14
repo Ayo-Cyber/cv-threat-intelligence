@@ -1359,6 +1359,56 @@ dd {
   display: block;
   margin-top: 6px;
 }
+.object-target-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.object-target-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+  background: var(--panel);
+}
+.object-target-card > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+.object-target-card small,
+.object-target-card p {
+  color: var(--muted);
+}
+.object-enroll-form,
+.object-example-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+.object-example-actions {
+  margin-top: 14px;
+}
+.file-button {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.file-button input {
+  display: none;
+}
+.empty-inline {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+}
 .setup-layout {
   display: grid;
   grid-template-columns: 185px minmax(0, 660px);

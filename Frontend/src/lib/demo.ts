@@ -5,6 +5,7 @@ import type {
   Hierarchy,
   Incident,
   Json,
+  ObjectTarget,
   Organization,
   Scene,
   Transport,
@@ -32,6 +33,27 @@ const MUTATING_METHODS = new Set([
   "apply_template",
   "reset_demo",
 ]);
+const demoObjectTargets = (): ObjectTarget[] => [
+  {
+    id: "chi-carton-demo",
+    label: "Chi carton demo",
+    category: "product",
+    aliases: ["milk carton", "chi product"],
+    review_state: "active",
+    min_similarity: 0.72,
+    allowed_zone_ids: ["storage", "loading_bay"],
+    examples: [
+      {
+        id: "sample-upload",
+        source: "fixture",
+        bbox: [0, 0, 640, 480],
+        sha256: "demo-fixture",
+        reviewed: true,
+      },
+    ],
+    negative_examples: [],
+  },
+];
 interface DemoState {
   organization: Organization;
   branches: Omit<Branch, "areas">[];
@@ -351,6 +373,16 @@ export function createDemo(
         case "set_camera_rules":
           if (cam) Object.assign(cam, a);
           break;
+        case "object_targets":
+          result = { targets: demoObjectTargets(), demo: true };
+          break;
+        case "create_object_target":
+        case "add_object_example":
+        case "activate_object_target":
+        case "reembed_object_targets":
+          throw new Error(
+            "Object watchlist enrollment requires the local engine. Demo targets are fixture-backed.",
+          );
         case "add_custom_rule":
           if (cam) {
             cam.custom_rules = [
