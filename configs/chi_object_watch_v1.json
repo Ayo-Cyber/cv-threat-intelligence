@@ -1,0 +1,23 @@
+{
+  "use_case_id": "chi_object_watch_v1",
+  "rules": [
+    {
+      "name": "chi_product_removed_from_storage",
+      "trigger": {"detector": "object_watch", "state": "object_removed"},
+      "context_filter": "object_category == 'product' and zone == 'storage'",
+      "priority": "high"
+    },
+    {
+      "name": "chi_product_loaded_near_truck",
+      "trigger": {"detector": "object_watch", "state": "object_loaded_near_vehicle"},
+      "context_filter": "object_category == 'product' and zone == 'loading_bay'",
+      "priority": "high"
+    },
+    {
+      "name": "chi_product_left_in_walkway",
+      "trigger": {"detector": "object_watch", "state": "object_left_behind"},
+      "context_filter": "object_category == 'product' and zone == 'walkway' and dwell_seconds >= 120",
+      "priority": "medium"
+    }
+  ]
+}

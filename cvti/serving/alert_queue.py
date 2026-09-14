@@ -85,11 +85,13 @@ class AlertQueue:
                 log.error("candidate generation audit failed", exc_info=True)
         if audit_token is not None and isinstance(alert.payload, dict):
             candidate = alert.payload.get("candidate")
-            audit_key = (
-                "motion_candidate_audit_id"
-                if getattr(candidate, "detector", None) == "multiple_people_moving"
-                else "concealment_audit_id"
-            )
+            detector = getattr(candidate, "detector", None)
+            if detector == "multiple_people_moving":
+                audit_key = "motion_candidate_audit_id"
+            elif detector == "object_watch":
+                audit_key = "object_watch_audit_id"
+            else:
+                audit_key = "concealment_audit_id"
             alert.payload[audit_key] = audit_token
 
         # The same (camera, rule, track, zone, object) should not re-fire every
