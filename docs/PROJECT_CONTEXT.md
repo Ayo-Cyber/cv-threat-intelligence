@@ -2,11 +2,13 @@
 
 ## Chi KPI 3 Object Watchlists - 2026-09-14
 
-The object-watchlist implementation is in progress on
-`feat/chi-object-watchlists-v1`. Completed checkpoints now cover local object
+Object Watchlists V1 is implemented on `feat/chi-object-watchlists-v1` as
+local-first candidate generation, embedding matching, state tracking, audit
+lifecycle capture, and event-only TrueSight verification. Completed checkpoints
+cover local object
 target storage, deterministic/local embedding seams, candidate matching,
 object-state tracking, serving/audit integration, API enrollment, frontend
-enrollment/status UI, and the first KPI 3 scorer.
+enrollment/status UI, KPI 3 scoring, and a local model bakeoff harness.
 
 Current object-watch boundaries remain important:
 
@@ -31,12 +33,23 @@ explicit visible misses, unknown audit cases, false object-event matches,
 duplicate candidates, duplicate persisted alerts, detection delay, gate status
 counts, and retained input hashes.
 
-Fresh verification for this checkpoint: `tests/test_score_chi_objects.py` passed
-`4` tests. Frontend Task 7 verification passed `122` Vitest tests and the
-production build. The full Playwright UI file still has the documented local
-baseline issue: `19 passed, 2 failed` because ignored demo media/snapshots are
-absent in this checkout, while the object-watch operator Settings assertion
-passes in isolation.
+`tools/object_model_bakeoff.py` records manifest digests, local-provider
+latency, optional peak memory, and structured `unavailable` results for
+open-vocabulary providers whose dependencies or weights are not installed.
+Do not compare model providers unless the result files have the same manifest
+digest.
+
+Fresh verification for this checkpoint:
+
+- focused object-watch backend: `38 passed, 14 warnings`;
+- touched backend regression slice: `200 passed, 14 warnings`;
+- frontend Vitest: `122 passed`;
+- frontend production build: passed;
+- prompt check: passed, with object-watch prompt metrics explicitly
+  **UNMEASURED** because the frozen corpus is unavailable;
+- focused Playwright object-watch Settings assertion: `1 passed`;
+- full Playwright UI file: `19 passed, 2 failed`, matching the documented local
+  baseline issue where ignored demo media/snapshots are absent in this checkout.
 
 ## Combined Final Fix Wave - 2026-09-13
 
