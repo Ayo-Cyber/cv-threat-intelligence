@@ -22,7 +22,10 @@ CAMERA = ROOT / "cvti" / "serving" / "camera.py"
 
 # Emitted through adapters/assessments rather than a literal detector="..." in
 # camera.py, and covered by the retail presets rather than the safety baseline.
-NON_BASELINE = {"presence", "concealment", "video_action", "theft"}
+# vehicle_entry/exit are config-driven too — a camera's own vehicle_line /
+# vehicle_zones rules listen for them, not the safety baseline (like presence).
+NON_BASELINE = {"presence", "concealment", "video_action", "theft",
+                "vehicle_entry", "vehicle_exit", "vehicle_presence"}
 
 
 def _baseline_detectors() -> set[str]:
