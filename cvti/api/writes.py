@@ -193,6 +193,18 @@ ROUTES: list[R] = [
     # --- rules ---
     R("set_camera_rules", "PUT", "/cameras/{camera_id}/rules",
       path_map={"camera_id": "camera_id"}, body={"rules": "rules"}),
+    # --- object watchlists ---
+    R("object_targets", "GET", "/object-targets"),
+    R("create_object_target", "POST", "/object-targets",
+      body={"target": "target"}, status=201),
+    R("reembed_object_targets", "POST", "/object-targets/reembed",
+      body={"model": "model"}),
+    R("add_object_example", "POST", "/object-targets/{object_id}/examples",
+      path_map={"object_id": "object_id"},
+      body={"image_b64": "image_b64", "bbox": "bbox", "source": "source"},
+      status=201),
+    R("activate_object_target", "POST", "/object-targets/{object_id}/activate",
+      path_map={"object_id": "object_id"}),
     R("add_custom_rule", "POST", "/cameras/{camera_id}/rules/custom",
       path_map={"camera_id": "camera_id"},
       body={"question": "question", "dwell": "dwell"}, status=201),

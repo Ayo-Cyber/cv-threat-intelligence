@@ -125,6 +125,24 @@ when the go2rtc gateway is up, else `{kind: "mjpeg", url}`. Players switch on
 | `remove_custom_rule` | `DELETE /cameras/{id}/rules/custom/{name}` | configure_detectors | shipped |
 | `english_rules_status` | `GET /rules/english/status` | view_live | shipped |
 
+### Object watchlists
+
+| Bridge method | Endpoint | Permission | Status |
+|---|---|---|---|
+| `object_targets` | `GET /object-targets` | view_live | shipped |
+| `create_object_target` | `POST /object-targets` (body: `{target: {id, label, category, aliases?, allowed_zone_ids?, min_similarity?}}`) | configure_cameras | shipped |
+| `add_object_example` | `POST /object-targets/{id}/examples` (body: `{image_b64, bbox, source}`) | configure_cameras | shipped |
+| `activate_object_target` | `POST /object-targets/{id}/activate` | configure_cameras | shipped |
+| `reembed_object_targets` | `POST /object-targets/reembed` (body: `{model}`; default `hash`) | configure_cameras | shipped |
+
+Object-watch enrollment is local-only. Uploaded examples are stored in the
+site-local object library and embedded by the configured local backend; the API
+does not download model weights or call cloud inference. Reads return redacted
+targets: example IDs, bounding boxes, review flags, and crop hashes are visible,
+but local crop paths and raw image bytes are not returned. Activation requires at
+least one reviewed positive example, and re-embedding reports the model
+fingerprint so stale embeddings can be detected.
+
 ### Scene understanding
 
 | Bridge method | Endpoint | Permission | Status |
