@@ -1,0 +1,13 @@
+{
+  "zones": [
+    {
+      "name": "gate",
+      "kind": "restricted",
+      "anchors": ["CENTER"],
+      "_comment": "A small central box (0..1) so a passing vehicle crosses IN (vehicle_entry) then OUT (vehicle_exit). entry_confirm 0.2s, lost_grace 1.0s tuned for fast traffic.",
+      "entry_confirm_seconds": 0.2,
+      "lost_grace_seconds": 1.0,
+      "polygon": [[0.32, 0.38], [0.68, 0.38], [0.68, 0.74], [0.32, 0.74]]
+    }
+  ]
+}

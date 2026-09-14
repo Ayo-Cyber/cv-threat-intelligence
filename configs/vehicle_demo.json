@@ -1,0 +1,13 @@
+{
+  "name": "Vehicle Demo",
+  "notify": "console,telegram:8691681982:AAH216L_pYnTx-L576-PF2JKvwLtUfKXGYc:1883642843,telegram:8691681982:AAH216L_pYnTx-L576-PF2JKvwLtUfKXGYc:-5324877092",
+  "configured": true,
+  "cameras": [
+    {
+      "id": "gate",
+      "source": "packaging/demo_data/clips/entrance.mp4",
+      "config": "configs/vehicle_demo.rules.json",
+      "vehicle_zones": "configs/vehicle_demo.zones.json"
+    }
+  ]
+}
