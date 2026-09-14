@@ -1,5 +1,43 @@
 # Project Context
 
+## Chi KPI 3 Object Watchlists - 2026-09-14
+
+The object-watchlist implementation is in progress on
+`feat/chi-object-watchlists-v1`. Completed checkpoints now cover local object
+target storage, deterministic/local embedding seams, candidate matching,
+object-state tracking, serving/audit integration, API enrollment, frontend
+enrollment/status UI, and the first KPI 3 scorer.
+
+Current object-watch boundaries remain important:
+
+- inference and enrollment are local-first; no production cloud inference is
+  used for object watchlists;
+- this is not face/person identity recognition;
+- this is not SKU-level inventory counting;
+- TrueSight verifies rule-relevant object events only, not continuous object
+  detection; and
+- prompt and KPI 3 accuracy remain **unmeasured** until the controlled Chi
+  object matrix is recorded and scored.
+
+The frontend exposes object target create/upload/activate/re-embed operations
+in Settings, with mutation controls hidden from operators. Demo mode shows
+fixture-backed targets and states that no local inference is running.
+
+The KPI 3 workflow in `docs/CHI_PILOT_TESTING.md` now defines the object
+recording matrix (`OBJ-P01` through `OBJ-P05`, `OBJ-N01` through `OBJ-N03`),
+strict label/observation/audit schemas, and the
+`tools/score_chi_objects.py` command. The scorer validates half-open intervals,
+explicit visible misses, unknown audit cases, false object-event matches,
+duplicate candidates, duplicate persisted alerts, detection delay, gate status
+counts, and retained input hashes.
+
+Fresh verification for this checkpoint: `tests/test_score_chi_objects.py` passed
+`4` tests. Frontend Task 7 verification passed `122` Vitest tests and the
+production build. The full Playwright UI file still has the documented local
+baseline issue: `19 passed, 2 failed` because ignored demo media/snapshots are
+absent in this checkout, while the object-watch operator Settings assertion
+passes in isolation.
+
 ## Combined Final Fix Wave - 2026-09-13
 
 The four Important final-review blockers are addressed in the current branch:
