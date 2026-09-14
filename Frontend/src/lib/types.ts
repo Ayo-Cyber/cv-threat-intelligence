@@ -69,6 +69,29 @@ export interface Incident {
   title?: string;
   triage_state?: string;
 }
+export interface ObjectExample {
+  id: string;
+  source: string;
+  bbox: [number, number, number, number];
+  sha256: string;
+  reviewed: boolean;
+}
+export interface ObjectTarget {
+  id: string;
+  label: string;
+  category: string;
+  aliases: string[];
+  review_state: "draft" | "active" | "degraded" | string;
+  min_similarity: number;
+  allowed_zone_ids: string[];
+  examples: ObjectExample[];
+  negative_examples: ObjectExample[];
+  needs_reembed?: boolean;
+  degraded_unavailable?: boolean;
+}
+export interface ObjectWatchStatus {
+  targets: ObjectTarget[];
+}
 export interface Auth {
   configured: boolean;
   signed_in: boolean;
@@ -143,6 +166,12 @@ export const DETECTORS = [
     name: "Zone theft",
     group: "Security",
     detail: "Zone-based object interactions",
+  },
+  {
+    key: "object_watch",
+    name: "Object watchlists",
+    group: "Security",
+    detail: "Recognise enrolled Chi products and watched objects",
   },
   {
     key: "tamper",

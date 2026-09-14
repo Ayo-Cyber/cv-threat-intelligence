@@ -256,6 +256,81 @@ describe("ArgusApiClient", () => {
     ]);
   });
 
+  it("maps object watchlist operations to documented endpoints", async () => {
+    const net = fetchSequence([
+      response({
+        token: "t",
+        user: { username: "a", role: "owner", permissions: [] },
+      }),
+      response({ target: { id: "chi-carton", label: "Chi carton" } }, 201),
+      response({ target: { id: "chi-carton" }, example: { id: "ex-1" } }, 201),
+      response({ target: { id: "chi-carton", review_state: "active" } }),
+      response({ ok: true, written: 1, model: "hash" }),
+      response({ targets: [{ id: "chi-carton" }] }),
+    ]);
+    const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
+      fetch: net.fetch,
+    });
+    await client.invoke("sign_in", ["a", "pw"]);
+
+    await client.invoke("create_object_target", [
+      {
+        id: "chi-carton",
+        label: "Chi carton",
+        category: "product",
+      },
+    ]);
+    await client.invoke("add_object_example", [
+      "chi-carton",
+      "data:image/png;base64,AA==",
+      [0, 0, 640, 480],
+      "upload",
+    ]);
+    await client.invoke("activate_object_target", ["chi-carton"]);
+    await client.invoke("reembed_object_targets", ["hash"]);
+    await client.invoke("object_targets");
+
+    expect(
+      net.calls.slice(1).map((call) => [
+        call.url,
+        call.init.method,
+        call.init.body,
+      ]),
+    ).toEqual([
+      [
+        "http://127.0.0.1:8787/api/v1/object-targets",
+        "POST",
+        JSON.stringify({
+          target: {
+            id: "chi-carton",
+            label: "Chi carton",
+            category: "product",
+          },
+        }),
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/object-targets/chi-carton/examples",
+        "POST",
+        JSON.stringify({
+          image_b64: "data:image/png;base64,AA==",
+          bbox: [0, 0, 640, 480],
+          source: "upload",
+        }),
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/object-targets/chi-carton/activate",
+        "POST",
+        undefined,
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/object-targets/reembed",
+        "POST",
+        JSON.stringify({ model: "hash" }),
+      ],
+      ["http://127.0.0.1:8787/api/v1/object-targets", "GET", undefined],
+    ]);
+  });
+
   it("hydrates subscribers and reconnects with capped exponential delays", async () => {
     vi.useFakeTimers();
     const net = fetchSequence([

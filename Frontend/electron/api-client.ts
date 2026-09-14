@@ -183,6 +183,26 @@ const operations: Record<string, Operation> = {
     path: item("/cameras", "/rules"),
     body: ([, rules]) => ({ rules }),
   },
+  object_targets: { method: "GET", path: fixed("/object-targets") },
+  create_object_target: {
+    method: "POST",
+    path: fixed("/object-targets"),
+    body: ([target]) => ({ target }),
+  },
+  add_object_example: {
+    method: "POST",
+    path: item("/object-targets", "/examples"),
+    body: ([, image_b64, bbox, source]) => ({ image_b64, bbox, source }),
+  },
+  activate_object_target: {
+    method: "POST",
+    path: item("/object-targets", "/activate"),
+  },
+  reembed_object_targets: {
+    method: "POST",
+    path: fixed("/object-targets/reembed"),
+    body: ([model]) => ({ model }),
+  },
   presets: { method: "GET", path: fixed("/cameras/presets") },
   use_case_templates: { method: "GET", path: fixed("/site/templates") },
   apply_template: {

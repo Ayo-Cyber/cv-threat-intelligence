@@ -11,6 +11,7 @@ import type {
 import { UsersPanel } from "./AccountAccess";
 import { Badge, Notice, Spinner } from "./common";
 import LocationManager from "./LocationManager";
+import ObjectWatchlistManager from "./ObjectWatchlistManager";
 export default function SettingsPanel({
   api,
   mode,
@@ -73,6 +74,15 @@ export default function SettingsPanel({
         api={api}
         mode={mode}
         auth={auth}
+        hierarchy={hierarchy}
+        cameras={cameras}
+        onChange={onChange}
+        notify={notify}
+      />
+      <ObjectWatchlistManager
+        transport={api}
+        mode={mode}
+        authState={auth}
         hierarchy={hierarchy}
         cameras={cameras}
         onChange={onChange}
