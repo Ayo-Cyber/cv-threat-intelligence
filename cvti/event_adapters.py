@@ -213,6 +213,7 @@ def object_observations_to_events(events: list[Any], timestamp: float = 0.0) -> 
                 extra={
                     "object_id": getattr(event, "object_id", None),
                     "object_category": getattr(event, "category", None),
+                    "state": state,
                     "zone": zone,
                     "track_id": getattr(event, "track_id", None),
                     "bbox": getattr(event, "bbox", None),

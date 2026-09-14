@@ -160,6 +160,7 @@ class PerCameraState:
     crowd_formation: bool = False     # tight group formation
     normal_movement: bool = False     # telemetry-only moving-person state
     multiple_people_moving: bool = False
+    object_watch: bool = False
     running_min_speed_ratio: float = 0.18
     running_min_frames: int = 3
     crowd_min_people: int = 4
@@ -173,6 +174,11 @@ class PerCameraState:
     movement_min_people: int = 2
     movement_persistence_seconds: float = 0.5
     permitted_movement_zones: tuple[str, ...] | None = None
+    object_watch_library: str | None = None
+    object_watch_sample_fps: float = 1.0
+    object_watch_max_candidates_per_frame: int = 24
+    object_watch_min_similarity: float | None = None
+    object_watch_open_vocab_provider: str = "disabled"
     video_action: bool = False
     video_action_model: Any = None    # shared VideoMAEActionModel instance
     # Shared AsyncVideoActionRunner (one worker thread per site). When set,
@@ -225,6 +231,10 @@ class PerCameraState:
     _crowd_det: Any = field(default=None, init=False, repr=False)
     _motion_tracker: Any = field(default=None, init=False, repr=False)
     _simultaneous_movement_det: Any = field(default=None, init=False, repr=False)
+    _object_matcher: Any = field(default=None, init=False, repr=False)
+    _object_state_tracker: Any = field(default=None, init=False, repr=False)
+    _next_object_watch_sample_ts: float = field(default=-1.0, init=False, repr=False)
+    object_watch_skipped_over_budget: int = field(default=0, init=False)
     _motion_overlays: list[dict] = field(default_factory=list, init=False, repr=False)
     context_decisions: list[dict] = field(default_factory=list, init=False)
     context_suppression_count: int = field(default=0, init=False)
@@ -293,6 +303,19 @@ class PerCameraState:
                 min_people=self.movement_min_people,
                 persistence_seconds=self.movement_persistence_seconds,
             )
+        if self.object_watch:
+            from cvti.object_watch.embeddings import load_embedding_backend
+            from cvti.object_watch.matcher import ObjectMatcher
+            from cvti.object_watch.tracker import ObjectStateTracker
+
+            backend = load_embedding_backend("hash")
+            root = self.object_watch_library or "."
+            self._object_matcher = ObjectMatcher(
+                root,
+                backend,
+                max_candidates_per_frame=self.object_watch_max_candidates_per_frame,
+            )
+            self._object_state_tracker = ObjectStateTracker()
 
     def _movement_zone_allows(self, zone_names: tuple[str, ...]) -> bool:
         if self.permitted_movement_zones is None:
@@ -458,7 +481,54 @@ class PerCameraState:
                     person_id=tid, object_label="vehicle", timestamp=timestamp,
                     extra={"zone": name, "via": "line"}))
         return out
+    def _object_watch_due(self, timestamp: float) -> bool:
+        if self._next_object_watch_sample_ts < 0:
+            self._next_object_watch_sample_ts = timestamp + (1.0 / self.object_watch_sample_fps)
+            return True
+        if timestamp + 1e-9 < self._next_object_watch_sample_ts:
+            return False
+        self._next_object_watch_sample_ts = timestamp + (1.0 / self.object_watch_sample_fps)
+        return True
 
+    def _object_candidates(
+        self,
+        object_detections: list | None,
+        frame_hw: tuple[int, int],
+    ) -> list:
+        from cvti.object_watch.matcher import ObjectCandidate
+
+        candidates = []
+        for detection in object_detections or []:
+            label = str(getattr(detection, "label", "") or "")
+            if label.lower() == "person":
+                continue
+            bbox = tuple(int(v) for v in getattr(detection, "bbox", ()))
+            if len(bbox) != 4:
+                continue
+            candidates.append(ObjectCandidate(
+                bbox=bbox,
+                label_hint=label,
+                confidence=float(getattr(detection, "confidence", 0.0) or 0.0),
+                track_id=getattr(detection, "track_id", None),
+                zone_id=self._zone_for_bbox(bbox, frame_hw),
+            ))
+        return candidates
+
+    def _zone_for_bbox(self, bbox: tuple[int, int, int, int],
+                       frame_hw: tuple[int, int]) -> str | None:
+        if self.zone_monitor is None:
+            return None
+        try:
+            import cv2
+            self.zone_monitor._fit_to_frame(frame_hw)
+            x1, y1, x2, y2 = bbox
+            point = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+            for spec in self.zone_monitor.zones:
+                if cv2.pointPolygonTest(spec.polygon, point, False) >= 0:
+                    return spec.name
+        except Exception:  # noqa: BLE001 - zone hinting must not block object matching
+            return None
+        return None
     def process(self, detections: Any, image: Any, timestamp: float,
                 object_detections: list | None = None) -> list[QueuedAlert]:
         """Track + run all enabled signals (zones, concealment, violence, weapons,
@@ -706,6 +776,32 @@ class PerCameraState:
             # disk with its own traceback. The counter carries the true scale.
             self._health.failed(exc, log, "processing a frame")
 
+        if self.object_watch and self._object_matcher is not None \
+                and self._object_state_tracker is not None \
+                and self._object_watch_due(timestamp):
+            try:
+                from cvti.event_adapters import object_observations_to_events
+                candidates = self._object_candidates(object_detections, frame_hw)
+                vehicle_boxes = [
+                    tuple(int(v) for v in getattr(detection, "bbox", ()))
+                    for detection in object_detections or []
+                    if str(getattr(detection, "label", "") or "").lower()
+                    in {"car", "truck", "bus", "vehicle", "van", "lorry"}
+                    and len(tuple(getattr(detection, "bbox", ()))) == 4
+                ]
+                matches = self._object_matcher.match(
+                    self.camera_id, image, candidates, timestamp
+                )
+                self.object_watch_skipped_over_budget += int(
+                    self._object_matcher.last_stats.get("skipped_over_budget", 0)
+                )
+                raw_events += object_observations_to_events(
+                    self._object_state_tracker.update(matches, timestamp, vehicle_boxes),
+                    timestamp,
+                )
+            except Exception as exc:  # noqa: BLE001 - object watch is optional
+                self._health.failed(exc, log, "processing object watch")
+
         if not raw_events:
             return []
 
@@ -738,7 +834,11 @@ class PerCameraState:
         for a in alerts:
             # Zone is only meaningful for presence (zone) alerts; for other
             # detectors leave it None so the dedup key isn't polluted.
-            zone = zone_by_pid.get(a.person_id) if a.detector == "presence" else None
+            zone = (
+                a.metadata.get("zone")
+                if a.detector == "object_watch"
+                else zone_by_pid.get(a.person_id) if a.detector == "presence" else None
+            )
             frames, _ = select_evidence_frames(recent, a.rule_name)
             # Whole-frame detectors (video-action, fire) carry no person_id, so an
             # alert would arrive with nothing to point at. If exactly one person is
@@ -750,6 +850,8 @@ class PerCameraState:
             boxes = getattr(self, "_box_by_track", {}) or {}
             bbox = (a.metadata.get("group_bbox")
                     if a.detector == "multiple_people_moving" else None)
+            if bbox is None and a.detector == "object_watch":
+                bbox = a.metadata.get("bbox")
             if bbox is None:
                 bbox = boxes.get(a.person_id)
             if bbox is None and boxes:
@@ -777,7 +879,8 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                         scene_contexts: dict[str, dict] | None = None,
                         monitoring_scopes: dict[str, str] | None = None,
                         reviewed_camera_ids: set | None = None,
-                        imgsz: int = 640) -> dict[str, dict]:
+                        imgsz: int = 640,
+                        output_dir: str | Path | None = None) -> dict[str, dict]:
     """Parse a site config into {camera_id: {"source": ..., "state": PerCameraState}}.
 
     Site config per-camera keys: id, source, config, plus optional zones,
@@ -794,7 +897,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
         detector_flags = (
             "concealment", "violence", "weapons", "theft", "tamper", "fall",
             "fire_smoke", "running", "crowd_formation", "normal_movement",
-            "multiple_people_moving", "video_action",
+            "multiple_people_moving", "video_action", "object_watch",
         )
         for flag in detector_flags:
             if flag in cam and not isinstance(cam[flag], bool):
@@ -849,6 +952,34 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
             raise ValueError(f"camera {cam_id}: movement_min_people must be at least 2")
         if movement_persistence <= 0:
             raise ValueError(f"camera {cam_id}: movement_persistence_seconds must be positive")
+        for field_name in ("object_watch_sample_fps", "object_watch_min_similarity"):
+            if isinstance(cam.get(field_name), bool):
+                raise ValueError(f"camera {cam_id}: {field_name} must be a number, not boolean")
+        max_candidates_raw = cam.get("object_watch_max_candidates_per_frame", 24)
+        if isinstance(max_candidates_raw, bool):
+            raise ValueError(
+                f"camera {cam_id}: object_watch_max_candidates_per_frame must be an integer"
+            )
+        try:
+            object_watch_sample_fps = float(cam.get("object_watch_sample_fps", 1.0))
+            object_watch_min_similarity = (
+                None if cam.get("object_watch_min_similarity") is None
+                else float(cam.get("object_watch_min_similarity"))
+            )
+            max_candidates_number = float(max_candidates_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"camera {cam_id}: invalid object watch configuration: {exc}") from exc
+        if not isfinite(object_watch_sample_fps) or object_watch_sample_fps <= 0:
+            raise ValueError(f"camera {cam_id}: object_watch_sample_fps must be positive")
+        if not isfinite(max_candidates_number) or not max_candidates_number.is_integer() \
+                or max_candidates_number < 1:
+            raise ValueError(
+                f"camera {cam_id}: object_watch_max_candidates_per_frame must be a positive integer"
+            )
+        if object_watch_min_similarity is not None and (
+            not isfinite(object_watch_min_similarity) or not 0.0 <= object_watch_min_similarity <= 1.0
+        ):
+            raise ValueError(f"camera {cam_id}: object_watch_min_similarity must be between 0 and 1")
         permitted_raw = cam.get("permitted_movement_zones")
         permitted_zones: tuple[str, ...] | None = None
         if permitted_raw is not None:
@@ -934,6 +1065,16 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 movement_min_people=movement_min_people,
                 movement_persistence_seconds=movement_persistence,
                 permitted_movement_zones=permitted_zones,
+                object_watch=cam.get("object_watch", False),
+                object_watch_library=cam.get("object_watch_library") or (
+                    str(Path(output_dir) / "object_library") if output_dir else None
+                ),
+                object_watch_sample_fps=object_watch_sample_fps,
+                object_watch_max_candidates_per_frame=int(max_candidates_number),
+                object_watch_min_similarity=object_watch_min_similarity,
+                object_watch_open_vocab_provider=str(
+                    cam.get("object_watch_open_vocab_provider", "disabled")
+                ),
                 video_action=cam.get("video_action", False),
                 zone_min_person_area_ratio=cam.get("zone_min_person_area_ratio"),
             ),

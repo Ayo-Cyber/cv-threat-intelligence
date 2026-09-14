@@ -351,6 +351,32 @@ class ThePromptCarriesTheEvidence(unittest.TestCase):
                 self.assertIn("moving at the same time", seen["prompt"])
                 self.assertIn("crowd density and panic are not required", seen["prompt"])
 
+    def test_object_watch_question_names_enrolled_label_and_rejects_generic_lookalikes(self):
+        alert = CandidateAlert(
+            rule_name="chi_product_removed_from_storage",
+            priority="high",
+            detector="object_watch",
+            title="CHI CARTON OBJECT REMOVED",
+            person_id=None,
+            object_label="Chi carton",
+            timestamp=1.0,
+        )
+        seen = {}
+        gate = VerificationGate(provider="ollama", cot=False)
+
+        def fake_provider(prompt, frames_bytes, candidate):
+            seen["prompt"] = prompt
+            return ('{"confirmed": true, "confidence": 0.9, '
+                    '"reason": "specific product visible", "alert_priority": "high"}')
+
+        with mock.patch.object(gate, "_call_provider", side_effect=fake_provider):
+            gate.verify([_frame()], alert, {"environment_type": "warehouse"})
+
+        prompt = seen["prompt"].lower()
+        self.assertIn("chi carton", prompt)
+        self.assertIn("specific enrolled", prompt)
+        self.assertIn("generic similar", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -178,6 +178,11 @@ _DETECTOR_QUESTIONS: dict[str, str] = {
         "Verify simultaneous movement only; proximity is not required. "
         "Crowd density and panic are not required."
     ),
+    "object_watch": (
+        "Does this evidence confirm the specific enrolled object '{object_label}' and the "
+        "claimed object-watch state? Reject generic similar objects unless the visible "
+        "reference/crop evidence supports this exact enrolled target."
+    ),
 }
 
 
@@ -256,19 +261,19 @@ def _format_examples(examples: list | None) -> str:
 
 
 def _build_question(rule_name: str, environment_type: str, detector: str = "",
-                    sensitivity: str = "balanced") -> str:
+                    sensitivity: str = "balanced", object_label: str = "unknown") -> str:
     # A sensitivity preset can override the question for specific rules/detectors.
     override = SENSITIVITY_QUESTIONS.get(sensitivity, {})
     tpl = override.get(rule_name) or override.get(detector)
     if tpl:
-        return tpl.format(environment_type=environment_type)
+        return tpl.format(environment_type=environment_type, object_label=object_label)
     # Prefer a rule-specific question; else fall back to a detector-specific one so
     # weapons/tamper/video-action get verified for the RIGHT thing (not a generic
     # "is this a threat"). Only then the generic catch-all.
     template = _QUESTIONS.get(rule_name) or _DETECTOR_QUESTIONS.get(detector) or (
         "Does this frame confirm a genuine security threat event in a {environment_type}?"
     )
-    return template.format(environment_type=environment_type)
+    return template.format(environment_type=environment_type, object_label=object_label)
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +458,7 @@ class VerificationGate:
                      or "nothing recorded"),
             question=getattr(alert, "question", None) or _build_question(
                 alert.rule_name, environment_type, getattr(alert, "detector", ""),
-                self.sensitivity),
+                self.sensitivity, alert.object_label or "unknown"),
             priority=alert.priority,
         )
         mem = _format_examples(examples)

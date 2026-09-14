@@ -84,6 +84,52 @@ def _motion_alert(cam="S5-P01", ts=2.0, priority="high"):
     )
 
 
+def _object_alert(
+    cam="cam1",
+    ts=12.5,
+    priority="high",
+    object_id="chi-carton",
+    object_label="Chi carton",
+):
+    candidate = CandidateAlert(
+        rule_name="chi_product_removed_from_storage",
+        priority=priority,
+        detector="object_watch",
+        title="CHI CARTON OBJECT REMOVED",
+        person_id=None,
+        object_label=object_label,
+        timestamp=ts,
+        reasons=["object disappeared after being stable"],
+        metadata={
+            "object_id": object_id,
+            "object_category": "product",
+            "state": "object_removed",
+            "zone": "storage",
+            "track_id": 7,
+            "bbox": (1, 2, 30, 40),
+            "similarity": 0.84,
+            "dwell_seconds": 2.0,
+            "reasons": ["object disappeared after being stable"],
+        },
+    )
+    return QueuedAlert(
+        camera_id=cam,
+        rule_name=candidate.rule_name,
+        priority=priority,
+        title=candidate.title,
+        timestamp=ts,
+        track_id=None,
+        zone="storage",
+        object_label=object_label,
+        payload={
+            "candidate": candidate,
+            "frames": [],
+            "scene": None,
+            "enqueued_at": time.time() - 0.1,
+        },
+    )
+
+
 class AlertSinkTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -285,6 +331,83 @@ class AlertSinkTests(unittest.TestCase):
         self.assertEqual(rows[1]["gate_status"], "unverified")
         self.assertEqual(rows[1]["gate_error"], "connection refused")
         self.assertEqual(rows[1]["persistence_status"], "not_applicable")
+
+    def test_object_watch_audit_lifecycle_records_all_queue_and_gate_outcomes(self):
+        queue = AlertQueue(
+            cooldown_seconds=60.0,
+            max_pending=1,
+            on_generated=self.sink.audit_candidate_generated,
+            on_admission=self.sink.audit_candidate_admission,
+        )
+        displaced = _object_alert(ts=10.0, priority="medium")
+        duplicate = _object_alert(ts=10.1, priority="medium")
+        admitted = _object_alert(
+            ts=10.2, priority="high",
+            object_id="chi-crate", object_label="Chi crate",
+        )
+
+        self.assertTrue(queue.add(displaced))
+        self.assertFalse(queue.add(duplicate))
+        self.assertTrue(queue.add(admitted))
+        self.sink.handle(
+            queue.drain()[0],
+            _Result(confirmed=True, confidence=0.92, reason="product is gone"),
+        )
+
+        con = sqlite3.connect(self.sink.db_path)
+        con.row_factory = sqlite3.Row
+        rows = [dict(row) for row in con.execute(
+            "SELECT * FROM object_watch_audit ORDER BY generated_at"
+        )]
+        con.close()
+
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(
+            [row["admission_status"] for row in rows],
+            ["capacity_dropped", "deduplicated", "admitted"],
+        )
+        self.assertEqual(rows[2]["gate_status"], "confirmed")
+        self.assertTrue(rows[2]["persisted_event_id"])
+        self.assertEqual(rows[2]["object_id"], "chi-crate")
+        self.assertEqual(rows[2]["object_label"], "Chi crate")
+        self.assertEqual(rows[2]["state"], "object_removed")
+        self.assertEqual(rows[2]["zone"], "storage")
+        self.assertEqual(rows[2]["similarity"], 0.84)
+        self.assertIn('"bbox":[1,2,30,40]', rows[2]["payload_json"])
+
+    def test_object_watch_rejected_and_unverified_verdicts_are_audited(self):
+        rejected = _object_alert(ts=20.0)
+        rejected_id = self.sink.audit_candidate_generated(rejected)
+        rejected.payload["object_watch_audit_id"] = rejected_id
+        self.sink.audit_candidate_admission(rejected, "admitted")
+        self.sink.handle(
+            rejected,
+            _Result(confirmed=False, confidence=0.2, reason="different product"),
+        )
+
+        unverified = _object_alert(ts=21.0)
+        unverified_id = self.sink.audit_candidate_generated(unverified)
+        unverified.payload["object_watch_audit_id"] = unverified_id
+        self.sink.audit_candidate_admission(unverified, "admitted")
+        self.sink.handle(
+            unverified,
+            _Result(confirmed=False, confidence=0.0, reason="provider unavailable",
+                    error="connection refused"),
+        )
+
+        con = sqlite3.connect(self.sink.db_path)
+        con.row_factory = sqlite3.Row
+        rows = [dict(row) for row in con.execute(
+            "SELECT gate_status, admission_status, persisted_event_id FROM object_watch_audit "
+            "ORDER BY generated_at"
+        )]
+        con.close()
+
+        self.assertEqual(
+            [(row["gate_status"], row["admission_status"], row["persisted_event_id"])
+             for row in rows],
+            [("rejected", "admitted", ""), ("unverified", "admitted", "")],
+        )
 
 
 class VideoClipTests(unittest.TestCase):

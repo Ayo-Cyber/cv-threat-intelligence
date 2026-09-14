@@ -125,6 +125,7 @@ def test_object_watch_event_fires_rule_and_preserves_metadata(tmp_path) -> None:
     assert alerts[0].object_label == "Chi carton"
     assert alerts[0].metadata["object_id"] == "chi-carton"
     assert alerts[0].metadata["object_category"] == "product"
+    assert alerts[0].metadata["state"] == "object_removed"
     assert alerts[0].metadata["zone"] == "storage"
     assert alerts[0].metadata["bbox"] == (1, 2, 30, 40)
 

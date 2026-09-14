@@ -54,7 +54,8 @@ class ObjectTarget:
 
 
 def _library(root: str | Path) -> Path:
-    return Path(root) / "object_library"
+    path = Path(root)
+    return path if path.name == "object_library" else path / "object_library"
 
 
 def _targets_path(root: str | Path) -> Path:
