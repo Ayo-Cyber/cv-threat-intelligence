@@ -272,7 +272,7 @@ def test_worker_with_zero_shot_detector_shadows_vest_but_alerts_helmet():
     s.step("bay", 1.0)
     assert len(sink.alerts) == 1
     assert sink.alerts[0][0].title == "PPE: MISSING HARD HAT"      # vest not claimed
-    assert sink.alerts[0][0].payload["ppe"]["unknown"]["vest"].endswith("(shadow)")
+    assert sink.alerts[0][0].payload["ppe"]["unassessable"] == ["vest"]   # reported, never decided on
     assert s.status()["cameras"]["bay"]["shadow_items"] == ["vest"]
 
 
@@ -345,3 +345,30 @@ def test_phrase_shared_with_an_unrequired_catalog_item_goes_to_the_required_one(
         "items": {"lab_coat": {"region": "torso", "phrases": ["lab coat"]}}}})
     assert pol.item_for_phrase("lab coat").key == "lab_coat"
     assert pol.item_for_phrase("hard hat") is None          # helmet not required here
+
+
+def test_waist_up_closeup_cannot_judge_the_torso():
+    # 16 Sep, lab clips: an interview close-up ends at the frame edge and is
+    # nearly as wide as tall — its "torso band" is the neck. A coat below the
+    # frame is not a missing coat.
+    pol = _policy(required=["vest"])
+    closeup = (1, 300, 300, 700, 720)                # 400 wide x 420 tall, bottom at frame edge
+    obs = observe_people([closeup], [], pol, FRAME_HW, zero_shot=False)[0]
+    assert obs.items["vest"].status == UNKNOWN and "cut off" in obs.items["vest"].reason
+    standing = (2, 400, 100, 520, 720)               # 120 wide x 620 tall: a whole person
+    assert observe_people([standing], [], pol, FRAME_HW, zero_shot=False)[0].items["vest"].status == ABSENT
+
+
+def test_shadow_items_do_not_block_a_verdict_on_the_judged_ones():
+    # A lab policy with goggles+gloves in shadow must still be able to say
+    # "lab coat: compliant" — otherwise everyone is 'unable' forever and the
+    # one thing the detector DOES know is hidden.
+    req = ("lab_coat", "goggles", "gloves")
+    v = {"lab_coat": (PRESENT, "seen 3/3"), "goggles": (UNKNOWN, "shadow"), "gloves": (UNKNOWN, "shadow")}
+    c = assess_compliance(req, v, shadow=("goggles", "gloves"))
+    assert c.status == COMPLIANT and c.unassessable == ("goggles", "gloves")
+    assert "not assessable" in c.summary()
+    v["lab_coat"] = (ABSENT, "absent in 3 checks")
+    assert assess_compliance(req, v, shadow=("goggles", "gloves")).status == VIOLATION
+    # nothing judgeable at all -> unable, never compliant by default
+    assert assess_compliance(("goggles",), {"goggles": (UNKNOWN, "shadow")}, shadow=("goggles",)).status == UNABLE
