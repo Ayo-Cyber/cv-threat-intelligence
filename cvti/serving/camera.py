@@ -600,6 +600,10 @@ class PerCameraState:
                 for state in states
                 if state.tracker_id is not None
             }
+        # Published per frame like _box_by_track: the off-path scanners (PPE
+        # compliance) need WHICH ZONE each person stands in to know what the
+        # site requires of them there.
+        self._zones_by_track = zones_by_track
 
         if self._motion_tracker is not None:
             motions = self._motion_tracker.update(

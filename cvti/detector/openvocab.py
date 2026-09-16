@@ -132,6 +132,10 @@ class OpenVocabDetector:
     ultralytics' YOLOWorld, lazily, so importing this module costs nothing.
     """
 
+    # Open-vocab, no task-specific training: consumers that decide from this
+    # model's SILENCE (PPE 'not seen' = 'not worn') must treat it as unproven.
+    zero_shot = True
+
     def __init__(self, weights: str = WEIGHTS_DEFAULT, *,
                  min_score: float = MIN_SCORE, imgsz: int = 640,
                  device: str = "cpu", model_factory: Any = None) -> None:
@@ -173,19 +177,24 @@ class OpenVocabDetector:
                     return False
         return True
 
-    def detect(self, frame: Any, phrases: list[str]) -> list[dict] | None:
+    def detect(self, frame: Any, phrases: list[str], *,
+               floor: float | None = None) -> list[dict] | None:
         """Grounded detections for `phrases` on one frame.
 
         Returns None when the detector cannot answer (model/CLIP missing) —
         the caller's signal to fall back to the VLM path. An answered frame
-        with nothing in it returns [] — a real, grounded 'no'."""
+        with nothing in it returns [] — a real, grounded 'no'.
+
+        `floor` overrides the per-phrase score floor: the PPE assessor tunes
+        floors per ITEM (a hi-vis vest and a hard hat do not score alike) and
+        applies them itself, so it asks for everything above its lowest."""
         wanted = tuple(sorted({p for p in phrases if p}))
         if not wanted or not self._ensure(wanted):
             return None
         t0 = time.monotonic()
+        conf = min(self.min_score, MIN_SCORE) if floor is None else min(self.min_score, floor)
         try:
-            res = self._model.predict(frame, device=self.device,
-                                      conf=min(self.min_score, MIN_SCORE),
+            res = self._model.predict(frame, device=self.device, conf=conf,
                                       imgsz=self.imgsz, verbose=False)[0]
         except Exception as exc:  # noqa: BLE001 - inference failure is an unanswered cycle
             self.load_error = str(exc)[:200]
@@ -201,7 +210,7 @@ class OpenVocabDetector:
             cls_i = int(boxes.cls[i])
             name = names[cls_i] if isinstance(names, dict) else names[cls_i]
             score = float(boxes.conf[i])
-            if score < floor_for(str(name)):
+            if score < (floor_for(str(name)) if floor is None else floor):
                 continue
             x1, y1, x2, y2 = (float(v) for v in boxes.xyxy[i][:4])
             out.append({"phrase": str(name), "score": score,
