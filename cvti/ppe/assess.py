@@ -34,7 +34,7 @@ REGION_BANDS: dict[str, tuple[float, float]] = {
     "hands": (0.38, 0.78),
     "feet": (0.84, 1.03),
 }
-MIN_CLIPPED_ASPECT = 2.2    # a bottom-clipped box shorter than this × width is a waist-up shot, not a standing person
+MIN_CLIPPED_ASPECT = 1.4    # a bottom-clipped box shorter than this × width is a head-and-shoulders shot; a waist-up shot (~1.6-2.0) still shows the torso
 MIN_REGION_PX = 16          # a region band shorter than this cannot carry a verdict (16 Sep: 70px-tall workers in hard hats were called bare-headed — their 15px heads were below what the detector resolves)
 MIN_VISIBLE_FRACTION = 0.6  # of the region's area inside the frame
 SIDE_PAD_FRACTION = 0.15    # items overhang the box (brim, elbows): widen the region
