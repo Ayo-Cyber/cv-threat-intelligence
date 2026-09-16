@@ -41,7 +41,12 @@ def main(engine: str) -> int:
     cmd = [str(engine), "--site-config", str(site),
            "--gate-provider", "local", "--gate-base-url", "http://127.0.0.1:59999/v1",
            "--target-fps", "4", "--imgsz", "416", "--seconds", "70",
-           "--gate-drain", "3", "--mobile-port", "0", "--output-dir", str(tmp)]
+           "--gate-drain", "3", "--mobile-port", "0", "--output-dir", str(tmp),
+           # What every installer runs: ONNX/CPU on Windows and Linux, and the
+           # console spawns --device cpu on a Mac (#137: torch-MPS and the
+           # local VLM fight for the GPU and the engine freezes mid-run —
+           # seen again locally 16 Sep as a stall at frame 45).
+           "--device", "cpu"]
     print("running:", " ".join(cmd[:3]), "...")
     # The frame publisher announces itself in <output_dir>/frames.json WHILE
     # the engine runs and removes the marker on a clean stop (#144: a stale
@@ -51,20 +56,31 @@ def main(engine: str) -> int:
     # bundle itself was fine.
     frames_snapshot: dict | None = None
     frames_path = tmp / "frames.json"
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    deadline = time.time() + 900
-    while proc.poll() is None and time.time() < deadline:
-        if frames_snapshot is None and frames_path.exists():
-            try:
-                frames_snapshot = json.loads(frames_path.read_text())
-            except (OSError, ValueError):
-                frames_snapshot = None      # half-written; try again next tick
-        time.sleep(1.0)
-    if proc.poll() is None:
-        proc.kill()
-    out, err = proc.communicate(timeout=60)
+    # Output goes to FILES, never to PIPEs we are not reading: with pipes, the
+    # engine blocks on its first log write once the pipe buffer fills (4 KB on
+    # Windows), never reaches its --seconds exit, and the smoke kills it at
+    # the deadline — the Windows v1.8.12 build died exactly like that while
+    # macOS/Linux scraped by on their 64 KB buffers.
+    out_path, err_path = tmp / "engine.stdout", tmp / "engine.stderr"
+    with out_path.open("w", encoding="utf-8", errors="replace") as out_f, \
+            err_path.open("w", encoding="utf-8", errors="replace") as err_f:
+        proc = subprocess.Popen(cmd, stdout=out_f, stderr=err_f, text=True)
+        deadline = time.time() + 900
+        while proc.poll() is None and time.time() < deadline:
+            if frames_snapshot is None and frames_path.exists():
+                try:
+                    frames_snapshot = json.loads(frames_path.read_text())
+                except (OSError, ValueError):
+                    frames_snapshot = None      # half-written; try again next tick
+            time.sleep(1.0)
+        timed_out = proc.poll() is None
+        if timed_out:
+            proc.kill()
+        proc.wait(timeout=60)
+    out = out_path.read_text(encoding="utf-8", errors="replace")
+    err = err_path.read_text(encoding="utf-8", errors="replace")
     proc.stdout, proc.stderr = out, err     # keep the old names for the checks below
-    tail = (out or "")[-1500:] + (err or "")[-1500:]
+    tail = out[-1500:] + err[-1500:]
 
     problems = []
     # W8: offline object rules need both halves IN the bundle — the world
@@ -132,7 +148,9 @@ def main(engine: str) -> int:
     else:
         problems.append("no events.db was created")
 
-    if proc.returncode != 0:
+    if timed_out:
+        problems.append("engine did not exit by itself within 900s (asked for --seconds 70)")
+    elif proc.returncode != 0:
         problems.append(f"engine exited {proc.returncode}")
     if frames_snapshot is not None:
         print(f"  frame publisher announced on port {frames_snapshot.get('port')} during the run")
