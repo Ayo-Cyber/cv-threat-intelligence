@@ -73,6 +73,10 @@ def region_visible(person_box: tuple, region: str, frame_hw: tuple,
         # nearly as wide as it is tall, so the "torso band" is really the neck.
         # A lab coat below the frame is not a missing lab coat (16 Sep).
         return False, f"{region} cut off by frame edge"
+    if region in ("torso", "hands") and (x1 <= 2 or x2 >= fw - 2):
+        # Half a person at the side of the frame: the garment is cut in two
+        # and the detector sees neither half. Judge them once fully in view.
+        return False, f"{region} cut off by frame edge (side)"
     return True, ""
 
 
