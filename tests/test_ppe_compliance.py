@@ -314,3 +314,34 @@ def test_small_head_is_unknown_not_bare():
     assert obs.items["helmet"].status == UNKNOWN and "too small" in obs.items["helmet"].reason
     tall = _person(2, h=120)                        # head band ≈ 26 px: judgeable
     assert observe_people([tall], [], pol, FRAME_HW)[0].items["helmet"].status == ABSENT
+
+
+def test_long_garment_counts_as_worn_on_torso_and_carried_helmet_still_does_not():
+    # 16 Sep, lab clips: a lab coat's box spans shoulders to knees, so its
+    # centre sat just below the torso band and worn coats read as ABSENT.
+    # Association is now band OVERLAP, not centre-in-band.
+    pol = load_ppe_policy({"id": "lab", "ppe": {
+        "required": ["lab_coat", "helmet"],
+        "items": {"lab_coat": {"region": "torso", "phrases": ["lab coat"],
+                               "absent_reliable_zero_shot": True}}}})
+    p = _person(1)                                   # 400..520 x 100..500
+    coat = {"phrase": "lab coat", "score": 0.8, "box": (395, 180, 525, 460)}   # shoulders→knees
+    obs = observe_people([p], [coat], pol, FRAME_HW)[0]
+    assert obs.items["lab_coat"].status == PRESENT
+    waist_helmet = _det("hard hat", cx=460, cy=350)  # carried: no overlap with head band
+    assert observe_people([p], [waist_helmet], pol, FRAME_HW)[0].items["helmet"].status == ABSENT
+    worn_helmet = _det("hard hat", cx=460, cy=130)
+    assert observe_people([p], [worn_helmet], pol, FRAME_HW)[0].items["helmet"].status == PRESENT
+    # an item box beside the person (neighbour's coat) is not theirs
+    beside = {"phrase": "lab coat", "score": 0.8, "box": (600, 180, 700, 460)}
+    assert observe_people([p], [beside], pol, FRAME_HW)[0].items["lab_coat"].status == ABSENT
+
+
+def test_phrase_shared_with_an_unrequired_catalog_item_goes_to_the_required_one():
+    # 'lab coat' is also a phrase of the catalog's `coverall`; when a site
+    # defines its own lab_coat and requires it, the detection is theirs.
+    pol = load_ppe_policy({"id": "lab", "ppe": {
+        "required": ["lab_coat"],
+        "items": {"lab_coat": {"region": "torso", "phrases": ["lab coat"]}}}})
+    assert pol.item_for_phrase("lab coat").key == "lab_coat"
+    assert pol.item_for_phrase("hard hat") is None          # helmet not required here

@@ -74,6 +74,33 @@ def _inside(pt: tuple[float, float], box: tuple) -> bool:
     return box[0] <= pt[0] <= box[2] and box[1] <= pt[1] <= box[3]
 
 
+# How much of an item box (or of the region band, whichever is shorter) must
+# overlap the band vertically for the item to count as worn THERE.
+MIN_BAND_OVERLAP = 0.4
+
+
+def item_on_region(item_box: tuple, region: tuple) -> bool:
+    """Does this detection sit on this body region?
+
+    Centre-in-band was the first rule and it failed on the one garment every
+    lab requires (16 Sep): a lab coat runs shoulders-to-knees, so its box
+    centre lands at ~65 % of body height — just under the torso band's edge —
+    and coats worn in plain sight read as absent. The test is now the box's
+    horizontal centre inside the band plus a real vertical overlap with it.
+    A helmet carried at waist height still has no overlap with the head band;
+    a coat, vest or apron overlaps the torso band however long it hangs.
+    """
+    cx = (float(item_box[0]) + float(item_box[2])) / 2.0
+    if not (region[0] <= cx <= region[2]):
+        return False
+    iy1, iy2 = float(item_box[1]), float(item_box[3])
+    overlap = min(iy2, region[3]) - max(iy1, region[1])
+    if overlap <= 0:
+        return False
+    shorter = max(1.0, min(iy2 - iy1, region[3] - region[1]))
+    return overlap / shorter >= MIN_BAND_OVERLAP
+
+
 @dataclass
 class ItemObservation:
     item: str
@@ -114,8 +141,9 @@ def observe_people(people: list, detections: list[dict] | None, policy: PPEPolic
         persons.append((int(tid), (float(x1), float(y1), float(x2), float(y2))))
 
     # Association: an item belongs to the ONE person whose matching body region
-    # contains its centre. Two candidates = ownership unclear = unknown for
-    # both. Zero candidates (a helmet in a hand, boots on a shelf) = irrelevant.
+    # it sits on (see item_on_region). Two candidates = ownership unclear =
+    # unknown for both. Zero candidates (a helmet in a hand, boots on a
+    # shelf) = irrelevant.
     assigned: dict[tuple[int, str], float] = {}
     ambiguous: set[tuple[int, str]] = set()
     for det in detections or []:
@@ -125,8 +153,7 @@ def observe_people(people: list, detections: list[dict] | None, policy: PPEPolic
         bx = det.get("box") or ()
         if len(bx) < 4:
             continue
-        centre = ((float(bx[0]) + float(bx[2])) / 2.0, (float(bx[1]) + float(bx[3])) / 2.0)
-        owners = [tid for tid, pbox in persons if _inside(centre, region_box(pbox, item.region))]
+        owners = [tid for tid, pbox in persons if item_on_region(bx, region_box(pbox, item.region))]
         if len(owners) == 1:
             key = (owners[0], item.key)
             assigned[key] = max(assigned.get(key, 0.0), float(det.get("score", 0.0)))

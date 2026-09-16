@@ -143,9 +143,13 @@ class PPEPolicy:
         return tuple(keys)
 
     def item_for_phrase(self, phrase: str) -> PPEItem | None:
-        for item in self.items.values():
-            if phrase in item.phrases:
-                return item
+        """The REQUIRED item this phrase belongs to; catalog items nobody
+        requires cannot claim a detection (16 Sep: the catalog's `coverall`
+        also lists 'lab coat', and it silently took every coat detection
+        from a site-defined `lab_coat` — worn coats then read as absent)."""
+        for key in self.all_items():
+            if phrase in self.items[key].phrases:
+                return self.items[key]
         return None
 
     def to_dict(self) -> dict[str, Any]:
