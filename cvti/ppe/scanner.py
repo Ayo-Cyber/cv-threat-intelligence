@@ -200,7 +200,7 @@ class PPEScanner:
                 ev = self._evidence[key] = TrackEvidence(pol.window_seconds, pol.confirm_observations)
             ev.add(obs, now)
             verdicts = {k: ev.verdict(k, now) for k in obs.required}
-            comp = assess_compliance(obs.required, verdicts)
+            comp = assess_compliance(obs.required, verdicts, shadow=pol.shadow_items(zero_shot))
             zone = next((z for z in obs.zones if z in pol.zone_required), None)
             if comp.status == VIOLATION:
                 m["assessed"] += 1

@@ -34,6 +34,7 @@ REGION_BANDS: dict[str, tuple[float, float]] = {
     "hands": (0.38, 0.78),
     "feet": (0.84, 1.03),
 }
+MIN_CLIPPED_ASPECT = 2.2    # a bottom-clipped box shorter than this × width is a waist-up shot, not a standing person
 MIN_REGION_PX = 16          # a region band shorter than this cannot carry a verdict (16 Sep: 70px-tall workers in hard hats were called bare-headed — their 15px heads were below what the detector resolves)
 MIN_VISIBLE_FRACTION = 0.6  # of the region's area inside the frame
 SIDE_PAD_FRACTION = 0.15    # items overhang the box (brim, elbows): widen the region
@@ -67,6 +68,11 @@ def region_visible(person_box: tuple, region: str, frame_hw: tuple,
         # The box is clipped by the bottom edge: the feet are most likely
         # below the frame, not "not wearing boots".
         return False, "feet cut off by frame edge"
+    if region in ("torso", "hands") and y2 >= 0.97 * fh and (y2 - y1) < MIN_CLIPPED_ASPECT * (x2 - x1):
+        # A head-and-shoulders close-up: the box ends at the frame edge and is
+        # nearly as wide as it is tall, so the "torso band" is really the neck.
+        # A lab coat below the frame is not a missing lab coat (16 Sep).
+        return False, f"{region} cut off by frame edge"
     return True, ""
 
 
@@ -250,6 +256,8 @@ class Compliance:
     present: tuple[str, ...] = ()
     unknown: dict[str, str] = field(default_factory=dict)
     details: dict[str, str] = field(default_factory=dict)
+    # Required items this detector cannot judge (shadow): reported, never decided on.
+    unassessable: tuple[str, ...] = ()
 
     def summary(self, items: dict[str, PPEItem] | None = None) -> str:
         def label(k: str) -> str:
@@ -261,34 +269,49 @@ class Compliance:
             parts.append(", ".join(label(k) for k in self.present) + " worn")
         for k, why in self.unknown.items():
             parts.append(f"{label(k)}: {why}")
+        if self.unassessable:
+            parts.append(", ".join(label(k) for k in self.unassessable)
+                         + ": not assessable with this detector")
         return "; ".join(parts) or self.status
 
     def to_dict(self) -> dict[str, Any]:
+        judged = [k for k in self.required if k not in self.unassessable]
         return {"status": self.status, "required": list(self.required),
                 "missing": list(self.missing), "present": list(self.present),
                 "unknown": dict(self.unknown), "details": dict(self.details),
-                "observed": f"{len(self.present)} of {len(self.required)} items observed"}
+                "unassessable": list(self.unassessable),
+                "observed": f"{len(self.present)} of {len(judged)} assessable items observed"}
 
 
-def assess_compliance(required: tuple[str, ...], verdicts: dict[str, tuple[str, str]]) -> Compliance:
+def assess_compliance(required: tuple[str, ...], verdicts: dict[str, tuple[str, str]],
+                      shadow: tuple[str, ...] | set | None = None) -> Compliance:
     """The policy decision. Any required item confidently absent = violation;
     every required item confidently present = compliant; otherwise unable.
     Two of three present is NOT 67% compliant — and it is not a violation
-    either, until the third is confidently absent."""
+    either, until the third is confidently absent.
+
+    `shadow` items are required but beyond this detector: they are carried in
+    the report as unassessable and do not block a verdict on the items that
+    CAN be judged (16 Sep: a lab policy with goggles+gloves in shadow could
+    never say "lab coat: compliant", only "unable", which hid the one thing
+    it did know)."""
     if not required:
         return Compliance(NOT_REQUIRED, ())
-    missing = tuple(k for k in required if verdicts.get(k, (UNKNOWN, ""))[0] == ABSENT)
-    present = tuple(k for k in required if verdicts.get(k, (UNKNOWN, ""))[0] == PRESENT)
+    shadow_set = set(shadow or ())
+    judged = tuple(k for k in required if k not in shadow_set)
+    unassessable = tuple(k for k in required if k in shadow_set)
+    missing = tuple(k for k in judged if verdicts.get(k, (UNKNOWN, ""))[0] == ABSENT)
+    present = tuple(k for k in judged if verdicts.get(k, (UNKNOWN, ""))[0] == PRESENT)
     unknown = {k: verdicts.get(k, (UNKNOWN, "no observations yet"))[1]
-               for k in required if verdicts.get(k, (UNKNOWN, ""))[0] == UNKNOWN}
+               for k in judged if verdicts.get(k, (UNKNOWN, ""))[0] == UNKNOWN}
     details = {k: v[1] for k, v in verdicts.items() if k in required}
     if missing:
         status = VIOLATION
-    elif len(present) == len(required):
+    elif judged and len(present) == len(judged):
         status = COMPLIANT
     else:
         status = UNABLE
-    return Compliance(status, tuple(required), missing, present, unknown, details)
+    return Compliance(status, tuple(required), missing, present, unknown, details, unassessable)
 
 
 def violation_confidence(evidence: TrackEvidence, missing: tuple[str, ...]) -> float:
