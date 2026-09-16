@@ -302,3 +302,15 @@ def test_worker_does_not_touch_people_outside_policy_zones():
         s.step("bay", float(t))
     assert sink.alerts == [] and det.calls == 4           # looked, required nothing
     assert s.status()["cameras"]["bay"]["not_required"] == 4
+
+
+def test_small_head_is_unknown_not_bare():
+    # 16 Sep, industrial clip: workers ~70 px tall in hard hats were called
+    # bare-headed — a 15 px head band is below what the detector resolves.
+    # Too small to judge is UNKNOWN, never absent.
+    pol = _policy(required=["helmet"])
+    short = _person(1, h=70)                        # head band = 0.22 * 70 ≈ 15 px
+    obs = observe_people([short], [], pol, FRAME_HW)[0]
+    assert obs.items["helmet"].status == UNKNOWN and "too small" in obs.items["helmet"].reason
+    tall = _person(2, h=120)                        # head band ≈ 26 px: judgeable
+    assert observe_people([tall], [], pol, FRAME_HW)[0].items["helmet"].status == ABSENT
