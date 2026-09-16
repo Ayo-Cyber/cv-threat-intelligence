@@ -372,3 +372,18 @@ def test_shadow_items_do_not_block_a_verdict_on_the_judged_ones():
     assert assess_compliance(req, v, shadow=("goggles", "gloves")).status == VIOLATION
     # nothing judgeable at all -> unable, never compliant by default
     assert assess_compliance(("goggles",), {"goggles": (UNKNOWN, "shadow")}, shadow=("goggles",)).status == UNABLE
+
+
+def test_person_half_out_of_the_side_of_the_frame_is_not_judged():
+    # 16 Sep, chemistry-lab clip: a student stepping out of frame at the left
+    # edge had her coat cut in two — the detector saw neither half and she
+    # read as coatless. Torso and hands are judged once fully in view.
+    pol = _policy(required=["vest"])
+    at_edge = (1, 0, 100, 130, 500)
+    obs = observe_people([at_edge], [], pol, FRAME_HW, zero_shot=False)[0]
+    assert obs.items["vest"].status == UNKNOWN and "(side)" in obs.items["vest"].reason
+    inside = (2, 40, 100, 170, 500)
+    assert observe_people([inside], [], pol, FRAME_HW, zero_shot=False)[0].items["vest"].status == ABSENT
+    # the head is still judgeable at the edge — a helmet is not cut in two
+    helm = _policy(required=["helmet"])
+    assert observe_people([at_edge], [], helm, FRAME_HW, zero_shot=False)[0].items["helmet"].status == ABSENT
