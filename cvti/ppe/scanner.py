@@ -267,7 +267,7 @@ class PPEScanner:
             try:
                 engine = str(det_status().get("weights") or engine)
             except Exception:  # noqa: BLE001 - status is decoration
-                pass
+                log.debug("[ppe] detector status unavailable for the alert", exc_info=True)
         alert = QueuedAlert(camera_id=cam_id, rule_name=f"ppe:{zone or 'camera'}",
                             priority=pol.priority, title=title, timestamp=now,
                             track_id=tid, zone=zone, object_label="ppe", payload=payload)
@@ -286,8 +286,8 @@ class PPEScanner:
         if callable(st):
             try:
                 det = st()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:  # noqa: BLE001 - status must still be written
+                log.debug("[ppe] detector status failed", exc_info=True)
         cams = {}
         for cid, pol in self.policies.items():
             m = dict(self._metrics_for(cid))
@@ -324,4 +324,5 @@ def _annotate(frame: Any, box: tuple, label: str) -> Any:
         cv2.putText(out, label, (x1 + 4, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
         return out
     except Exception:  # noqa: BLE001 - an unannotated frame is still evidence
+        log.debug("[ppe] evidence annotation failed; sending the raw frame", exc_info=True)
         return frame
