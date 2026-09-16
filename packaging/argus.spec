@@ -171,6 +171,12 @@ engine_a = Analysis(
     binaries=_ort_bins,
     hiddenimports=_ort_hidden + [
         "cvti.serving.pipeline",
+        # Imported inside functions (pipeline starts the PPE worker only for
+        # cameras with a `ppe` block; camera.py builds the motion tracker on
+        # demand). PyInstaller's analysis does follow function-level imports,
+        # but a name here costs nothing and a miss costs a field release.
+        "cvti.ppe", "cvti.ppe.scanner", "cvti.ppe.assess", "cvti.ppe.policy",
+        "cvti.detector.person_motion", "cvti.detector.openvocab",
         # ultralytics internals reached by name
         "ultralytics", "ultralytics.models.yolo", "ultralytics.models.yolo.detect",
         "ultralytics.models.yolo.classify", "ultralytics.models.yolo.pose",
