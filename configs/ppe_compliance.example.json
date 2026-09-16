@@ -1,0 +1,36 @@
+{
+  "_comment": "PPE compliance (16 Sep): per-person, three-state, policy per zone. The `ppe` block is the CUSTOMER'S requirement — the model never decides what is required. Zones are the camera's drawn zones (see `zones`). A zone listed with [] requires nothing there. Items: helmet, hairnet, goggles, mask, vest, apron, coverall, gloves, boots — or your own under `items`.",
+  "site_id": "ppe_example",
+  "notify": "console",
+  "cameras": [
+    {
+      "id": "loading_bay_cam",
+      "source": "data/ppe_clips/ppe_compliance.mp4",
+      "zones": "configs/ppe_compliance.zones.example.json",
+      "ppe": {
+        "required": ["helmet"],
+        "zones": {
+          "loading_bay": ["helmet", "vest", "boots"],
+          "office_corridor": []
+        },
+        "cadence_seconds": 1.0,
+        "confirm_observations": 3,
+        "window_seconds": 8.0,
+        "min_person_height_px": 80,
+        "clear_after_seconds": 30.0,
+        "priority": "high"
+      }
+    },
+    {
+      "id": "production_line_cam",
+      "source": "rtsp://user:pass@10.0.2.31:554/cam/realmonitor?channel=1&subtype=0",
+      "ppe": {
+        "required": ["hairnet", "apron"],
+        "items": {
+          "blue_uniform": {"region": "torso", "phrases": ["blue work uniform", "blue overalls"], "min_score": 0.3}
+        },
+        "cadence_seconds": 1.0
+      }
+    }
+  ]
+}

@@ -345,6 +345,7 @@ class MultiStreamPipeline:
         self.publish_fps = publish_fps
         self.smooth_publish = bool(publisher is not None and publish_fps > 0)
         self.latest_boxes: dict = {}       # camera_id -> last detection's boxes
+        self.latest_zones: dict = {}       # camera_id -> {track_id: (zone, ...)} this frame
         self._smooth_thread = None
         self._last_detect: dict = {}       # camera_id -> last model-sample time
         self.on_link_change = on_link_change
@@ -511,6 +512,9 @@ class MultiStreamPipeline:
         # smooth-publish thread ships frames at stream cadence; detection only
         # refreshes the box overlay it draws. Boxes therefore lag the video by
         # at most one detection interval (~200ms) — standard for CCTV overlays.
+        # Per-track zone membership for the off-path scanners (PPE policy is
+        # per zone). Cheap: the camera state already computed it this frame.
+        self.latest_zones[frame.camera_id] = dict(getattr(state, "_zones_by_track", None) or {})
         if self.publisher is not None:
             boxes = [(tid, *box) for tid, box in
                      (getattr(state, "_box_by_track", None) or {}).items()]
@@ -1155,6 +1159,29 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             ))
         custom_scanner.status_path = Path(output_dir) / "english_rules_status.json"
         custom_scanner.start()
+    # PPE compliance (per-person, three-state, policy per zone) runs as its own
+    # bounded worker off the camera path — a grounded detector at ~1 Hz per
+    # camera, no VLM, so it does not depend on the gate provider. Started when
+    # any camera carries a `ppe` block; it watches the site file for new ones.
+    ppe_scanner = None
+    if any(c.get("ppe") for c in cams_cfg) or site_config_path:
+        from cvti.ppe.scanner import PPEScanner
+
+        def _ppe_frame(cam_id: str):
+            d = pipe._decoders.get(cam_id)
+            if d is None:
+                return None
+            f, _seq = d.peek_latest()
+            return f.image if f is not None else None
+
+        ppe_scanner = PPEScanner(
+            cams_cfg, sink,
+            frame_source=_ppe_frame,
+            boxes_source=lambda cam_id: pipe.latest_boxes.get(cam_id),
+            zones_source=lambda cam_id: pipe.latest_zones.get(cam_id),
+            site_config_path=site_config_path,
+            status_path=Path(output_dir) / "ppe_status.json",
+        ).start()
     # Retention. Storage limitation is not optional, and an edge box with no
     # purge fills its disk and stops recording evidence exactly when it matters.
     from cvti.serving.onboarding import get_site_meta
@@ -1526,6 +1553,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                          f"replaced_stale={va_runner.dropped} failed={va_runner.failed}")
         if custom_scanner is not None:
             custom_scanner.stop()
+        if ppe_scanner is not None:
+            ppe_scanner.stop()
         if watch_runner is not None:
             watch_runner.stop()
             act = watch_runner.active_cases()
