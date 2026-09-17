@@ -15,7 +15,8 @@
     "test:camera-stream": "playwright test --config playwright.camera.config.ts",
     "test:ws-auth": "playwright test --config playwright.ws-auth.config.ts",
     "test:electron:bridge": "playwright test --config playwright.electron.config.ts",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "dist": "electron-builder --config electron-builder.yml"
   },
   "dependencies": {
     "lucide-react": "1.43.0",
@@ -30,6 +31,7 @@
     "@vitejs/plugin-react": "6.1.1",
     "concurrently": "10.0.5",
     "electron": "44.2.0",
+    "electron-builder": "26.0.12",
     "prettier": "3.9.6",
     "typescript": "7.0.2",
     "vite": "8.2.2",

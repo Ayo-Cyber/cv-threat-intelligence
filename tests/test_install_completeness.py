@@ -171,8 +171,40 @@ class BuildIdentityTest(unittest.TestCase):
                       "the bundle must carry a VERSION file for the app to read")
 
     def test_the_installer_installs_64bit(self):
-        iss = (ROOT / "scripts/installer.iss").read_text()
-        self.assertIn("ArchitecturesInstallIn64BitMode", iss)
+        # The Windows installer is electron-builder's NSIS target since
+        # v1.8.13; the Inno Setup script it replaced installed the retired
+        # PyQt shell.
+        cfg = (ROOT / "Frontend/electron-builder.yml").read_text()
+        self.assertIn("nsis", cfg)
+        self.assertIn("x64", cfg)
+
+    def test_the_release_actually_packages_the_desktop_ui(self):
+        """The gap that shipped five releases with the wrong interface.
+
+        Frontend/ was merged as source on 9 Sep and nothing ever built it, so
+        every installer through v1.8.12 carried the old PyQt UI while the
+        React one existed only on developer machines. No test looked, so
+        nothing failed. This looks.
+        """
+        wf = (ROOT / ".github/workflows/build-app.yml").read_text()
+        for needle in ("setup-node", "npm ci", "npm run build", "electron-builder"):
+            self.assertIn(needle, wf,
+                          f"the release build must {needle!r} — without it the "
+                          "desktop UI is not in the installer at all")
+        self.assertIn("packaged_app_check.py", wf,
+                      "the build must verify the packaged app carries UI + engine")
+
+    def test_the_bundle_ships_the_api_the_ui_talks_to(self):
+        """The Electron shell spawns argus-api; an installed machine has no
+        Python, so it must be a frozen binary in the bundle."""
+        spec = (ROOT / "packaging/argus.spec").read_text()
+        self.assertIn("api_entry.py", spec)
+        self.assertIn('name="argus-api"', spec)
+        self.assertIn("api_exe", spec)
+        # uvicorn resolves these by string at startup; without them the frozen
+        # API builds fine and dies on its first request.
+        for hidden in ("uvicorn.loops.auto", "uvicorn.protocols.http.auto"):
+            self.assertIn(hidden, spec)
 
     def test_the_sidebar_version_is_live_not_hardcoded(self):
         html = (ROOT / "cvti/app/web/index.html").read_text()

@@ -4,6 +4,31 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.13 — 17 Sep 2026
+
+**The new interface is finally the one you install.** Argus has had a rebuilt
+desktop UI since 9 September, and every release since shipped the old one
+anyway: the frontend was merged as source but no build step ever compiled or
+packaged it, and nothing in CI checked. Five releases went out carrying an
+interface nobody had been demonstrating. The installer now *is* that new UI,
+with the detection engine packaged inside it.
+
+**What changes when you upgrade.** Your site configuration, accounts and
+recorded events stay where they are and open as before — the new shell reads
+the same per-user data directory the old one wrote to. The Windows installer
+keeps its name and installs over the top. The old interface is still inside
+the installation as a support fallback; nothing launches it.
+
+**Account recovery now works on an installed machine.** Recovery had only ever
+existed as a script for someone with the source code and a Python environment,
+which no customer has — a locked-out installation had no way back in. The
+shipped engine exposes the same recovery flow, with the same protections, and
+the app shows the exact command to run.
+
+**A build can no longer ship without its interface.** The release now fails if
+the packaged app is missing the renderer, either engine binary, or their model
+weights — the check whose absence caused all of this.
+
 ## v1.2.0 — 28 Aug 2026
 
 **Windows customers get a real installer.** `argus-windows-setup.exe` now sits
