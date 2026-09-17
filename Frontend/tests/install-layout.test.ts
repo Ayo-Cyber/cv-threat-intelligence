@@ -7,6 +7,11 @@ import { resolveLayout, userDataDir } from "../electron/install-layout.js";
  * worth of assumptions. Until v1.8.13 only the development one existed, and
  * every release shipped the old PyQt interface because nothing packaged this
  * shell at all. These are the rules that make an installed build work.
+ *
+ * Every expectation is built with path.join, never a literal "/a/b" string:
+ * the code under test uses the HOST's path module, so a forward-slash literal
+ * passes on macOS/Linux and fails on a Windows runner. Caught by the first
+ * three-OS build of this branch.
  */
 const base = {
   dir: "/opt/Argus/resources/app.asar/dist-electron",
@@ -26,11 +31,13 @@ describe("installed", () => {
 
   it("spawns the frozen binary beside the engine, with no module args", () => {
     const layout = packaged();
-    expect(layout.apiCommand).toBe("/opt/Argus/resources/engine/argus-api");
+    expect(layout.apiCommand).toBe(
+      path.join("/opt/Argus/resources", "engine", "argus-api"),
+    );
     // The frozen binary IS cvti.api; passing `-m cvti.api` to it would make it
     // parse "cvti.api" as a flag and die.
     expect(layout.apiArgs).toEqual([]);
-    expect(layout.engineRoot).toBe("/opt/Argus/resources/engine");
+    expect(layout.engineRoot).toBe(path.join("/opt/Argus/resources", "engine"));
   });
 
   it("names the Windows executable and reads APPDATA", () => {
@@ -93,11 +100,11 @@ describe("development", () => {
 
   it("runs the repo's interpreter as a module, unchanged", () => {
     const layout = dev();
-    expect(layout.apiCommand).toBe("/repo/.venv/bin/python");
+    expect(layout.apiCommand).toBe(path.join("/repo", ".venv", "bin/python"));
     expect(layout.apiArgs).toEqual(["-u", "-m", "cvti.api"]);
-    expect(layout.engineRoot).toBe("/repo");
-    expect(layout.site).toBe("/repo/configs/site_live.json");
-    expect(layout.db).toBe("/repo/runs/desktop/events.db");
+    expect(layout.engineRoot).toBe(path.resolve("/repo/Frontend/dist-electron", "../.."));
+    expect(layout.site).toBe(path.join("/repo", "configs/site_live.json"));
+    expect(layout.db).toBe(path.join("/repo", "runs/desktop/events.db"));
   });
 
   it("still asks for ARGUS_PYTHON when there is no venv", () => {
@@ -116,11 +123,11 @@ describe("development", () => {
 describe("userDataDir", () => {
   it("matches cvti/utils.py on every platform", () => {
     expect(userDataDir("darwin", {}, "/h")).toBe(
-      "/h/Library/Application Support/Argus",
+      path.join("/h", "Library", "Application Support", "Argus"),
     );
     expect(userDataDir("win32", { APPDATA: "C:\\a" }, "/h")).toBe(
       path.join("C:\\a", "Argus"),
     );
-    expect(userDataDir("linux", {}, "/h")).toBe("/h/.argus");
+    expect(userDataDir("linux", {}, "/h")).toBe(path.join("/h", ".argus"));
   });
 });
