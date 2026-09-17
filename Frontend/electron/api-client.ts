@@ -78,6 +78,105 @@ function normalizeStreamDescriptor(value: any) {
 }
 
 const operations: Record<string, Operation> = {
+  // --- parity with the retired PyQt console (17 Sep) ---------------------
+  // Each of these had a backend method and no way to reach it from this UI.
+  // Routes: cvti/api/writes.py, same order.
+  auth_accounts: { method: "GET", path: fixed("/auth/accounts") },
+  auth_recovery: { method: "GET", path: fixed("/auth/recovery") },
+  change_own_password: {
+    method: "POST",
+    path: fixed("/auth/password"),
+    body: ([current, next]) => ({ current, new: next }),
+  },
+  set_user_role: {
+    method: "PUT",
+    path: item("/users", "/role"),
+    body: ([, role]) => ({ role }),
+  },
+  create_owner_override: {
+    method: "POST",
+    path: fixed("/auth/owner-override"),
+    body: ([username, password]) => ({ username, password }),
+  },
+  counts: { method: "GET", path: fixed("/reports/counts") },
+  needs_attention: {
+    method: "GET",
+    path: fixed("/reports/needs-attention"),
+    query: ([min_priority]) => ({ min_priority }),
+  },
+  export_incident_pdf: { method: "POST", path: item("/events", "/report") },
+  export_evidence: {
+    method: "POST",
+    path: fixed("/events/export"),
+    body: ([event_ids, dest]) => ({ event_ids, dest }),
+  },
+  set_legal_hold: {
+    method: "PUT",
+    path: item("/events", "/legal-hold"),
+    body: ([, hold]) => ({ hold }),
+  },
+  weekly_summary: { method: "GET", path: fixed("/reports/weekly") },
+  handover: {
+    method: "GET",
+    path: fixed("/reports/handover"),
+    query: ([hours]) => ({ hours }),
+  },
+  list_backups: { method: "GET", path: fixed("/backups") },
+  restore_backup: {
+    method: "POST",
+    path: fixed("/backups/restore"),
+    body: ([zip_path]) => ({ zip_path }),
+  },
+  set_backup_dir: {
+    method: "PUT",
+    path: fixed("/backups/directory"),
+    body: ([path]) => ({ path }),
+  },
+  audit_export: { method: "POST", path: fixed("/audit/export") },
+  audit_verify: { method: "GET", path: fixed("/audit/verify") },
+  app_version: { method: "GET", path: fixed("/system/version") },
+  detector_validation: { method: "GET", path: fixed("/system/detectors") },
+  heartbeat_status: { method: "GET", path: fixed("/system/heartbeat") },
+  set_heartbeat: {
+    method: "PUT",
+    path: fixed("/system/heartbeat"),
+    body: ([url, key]) => ({ url, key }),
+  },
+  learning_stats: { method: "GET", path: fixed("/system/learning") },
+  learning_calibrate: {
+    method: "POST",
+    path: fixed("/system/learning/calibrate"),
+  },
+  set_value_inputs: {
+    method: "PUT",
+    path: fixed("/value/inputs"),
+    body: ([incident_value, guard_hourly_cost, review_minutes]) => ({
+      incident_value,
+      guard_hourly_cost,
+      review_minutes,
+    }),
+  },
+  live_frames: { method: "GET", path: fixed("/engine/frames") },
+  set_custom_rule: {
+    method: "PUT",
+    path: item("/cameras", "/rules/question"),
+    body: ([, question, dwell]) => ({ question, dwell }),
+  },
+  add_custom_threat: {
+    method: "POST",
+    path: item("/cameras", "/threats"),
+    body: ([, name, description]) => ({ name, description }),
+  },
+  remove_custom_threat: {
+    method: "DELETE",
+    path: ([camera, index]) =>
+      `/cameras/${encodeURIComponent(String(camera))}/threats/${encodeURIComponent(String(index))}`,
+  },
+  update_site_context: {
+    method: "PUT",
+    path: fixed("/site/context"),
+    body: ([context]) => ({ context }),
+  },
   get_site: { method: "GET", path: fixed("/site") },
   set_site: {
     method: "PUT",
@@ -96,7 +195,7 @@ const operations: Record<string, Operation> = {
     path: fixed("/cameras/probe"),
     body: ([source]) => ({ source }),
   },
-  discover_cameras: { method: "GET", path: fixed("/cameras/discovery") },
+  discover_cameras: { method: "GET", path: fixed("/discovery/cameras") },
   detect_subnet: { method: "GET", path: fixed("/cameras/discovery/subnet") },
   scan: {
     method: "POST",

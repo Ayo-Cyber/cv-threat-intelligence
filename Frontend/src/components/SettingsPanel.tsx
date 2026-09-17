@@ -11,6 +11,7 @@ import type {
 import { UsersPanel } from "./AccountAccess";
 import { Badge, Notice, Spinner } from "./common";
 import LocationManager from "./LocationManager";
+import SystemPanel from "./SystemPanel";
 export default function SettingsPanel({
   api,
   mode,
@@ -68,6 +69,7 @@ export default function SettingsPanel({
   return (
     <div className="settings-layout">
       {mode === "engine" && <UsersPanel api={api} auth={auth} />}
+      {mode === "engine" && <SystemPanel api={api} notify={notify} />}
       {error && <Notice error>{error}</Notice>}
       <LocationManager
         api={api}
