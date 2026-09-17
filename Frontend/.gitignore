@@ -7,3 +7,4 @@ playwright-report/
 public/demo/*.mp4
 public/demo/*-frame.jpg
 __pycache__/
+release/

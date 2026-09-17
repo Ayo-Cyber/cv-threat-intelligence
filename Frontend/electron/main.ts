@@ -8,6 +8,7 @@ import type { ArgusApiClient } from "./api-client.js";
 import { createOwnedApiClient, createSmokeStateWriter } from "./api-runtime.js";
 import { startOwnedApi, type OwnedApi } from "./api-supervisor.js";
 import { createSupportLog } from "./support-log.js";
+import { resolveLayout, type InstallLayout } from "./install-layout.js";
 import {
   createBridgeTransport,
   registerBridgeStreamProtocol,
@@ -22,6 +23,22 @@ protocol.registerSchemesAsPrivileged([
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const root = process.env.ARGUS_REPO || path.resolve(dir, "../..");
+/**
+ * Development runs out of the repo against a .venv interpreter. An installed
+ * app has neither, and spawns the frozen `argus-api` binary shipped beside
+ * the engine. Resolved once, lazily, so a layout problem surfaces as a real
+ * error in the UI rather than a blank window at startup.
+ */
+let layoutCache: InstallLayout | undefined;
+function layout(): InstallLayout {
+  if (!layoutCache)
+    layoutCache = resolveLayout({
+      packaged: app.isPackaged,
+      dir,
+      resourcesPath: process.resourcesPath,
+    });
+  return layoutCache;
+}
 let window: BrowserWindow | null = null;
 let worker: ChildProcessWithoutNullStreams | undefined;
 let sequence = 0;
@@ -134,32 +151,30 @@ function failPending(message: string) {
 }
 function ensureWorker() {
   if (worker) return worker;
-  const python =
-    process.env.ARGUS_PYTHON ||
-    path.join(
-      root,
-      ".venv",
-      process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
-    );
-  if (!fs.existsSync(python))
+  const install = layout();
+  // The stdio bridge is the DEVELOPMENT transport: it runs bridge.py through
+  // an interpreter, which an installed app does not have. Installed builds
+  // use the API transport (the default), so say so plainly rather than
+  // failing later with a confusing missing-Python error.
+  if (install.packaged)
     throw new Error(
-      "Python environment missing. Set ARGUS_PYTHON to the existing Argus Python executable.",
+      "ARGUS_TRANSPORT=bridge is a development-only transport; the installed app talks to the bundled Engine API.",
     );
   const bridge = path.resolve(dir, "../bridge.py");
   worker = spawn(
-    python,
+    install.apiCommand,
     [
       "-u",
       bridge,
       "--repo",
-      root,
+      install.engineRoot,
       "--site",
-      process.env.ARGUS_SITE_CONFIG || "configs/site_live.json",
+      install.site,
       "--db",
-      process.env.ARGUS_DB || "runs/desktop/events.db",
+      install.db,
     ],
     {
-      cwd: root,
+      cwd: install.engineRoot,
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
       stdio: "pipe",
     },
@@ -215,34 +230,30 @@ async function ensureApi() {
   if (apiClient) return apiClient;
   if (apiStarting) return apiStarting;
   apiStarting = (async () => {
-    const python =
-      process.env.ARGUS_PYTHON ||
-      path.join(
-        root,
-        ".venv",
-        process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
-      );
-    if (!fs.existsSync(python))
-      throw new Error(
-        "Python environment missing. Set ARGUS_PYTHON to the existing Argus Python executable.",
-      );
+    const install = layout();
+    // Installed, the writable directory may not exist yet (first launch, or a
+    // machine upgrading from a version that never had one).
+    fs.mkdirSync(install.dataDir, { recursive: true });
     const port = Number(process.env.ARGUS_API_PORT || 8787);
     if (!Number.isInteger(port) || port < 1 || port > 65535)
       throw new Error("ARGUS_API_PORT must be an integer from 1 to 65535.");
-    const logPath =
-      process.env.ARGUS_SUPPORT_LOG ||
-      path.join(root, "runs", "desktop", "frontend.log");
-    const supportLog = createSupportLog(logPath);
+    const supportLog = createSupportLog(install.supportLog);
     const writeOutput = (data: Buffer) => {
       const safe = supportLog.write(data);
       process.stderr.write(safe);
     };
     const owner = await startOwnedApi({
-      python,
-      root,
+      python: install.apiCommand,
+      moduleArgs: install.apiArgs,
+      root: install.engineRoot,
       port,
-      site: process.env.ARGUS_SITE_CONFIG || "configs/site_live.json",
-      db: process.env.ARGUS_DB || "runs/desktop/events.db",
+      site: install.site,
+      db: install.db,
+      // A frozen binary unpacks itself before it serves anything: measured
+      // ~12s on a developer Mac from warm cache, and the pilot's box is a
+      // 4-core Windows machine reading a ~1 GB tree off disk for the first
+      // time. The 30s development default would read that as a failed start.
+      timeoutMs: install.packaged ? 180_000 : 30_000,
       onStdout: writeOutput,
       onStderr: writeOutput,
     });
@@ -284,30 +295,28 @@ app.whenReady().then(() => {
     void registerBridgeStreamProtocol(protocol, bridgeTransport);
   ipcMain.handle("engine:environment", (event) => {
     if (event.sender !== window?.webContents) throw new Error("Unknown caller");
-    const python =
-      process.env.ARGUS_PYTHON ||
-      path.join(
-        root,
-        ".venv",
-        process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
-      );
+    const install = layout();
     const quote = (value: string) =>
       process.platform === "win32"
         ? "'" + value.replaceAll("'", "''") + "'"
         : "'" + value.replaceAll("'", "'\"'\"'") + "'";
-    const recovery = [
-      python,
-      path.join(root, "Frontend/scripts/recover_account.py"),
-      "--db",
-      path.resolve(root, process.env.ARGUS_DB || "runs/desktop/events.db"),
-    ];
+    // Installed, recovery runs through the bundled binary's own flag — there
+    // is no repo, no Python and no loose script on a customer's machine.
+    const recovery = install.packaged
+      ? [install.apiCommand, "--recover-account", "--db", install.db]
+      : [
+          install.apiCommand,
+          path.join(install.engineRoot, "Frontend/scripts/recover_account.py"),
+          "--db",
+          install.db,
+        ];
     return {
       recovery_command:
         (process.platform === "win32" ? "& " : "") +
         recovery.map(quote).join(" "),
-      repo: root,
-      site: process.env.ARGUS_SITE_CONFIG || "configs/site_live.json",
-      db: process.env.ARGUS_DB || "runs/desktop/events.db",
+      repo: install.engineRoot,
+      site: install.site,
+      db: install.db,
     };
   });
   ipcMain.handle("engine:invoke", (event, method, args) => {
@@ -343,7 +352,10 @@ app.whenReady().then(() => {
     });
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     window.webContents.on("will-navigate", (event) => event.preventDefault());
-    if (process.argv.includes("--production"))
+    // Packaged: the built renderer rides in the asar beside this file. The
+    // --production flag keeps working for a source checkout that wants the
+    // built assets instead of the Vite dev server.
+    if (app.isPackaged || process.argv.includes("--production"))
       void window.loadFile(path.join(dir, "../dist/index.html"));
     else void window.loadURL("http://127.0.0.1:5173");
   };

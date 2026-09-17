@@ -207,8 +207,49 @@ engine_a = Analysis(
     noarchive=False,
 )
 
+# ---------------------------------------------------------------------------
+# The Engine API — the backend the Electron desktop UI spawns and talks to.
+# An installed customer has no repo and no venv, so `python -m cvti.api` (the
+# dev path) cannot exist on their machine; the shell spawns THIS binary.
+# Deliberately not the detection stack: this process serves HTTP, reads the
+# event store and starts/stops the engine, which is its own executable.
+# ---------------------------------------------------------------------------
+api_a = Analysis(
+    [os.path.join(ROOT, "packaging", "api_entry.py")],
+    pathex=[ROOT],
+    datas=[],                      # shared datas ride with the app Analysis
+    hiddenimports=[
+        "cvti.api", "cvti.api.app", "cvti.api.sources", "cvti.api.tokens",
+        "cvti.api.writes", "cvti.app.console_backend",
+        # uvicorn resolves its loop and protocol implementations by STRING
+        # name at startup ("auto" becomes one of these), so static analysis
+        # sees none of them and a frozen API dies on its first request.
+        "uvicorn", "uvicorn.config", "uvicorn.main", "uvicorn.server",
+        "uvicorn.loops", "uvicorn.loops.auto", "uvicorn.loops.asyncio",
+        "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.http.h11_impl", "uvicorn.protocols.http.httptools_impl",
+        "uvicorn.protocols.websockets", "uvicorn.protocols.websockets.auto",
+        "uvicorn.protocols.websockets.websockets_impl",
+        "uvicorn.protocols.websockets.wsproto_impl",
+        "uvicorn.lifespan", "uvicorn.lifespan.on", "uvicorn.lifespan.off",
+        "uvicorn.logging",
+        "fastapi", "starlette", "websockets", "wsproto", "h11", "httptools",
+        "anyio", "sniffio",
+        # Dynamically imported, same as the app and engine need them.
+        "logging.config", "logging.handlers",
+    ],
+    # The API never runs a detector; keeping the heavy stack out of ITS import
+    # graph keeps the process small and its start fast. The libraries still
+    # ship — the engine's Analysis carries them into the shared COLLECT below.
+    excludes=["PyQt6", "PyQt5", "PySide6", "PySide2", "tkinter", "polars",
+              "IPython", "pytest", "notebook", "torch", "torchvision",
+              "ultralytics", "transformers", "pytorchvideo", "matplotlib"],
+    noarchive=False,
+)
+
 app_pyz = PYZ(app_a.pure)
 engine_pyz = PYZ(engine_a.pure)
+api_pyz = PYZ(api_a.pure)
 
 app_exe = EXE(
     app_pyz,
@@ -240,7 +281,22 @@ engine_exe = EXE(
     entitlements_file=None,
 )
 
-# One COLLECT: both executables share one set of libraries and data files.
+api_exe = EXE(
+    api_pyz,
+    api_a.scripts,
+    [],
+    exclude_binaries=True,
+    name="argus-api",
+    debug=False,
+    strip=False,
+    upx=False,
+    console=True,                # headless subprocess; the shell pipes its output
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+# One COLLECT: all three executables share one set of libraries and data files.
 def _strip_dead_weight(datas):
     """Drop what a customer downloads but never uses (bundle audit, 25 Aug):
     QtWebEngine's devtools DEBUG resources are 76 MB of symbols for a devtools
@@ -255,10 +311,13 @@ engine_a.datas = _strip_dead_weight(engine_a.datas)
 coll = COLLECT(
     app_exe,
     engine_exe,
+    api_exe,
     app_a.binaries,
     app_a.datas,
     engine_a.binaries,
     engine_a.datas,
+    api_a.binaries,
+    api_a.datas,
     strip=False,
     upx=False,
     name="Argus",

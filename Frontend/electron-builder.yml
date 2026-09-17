@@ -1,0 +1,78 @@
+# How the desktop app is packaged for customers.
+#
+# The product is one application with two halves: this Electron shell (the UI
+# Demi builds) and the Python engine PyInstaller freezes into dist/Argus. The
+# shell cannot run without the engine and the engine has no UI of its own, so
+# they ship together: the whole PyInstaller tree is copied in as
+# resources/engine, and electron/install-layout.ts resolves the binaries there
+# when app.isPackaged.
+#
+# That tree also still contains the legacy PyQt shell (resources/engine/Argus).
+# Nothing launches it, but it is a support escape hatch on a machine where the
+# new UI misbehaves, and it costs nothing extra — it was already built.
+appId: com.argus.desktop
+productName: Argus
+copyright: Argus
+
+directories:
+  output: release
+
+files:
+  - dist/**
+  - dist-electron/**
+  - package.json
+
+# The engine tree, verbatim. Not asar-packed: these are executables plus the
+# model weights and vendored runtimes they load by path at runtime.
+extraResources:
+  - from: ../dist/Argus
+    to: engine
+
+asar: true
+# A customer's machine must never be asked to fetch anything at install time.
+npmRebuild: false
+buildDependenciesFromSource: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  # Matches the filenames the release page has used since v1.0 so existing
+  # download links and the pilot's instructions keep working.
+  artifactName: argus-windows.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Argus
+  artifactName: argus-windows-setup.${ext}
+
+mac:
+  # HOST architecture only, deliberately. PyInstaller cannot cross-compile, so
+  # resources/engine is whatever the runner built; packaging a universal or
+  # x64 app around an arm64 engine would ship a UI whose backend cannot start.
+  target:
+    - target: dmg
+  category: public.app-category.business
+  hardenedRuntime: true
+  entitlements: ../packaging/entitlements.plist
+  entitlementsInherit: ../packaging/entitlements.plist
+  # The workflow notarises and staples the dmg itself, after signing, exactly
+  # as it did for the PyQt bundle.
+  notarize: false
+  artifactName: argus-macos.${ext}
+
+dmg:
+  artifactName: argus-macos.${ext}
+
+linux:
+  target:
+    - target: zip
+      arch: [x64]
+  category: Utility
+  artifactName: argus-linux.${ext}

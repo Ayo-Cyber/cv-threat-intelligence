@@ -26,8 +26,15 @@ describe("desktop support log", () => {
     const contents = fs.readFileSync(logPath, "utf8");
     expect(contents).not.toContain(token);
     expect(contents).toContain("[REDACTED]");
-    expect(fs.statSync(logPath).mode & 0o777).toBe(0o600);
-    expect(fs.statSync(path.dirname(logPath)).mode & 0o777).toBe(0o700);
+    // POSIX permission bits only. Windows expresses file access through
+    // ACLs, and fs.statSync().mode reports a fixed 0o666 there, so asserting
+    // 0o600 fails on a correctly-written file. The redaction above — the part
+    // that actually keeps tokens out of a support log — is checked on every
+    // platform. (Surfaced when the Windows build first ran `npm test`, v1.8.13.)
+    if (process.platform !== "win32") {
+      expect(fs.statSync(logPath).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.dirname(logPath)).mode & 0o777).toBe(0o700);
+    }
   });
 
   it("bounds retained output without reintroducing redacted text", () => {

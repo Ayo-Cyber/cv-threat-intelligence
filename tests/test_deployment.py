@@ -226,9 +226,15 @@ class BundleWeightTest(unittest.TestCase):
 
     spec = (ROOT / "packaging" / "argus.spec").read_text()
 
-    def test_polars_is_excluded_from_both_analyses(self):
-        self.assertEqual(self.spec.count('"polars"'), 2,
-                         "156 MB of a dependency the product never imports")
+    def test_polars_is_excluded_from_every_analysis(self):
+        # EVERY Analysis, not a fixed count: the spec grew a third one
+        # (argus-api) in v1.8.13 and a hardcoded 2 would have failed on a
+        # change that was entirely correct.
+        analyses = self.spec.count("Analysis(")
+        self.assertGreaterEqual(analyses, 3, "app, engine and api analyses expected")
+        self.assertEqual(self.spec.count('"polars"'), analyses,
+                         "156 MB of a dependency the product never imports — "
+                         "exclude it from every Analysis in the spec")
 
     def test_devtools_debug_resources_are_stripped(self):
         self.assertIn("_strip_dead_weight", self.spec)
