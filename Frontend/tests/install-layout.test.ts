@@ -87,9 +87,14 @@ describe("installed", () => {
 });
 
 describe("development", () => {
+  // The code derives the repo root with path.resolve, which on Windows
+  // prefixes the current DRIVE ("D:\\repo"); path.join does not. Expectations
+  // are built from the same resolve so they hold on every host.
+  const devDir = "/repo/Frontend/dist-electron";
+  const repoRoot = path.resolve(devDir, "../..");
   const dev = (env: NodeJS.ProcessEnv = {}) =>
     resolveLayout({
-      dir: "/repo/Frontend/dist-electron",
+      dir: devDir,
       resourcesPath: "/unused",
       packaged: false,
       platform: "linux",
@@ -100,17 +105,17 @@ describe("development", () => {
 
   it("runs the repo's interpreter as a module, unchanged", () => {
     const layout = dev();
-    expect(layout.apiCommand).toBe(path.join("/repo", ".venv", "bin/python"));
+    expect(layout.apiCommand).toBe(path.join(repoRoot, ".venv", "bin/python"));
     expect(layout.apiArgs).toEqual(["-u", "-m", "cvti.api"]);
-    expect(layout.engineRoot).toBe(path.resolve("/repo/Frontend/dist-electron", "../.."));
-    expect(layout.site).toBe(path.join("/repo", "configs/site_live.json"));
-    expect(layout.db).toBe(path.join("/repo", "runs/desktop/events.db"));
+    expect(layout.engineRoot).toBe(repoRoot);
+    expect(layout.site).toBe(path.join(repoRoot, "configs/site_live.json"));
+    expect(layout.db).toBe(path.join(repoRoot, "runs/desktop/events.db"));
   });
 
   it("still asks for ARGUS_PYTHON when there is no venv", () => {
     expect(() =>
       resolveLayout({
-        dir: "/repo/Frontend/dist-electron",
+        dir: devDir,
         resourcesPath: "/unused",
         packaged: false,
         env: {},
