@@ -1,26 +1,23 @@
 from __future__ import annotations
 
 import base64
+import io
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from cvti.api.app import create_app
+from cvti.object_watch.embeddings import HashEmbeddingBackend
 
 
-JPEG_1X1 = base64.b64encode(
-    base64.b64decode(
-        "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
-        "////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////"
-        "////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAA"
-        "AAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA"
-        "/9oACAEDAQE/Aaf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/Aaf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Aqf/"
-        "xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IX//2gAMAwEAAgADAAAAEP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Q"
-        "H//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QH//Z"
-    )
-).decode()
+_image = io.BytesIO()
+Image.new("RGB", (2, 2), (20, 40, 60)).save(_image, format="PNG")
+JPEG_1X1 = base64.b64encode(_image.getvalue()).decode()
 
 
 def _mint_app(tmp: Path):
@@ -93,7 +90,8 @@ class ObjectWatchApiTests(unittest.TestCase):
         self.client.post(
             "/api/v1/object-targets/chi-carton/examples",
             headers=self.owner,
-            json={"image_b64": JPEG_1X1, "bbox": [0, 0, 1, 1], "source": "upload"},
+            json={"image_b64": JPEG_1X1, "bbox": [0, 0, 1, 1], "source": "upload",
+                  "bbox_format": "legacy"},
         )
 
         read = self.client.get("/api/v1/object-targets", headers=self.operator)
@@ -144,21 +142,39 @@ class ObjectWatchApiTests(unittest.TestCase):
             json={"image_b64": JPEG_1X1, "bbox": [0, 0, 1, 1], "source": "upload"},
         )
         self.assertEqual(example.status_code, 201, example.text)
+        example_id = example.json()["example"]["id"]
+        reviewed = self.client.put(
+            f"/api/v1/object-targets/chi-carton/examples/{example_id}/review",
+            headers=self.owner, json={"reviewed": True},
+        )
+        self.assertEqual(reviewed.status_code, 200, reviewed.text)
 
+        with patch("cvti.object_watch.runtime_config.load_configured_backend",
+                   return_value=HashEmbeddingBackend()):
+            reembed = self.client.post(
+                "/api/v1/object-targets/reembed", headers=self.owner, json={},
+            )
+            self.assertEqual(reembed.status_code, 200, reembed.text)
+            self.assertEqual(set(reembed.json()), {"job_id", "status"})
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                status = self.client.get(
+                    f"/api/v1/object-targets/jobs/{reembed.json()['job_id']}",
+                    headers=self.owner,
+                )
+                if status.json()["status"] not in {"queued", "running"}:
+                    break
+                time.sleep(0.01)
+        self.assertEqual(status.json()["status"], "completed", status.text)
+        self.assertEqual(status.json()["written"], 1)
+
+        backend = self.app.state.backend_host._backend
+        backend._object_watch_metadata = lambda: HashEmbeddingBackend()
         activated = self.client.post(
-            "/api/v1/object-targets/chi-carton/activate",
-            headers=self.owner,
+            "/api/v1/object-targets/chi-carton/activate", headers=self.owner,
         )
         self.assertEqual(activated.status_code, 200, activated.text)
         self.assertEqual(activated.json()["target"]["review_state"], "active")
-
-        reembed = self.client.post(
-            "/api/v1/object-targets/reembed",
-            headers=self.owner,
-            json={"model": "hash"},
-        )
-        self.assertEqual(reembed.status_code, 200, reembed.text)
-        self.assertEqual(reembed.json()["written"], 1)
 
 
 if __name__ == "__main__":

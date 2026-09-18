@@ -21,10 +21,23 @@ from cvti.app.console_backend import ConsoleBackend
 from _backend_helper import signed_in
 
 
-def _engine_flags() -> set[str]:
-    """The per-camera boolean detector flags PerCameraState actually supports."""
+# These are serving infrastructure controls, not threat/safety rule detectors.
+# They remain opt-in camera config and deliberately do not appear as Rules UI
+# chips or ConsoleBackend.RULE_FLAGS.
+INFRASTRUCTURE_FLAGS = {
+    "general_object_tracking",
+    "general_object_tracking_overlays",
+}
+
+
+def _all_engine_bool_flags() -> set[str]:
     src = (ROOT / "cvti" / "serving" / "camera.py").read_text()
     return set(re.findall(r"^    ([a-z_]+): bool = False", src, re.M))
+
+
+def _engine_flags() -> set[str]:
+    """The per-camera boolean detector flags PerCameraState actually supports."""
+    return _all_engine_bool_flags() - INFRASTRUCTURE_FLAGS
 
 
 def _ui_chips() -> set[str]:
@@ -39,6 +52,16 @@ class ToggleCoverageTests(unittest.TestCase):
         self.assertTrue(eng, "should find engine flags")
         self.assertEqual(ui, be, "every UI chip must be accepted by the backend")
         self.assertEqual(be, eng, "operator must be able to toggle every engine detector")
+
+    def test_general_object_controls_are_config_only_infrastructure(self):
+        from cvti.serving.camera import PerCameraState
+
+        declared = _all_engine_bool_flags()
+        self.assertEqual(declared & INFRASTRUCTURE_FLAGS, INFRASTRUCTURE_FLAGS)
+        for key in INFRASTRUCTURE_FLAGS:
+            self.assertIs(PerCameraState.__dataclass_fields__[key].default, False)
+        self.assertTrue(INFRASTRUCTURE_FLAGS.isdisjoint(_ui_chips()))
+        self.assertTrue(INFRASTRUCTURE_FLAGS.isdisjoint(ConsoleBackend.RULE_FLAGS))
 
     def test_the_previously_missing_detectors_are_present(self):
         for key in ("fire_smoke", "running", "crowd_formation", "fall"):

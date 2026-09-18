@@ -136,3 +136,6 @@ vendor/
 # from the tracked .pt weights at build time, never committed.
 models/*.onnx
 data/staging/
+
+# Explicitly provisioned watchlist checkpoints and local-only runtime assets.
+models/watchlist/

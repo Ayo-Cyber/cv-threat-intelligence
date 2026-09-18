@@ -38,16 +38,68 @@ log = get_logger(__name__)
 ResultHandler = Callable[[Frame, Any], None]
 
 
-def _frame_overlays(state: Any) -> list[FrameOverlay]:
+def _frame_overlays(state: Any, timestamp: float | None = None) -> list[FrameOverlay]:
+    if state is None:
+        return []
+    records = list(getattr(state, "_motion_overlays", ()) or ())
+    object_overlay_provider = getattr(state, "general_object_overlays", None)
+    if object_overlay_provider is not None:
+        try:
+            records.extend(
+                object_overlay_provider(time.monotonic() if timestamp is None else timestamp)
+            )
+        except Exception:  # noqa: BLE001 - optional boxes cannot block person rendering
+            log.warning("general object overlay snapshot failed", exc_info=True)
     return [
         FrameOverlay(
             track_id=int(item["track_id"]),
             bbox=tuple(item["bbox"]),
             label=str(item["label"]),
             colour=tuple(item.get("colour", (0, 200, 0))),
+            namespace=str(item.get("namespace", "person")),
         )
-        for item in (getattr(state, "_motion_overlays", ()) or ())
+        for item in records
     ]
+
+
+def _object_track_snapshot(state: Any, timestamp: float | None = None) -> dict | None:
+    provider = getattr(state, "general_object_snapshot", None) if state is not None else None
+    if provider is None:
+        return None
+    try:
+        return provider(time.monotonic() if timestamp is None else timestamp)
+    except Exception:  # noqa: BLE001 - raw/person publication must continue
+        log.warning("general object metadata snapshot failed", exc_info=True)
+        return None
+
+
+def _publish_frame(publisher: Any, camera_id: str, frame: Any, state: Any) -> None:
+    generation_provider = getattr(publisher, "object_generation", None)
+    object_generation = generation_provider(camera_id) if generation_provider else None
+    overlays = _frame_overlays(state)
+    snapshot = _object_track_snapshot(state)
+    if generation_provider is None:
+        publisher.publish(camera_id, frame, overlays)
+    else:
+        publisher.publish(
+            camera_id, frame, overlays, object_tracks=snapshot,
+            object_generation=object_generation,
+        )
+
+
+def _publish_jpeg(publisher: Any, camera_id: str, jpeg: bytes, state: Any,
+                  source_size: tuple[int, int] | None) -> None:
+    generation_provider = getattr(publisher, "object_generation", None)
+    object_generation = generation_provider(camera_id) if generation_provider else None
+    overlays = _frame_overlays(state)
+    snapshot = _object_track_snapshot(state)
+    if generation_provider is None:
+        publisher.publish_jpeg(camera_id, jpeg, overlays, source_size)
+    else:
+        publisher.publish_jpeg(
+            camera_id, jpeg, overlays, source_size, object_tracks=snapshot,
+            object_generation=object_generation,
+        )
 
 
 def _alert_track_ids(alerts: Any) -> set[int]:
@@ -314,7 +366,8 @@ class MultiStreamPipeline:
                  publish_fps: float = 24.0,
                  view_only: set[str] | None = None,
                  fallback_sources: dict | None = None,
-                 detector_backend: str = "torch") -> None:
+                 detector_backend: str = "torch",
+                 object_watch_runtime: Any = None) -> None:
         self.sources = sources
         # W1.3: camera_id -> the camera's OWN url, for cameras whose `source`
         # is the go2rtc restream. A dead gateway costs a reconnect, not
@@ -337,6 +390,14 @@ class MultiStreamPipeline:
         self.half = half and self.device == "cuda"
         self.max_batch = max_batch
         self._camera_states = camera_states
+        self._object_watch_runtime = object_watch_runtime
+        self._object_watch_lifecycle_lock = threading.Lock()
+        self._started = False
+        for state in (camera_states or {}).values():
+            if getattr(state, "object_watch", False):
+                attach = getattr(state, "attach_object_watch_runtime", None)
+                if attach is not None:
+                    attach(object_watch_runtime)
         self._alert_queue = alert_queue
         # Cameras that stream glass only — their frames never enter detection.
         self.view_only: set[str] = set(view_only or ())
@@ -347,12 +408,20 @@ class MultiStreamPipeline:
         self.latest_boxes: dict = {}       # camera_id -> last detection's boxes
         self._smooth_thread = None
         self._last_detect: dict = {}       # camera_id -> last model-sample time
+        # General-object lifecycle uses monotonic observation time. Generation
+        # and tracker update/reset share this lock so an inference started on an
+        # old source can never re-enter continuity after a reconnect reset.
+        self._source_lock = threading.RLock()
+        self._source_generation = {camera_id: 0 for camera_id in sources}
+        self._inference_context: dict[int, tuple[int, float]] = {}
         self.on_link_change = on_link_change
         # Called the moment an alert is accepted onto the queue — the two-tier
         # fast path hangs off this, ahead of any verification.
         self.on_queued = None
         # When per-camera states + a queue are supplied, route detections through
         # them (track -> zones -> rules -> alert queue). Otherwise just count.
+        self._routes_to_queue = on_result is None \
+            and camera_states is not None and alert_queue is not None
         if on_result is not None:
             self.on_result = on_result
         elif camera_states is not None and alert_queue is not None:
@@ -370,6 +439,9 @@ class MultiStreamPipeline:
         self._detect_ms_total = 0.0
 
     def start(self) -> None:
+        self._started = True
+        if self._object_watch_runtime is not None:
+            self._object_watch_runtime.start()
         # W2: the detector loads through the accelerator selector — .onnx on
         # the provider this box offers when torch would be CPU-bound, torch
         # exactly as before everywhere else. detector_info says which and why;
@@ -390,6 +462,12 @@ class MultiStreamPipeline:
         # For the per-camera detector path we also need core.py's Detection list
         # (weapons/violence/theft), built from the same shared-model result.
         self._names = self._model.names
+        for state in (self._camera_states or {}).values():
+            try:
+                state.ensure_general_object_tracker(self._names, self.target_fps)
+            except Exception:  # noqa: BLE001 - optional tracking cannot block safety
+                log.warning("general object tracker setup failed for %s",
+                            getattr(state, "camera_id", "unknown"), exc_info=True)
         from cvti.detector.core import normalize_threat_classes
         self._threat_classes = normalize_threat_classes("gun,knife")
         # Decoders start at DETECTION rate. Until 3 Sep smooth-publish ran
@@ -406,7 +484,7 @@ class MultiStreamPipeline:
             # decode at detection rate as before.
             self._decoders[cam_id] = StreamDecoder(
                 cam_id, src, target_fps=(1.0 if vo else self.target_fps),
-                on_state_change=self.on_link_change, view_only=vo,
+                on_state_change=self._handle_link_change, view_only=vo,
                 fallback_source=self.fallback_sources.get(cam_id)).start()
         if self.smooth_publish:
             import threading as _th
@@ -418,6 +496,68 @@ class MultiStreamPipeline:
                      self.target_fps)
         log.info(f"[serving] {len(self._decoders)} camera(s) | device={self.device} "
               f"half={self.half} target_fps={self.target_fps} | model={self.weights}")
+
+    def _refresh_camera_state(self, camera: dict,
+                              baseline_config: str | None = None) -> None:
+        """Hot-apply rules plus object-watch configuration and lifecycle."""
+        from cvti.serving.camera import refresh_camera_rules
+
+        camera_id = str(camera.get("id"))
+        state = (self._camera_states or {}).get(camera_id)
+        if state is None:
+            return
+        was_enabled = bool(getattr(state, "object_watch", False))
+        old_settings = (
+            getattr(state, "object_watch_sample_fps", None),
+            getattr(state, "object_watch_max_candidates_per_frame", None),
+            getattr(state, "object_watch_min_similarity", None),
+            getattr(state, "object_watch_open_vocab_provider", None),
+        )
+        refresh_camera_rules(state, camera, baseline_config)
+        enabled = bool(getattr(state, "object_watch", False))
+        new_settings = (
+            state.object_watch_sample_fps,
+            state.object_watch_max_candidates_per_frame,
+            state.object_watch_min_similarity,
+            state.object_watch_open_vocab_provider,
+        )
+        with self._object_watch_lifecycle_lock:
+            runtime = self._object_watch_runtime
+            if enabled and runtime is None:
+                library = getattr(state, "object_watch_library", None)
+                if library is None:
+                    state.object_watch = False
+                    return
+                try:
+                    from cvti.object_watch.runtime import ObjectWatchRuntime
+                    from cvti.object_watch.runtime_config import resolve_config
+                    runtime = ObjectWatchRuntime(resolve_config(Path(library).resolve().parent))
+                    self._object_watch_runtime = runtime
+                    if self._started:
+                        runtime.start()
+                except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                    log.warning("[object-watch] hot enable unavailable for %s: %s",
+                                camera_id, exc)
+                    state.object_watch = False
+                    return
+            if enabled:
+                for sibling in (self._camera_states or {}).values():
+                    if getattr(sibling, "object_watch", False):
+                        sibling.attach_object_watch_runtime(runtime)
+                if runtime is not None and (not was_enabled or old_settings != new_settings):
+                    runtime.reset_camera(camera_id,
+                                         self._source_generation.get(camera_id, 0))
+            else:
+                if runtime is not None:
+                    runtime.reset_camera(camera_id,
+                                         self._source_generation.get(camera_id, 0))
+                state.attach_object_watch_runtime(None)
+                if runtime is not None and not any(
+                    getattr(sibling, "object_watch", False)
+                    for sibling in (self._camera_states or {}).values()
+                ):
+                    runtime.stop()
+                    self._object_watch_runtime = None
 
     def _smooth_publish_loop(self) -> None:
         """Ship the newest decoded frame per camera at publish_fps, overlaying
@@ -446,8 +586,8 @@ class MultiStreamPipeline:
                             source_size = (latest.image.shape[:2]
                                            if latest is not None and state is not None
                                            else None)
-                            self.publisher.publish_jpeg(
-                                cam_id, jpeg, _frame_overlays(state), source_size
+                            _publish_jpeg(
+                                self.publisher, cam_id, jpeg, state, source_size
                             )
                         continue
                     frame, seq = d.peek_latest()
@@ -460,7 +600,7 @@ class MultiStreamPipeline:
                 try:
                     state = ((self._camera_states or {}).get(cam_id)
                              if cam_id not in self.view_only else None)
-                    self.publisher.publish(cam_id, frame.image, _frame_overlays(state))
+                    _publish_frame(self.publisher, cam_id, frame.image, state)
                 except Exception:  # noqa: BLE001
                     log.debug("smooth publish failed for %s", cam_id, exc_info=True)
             sleep = period - (time.perf_counter() - t0)
@@ -476,6 +616,72 @@ class MultiStreamPipeline:
             return True
         return False
 
+    def _handle_link_change(self, camera_id: str, previous: str,
+                            state_name: str, held: float) -> None:
+        """Fence in-flight object results before exposing a source reset."""
+        source_reset = (
+            state_name == "reconnecting" and previous != "reconnecting"
+        ) or (
+            state_name == "offline" and previous not in ("reconnecting", "offline")
+        )
+        if source_reset:
+            now = time.monotonic()
+            with self._source_lock:
+                self._source_generation[camera_id] = \
+                    self._source_generation.get(camera_id, 0) + 1
+                camera_state = (self._camera_states or {}).get(camera_id)
+                if camera_state is not None:
+                    try:
+                        reset_watch = getattr(camera_state, "reset_object_watch", None)
+                        if reset_watch is not None:
+                            reset_watch(self._source_generation[camera_id])
+                        camera_state.reset_general_object_tracks(now, "source_reset")
+                        snapshot = camera_state.general_object_snapshot(now)
+                    except Exception:  # noqa: BLE001 - link handling must continue
+                        snapshot = None
+                        log.warning("general object source reset failed for %s",
+                                    camera_id, exc_info=True)
+                    if self.publisher is not None:
+                        invalidate = getattr(
+                            self.publisher, "invalidate_object_tracking", None
+                        )
+                        if invalidate is not None:
+                            try:
+                                invalidate(camera_id, snapshot)
+                            except Exception:  # noqa: BLE001 - link handling continues
+                                log.warning("object publisher reset failed for %s",
+                                            camera_id, exc_info=True)
+        if self.on_link_change is not None:
+            self.on_link_change(camera_id, previous, state_name, held)
+
+    def _object_sample_unavailable(self, camera_id: str, source_generation: int,
+                                   observed_at: float) -> None:
+        """Record a failed shared sample only if its source generation is live."""
+        state = (self._camera_states or {}).get(camera_id)
+        if state is None:
+            return
+        snapshot = None
+        with self._source_lock:
+            if self._source_generation.get(camera_id, 0) != source_generation:
+                return
+            try:
+                update = getattr(state, "update_general_object_tracks", None)
+                if update is not None:
+                    update(None, observed_at)
+                provider = getattr(state, "general_object_snapshot", None)
+                if provider is not None:
+                    snapshot = provider(observed_at)
+            except Exception:  # noqa: BLE001 - optional lane stays isolated
+                log.debug("general object unavailable update failed", exc_info=True)
+                snapshot = None
+            if self.publisher is not None:
+                invalidate = getattr(self.publisher, "invalidate_object_tracking", None)
+                if invalidate is not None:
+                    try:
+                        invalidate(camera_id, snapshot)
+                    except Exception:  # noqa: BLE001 - publication remains best effort
+                        log.debug("object metadata invalidation failed", exc_info=True)
+
     def _default_handler(self, frame: Frame, result: Any) -> None:
         n = 0 if result.boxes is None else len(result.boxes)
         self.per_cam[frame.camera_id] += n
@@ -486,7 +692,40 @@ class MultiStreamPipeline:
         state = self._camera_states.get(frame.camera_id)
         if state is None:
             return
-        detections = sv.Detections.from_ultralytics(result)          # tracking / zones
+        with self._source_lock:
+            current_generation = self._source_generation.get(frame.camera_id, 0)
+        source_generation, tracker_timestamp = self._inference_context.pop(
+            id(frame), (current_generation, time.monotonic())
+        )
+        try:
+            detections = sv.Detections.from_ultralytics(result)      # unfiltered shared result
+        except Exception as exc:
+            # Conversion failure is a known unavailable sample, not a successful
+            # empty one. Preserve the old safety failure reporting and stop here.
+            self._object_sample_unavailable(
+                frame.camera_id, source_generation, tracker_timestamp
+            )
+            state._health.failed(exc, log, "converting shared detections")
+            return
+        try:
+            with self._source_lock:
+                # Observation time and generation were captured when this frame
+                # was admitted to inference, not after a potentially slow model
+                # pass. A reset either wins before this check or waits and then
+                # clears this update; no old result can cross generations.
+                if self._source_generation.get(frame.camera_id, 0) == source_generation:
+                    ensure_tracker = getattr(state, "ensure_general_object_tracker", None)
+                    update_tracker = getattr(state, "update_general_object_tracks", None)
+                    if ensure_tracker is not None:
+                        ensure_tracker(self._names, self.target_fps)
+                    if update_tracker is not None:
+                        update_tracker(detections, tracker_timestamp)
+        except Exception:  # noqa: BLE001 - never block person tracking/rules
+            log.warning("general object tracking failed for %s", frame.camera_id,
+                        exc_info=True)
+            self._object_sample_unavailable(
+                frame.camera_id, source_generation, tracker_timestamp
+            )
         object_detections = extract_detections(result, self._names, self._threat_classes)  # weapons/violence/theft
         # `process` guards its detector section, but everything around it —
         # tracking, zones, rule evaluation, evidence selection — was unguarded,
@@ -494,14 +733,35 @@ class MultiStreamPipeline:
         # camera. The comment inside promised one bad detector could not kill the
         # camera loop; this is what makes that true.
         try:
-            alerts = state.process(detections, frame.image, frame.timestamp,
-                                   object_detections=object_detections)
+            if getattr(state, "object_watch", False):
+                alerts = state.process(
+                    detections, frame.image, frame.timestamp,
+                    object_detections=object_detections,
+                    object_watch_source_generation=source_generation,
+                    object_watch_observed_at=tracker_timestamp,
+                )
+            else:
+                alerts = state.process(detections, frame.image, frame.timestamp,
+                                       object_detections=object_detections)
         except Exception as exc:  # noqa: BLE001 - one camera must not stop the rest
             state._health.failed(exc, log, "processing a frame")
             return
         for alert in alerts:
+            runtime = None
+            candidate = (getattr(alert, "payload", None) or {}).get("candidate")
+            if getattr(candidate, "detector", "") == "object_watch":
+                watch_result = (alert.payload or {}).get("object_watch_result")
+                runtime = getattr(state, "_object_watch_runtime", None)
+                from cvti.serving.event_adapters import object_watch_alert_snapshot_current
+                if runtime is None or watch_result is None \
+                        or not object_watch_alert_snapshot_current(
+                            alert, state, runtime, watch_result, time.monotonic()
+                        ):
+                    continue
             if self._alert_queue.add(alert):
                 self.alerts_queued += 1
+                if getattr(candidate, "detector", "") == "object_watch":
+                    runtime.commit((alert.payload or {}).get("object_watch_token"))  # type: ignore[union-attr]
                 if self.on_queued is not None:
                     try:
                         self.on_queued(alert)
@@ -519,9 +779,7 @@ class MultiStreamPipeline:
                 self.publisher.mark_alerting(
                     frame.camera_id, _alert_track_ids(alerts))
             if not self.smooth_publish:
-                self.publisher.publish(
-                    frame.camera_id, frame.image, _frame_overlays(state)
-                )
+                _publish_frame(self.publisher, frame.camera_id, frame.image, state)
 
     def _all_ended(self) -> bool:
         return all(d.ended and not d.read_latest() for d in self._decoders.values())
@@ -539,10 +797,33 @@ class MultiStreamPipeline:
                 now = time.perf_counter()
                 batch = [f for f in batch if self._due_for_detection(f.camera_id, now)]
             if batch:
+                observed_at = time.monotonic()
+                if self._routes_to_queue:
+                    with self._source_lock:
+                        for frame in batch:
+                            self._inference_context[id(frame)] = (
+                                self._source_generation.get(frame.camera_id, 0), observed_at
+                            )
                 images = [f.image for f in batch]
                 t0 = time.perf_counter()
-                results = self._model.predict(images, imgsz=self.imgsz, conf=self.conf,
-                                              device=self.device, half=self.half, verbose=False)
+                try:
+                    results = self._model.predict(
+                        images, imgsz=self.imgsz, conf=self.conf,
+                        device=self.device, half=self.half, verbose=False,
+                    )
+                except Exception:  # noqa: BLE001 - mark unavailable, keep engine alive
+                    log.error("shared detection inference failed", exc_info=True)
+                    for frame in batch if self._routes_to_queue else ():
+                        generation, frame_observed_at = self._inference_context.pop(
+                            id(frame), (
+                                self._source_generation.get(frame.camera_id, 0),
+                                observed_at,
+                            ),
+                        )
+                        self._object_sample_unavailable(
+                            frame.camera_id, generation, frame_observed_at
+                        )
+                    results = []
                 batch_ms = (time.perf_counter() - t0) * 1000.0
                 self._detect_ms_total += batch_ms
                 from cvti.serving.perf import BOARD
@@ -552,6 +833,8 @@ class MultiStreamPipeline:
                 BOARD.observe("detect_batch", "engine", batch_ms, units=len(batch))
                 for frame, result in zip(batch, results):
                     self.on_result(frame, result)
+                for frame in batch[len(results):]:
+                    self._inference_context.pop(id(frame), None)
                 self.batches += 1
                 self.frames_processed += len(batch)
                 self.batch_hist[len(batch)] += 1
@@ -583,8 +866,11 @@ class MultiStreamPipeline:
                 log.info(f"[FINAL] detections/camera={dict(self.per_cam)}")
 
     def stop(self) -> None:
+        self._started = False
         for d in self._decoders.values():
             d.stop()
+        if self._object_watch_runtime is not None:
+            self._object_watch_runtime.stop()
 
 
 @dataclass
@@ -839,9 +1125,29 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                    str(cid) for cid, s in
                                    mapping_preflight.statuses.items()
                                    if s.get("status") == "ready_reviewed"
-                               })
+                               }, output_dir=output_dir)
     sources = {cid: c["source"] for cid, c in cams.items()}
     states = {cid: c["state"] for cid, c in cams.items()}
+    canonical_object_library = (Path(output_dir) / "object_library").resolve()
+    for state in states.values():
+        if not getattr(state, "object_watch", False):
+            continue
+        configured_library = getattr(state, "object_watch_library", None)
+        if configured_library is not None \
+                and Path(configured_library).expanduser().resolve() != canonical_object_library:
+            raise ValueError(
+                f"camera {state.camera_id}: object_watch_library conflicts with canonical site library"
+            )
+        state.object_watch_library = str(canonical_object_library)
+    object_watch_runtime = None
+    if any(getattr(state, "object_watch", False) for state in states.values()):
+        try:
+            from cvti.object_watch.runtime import ObjectWatchRuntime
+            from cvti.object_watch.runtime_config import resolve_config
+            object_watch_runtime = ObjectWatchRuntime(resolve_config(Path(output_dir)))
+        except (OSError, TypeError, ValueError) as exc:
+            model_failures.append(f"object watch unavailable: {str(exc)[:120]}")
+            log.warning("[object-watch] unavailable; baseline monitoring continues: %s", exc)
     # View-only cameras stream to the wall with NO detection (4 Sep, pilot ask:
     # "just streaming the video"): they get a decoder and a publisher slot,
     # never a camera state, a detector, a scanner entry, or a scene mapping.
@@ -904,17 +1210,58 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         _fb_cache[key] = (_t.time(), ex)
         return ex
 
+    def _object_watch_candidate_current(candidate) -> bool:
+        if getattr(candidate, "detector", "") != "object_watch":
+            return True
+        from types import SimpleNamespace
+        from cvti.serving.event_adapters import object_watch_alert_current
+        metadata = getattr(candidate, "metadata", None) or {}
+        camera_id = str(metadata.get("camera_id") or "")
+        state = states.get(camera_id)
+        try:
+            fresh_site = load_site_config(site_config_path)
+            camera = next(c for c in fresh_site.get("cameras", ())
+                          if str(c.get("id")) == camera_id)
+            enabled = bool(camera.get("object_watch_enabled",
+                                      camera.get("object_watch", False)))
+        except (OSError, ValueError, StopIteration, TypeError):
+            enabled = False
+        library = getattr(state, "object_watch_library", None)
+        alert = SimpleNamespace(payload={"candidate": candidate})
+        return bool(enabled and library is not None
+                    and object_watch_alert_current(alert, state, library))
+
+    def _deliver_current(alert, result):
+        candidate = (getattr(alert, "payload", None) or {}).get("candidate")
+        if not _object_watch_candidate_current(candidate):
+            if getattr(candidate, "detector", "") == "object_watch":
+                log.info("[object-watch] suppressed stale/disabled queued verdict for %s",
+                         alert.camera_id)
+                return None
+
+        return sink.handle(alert, result)
+
+    class _FreshnessGuardedGate:
+        def __init__(self):
+            self._gate = VerificationGate(provider=gate_provider, model=gate_model,
+                                          base_url=gate_base_url, save_dir=save_dir,
+                                          sensitivity=gate_sensitivity,
+                                          max_frames=site.get("gate_max_frames"))
+
+        def verify(self, frames, candidate, scene, examples=None):
+            if not _object_watch_candidate_current(candidate):
+                return None
+            return self._gate.verify(frames, candidate, scene, examples=examples)
+
+        def __getattr__(self, name):
+            return getattr(self._gate, name)
+
     gate_pool = GatePool(
         queue,
-        gate_factory=lambda: VerificationGate(provider=gate_provider, model=gate_model,
-                                              base_url=gate_base_url, save_dir=save_dir,
-                                              sensitivity=gate_sensitivity,
-                                              # frames per verdict; None derives
-                                              # (local models get 2, concealment 4)
-                                              max_frames=site.get("gate_max_frames")),
+        gate_factory=_FreshnessGuardedGate,
         workers=_gate_workers_for(gate_workers, len(cams_cfg),
                                   provider=gate_provider, device=device),
-        on_verdict=sink.handle,
+        on_verdict=_deliver_current,
         examples_provider=_examples_provider,
         bypass=bypass_from_site(site),
         # site kill switch, same shape as the tier's: "enrich_bypassed": false
@@ -961,7 +1308,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                on_link_change=_on_link_change, publish_fps=publish_fps,
                                view_only=view_only_ids,
                                fallback_sources=_gw_fallbacks,
-                               detector_backend=_detector_backend)
+                               detector_backend=_detector_backend,
+                               object_watch_runtime=object_watch_runtime)
 
     def _fast_path(alert) -> None:
         """Two-tier alerting (EP-06-T4): criticals are shown provisionally the
@@ -1271,6 +1619,10 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                     # and when it is not the accelerator — why not.
                     "detector": _detector_health(),
                     "heartbeat": heartbeat.status() if heartbeat else {"enabled": False}})
+        for camera in doc.get("cameras", []):
+            state = states.get(str(camera.get("camera_id")))
+            if state is not None and getattr(state, "object_watch", False):
+                camera["object_watch"] = state.object_watch_status()
         return doc
 
     def _write_health() -> None:
@@ -1379,6 +1731,14 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                     sig.append((key, path, Path(path).stat().st_mtime if path else 0))
                 except OSError:
                     sig.append((key, path, 0))
+            sig.append(("camera", json.dumps(cam, sort_keys=True, default=str)))
+            runtime_path = Path(output_dir) / "object_library" / "runtime.json"
+            try:
+                runtime_stat = runtime_path.stat()
+                sig.append(("object_runtime", runtime_stat.st_mtime_ns,
+                            runtime_stat.st_size))
+            except OSError:
+                sig.append(("object_runtime",))
             out[cam.get("id")] = tuple(sig)
         return fresh, out
 
@@ -1399,12 +1759,11 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
             # 23 Aug: "it should kick off automatically".)
             fresh_site, fp = _rule_fingerprint()
             if fp is not None and fp != state.get("rules_fp"):
-                from cvti.serving.camera import refresh_camera_rules
                 for cam in fresh_site.get("cameras", []):
                     cid = cam.get("id")
                     if cid in states and fp.get(cid) != (state.get("rules_fp") or {}).get(cid):
                         try:
-                            refresh_camera_rules(states[cid], cam, baseline_config)
+                            pipe._refresh_camera_state(cam, baseline_config)
                             log.info("[site] rules/zones hot-reloaded for camera %s", cid)
                         except Exception:  # noqa: BLE001 - keep the old rules over none
                             log.error("[site] rules hot-reload failed for %s; keeping "

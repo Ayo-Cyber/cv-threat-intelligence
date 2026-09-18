@@ -226,6 +226,26 @@ class HotReloadTest(unittest.TestCase):
                              "New question?", "the running engine kept the old rules")
 
     def test_the_engine_watcher_wires_the_refresh(self):
-        src = (Path(__file__).resolve().parents[1] / "cvti/serving/pipeline.py").read_text()
-        self.assertIn("_rule_fingerprint", src)
-        self.assertIn("refresh_camera_rules(states[cid], cam, baseline_config)", src)
+        from types import SimpleNamespace
+        from unittest import mock
+        from cvti.serving.pipeline import MultiStreamPipeline
+
+        calls = []
+        state = SimpleNamespace(
+            object_watch=False,
+            object_watch_sample_fps=1.0,
+            object_watch_max_candidates_per_frame=24,
+            object_watch_min_similarity=None,
+            object_watch_open_vocab_provider="none",
+            attach_object_watch_runtime=lambda runtime: calls.append(("attach", runtime)),
+        )
+        pipe = MultiStreamPipeline({"c1": "x.mp4"}, camera_states={"c1": state})
+        camera = {"id": "c1", "source": "x.mp4", "config": "rules.json"}
+
+        with mock.patch("cvti.serving.camera.refresh_camera_rules",
+                        side_effect=lambda current, fresh, baseline: calls.append(
+                            (current, fresh, baseline)
+                        )):
+            pipe._refresh_camera_state(camera, "baseline.json")
+
+        self.assertIn((state, camera, "baseline.json"), calls)

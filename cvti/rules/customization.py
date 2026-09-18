@@ -45,7 +45,9 @@ class CustomizationEngine:
             return
         data = json.loads(path.read_text())
         self.use_case_id = data.get("use_case_id", "default")
-        self.rules = data.get("rules", [])
+        rules = data.get("rules", [])
+        _validate_object_watch_scopes(rules)
+        self.rules = rules
         log.info(f"[CustomizationEngine] Loaded {len(self.rules)} rules for use-case '{self.use_case_id}'")
 
     def load_baseline(self, baseline_path: str | Path) -> None:
@@ -53,7 +55,9 @@ class CustomizationEngine:
         if not path.exists():
             log.warning(f"[CustomizationEngine] Baseline config not found: {path}")
             return
-        self.baseline_rules = json.loads(path.read_text()).get("rules", [])
+        rules = json.loads(path.read_text()).get("rules", [])
+        _validate_object_watch_scopes(rules)
+        self.baseline_rules = rules
         log.info(f"[CustomizationEngine] Loaded {len(self.baseline_rules)} always-on baseline rule(s)")
 
     def has_rules(self) -> bool:
@@ -240,7 +244,42 @@ def _match_trigger(event: RawEvent, trigger: dict) -> bool:
     if level and event.level != level:
         return False
 
+    # Object-watch rules may bind to one enrollment and/or one explicit zone.
+    # Presence of either key is a strict equality contract: absent event data
+    # must not accidentally compare as a wildcard.
+    for field in ("object_id", "zone"):
+        if field in trigger:
+            expected = trigger[field]
+            if expected is None or field not in event.extra or event.extra[field] is None:
+                return False
+            if event.extra[field] != expected:
+                return False
+
+    # object_seen is continuous and can be very noisy. New rules for it must
+    # name an enrollment; legacy transition rules remain valid without a target.
+    if (event.detector == "object_watch" and event.state == "object_seen"
+            and "object_id" not in trigger):
+        return False
+
     return True
+
+
+def _validate_object_watch_scopes(rules: Any) -> None:
+    """Reject unbounded continuous object-watch rules at configuration load."""
+    if not isinstance(rules, list):
+        return
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        trigger = rule.get("trigger", {})
+        if (isinstance(trigger, dict)
+                and trigger.get("detector") == "object_watch"
+                and trigger.get("state") == "object_seen"
+                and not trigger.get("object_id")):
+            name = rule.get("name", "<unnamed>")
+            raise ValueError(
+                f"object-watch object_seen rule {name!r} requires trigger.object_id"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +337,14 @@ def _match_context_filter(
     try:
         return bool(eval(expr, {"__builtins__": {}}, ns))  # noqa: S307
     except Exception as exc:
+        if event.detector == "object_watch":
+            log.warning(
+                "object-watch rule expression is malformed; failing closed",
+                exc_info=True,
+            )
+            return False
         log.warning("rule expression is malformed; failing OPEN so the alert still fires", exc_info=True)
-        return True  # don't block alert if expression is malformed
+        return True  # preserve existing detector semantics
 
 
 # ---------------------------------------------------------------------------

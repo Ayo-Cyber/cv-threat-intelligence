@@ -2145,10 +2145,98 @@
     }
    }
   },
+  "/api/v1/object-targets/runtime": {
+   "put": {
+    "summary": "Put /Object-Targets/Runtime (Set Object Watch Runtime Config)",
+    "operationId": "PUT__object_targets_runtime__set_object_watch_runtime_config__api_v1_object_targets_runtime_put",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/object-targets/reembed": {
    "post": {
     "summary": "Post /Object-Targets/Reembed (Reembed Object Targets)",
     "operationId": "POST__object_targets_reembed__reembed_object_targets__api_v1_object_targets_reembed_post",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/object-targets/jobs/{job_id}": {
+   "get": {
+    "summary": "Get /Object-Targets/Jobs/{Job Id} (Object Watch Job Status)",
+    "operationId": "GET__object_targets_jobs__job_id___object_watch_job_status__api_v1_object_targets_jobs__job_id__get",
     "parameters": [
      {
       "name": "authorization",
@@ -2233,10 +2321,186 @@
     }
    }
   },
+  "/api/v1/object-targets/{object_id}/examples/{example_id}/review": {
+   "put": {
+    "summary": "Put /Object-Targets/{Object Id}/Examples/{Example Id}/Review (Review Object Example)",
+    "operationId": "PUT__object_targets__object_id__examples__example_id__review__review_object_example__api_v1_object_targets__object_id__examples__example_id__review_put",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/object-targets/{object_id}/examples/{example_id}/preview": {
+   "get": {
+    "summary": "Get /Object-Targets/{Object Id}/Examples/{Example Id}/Preview (Object Example Preview)",
+    "operationId": "GET__object_targets__object_id__examples__example_id__preview__object_example_preview__api_v1_object_targets__object_id__examples__example_id__preview_get",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/v1/object-targets/{object_id}/activate": {
    "post": {
     "summary": "Post /Object-Targets/{Object Id}/Activate (Activate Object Target)",
     "operationId": "POST__object_targets__object_id__activate__activate_object_target__api_v1_object_targets__object_id__activate_post",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/object-targets/{object_id}/deactivate": {
+   "post": {
+    "summary": "Post /Object-Targets/{Object Id}/Deactivate (Deactivate Object Target)",
+    "operationId": "POST__object_targets__object_id__deactivate__deactivate_object_target__api_v1_object_targets__object_id__deactivate_post",
+    "parameters": [
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/cameras/{camera_id}/object-watch/{object_id}": {
+   "put": {
+    "summary": "Put /Cameras/{Camera Id}/Object-Watch/{Object Id} (Set Object Watch Rule)",
+    "operationId": "PUT__cameras__camera_id__object_watch__object_id___set_object_watch_rule__api_v1_cameras__camera_id__object_watch__object_id__put",
     "parameters": [
      {
       "name": "authorization",
