@@ -4,6 +4,70 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.14 — 18 Sep 2026
+
+**Argus now opens on your site, not on a sample one.** Every launch started in
+a demonstration workspace: a fixture site with invented cameras and invented
+incidents, already signed in as nobody. A first-time user never saw the
+sign-up screen, never saw sign-in, and never saw site setup — the only way to
+the real thing was a small Demo / Local engine switch in the top bar that
+nothing drew attention to. The desktop app now opens on your own installation,
+which on a new machine means creating your owner account. The demonstration
+workspace is still there, one click away, and it stays selected if you choose
+it.
+
+**Setting up a new site walks you through it.** Sign in to a site that has not
+been set up yet and Argus opens the setup wizard — cameras, scenes and zones,
+what the site is for, which detectors to run, how verification behaves, and a
+final check — instead of an empty dashboard with no obvious first move.
+
+**Connecting a camera no longer requires knowing RTSP.** Adding a camera asked
+for a stream address, which is fine if you already know that a Hikvision
+substream lives at /Streaming/Channels/102 and a Tapo at /stream2, and useless
+if you don't. Enter the camera's IP address, pick the make, and type the
+username and password: Argus builds the address. The password is masked while
+you type it, with a reveal button, and passwords containing symbols such as @
+or : are handled correctly instead of corrupting the address. You can still
+type a full address by hand.
+
+**Camera discovery on the Add Camera screen works again.** Scanning the network
+for cameras had been returning "no such camera" — the request was being
+answered by the wrong handler. Anyone who tried it got an error with no
+explanation.
+
+**Everything the engine can do is reachable from the interface again.** Moving
+to the new interface left a long tail of capabilities with no way to invoke
+them: PDF incident reports, evidence export, legal holds, weekly summaries,
+shift handovers, backups, the audit trail, account administration, model
+downloads and per-camera rules. All of it is available from the System screen.
+Several of these deserve screens of their own and will get them; being
+reachable comes first.
+
+## v1.8.13 — 17 Sep 2026
+
+**The new interface is finally the one you install.** Argus has had a rebuilt
+desktop UI since 9 September, and every release since shipped the old one
+anyway: the frontend was merged as source but no build step ever compiled or
+packaged it, and nothing in CI checked. Five releases went out carrying an
+interface nobody had been demonstrating. The installer now *is* that new UI,
+with the detection engine packaged inside it.
+
+**What changes when you upgrade.** Your site configuration, accounts and
+recorded events stay where they are and open as before — the new shell reads
+the same per-user data directory the old one wrote to. The Windows installer
+keeps its name and installs over the top. The old interface is still inside
+the installation as a support fallback; nothing launches it.
+
+**Account recovery now works on an installed machine.** Recovery had only ever
+existed as a script for someone with the source code and a Python environment,
+which no customer has — a locked-out installation had no way back in. The
+shipped engine exposes the same recovery flow, with the same protections, and
+the app shows the exact command to run.
+
+**A build can no longer ship without its interface.** The release now fails if
+the packaged app is missing the renderer, either engine binary, or their model
+weights — the check whose absence caused all of this.
+
 ## v1.2.0 — 28 Aug 2026
 
 **Windows customers get a real installer.** `argus-windows-setup.exe` now sits

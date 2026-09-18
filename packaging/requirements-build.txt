@@ -1,0 +1,15 @@
+-r ../requirements.txt
+-r ../requirements-video.txt
+-r requirements-semantic.txt
+
+# Reproducible frozen-build toolchain. requirements.txt carries the product's
+# torch==2.8.0, torchvision==0.23.0, Ultralytics, Pillow and platform-selective
+# ONNX Runtime pins; CI installs the same torch pins from the CPU wheel index.
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.7
+PyQt6==6.10.1
+PyQt6-WebEngine==6.10.0
+
+# Official OpenAI CLIP source, commit-pinned. collect_all("clip") in argus.spec
+# includes its tokenizer BPE vocabulary; model weights remain a release asset.
+clip @ git+https://github.com/openai/CLIP.git@d05afc436d78f1c48dc0dbf8e5980a9d471f35f6

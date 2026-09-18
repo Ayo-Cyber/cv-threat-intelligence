@@ -2729,3 +2729,194 @@ fieldset:disabled {
     height: 13px;
   }
 }
+
+/* --- System operations panel (17 Sep) -------------------------------------
+   Capabilities the retired PyQt console had and this UI could not reach.
+   Deliberately dense and utilitarian: it is an operations console, not a
+   designed feature screen. */
+.system-panel .system-group + .system-group { margin-top: 8px; }
+.system-group-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.system-group-head:hover { border-color: var(--accent); }
+.system-group-head span {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  text-align: center;
+}
+.system-group-body { padding: 10px 2px 4px; }
+.system-blurb {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  max-width: 68ch;
+}
+.system-action {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.system-action-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.system-action-head strong { display: block; }
+.system-action-head code {
+  color: var(--muted);
+  font-size: 12px;
+}
+.system-action-head small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  max-width: 60ch;
+}
+.system-action-head button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.system-action-head button:hover:not(:disabled) { border-color: var(--accent); }
+.system-action-head button:disabled { opacity: 0.55; cursor: default; }
+.system-action-head button.danger { color: var(--red); border-color: var(--red); }
+.system-action-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.system-action-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 180px;
+  flex: 1 1 180px;
+}
+.system-action-fields input {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input, var(--bg));
+  color: var(--text);
+  font: inherit;
+}
+.system-result {
+  margin: 10px 0 0;
+  padding: 10px;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* --- Guided camera connection (v1.8.14) ---------------------------------- */
+.camera-connect {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 12px 14px 14px;
+  margin: 0 0 14px;
+}
+.camera-connect[disabled] { opacity: 0.55; }
+.camera-connect legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.camera-connect-hint {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  max-width: 62ch;
+}
+.camera-connect-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+.camera-connect-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.camera-connect-grid input,
+.camera-connect-grid select {
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input, var(--bg));
+  color: var(--text);
+  font: inherit;
+}
+.camera-connect-reveal {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 7px !important;
+  align-self: end;
+  padding-bottom: 9px;
+}
+.camera-connect-reveal input { width: auto; }
+.camera-connect-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.camera-connect-preview code {
+  flex: 1 1 260px;
+  padding: 7px 9px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  word-break: break-all;
+}
+.camera-connect-preview button {
+  padding: 7px 13px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+}

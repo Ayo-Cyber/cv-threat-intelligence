@@ -1,0 +1,16 @@
+{
+  "zones": [
+    {
+      "name": "loading_bay",
+      "kind": "restricted",
+      "anchors": ["BOTTOM_CENTER"],
+      "polygon": [[0.0, 0.2], [0.65, 0.2], [0.65, 1.0], [0.0, 1.0]]
+    },
+    {
+      "name": "office_corridor",
+      "kind": "aisle",
+      "anchors": ["BOTTOM_CENTER"],
+      "polygon": [[0.65, 0.2], [1.0, 0.2], [1.0, 1.0], [0.65, 1.0]]
+    }
+  ]
+}

@@ -9,6 +9,12 @@ type StartOptions = {
   site: string;
   db: string;
   port: number;
+  /**
+   * Args before the API's own flags. Development spawns an interpreter and
+   * needs `-u -m cvti.api`; an installed app spawns the frozen `argus-api`
+   * binary, which IS that module, so it passes [].
+   */
+  moduleArgs?: string[];
   spawn?: typeof nodeSpawn;
   fetch?: typeof globalThis.fetch;
   sleep?: (milliseconds: number) => Promise<void>;
@@ -34,6 +40,7 @@ export async function startOwnedApi({
   site,
   db,
   port,
+  moduleArgs = ["-u", "-m", "cvti.api"],
   spawn = nodeSpawn,
   fetch = globalThis.fetch,
   sleep = (milliseconds) =>
@@ -62,9 +69,7 @@ export async function startOwnedApi({
   const process = spawn(
     python,
     [
-      "-u",
-      "-m",
-      "cvti.api",
+      ...moduleArgs,
       "--host",
       "127.0.0.1",
       "--port",

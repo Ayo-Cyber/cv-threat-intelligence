@@ -137,6 +137,8 @@ class PerCameraState:
     camera_id: str
     engine: CustomizationEngine
     zone_monitor: Any = None          # RetailZoneMonitor | None
+    vehicle_zone_monitor: Any = None  # RetailZoneMonitor | None — vehicle presence/dwell in an area
+    vehicle_line: Any = None          # dict {name,start,end,normalized,flip} — directional entry/exit tripwire
     scene_context: dict | None = None
     monitoring_scope: str = "full"
     # Human-reviewed context is the ONLY context allowed to suppress alerts
@@ -216,6 +218,8 @@ class PerCameraState:
     va_cooldown: float = 2.0
     # --- per-camera stateful bits (not constructor args) ---
     _tracker: Any = field(default=None, init=False, repr=False)
+    _vehicle_tracker: Any = field(default=None, init=False, repr=False)
+    _vehicle_line_zone: Any = field(default=None, init=False, repr=False)
     _conceal: Any = field(default=None, init=False, repr=False)
     _violence_gate: Any = field(default=None, init=False, repr=False)
     _theft: Any = field(default=None, init=False, repr=False)
@@ -283,6 +287,11 @@ class PerCameraState:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", FutureWarning)
             self._tracker = sv.ByteTrack()
+            # Vehicles get their OWN tracker: mixing them with the person track
+            # ids (and the person-size filter) would corrupt both. Only built
+            # when the camera actually has vehicle zones.
+            if self.vehicle_zone_monitor is not None or self.vehicle_line is not None:
+                self._vehicle_tracker = sv.ByteTrack()
         self._weapon_classes = normalize_threat_classes("gun,knife")
         self._person_classes = normalize_threat_classes("person")
         if self.concealment and self.pose_model is not None:
@@ -545,6 +554,80 @@ class PerCameraState:
             log.debug("object zone snapshot failed for %s", self.camera_id,
                       exc_info=True)
             return ()
+    def _vehicle_events(self, detections: Any, frame_hw: tuple, timestamp: float) -> list:
+        """Track vehicles (car/truck/bus/motorcycle) and emit vehicle_* events.
+
+        Two independent mechanisms, either or both per camera:
+        - `vehicle_line`  — a directional TRIPWIRE (sv.LineZone). A vehicle
+          crossing the line one way is an ENTRY, the other way an EXIT, counted
+          once per track. The robust default for a gate/driveway: a PARKED car
+          never crosses it, and detector flicker cannot fabricate a crossing
+          (the track must appear on both sides). Replaces the polygon-dwell
+          approach that spammed on parked cars and missed passing traffic
+          (14 Sep field: 'strengthen the vehicle entry and exit').
+        - `vehicle_zone_monitor` — a polygon for 'a vehicle is IN this area /
+          parked too long' (dwell), kept for that separate use case.
+        """
+        import numpy as np
+        import supervision as sv
+        from cvti.event_adapters import (vehicle_states_to_events,
+                                         vehicle_exits_to_events)
+        VEHICLE_CLASSES = {2, 3, 5, 7}   # COCO: car, motorcycle, bus, truck
+        cls = getattr(detections, "class_id", None)
+        if cls is None or len(detections) == 0:
+            veh = sv.Detections.empty()
+        else:
+            keep = np.array([int(c) in VEHICLE_CLASSES for c in cls], dtype=bool)
+            veh = detections[keep]
+        tracked = self._vehicle_tracker.update_with_detections(veh)
+        events: list = []
+        if self.vehicle_line is not None:
+            events += self._vehicle_line_events(tracked, frame_hw, timestamp)
+        if self.vehicle_zone_monitor is not None:
+            states = self.vehicle_zone_monitor.update(tracked, timestamp, frame_hw=frame_hw)
+            events += vehicle_states_to_events(states, timestamp=timestamp)
+            exits = self.vehicle_zone_monitor.drain_exits()
+            if exits:
+                events += vehicle_exits_to_events(exits, timestamp=timestamp)
+        return events
+
+    def _vehicle_line_events(self, tracked: Any, frame_hw: tuple, timestamp: float) -> list:
+        import supervision as sv
+        if self._vehicle_line_zone is None:
+            cfg = self.vehicle_line
+            h, w = frame_hw
+            s, e = cfg["start"], cfg["end"]
+            norm = bool(cfg.get("normalized", max(s[0], s[1], e[0], e[1]) <= 1.0))
+            sx, sy = (s[0] * w, s[1] * h) if norm else (s[0], s[1])
+            ex, ey = (e[0] * w, e[1] * h) if norm else (e[0], e[1])
+            # A vehicle's CENTRE crossing the line is the crossing — not its box
+            # corners (the default), which fire early/twice on a large vehicle.
+            self._vehicle_line_zone = sv.LineZone(
+                start=sv.Point(int(sx), int(sy)), end=sv.Point(int(ex), int(ey)),
+                triggering_anchors=(sv.Position.CENTER,))
+        if tracked is None or len(tracked) == 0:
+            return []
+        crossed_in, crossed_out = self._vehicle_line_zone.trigger(tracked)
+        name = self.vehicle_line.get("name", "gate")
+        flip = bool(self.vehicle_line.get("flip", False))
+        tids = tracked.tracker_id
+        out: list = []
+        for i in range(len(tracked)):
+            tid = int(tids[i]) if tids is not None and tids[i] is not None else None
+            ci, co = bool(crossed_in[i]), bool(crossed_out[i])
+            if flip:
+                ci, co = co, ci
+            if ci:
+                out.append(RawEvent(detector="vehicle_entry", active=True,
+                    title=f"VEHICLE ENTERED VIA {name.upper()}", level="high",
+                    person_id=tid, object_label="vehicle", timestamp=timestamp,
+                    extra={"zone": name, "via": "line"}))
+            if co:
+                out.append(RawEvent(detector="vehicle_exit", active=True,
+                    title=f"VEHICLE EXITED VIA {name.upper()}", level="medium",
+                    person_id=tid, object_label="vehicle", timestamp=timestamp,
+                    extra={"zone": name, "via": "line"}))
+        return out
 
     def process(self, detections: Any, image: Any, timestamp: float,
                 object_detections: list | None = None, *,
@@ -601,6 +684,13 @@ class PerCameraState:
         if self._video_runtime is not None:
             self._video_runtime.add_frame(image, frame_index=self._va_index)
             self._va_index += 1
+        # Vehicles first, from the RAW detections — the person filter below
+        # reassigns `detections` to people only, so vehicle boxes must be taken
+        # before that. COCO: car=2, motorcycle=3, bus=5, truck=7.
+        if self.vehicle_zone_monitor is not None or self.vehicle_line is not None:
+            veh_events = self._vehicle_events(detections, frame_hw, timestamp)
+            raw_events += veh_events
+
         if self.person_filter and self.zone_monitor is not None:
             ratio = self.zone_min_person_area_ratio
             if ratio is None:
@@ -682,6 +772,10 @@ class PerCameraState:
                 for state in states
                 if state.tracker_id is not None
             }
+        # Published per frame like _box_by_track: the off-path scanners (PPE
+        # compliance) need WHICH ZONE each person stands in to know what the
+        # site requires of them there.
+        self._zones_by_track = zones_by_track
 
         if self._motion_tracker is not None:
             motions = self._motion_tracker.update(
@@ -1082,6 +1176,10 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                         f"camera {cam_id}: unknown permitted movement zones: {unknown_names}"
                     )
             zone_monitor = RetailZoneMonitor(zone_specs)
+        vehicle_zone_monitor = None
+        if cam.get("vehicle_zones"):
+            vehicle_zone_monitor = RetailZoneMonitor(load_zone_config(cam["vehicle_zones"]))
+        vehicle_line = cam.get("vehicle_line")   # directional entry/exit tripwire
         scene = (scene_contexts or {}).get(cam_id)
         if scene is None and cam.get("scene_description"):
             scene = {"environment_type": cam.get("environment_type", "unknown"),
@@ -1109,7 +1207,9 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
         out[cam_id] = {
             "source": cam["source"],
             "state": PerCameraState(
-                cam_id, engine, zone_monitor=zone_monitor, scene_context=scene,
+                cam_id, engine, zone_monitor=zone_monitor,
+                vehicle_zone_monitor=vehicle_zone_monitor, vehicle_line=vehicle_line,
+                scene_context=scene,
                 monitoring_scope=(monitoring_scopes or {}).get(cam_id, "full"),
                 scene_reviewed=cam_id in (reviewed_camera_ids or set()),
                 active_zone_roles=active_zone_roles,
@@ -1181,6 +1281,15 @@ def refresh_camera_rules(state: "PerCameraState", cam: dict,
     else:
         state.zone_monitor = None
     _apply_object_watch_settings(state, cam)
+    if cam.get("vehicle_zones"):
+        state.vehicle_zone_monitor = RetailZoneMonitor(load_zone_config(cam["vehicle_zones"]))
+    if cam.get("vehicle_line") is not None:
+        state.vehicle_line = cam.get("vehicle_line")
+        state._vehicle_line_zone = None   # rebuilt lazily against the frame size
+    if (cam.get("vehicle_zones") or cam.get("vehicle_line") is not None) \
+            and state._vehicle_tracker is None:
+        import supervision as sv
+        state._vehicle_tracker = sv.ByteTrack()
 
 
 def _apply_object_watch_settings(state: "PerCameraState", cam: dict) -> bool:

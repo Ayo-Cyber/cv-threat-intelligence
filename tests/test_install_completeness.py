@@ -171,8 +171,40 @@ class BuildIdentityTest(unittest.TestCase):
                       "the bundle must carry a VERSION file for the app to read")
 
     def test_the_installer_installs_64bit(self):
-        iss = (ROOT / "scripts/installer.iss").read_text()
-        self.assertIn("ArchitecturesInstallIn64BitMode", iss)
+        # The Windows installer is electron-builder's NSIS target since
+        # v1.8.13; the Inno Setup script it replaced installed the retired
+        # PyQt shell.
+        cfg = (ROOT / "Frontend/electron-builder.yml").read_text()
+        self.assertIn("nsis", cfg)
+        self.assertIn("x64", cfg)
+
+    def test_the_release_actually_packages_the_desktop_ui(self):
+        """The gap that shipped five releases with the wrong interface.
+
+        Frontend/ was merged as source on 9 Sep and nothing ever built it, so
+        every installer through v1.8.12 carried the old PyQt UI while the
+        React one existed only on developer machines. No test looked, so
+        nothing failed. This looks.
+        """
+        wf = (ROOT / ".github/workflows/build-app.yml").read_text()
+        for needle in ("setup-node", "npm ci", "npm run build", "electron-builder"):
+            self.assertIn(needle, wf,
+                          f"the release build must {needle!r} — without it the "
+                          "desktop UI is not in the installer at all")
+        self.assertIn("packaged_app_check.py", wf,
+                      "the build must verify the packaged app carries UI + engine")
+
+    def test_the_bundle_ships_the_api_the_ui_talks_to(self):
+        """The Electron shell spawns argus-api; an installed machine has no
+        Python, so it must be a frozen binary in the bundle."""
+        spec = (ROOT / "packaging/argus.spec").read_text()
+        self.assertIn("api_entry.py", spec)
+        self.assertIn('name="argus-api"', spec)
+        self.assertIn("api_exe", spec)
+        # uvicorn resolves these by string at startup; without them the frozen
+        # API builds fine and dies on its first request.
+        for hidden in ("uvicorn.loops.auto", "uvicorn.protocols.http.auto"):
+            self.assertIn(hidden, spec)
 
     def test_the_sidebar_version_is_live_not_hardcoded(self):
         html = (ROOT / "cvti/app/web/index.html").read_text()
@@ -195,6 +227,11 @@ class EngineBundleCarriesItsDynamicImports(unittest.TestCase):
     def _engine_block(self) -> str:
         spec = (ROOT / "packaging" / "argus.spec").read_text()
         start = spec.index("engine_a = Analysis")
+        return spec[start:spec.index("api_a = Analysis")]
+
+    def _api_block(self) -> str:
+        spec = (ROOT / "packaging" / "argus.spec").read_text()
+        start = spec.index("api_a = Analysis")
         return spec[start:spec.index("app_pyz")]
 
     def test_the_engine_analysis_names_logging_config(self):
@@ -206,6 +243,68 @@ class EngineBundleCarriesItsDynamicImports(unittest.TestCase):
         block = self._engine_block()
         self.assertIn('"transformers.models.videomae"', block)
         self.assertIn('"safetensors"', block)
+
+    def test_engine_and_api_each_carry_the_siglip_lazy_import_closure(self):
+        spec = (ROOT / "packaging" / "argus.spec").read_text()
+        modules = (
+            "transformers.models.auto.configuration_auto",
+            "transformers.models.auto.modeling_auto",
+            "transformers.models.auto.image_processing_auto",
+            "transformers.models.siglip.configuration_siglip",
+            "transformers.models.siglip.modeling_siglip",
+            "transformers.models.siglip.image_processing_siglip",
+            "transformers.models.siglip.image_processing_siglip_fast",
+        )
+        for module in modules:
+            self.assertIn(module, spec)
+        for name, block in (("engine", self._engine_block()), ("api", self._api_block())):
+            self.assertIn("_siglip_hidden", block, f"{name} omits the SigLIP closure")
+            self.assertIn('module_collection_mode={"transformers": "pyz+py"}', block)
+            self.assertIn("_transformers_datas", block)
+
+    def test_api_keeps_siglip_dependencies_but_excludes_detector_and_gui_stacks(self):
+        block = self._api_block()
+        excludes = block[block.index("excludes="):]
+        excludes = excludes[:excludes.index("]") + 1]
+        for required in ('"torch"', '"torchvision"', '"transformers"'):
+            self.assertNotIn(required, excludes)
+        for excluded in ('"ultralytics"', '"pytorchvideo"', '"PyQt6"'):
+            self.assertIn(excluded, excludes)
+        for module in (
+            "cvti.object_watch.runtime_config",
+            "cvti.object_watch.embeddings",
+            "cvti.object_watch.enrollment_jobs",
+        ):
+            self.assertIn(module, block)
+
+    def test_transformer_and_torch_distribution_metadata_are_collected(self):
+        spec = (ROOT / "packaging" / "argus.spec").read_text()
+        self.assertIn('_copy_metadata("transformers", recursive=True)', spec)
+        self.assertIn('_copy_metadata("torch")', spec)
+        self.assertIn('_copy_metadata("torchvision")', spec)
+
+    def test_ci_installs_the_shared_pinned_build_requirements(self):
+        requirements = (ROOT / "packaging" / "requirements-build.txt").read_text()
+        semantic = (ROOT / "packaging" / "requirements-semantic.txt").read_text()
+        workflow = (ROOT / ".github" / "workflows" / "build-app.yml").read_text()
+        self.assertIn("-r requirements-semantic.txt", requirements)
+        self.assertIn("transformers==4.57.6", semantic)
+        self.assertIn("pyinstaller==6.22.3", requirements)
+        self.assertIn("openai/CLIP.git@", requirements)
+        self.assertIn("packaging/requirements-build.txt", workflow)
+
+    def test_ci_test_job_installs_semantic_dependencies_without_build_toolchain(self):
+        workflow = (ROOT / ".github" / "workflows" / "build-app.yml").read_text()
+        start = workflow.index("  test:")
+        end = workflow.index("\n  # The product, end to end", start)
+        test_job = workflow[start:end]
+        install_commands = "\n".join(
+            line for line in test_job.splitlines() if "pip install" in line
+        )
+        self.assertIn("pip install -r packaging/requirements-semantic.txt", test_job)
+        self.assertNotIn("packaging/requirements-build.txt", test_job)
+        self.assertNotIn("PyInstaller", install_commands)
+        self.assertNotIn("PyQt6", install_commands)
 
     def test_a_frozen_missing_dependency_never_says_pip(self):
         """A customer on the installed app must not be told to pip install

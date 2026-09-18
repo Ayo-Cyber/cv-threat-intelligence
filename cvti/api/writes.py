@@ -166,7 +166,9 @@ ROUTES: list[R] = [
       path_map={"camera_id": "camera_id"}),
     R("test", "POST", "/cameras/probe",
       body={"url": "url", "source": "url"}),
-    R("discover_cameras", "GET", "/cameras/discovery"),
+    # NOT /cameras/discovery: that is swallowed by /cameras/{camera_id} and
+    # answered "no such camera 'discovery'" — verified live, 17 Sep.
+    R("discover_cameras", "GET", "/discovery/cameras"),
     R("scan", "POST", "/cameras/discovery/scan", body={"cidr": "cidr"}),
     R("detect_subnet", "GET", "/cameras/discovery/subnet"),
     R("presets", "GET", "/cameras/presets"),
@@ -284,6 +286,74 @@ ROUTES: list[R] = [
     R("download_diagnostics", "POST", "/diagnostics/bundle", status=201),
     R("value_summary", "GET", "/value/summary", query={"days": ("days", int)}),
     R("disk_encryption", "GET", "/system/disk-encryption"),
+
+    # --- parity with the retired PyQt console (17 Sep) ---------------------
+    # Everything below was reachable in the old interface and had no route at
+    # all in the new one, so the feature existed in the backend and could not
+    # be used, tested or demonstrated. Same declarative rows as above.
+
+    # accounts: sign-in and add-user already existed; the rest of the
+    # lifecycle did not, which left an installed site unable to change a
+    # password, promote anyone, or recover a locked-out owner.
+    R("auth_accounts", "GET", "/auth/accounts"),
+    R("auth_recovery", "GET", "/auth/recovery"),
+    R("change_own_password", "POST", "/auth/password",
+      body={"current": "current", "new": "new"}),
+    R("set_user_role", "PUT", "/users/{username}/role",
+      path_map={"username": "username"}, body={"role": "role"}),
+    R("create_owner_override", "POST", "/auth/owner-override",
+      body={"username": "username", "password": "password"}),
+
+    # evidence & reporting
+    # Under /reports, NOT /events/...: app.py declares GET /events/{event_id}
+    # first, so a static sibling registered later is swallowed and "counts"
+    # is read as an event id. Same collision that hid /cameras/presets (#141).
+    R("counts", "GET", "/reports/counts"),
+    R("needs_attention", "GET", "/reports/needs-attention",
+      query={"min_priority": ("min_priority", str)}),
+    R("export_incident_pdf", "POST", "/events/{event_id}/report",
+      path_map={"event_id": "event_id"}, status=201),
+    R("export_evidence", "POST", "/events/export",
+      body={"event_ids": "event_ids", "dest": "dest"}, status=201),
+    R("set_legal_hold", "PUT", "/events/{event_id}/legal-hold",
+      path_map={"event_id": "event_id"}, body={"hold": "hold"}),
+    R("weekly_summary", "GET", "/reports/weekly"),
+    R("handover", "GET", "/reports/handover",
+      query={"hours": ("hours", float)}),
+
+    # backups & audit
+    R("list_backups", "GET", "/backups"),
+    R("restore_backup", "POST", "/backups/restore",
+      body={"zip_path": "zip_path"}, status=201),
+    R("set_backup_dir", "PUT", "/backups/directory", body={"path": "path"}),
+    R("audit_export", "POST", "/audit/export", status=201),
+    R("audit_verify", "GET", "/audit/verify"),
+
+    # engine health & tuning
+    R("app_version", "GET", "/system/version"),
+    R("detector_validation", "GET", "/system/detectors"),
+    R("heartbeat_status", "GET", "/system/heartbeat"),
+    R("set_heartbeat", "PUT", "/system/heartbeat",
+      body={"url": "url", "key": "key"}),
+    R("learning_stats", "GET", "/system/learning"),
+    R("learning_calibrate", "POST", "/system/learning/calibrate", status=201),
+    R("set_value_inputs", "PUT", "/value/inputs",
+      body={"incident_value": "incident_value",
+            "guard_hourly_cost": "guard_hourly_cost",
+            "review_minutes": "review_minutes"}),
+    R("live_frames", "GET", "/engine/frames"),
+
+    # per-camera rules: the old console could set a rule and manage the
+    # custom-threat list; the new one could only add/remove English rules.
+    R("set_custom_rule", "PUT", "/cameras/{camera_id}/rules/question",
+      path_map={"camera_id": "camera_id"},
+      body={"question": "question", "dwell": "dwell"}),
+    R("add_custom_threat", "POST", "/cameras/{camera_id}/threats",
+      path_map={"camera_id": "camera_id"},
+      body={"name": "name", "description": "description"}, status=201),
+    R("remove_custom_threat", "DELETE", "/cameras/{camera_id}/threats/{index}",
+      path_map={"camera_id": "camera_id", "index": "index"}),
+    R("update_site_context", "PUT", "/site/context", body={"context": "context"}),
 ]
 
 

@@ -58,6 +58,56 @@ def zone_states_to_events(zone_states: list[Any], timestamp: float = 0.0) -> lis
     return events
 
 
+def vehicle_states_to_events(zone_states: list[Any], timestamp: float = 0.0) -> list[RawEvent]:
+    """Vehicle zone occupancy → vehicle_entry + vehicle_presence RawEvents.
+
+    Same shape as zone_states_to_events but for tracked VEHICLES (car/truck/bus/
+    motorcycle), so "a vehicle entered the gate" is its own signal, separate
+    from a person. Entry is HIGH (a vehicle arriving is the notable event);
+    presence is LOW and carries dwell for "parked too long" style rules.
+    """
+    events: list[RawEvent] = []
+    for state in zone_states:
+        tid = getattr(state, "tracker_id", None)
+        zones = getattr(state, "zones", []) or []
+        dwell_map = getattr(state, "dwell_seconds", {}) or {}
+        entered = set(getattr(state, "entered_zones", []) or [])
+        for zone in zones:
+            dwell = float(dwell_map.get(zone, 0.0))
+            if zone in entered:
+                events.append(RawEvent(
+                    detector="vehicle_entry", active=True,
+                    title=f"VEHICLE ENTERED ZONE {zone.upper()}", level="high",
+                    person_id=tid, object_label="vehicle", timestamp=timestamp,
+                    extra={"zone": zone, "dwell_seconds": dwell}))
+            events.append(RawEvent(
+                detector="vehicle_presence", active=True,
+                title=f"VEHICLE IN ZONE {zone.upper()}", level="low",
+                person_id=tid, object_label="vehicle", timestamp=timestamp,
+                extra={"zone": zone, "dwell_seconds": dwell}))
+    return events
+
+
+def vehicle_exits_to_events(exits: list[Any], timestamp: float = 0.0) -> list[RawEvent]:
+    """Drained vehicle-zone exits → vehicle_exit events, carrying how long the
+    vehicle was inside and whether it drove out (edge) or was lost from view."""
+    events: list[RawEvent] = []
+    for ex in exits or []:
+        tid, zone = tuple(ex)[:2]
+        dwell = getattr(ex, "dwell_seconds", None)
+        how = getattr(ex, "how", "walked_out")
+        after = f" AFTER {dwell:.0f}S" if dwell is not None else ""
+        title = (f"VEHICLE LOST FROM VIEW IN ZONE {zone.upper()}{after}" if how == "lost"
+                 else f"VEHICLE LEFT ZONE {zone.upper()}{after}")
+        extra: dict[str, Any] = {"zone": zone, "how": how}
+        if dwell is not None:
+            extra["dwell_seconds"] = float(dwell)
+        events.append(RawEvent(
+            detector="vehicle_exit", active=True, title=title, level="low",
+            person_id=tid, object_label="vehicle", timestamp=timestamp, extra=extra))
+    return events
+
+
 def zone_exits_to_events(exits: list[Any], timestamp: float = 0.0) -> list[RawEvent]:
     """Bridge the monitor's drained exits (ZoneExit, or bare (tracker_id, zone)
     tuples) into zone_exit events.

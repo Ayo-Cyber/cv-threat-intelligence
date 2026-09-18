@@ -69,12 +69,121 @@ class WebhookNotifier:
 
 class TelegramNotifier:
     """Send to a Telegram chat via the bot API (token + chat_id). Attaches the
-    evidence frames as a photo album so the alert arrives WITH pictures."""
+    evidence frames as a photo album so the alert arrives WITH pictures.
 
-    def __init__(self, token: str, chat_id: str, timeout: float = 8.0) -> None:
+    Paced and retried (16 Sep): every multi-camera demo run lost alerts to
+    `HTTP 429 Too Many Requests` — five looping cameras fire in bursts, each
+    alert is two uploads, and Telegram allows roughly one message a second to
+    a person and twenty a minute to a group. Calls to one chat are now
+    serialized with a minimum gap, and a 429 waits the `retry_after` Telegram
+    names and tries again instead of dropping the alert. In production
+    (`background=True`, set by build_notifier) delivery runs on its own
+    thread so the gate's verdict callback never waits on an upload; the
+    default stays synchronous for callers and tests that expect it.
+    """
+
+    # Telegram's published limits: ~1 message/second to a private chat,
+    # 20 messages/minute to a group. A little margin on each.
+    GAP_PRIVATE = 1.1
+    GAP_GROUP = 3.1
+    MAX_RETRIES = 3
+    MAX_RETRY_WAIT = 30.0
+    QUEUE_MAX = 200
+
+    def __init__(self, token: str, chat_id: str, timeout: float = 8.0, *,
+                 background: bool = False) -> None:
         self.base = f"https://api.telegram.org/bot{token}"
         self.chat_id = chat_id
         self.timeout = timeout
+        self.min_gap = self.GAP_GROUP if str(chat_id).startswith("-") else self.GAP_PRIVATE
+        self._lock = threading.Lock()          # one API call at a time per chat
+        self._last_call = 0.0
+        self.retried = 0
+        self.dropped = 0
+        self._queue = None
+        self._worker: threading.Thread | None = None
+        if background:
+            import queue
+            self._queue = queue.Queue(maxsize=self.QUEUE_MAX)
+            self._worker = threading.Thread(target=self._drain, name=f"telegram-{chat_id}",
+                                            daemon=True)
+            self._worker.start()
+
+    # --- pacing + retry --------------------------------------------------------
+
+    def _call(self, req: Any, timeout: float | None = None) -> Any:
+        """One Telegram API call: paced to the chat's rate, retried on 429."""
+        import urllib.error
+        import urllib.request
+        timeout = self.timeout if timeout is None else timeout
+        for attempt in range(self.MAX_RETRIES + 1):
+            with self._lock:
+                gap = self.min_gap - (time.monotonic() - self._last_call)
+                if gap > 0:
+                    time.sleep(gap)
+                try:
+                    resp = urllib.request.urlopen(req, timeout=timeout)
+                    self._last_call = time.monotonic()
+                    return resp
+                except urllib.error.HTTPError as exc:
+                    self._last_call = time.monotonic()
+                    if exc.code != 429 or attempt >= self.MAX_RETRIES:
+                        raise
+                    wait = self._retry_after(exc, default=2.0 * (attempt + 1))
+                    self.retried += 1
+                    log.info(f"[notify telegram] 429 for chat {self.chat_id}; "
+                             f"retrying in {wait:.0f}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                time.sleep(wait)   # outside the lock: the other chat may proceed
+        raise RuntimeError("unreachable")   # pragma: no cover
+
+    def _retry_after(self, exc: Any, default: float) -> float:
+        """Telegram says how long to wait, in the JSON body (`parameters.
+        retry_after`) and/or a Retry-After header. Fall back to a short backoff."""
+        wait = None
+        try:
+            body = exc.read()
+            if body:
+                wait = json.loads(body).get("parameters", {}).get("retry_after")
+        except Exception:  # noqa: BLE001 - body is optional
+            log.debug("[notify telegram] 429 body unreadable", exc_info=True)
+        if wait is None:
+            try:
+                hdr = exc.headers.get("Retry-After") if getattr(exc, "headers", None) else None
+                wait = float(hdr) if hdr else None
+            except (TypeError, ValueError):
+                wait = None
+        return min(self.MAX_RETRY_WAIT, float(wait) if wait is not None else default)
+
+    # --- background delivery ---------------------------------------------------
+
+    def _drain(self) -> None:
+        while True:
+            event = self._queue.get()
+            if event is None:
+                self._queue.task_done()
+                return
+            try:
+                self._deliver(event)
+            finally:
+                self._queue.task_done()
+
+    def flush(self, timeout: float = 30.0) -> None:
+        """Wait for queued alerts to go out (engine shutdown)."""
+        if self._queue is None:
+            return
+        deadline = time.monotonic() + timeout
+        while not self._queue.empty() or self._queue.unfinished_tasks:
+            if time.monotonic() >= deadline:
+                log.warning(f"[notify telegram] {self._queue.qsize()} alert(s) still queued "
+                            f"for chat {self.chat_id} at shutdown")
+                return
+            time.sleep(0.05)
+
+    def close(self) -> None:
+        self.flush()
+        if self._queue is not None and self._worker is not None:
+            self._queue.put(None)
+            self._worker.join(timeout=2.0)
 
     def _caption(self, event: dict) -> str:
         link = event.get("link")
@@ -117,6 +226,20 @@ class TelegramNotifier:
         return None
 
     def notify(self, event: dict) -> None:
+        if self._queue is not None:
+            import queue
+            try:
+                self._queue.put_nowait(event)
+            except queue.Full:
+                # A burst deeper than QUEUE_MAX alerts is a runaway feed, not a
+                # backlog worth an hour of uploads. Drop, count, say so.
+                self.dropped += 1
+                log.warning(f"[notify telegram] queue full ({self.QUEUE_MAX}) for chat "
+                            f"{self.chat_id}; dropped {event.get('rule')} on {event.get('camera_id')}")
+            return
+        self._deliver(event)
+
+    def _deliver(self, event: dict) -> None:
         import urllib.parse
         import urllib.request
         frames = self._frames(event)
@@ -124,7 +247,7 @@ class TelegramNotifier:
         try:
             if not frames and not clip:
                 data = urllib.parse.urlencode({"chat_id": self.chat_id, "text": self._caption(event)}).encode()
-                urllib.request.urlopen(f"{self.base}/sendMessage", data=data, timeout=self.timeout)
+                self._call(urllib.request.Request(f"{self.base}/sendMessage", data=data))
                 return
             if frames:
                 self._send_photos(frames, self._caption(event))
@@ -145,7 +268,7 @@ class TelegramNotifier:
         req = urllib.request.Request(f"{self.base}/sendVideo", data=body,
                                      headers={"Content-Type": ctype})
         # video uploads are heavier than photos; give them a longer leash
-        urllib.request.urlopen(req, timeout=max(self.timeout, 30.0))
+        self._call(req, timeout=max(self.timeout, 30.0))
 
     def _send_photos(self, frames: list[Path], caption: str) -> None:
         """One photo -> sendPhoto; several -> sendMediaGroup (album)."""
@@ -155,7 +278,7 @@ class TelegramNotifier:
             files = {"photo": (frames[0].name, frames[0].read_bytes())}
             body, ctype = _multipart(fields, files)
             req = urllib.request.Request(f"{self.base}/sendPhoto", data=body, headers={"Content-Type": ctype})
-            urllib.request.urlopen(req, timeout=self.timeout)
+            self._call(req)
             return
         media, files = [], {}
         for i, fr in enumerate(frames):
@@ -167,7 +290,7 @@ class TelegramNotifier:
             files[key] = (fr.name, fr.read_bytes())
         body, ctype = _multipart({"chat_id": self.chat_id, "media": json.dumps(media)}, files)
         req = urllib.request.Request(f"{self.base}/sendMediaGroup", data=body, headers={"Content-Type": ctype})
-        urllib.request.urlopen(req, timeout=self.timeout)
+        self._call(req)
 
 
 class WhatsAppNotifier:
@@ -221,6 +344,17 @@ class MultiNotifier:
             except Exception as exc:  # noqa: BLE001
                 log.error(f"[alert-sink] {type(n).__name__} failed: {str(exc)[:100]}", exc_info=True)
 
+    def close(self) -> None:
+        """Let every channel finish what it has queued (engine shutdown)."""
+        for n in self.notifiers:
+            fn = getattr(n, "close", None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception as exc:  # noqa: BLE001
+                    log.error(f"[alert-sink] {type(n).__name__} close failed: {str(exc)[:100]}",
+                              exc_info=True)
+
 
 def _build_one(spec: str) -> Any:
     spec = spec.strip()
@@ -234,7 +368,9 @@ def _build_one(spec: str) -> Any:
         # token to chat_id and no message ever left the building. Found the
         # first time a real token was wired (11 Sep).
         token, _, chat_id = spec[len("telegram:"):].rpartition(":")
-        return TelegramNotifier(token, chat_id)
+        # Production delivery is paced + retried on its own thread; the gate's
+        # verdict callback must never wait on a photo upload or a 429 backoff.
+        return TelegramNotifier(token, chat_id, background=True)
     if spec == "whatsapp":
         try:
             return WhatsAppNotifier.from_env()
@@ -1258,5 +1394,13 @@ class AlertSink:
                 return
 
     def close(self) -> None:
+        # Queued Telegram uploads first — an alert raised in the engine's last
+        # seconds must still leave the building before the process does.
+        fn = getattr(getattr(self, "notifier", None), "close", None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception as exc:  # noqa: BLE001 - shutdown must finish
+                log.error(f"[alert-sink] notifier close failed: {str(exc)[:100]}", exc_info=True)
         with self._lock:
             self._db.close()

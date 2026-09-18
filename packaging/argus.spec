@@ -149,7 +149,11 @@ app_a = Analysis(
 # ultralytics' AutoUpdate tried to pip-install into the frozen app at every
 # start (field diagnostics, 10 Sep). collect_all drags the package AND its
 # native DLLs (incl. the DirectML provider on Windows) into the bundle.
-from PyInstaller.utils.hooks import collect_all as _collect_all
+from PyInstaller.utils.hooks import (
+    collect_all as _collect_all,
+    collect_data_files as _collect_data_files,
+    copy_metadata as _copy_metadata,
+)
 _ort_datas, _ort_bins, _ort_hidden = _collect_all("onnxruntime")
 # The W3 open-vocab pair (offline object rules): the clip PACKAGE carries a
 # BPE vocab data file plain hiddenimports would drop — collect_all or the
@@ -164,13 +168,38 @@ _ort_datas += _clip_datas
 _ort_bins += _clip_bins
 _ort_hidden += _clip_hidden
 
+# SigLIP enrollment is used by BOTH the engine and the API. Transformers loads
+# these modules through its lazy import registry, and its dependency checks use
+# installed-distribution metadata at runtime. Standard PyInstaller hooks remain
+# enabled; this is the explicit closure they cannot infer from those strings.
+_transformers_datas = _collect_data_files("transformers")
+_transformers_datas += _copy_metadata("transformers", recursive=True)
+_transformers_datas += _copy_metadata("torch")
+_transformers_datas += _copy_metadata("torchvision")
+_siglip_hidden = [
+    "transformers.models.auto.configuration_auto",
+    "transformers.models.auto.modeling_auto",
+    "transformers.models.auto.image_processing_auto",
+    "transformers.models.siglip.configuration_siglip",
+    "transformers.models.siglip.modeling_siglip",
+    "transformers.models.siglip.image_processing_siglip",
+    "transformers.models.siglip.image_processing_siglip_fast",
+    "torch", "torchvision", "safetensors", "PIL.Image",
+]
+
 engine_a = Analysis(
     [os.path.join(ROOT, "packaging", "engine_entry.py")],
     pathex=[ROOT],
-    datas=_ort_datas,              # shared datas ride with the app Analysis
+    datas=_ort_datas + _transformers_datas,
     binaries=_ort_bins,
-    hiddenimports=_ort_hidden + [
+    hiddenimports=_ort_hidden + _siglip_hidden + [
         "cvti.serving.pipeline",
+        # Imported inside functions (pipeline starts the PPE worker only for
+        # cameras with a `ppe` block; camera.py builds the motion tracker on
+        # demand). PyInstaller's analysis does follow function-level imports,
+        # but a name here costs nothing and a miss costs a field release.
+        "cvti.ppe", "cvti.ppe.scanner", "cvti.ppe.assess", "cvti.ppe.policy",
+        "cvti.detector.person_motion", "cvti.detector.openvocab",
         # ultralytics internals reached by name
         "ultralytics", "ultralytics.models.yolo", "ultralytics.models.yolo.detect",
         "ultralytics.models.yolo.classify", "ultralytics.models.yolo.pose",
@@ -199,10 +228,58 @@ engine_a = Analysis(
     excludes=["PyQt6", "PyQt5", "PySide6", "PySide2", "tkinter", "polars",
               "IPython", "pytest", "notebook", "matplotlib.backends.backend_qtagg"],
     noarchive=False,
+    # transformers' lazy export machinery needs real .py files beside the PYZ;
+    # keeping both forms avoids the former combined-PYZ cross-analysis hack.
+    module_collection_mode={"transformers": "pyz+py"},
+)
+
+# ---------------------------------------------------------------------------
+# The Engine API — the backend the Electron desktop UI spawns and talks to.
+# An installed customer has no repo and no venv, so `python -m cvti.api` (the
+# dev path) cannot exist on their machine; the shell spawns THIS binary.
+# Deliberately not the detection stack: this process serves HTTP, reads the
+# event store and starts/stops the engine, which is its own executable.
+# ---------------------------------------------------------------------------
+api_a = Analysis(
+    [os.path.join(ROOT, "packaging", "api_entry.py")],
+    pathex=[ROOT],
+    datas=_transformers_datas,
+    hiddenimports=_siglip_hidden + [
+        "cvti.api", "cvti.api.app", "cvti.api.sources", "cvti.api.tokens",
+        "cvti.api.writes", "cvti.app.console_backend",
+        # Enrollment runs in argus-api, not the detector process.
+        "cvti.object_watch.runtime_config", "cvti.object_watch.embeddings",
+        "cvti.object_watch.enrollment_jobs",
+        # uvicorn resolves its loop and protocol implementations by STRING
+        # name at startup ("auto" becomes one of these), so static analysis
+        # sees none of them and a frozen API dies on its first request.
+        "uvicorn", "uvicorn.config", "uvicorn.main", "uvicorn.server",
+        "uvicorn.loops", "uvicorn.loops.auto", "uvicorn.loops.asyncio",
+        "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.http.h11_impl", "uvicorn.protocols.http.httptools_impl",
+        "uvicorn.protocols.websockets", "uvicorn.protocols.websockets.auto",
+        "uvicorn.protocols.websockets.websockets_impl",
+        "uvicorn.protocols.websockets.wsproto_impl",
+        "uvicorn.lifespan", "uvicorn.lifespan.on", "uvicorn.lifespan.off",
+        "uvicorn.logging",
+        "fastapi", "starlette", "websockets", "wsproto", "h11", "httptools",
+        "anyio", "sniffio",
+        # Dynamically imported, same as the app and engine need them.
+        "logging.config", "logging.handlers",
+    ],
+    # The API never runs a detector, but SigLIP enrollment does require the
+    # torch/transformers stack in this Analysis. Keep detector and GUI imports
+    # excluded while allowing that explicit enrollment closure.
+    excludes=["PyQt6", "PyQt5", "PySide6", "PySide2", "tkinter", "polars",
+              "IPython", "pytest", "notebook", "ultralytics", "pytorchvideo",
+              "matplotlib"],
+    noarchive=False,
+    module_collection_mode={"transformers": "pyz+py"},
 )
 
 app_pyz = PYZ(app_a.pure)
 engine_pyz = PYZ(engine_a.pure)
+api_pyz = PYZ(api_a.pure)
 
 app_exe = EXE(
     app_pyz,
@@ -234,7 +311,22 @@ engine_exe = EXE(
     entitlements_file=None,
 )
 
-# One COLLECT: both executables share one set of libraries and data files.
+api_exe = EXE(
+    api_pyz,
+    api_a.scripts,
+    [],
+    exclude_binaries=True,
+    name="argus-api",
+    debug=False,
+    strip=False,
+    upx=False,
+    console=True,                # headless subprocess; the shell pipes its output
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+# One COLLECT: all three executables share one set of libraries and data files.
 def _strip_dead_weight(datas):
     """Drop what a customer downloads but never uses (bundle audit, 25 Aug):
     QtWebEngine's devtools DEBUG resources are 76 MB of symbols for a devtools
@@ -249,10 +341,13 @@ engine_a.datas = _strip_dead_weight(engine_a.datas)
 coll = COLLECT(
     app_exe,
     engine_exe,
+    api_exe,
     app_a.binaries,
     app_a.datas,
     engine_a.binaries,
     engine_a.datas,
+    api_a.binaries,
+    api_a.datas,
     strip=False,
     upx=False,
     name="Argus",

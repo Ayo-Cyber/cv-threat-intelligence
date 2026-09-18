@@ -1,0 +1,9 @@
+{
+  "use_case_id": "vehicle_demo",
+  "rules": [
+    {"name": "vehicle_entered", "trigger": {"detector": "vehicle_entry"},
+     "context_filter": "zone == 'gate'", "priority": "high"},
+    {"name": "vehicle_left", "trigger": {"detector": "vehicle_exit"},
+     "context_filter": "zone == 'gate'", "priority": "medium"}
+  ]
+}

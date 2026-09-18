@@ -49,6 +49,10 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu \
             torch==2.8.0 torchvision==0.23.0
           pip install -r requirements.txt
+          # SigLIP configuration tests import transformers unconditionally.
+          # Use the same lightweight semantic pin consumed by frozen builds,
+          # without pulling Qt/PyInstaller/CLIP into the test gate.
+          pip install -r packaging/requirements-semantic.txt
           pip install pytest
           # requirements.txt pins opencv-python, which links against libGL and
           # needs system packages a headless runner doesn't have. Swap it for the
@@ -131,15 +135,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchvision==0.23.0
-          pip install -r requirements.txt
-          # The video-action model's deps live in their own file — and the
-          # build never installed it, so PyInstaller could not bundle what
-          # was not there: every Windows install shipped without transformers
-          # and VideoMAE was dead on arrival (pilot screenshot, 4 Sep — the
-          # v1.8.2 error finally NAMED the missing module).
-          pip install -r requirements-video.txt
+          # One file is used by CI and local release builders. It includes
+          # requirements-video.txt, the shared SigLIP semantic pin, Qt and the
+          # pinned freezer.
+          pip install -r packaging/requirements-build.txt
           pip uninstall -y opencv-python
-          pip install pyinstaller PyQt6 PyQt6-WebEngine "opencv-python-headless==4.13.0.92"
+          pip install "opencv-python-headless==4.13.0.92"
 
       # Ship the AI runtime inside the bundle. Best-effort on Linux (zstd
       # availability varies); the mac/windows installers must carry it.
@@ -161,12 +162,21 @@ jobs:
       # diagnostics (10 Sep) surfaced it: "video-action detector configured
       # but its model failed to load". The weights live on a non-v release tag
       # (weights-videomae-b0.889) precisely so this step can fetch them.
+      # A weights download is a network call in the middle of a 30-minute
+      # build, and on a TAG that build IS the release. One TLS handshake
+      # timeout to api.github.com killed the whole Windows job on 17 Sep, so
+      # every fetch retries before it gives up.
       - name: Fetch the VideoMAE video-action weights
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download weights-videomae-b0.889 --repo "$GITHUB_REPOSITORY"             --pattern "videomae-b0.889.zip" --output videomae.zip
+          for attempt in 1 2 3 4 5; do
+            gh release download weights-videomae-b0.889 --repo "$GITHUB_REPOSITORY" \
+              --pattern "videomae-b0.889.zip" --output videomae.zip && break
+            echo "::warning::VideoMAE weights download failed (attempt $attempt) — retrying"
+            rm -f videomae.zip; sleep $((attempt * 15))
+          done
           mkdir -p runs/video_finetune
           unzip -q videomae.zip -d runs/video_finetune
           test -f runs/video_finetune/videomae/model.safetensors
@@ -177,13 +187,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download weights-openvocab-v1 --repo "$GITHUB_REPOSITORY"             --pattern "yolov8s-worldv2.pt" --output models/yolov8s-worldv2.pt
+          fetch() {   # release asset -> path, with retries
+            for attempt in 1 2 3 4 5; do
+              gh release download weights-openvocab-v1 --repo "$GITHUB_REPOSITORY" \
+                --pattern "$1" --output "$2" && return 0
+              echo "::warning::$1 download failed (attempt $attempt) — retrying"
+              rm -f "$2"; sleep $((attempt * 15))
+            done
+            return 1
+          }
           mkdir -p vendor/clip
-          gh release download weights-openvocab-v1 --repo "$GITHUB_REPOSITORY"             --pattern "ViT-B-32.pt" --output vendor/clip/ViT-B-32.pt
+          fetch "yolov8s-worldv2.pt" models/yolov8s-worldv2.pt
+          fetch "ViT-B-32.pt" vendor/clip/ViT-B-32.pt
           test -f models/yolov8s-worldv2.pt && test -f vendor/clip/ViT-B-32.pt
-          # the text-encoder package itself (pure python + BPE vocab data);
-          # collect_all("clip") in the spec drags it into the bundle
-          pip install "git+https://github.com/ultralytics/CLIP.git"
+          # The commit-pinned official OpenAI CLIP package is installed by
+          # packaging/requirements-build.txt; collect_all("clip") includes BPE.
+          python -c "import clip; print('OpenAI CLIP package ready:', clip.__file__)"
 
       - name: Export detectors to ONNX (W2)
         run: python scripts/export_onnx.py
@@ -220,25 +239,9 @@ jobs:
           codesign --deep --force --options runtime             --entitlements packaging/entitlements.plist             --sign "$SIGN_IDENTITY" "dist/Argus.app"
           codesign --verify --deep --strict "dist/Argus.app"
 
-      - name: Package the dmg (macOS)
-        if: runner.os == 'macOS'
-        run: bash packaging/make_dmg.sh
-
-      - name: Notarise and staple (macOS)
-        if: runner.os == 'macOS'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-        run: |
-          if [ -z "$APPLE_ID" ] || [ -z "$SIGN_IDENTITY" ]; then
-            echo "::warning::notarisation secrets not set — dmg will trigger Gatekeeper (docs/SIGNING.md)"
-            exit 0
-          fi
-          codesign --force --sign "$SIGN_IDENTITY" "dist/Argus.dmg"
-          xcrun notarytool submit "dist/Argus.dmg" --wait             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID"             --password "$APPLE_APP_PASSWORD"
-          xcrun stapler staple "dist/Argus.dmg"
+      # The shipped macOS disk image is now electron-builder's, so it is built
+      # and notarised after the UI is packaged (further down). make_dmg.sh
+      # wrapped the retired PyQt bundle and no longer runs.
 
       - name: Sign the executables (Windows)
         if: runner.os == 'Windows'
@@ -254,9 +257,11 @@ jobs:
           [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:CERT_PFX))
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
             Where-Object { $_.FullName -match "x64" } | Select-Object -Last 1 -ExpandProperty FullName
+          # Signed BEFORE electron-builder copies this tree into the app's
+          # resources; it does not re-sign what it merely copies.
           & $signtool sign /f cert.pfx /p $env:CERT_PASSWORD /fd SHA256 `
             /tr http://timestamp.digicert.com /td SHA256 `
-            "dist/Argus/Argus.exe" "dist/Argus/argus-engine.exe"
+            "dist/Argus/Argus.exe" "dist/Argus/argus-engine.exe" "dist/Argus/argus-api.exe"
           Remove-Item cert.pfx
 
       # --help proves the bundle imports. It does NOT prove the product works,
@@ -320,31 +325,99 @@ jobs:
         shell: bash
         run: python tests/e2e/bundle_runtime_check.py dist/Argus
 
-      # macOS ships the .dmg directly; the other two ship a zipped onedir.
-      - name: Package artifact (macOS)
-        if: runner.os == 'macOS'
-        run: cp "dist/Argus.dmg" "${{ matrix.artifact }}.dmg"
-      - name: Package artifact (Linux)
-        if: runner.os == 'Linux'
-        run: cd dist && zip -r "../${{ matrix.artifact }}.zip" .
-      - name: Package artifact (Windows)
-        if: runner.os == 'Windows'
-        run: Compress-Archive -Path dist/* -DestinationPath ${{ matrix.artifact }}.zip
-      # A real installer, not just a zip: Start Menu entry, uninstaller,
-      # upgrades over the top. Inno Setup is preinstalled on windows runners.
-      # PowerShell, NOT bash: git-bash rewrites /D... arguments into Windows
-      # paths (MSYS path conversion), so ISCC saw two script filenames and
-      # refused. Proven on the first dispatch of this step.
-      - name: Build the Windows installer
-        if: runner.os == 'Windows'
-        shell: pwsh
+      # ---------------------------------------------------------------------
+      # The DESKTOP UI. Everything above builds and proves the ENGINE; this
+      # builds the interface customers actually see and wraps the two into one
+      # application. Until v1.8.13 nothing in this workflow mentioned the
+      # frontend at all, so every release quietly shipped the old PyQt
+      # interface while the React one existed only on developer machines.
+      # ---------------------------------------------------------------------
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+
+      - name: Build the desktop UI
+        working-directory: Frontend
         run: |
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
-          if ($version -eq $env:GITHUB_REF_NAME) { $version = '0.0.0' }   # not a tag
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DAppVersion=$version" scripts\installer.iss
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Move-Item dist\argus-windows-setup.exe argus-windows-setup.exe
-          Get-Item argus-windows-setup.exe | Format-List Name, Length
+          npm ci
+          npm run build
+
+      - name: Unit-test the desktop UI
+        working-directory: Frontend
+        run: npm test
+
+      # electron-builder packages the shell and copies PyInstaller's whole
+      # dist/Argus tree in as resources/engine (Frontend/electron-builder.yml).
+      # Its NSIS target also produces the Windows installer, replacing the Inno
+      # Setup script that installed the now-retired PyQt shell.
+      - name: Package the desktop app
+        working-directory: Frontend
+        shell: bash
+        env:
+          # The release job owns publishing; electron-builder must never try.
+          GH_TOKEN: ""
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          set -e
+          version="${GITHUB_REF_NAME#v}"
+          case "$GITHUB_REF_NAME" in v*) ;; *) version="0.0.0" ;; esac
+          # Signing engages only when the secrets exist, exactly like the steps
+          # above; without them the build stays unsigned and says so, loudly.
+          if [ "$RUNNER_OS" = "macOS" ] && [ -n "$MACOS_CERT_P12" ]; then
+            echo "$MACOS_CERT_P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
+            export CSC_LINK="$RUNNER_TEMP/cert.p12" CSC_KEY_PASSWORD="$MACOS_CERT_PASSWORD"
+          elif [ "$RUNNER_OS" = "Windows" ] && [ -n "$WINDOWS_CERT_PFX" ]; then
+            echo "$WINDOWS_CERT_PFX" | base64 -d > "$RUNNER_TEMP/cert.pfx"
+            export CSC_LINK="$RUNNER_TEMP/cert.pfx" CSC_KEY_PASSWORD="$WINDOWS_CERT_PASSWORD"
+          else
+            echo "::warning::no signing certificate for $RUNNER_OS — the desktop app ships UNSIGNED (docs/SIGNING.md)"
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          npx electron-builder --config electron-builder.yml --publish never \
+            -c.extraMetadata.version="$version"
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.pfx"
+          ls -la release
+
+      # The packaged app must contain BOTH halves. A shell without its engine
+      # is a window that can never detect anything; an engine without the
+      # renderer is what every release before v1.8.13 actually shipped.
+      - name: Check the packaged app carries the UI and the engine
+        shell: bash
+        run: python tests/e2e/packaged_app_check.py Frontend/release
+
+      - name: Notarise and staple the disk image (macOS)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          dmg="Frontend/release/argus-macos.dmg"
+          if [ -z "$APPLE_ID" ] || [ -z "$SIGN_IDENTITY" ]; then
+            echo "::warning::notarisation secrets not set — dmg will trigger Gatekeeper (docs/SIGNING.md)"
+            exit 0
+          fi
+          codesign --force --sign "$SIGN_IDENTITY" "$dmg"
+          xcrun notarytool submit "$dmg" --wait \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD"
+          xcrun stapler staple "$dmg"
+
+      - name: Collect the artifacts
+        shell: bash
+        run: |
+          set -e
+          shopt -s nullglob
+          for f in Frontend/release/*.dmg Frontend/release/*.zip Frontend/release/*.exe; do
+            cp "$f" "$(basename "$f")"
+          done
+          ls -la *.dmg *.zip *.exe 2>/dev/null || true
 
       # GitHub refuses release assets >= 2 GiB — fail HERE, loudly, not in the
       # release job after three successful builds (v1.0.0 post-mortem, 23 Aug).
