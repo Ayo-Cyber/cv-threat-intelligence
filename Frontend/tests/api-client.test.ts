@@ -265,7 +265,24 @@ describe("ArgusApiClient", () => {
       response({ target: { id: "chi-carton", label: "Chi carton" } }, 201),
       response({ target: { id: "chi-carton" }, example: { id: "ex-1" } }, 201),
       response({ target: { id: "chi-carton", review_state: "active" } }),
-      response({ ok: true, written: 1, model: "hash" }),
+      response({
+        target: { id: "chi-carton" },
+        example: { id: "ex-1", reviewed: true },
+      }),
+      response({
+        object_id: "chi-carton",
+        example_id: "ex-1",
+        mime_type: "image/png",
+        image_b64: "AA==",
+      }),
+      response({ job_id: "job-7", status: "queued" }),
+      response({ job_id: "job-7", status: "completed" }),
+      response({ targets: [{ id: "chi-carton" }] }),
+      response({ ok: true, enabled: true }),
+      response({
+        runtime: { status: "ready", backend: "siglip", reason_codes: [] },
+        targets: [],
+      }),
       response({ targets: [{ id: "chi-carton" }] }),
     ]);
     const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
@@ -274,38 +291,55 @@ describe("ArgusApiClient", () => {
     await client.invoke("sign_in", ["a", "pw"]);
 
     await client.invoke("create_object_target", [
-      {
-        id: "chi-carton",
-        label: "Chi carton",
-        category: "product",
-      },
+      "chi-carton",
+      "Chi carton",
+      "pallet",
+      ["milk carton"],
+      0.72,
+      [],
+      "sealed drink carton",
     ]);
     await client.invoke("add_object_example", [
       "chi-carton",
       "data:image/png;base64,AA==",
       [0, 0, 640, 480],
       "upload",
+      "pixel_xyxy",
+      false,
     ]);
     await client.invoke("activate_object_target", ["chi-carton"]);
-    await client.invoke("reembed_object_targets", ["hash"]);
+    await client.invoke("review_object_example", ["chi-carton", "ex-1", true]);
+    await client.invoke("object_example_preview", ["chi-carton", "ex-1"]);
+    await client.invoke("reembed_object_targets");
+    await client.invoke("object_watch_job_status", ["job-7"]);
+    await client.invoke("deactivate_object_target", ["chi-carton"]);
+    await client.invoke("set_object_watch_rule", [
+      "cam-1",
+      "chi-carton",
+      true,
+      "Dock polygon",
+    ]);
+    await client.invoke("set_object_watch_runtime_config", [
+      { backend: "siglip", model_path: "/models/siglip" },
+    ]);
     await client.invoke("object_targets");
 
     expect(
-      net.calls.slice(1).map((call) => [
-        call.url,
-        call.init.method,
-        call.init.body,
-      ]),
+      net.calls
+        .slice(1)
+        .map((call) => [call.url, call.init.method, call.init.body]),
     ).toEqual([
       [
         "http://127.0.0.1:8787/api/v1/object-targets",
         "POST",
         JSON.stringify({
-          target: {
-            id: "chi-carton",
-            label: "Chi carton",
-            category: "product",
-          },
+          object_id: "chi-carton",
+          label: "Chi carton",
+          category: "pallet",
+          aliases: ["milk carton"],
+          min_similarity: 0.72,
+          allowed_zone_ids: [],
+          grounding_description: "sealed drink carton",
         }),
       ],
       [
@@ -315,6 +349,8 @@ describe("ArgusApiClient", () => {
           image_b64: "data:image/png;base64,AA==",
           bbox: [0, 0, 640, 480],
           source: "upload",
+          bbox_format: "pixel_xyxy",
+          negative: false,
         }),
       ],
       [
@@ -323,9 +359,41 @@ describe("ArgusApiClient", () => {
         undefined,
       ],
       [
+        "http://127.0.0.1:8787/api/v1/object-targets/chi-carton/examples/ex-1/review",
+        "PUT",
+        JSON.stringify({ reviewed: true }),
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/object-targets/chi-carton/examples/ex-1/preview",
+        "GET",
+        undefined,
+      ],
+      [
         "http://127.0.0.1:8787/api/v1/object-targets/reembed",
         "POST",
-        JSON.stringify({ model: "hash" }),
+        JSON.stringify({}),
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/object-targets/jobs/job-7",
+        "GET",
+        undefined,
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/object-targets/chi-carton/deactivate",
+        "POST",
+        undefined,
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/cameras/cam-1/object-watch/chi-carton",
+        "PUT",
+        JSON.stringify({ enabled: true, zone_id: "Dock polygon" }),
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/object-targets/runtime",
+        "PUT",
+        JSON.stringify({
+          config: { backend: "siglip", model_path: "/models/siglip" },
+        }),
       ],
       ["http://127.0.0.1:8787/api/v1/object-targets", "GET", undefined],
     ]);

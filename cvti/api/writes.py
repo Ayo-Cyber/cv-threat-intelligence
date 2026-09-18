@@ -21,6 +21,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 from fastapi import Depends, Request
+from starlette.concurrency import run_in_threadpool
 
 from cvti.logging_setup import get_logger
 
@@ -196,15 +197,37 @@ ROUTES: list[R] = [
     # --- object watchlists ---
     R("object_targets", "GET", "/object-targets"),
     R("create_object_target", "POST", "/object-targets",
-      body={"target": "target"}, status=201),
+      body={"object_id": "object_id", "id": "object_id", "label": "label",
+            "category": "category", "aliases": "aliases",
+            "min_similarity": "min_similarity",
+            "allowed_zone_ids": "allowed_zone_ids",
+            "grounding_description": "grounding_description"}, status=201),
+    R("set_object_watch_runtime_config", "PUT", "/object-targets/runtime",
+      body={"config": "config"}),
     R("reembed_object_targets", "POST", "/object-targets/reembed",
       body={"model": "model"}),
+    R("object_watch_job_status", "GET", "/object-targets/jobs/{job_id}",
+      path_map={"job_id": "job_id"}),
     R("add_object_example", "POST", "/object-targets/{object_id}/examples",
       path_map={"object_id": "object_id"},
-      body={"image_b64": "image_b64", "bbox": "bbox", "source": "source"},
+      body={"image_b64": "image_b64", "bbox": "bbox", "source": "source",
+            "bbox_format": "bbox_format", "negative": "negative"},
       status=201),
+    R("review_object_example", "PUT",
+      "/object-targets/{object_id}/examples/{example_id}/review",
+      path_map={"object_id": "object_id", "example_id": "example_id"},
+      body={"reviewed": "reviewed"}),
+    R("object_example_preview", "GET",
+      "/object-targets/{object_id}/examples/{example_id}/preview",
+      path_map={"object_id": "object_id", "example_id": "example_id"}),
     R("activate_object_target", "POST", "/object-targets/{object_id}/activate",
       path_map={"object_id": "object_id"}),
+    R("deactivate_object_target", "POST", "/object-targets/{object_id}/deactivate",
+      path_map={"object_id": "object_id"}),
+    R("set_object_watch_rule", "PUT",
+      "/cameras/{camera_id}/object-watch/{object_id}",
+      path_map={"camera_id": "camera_id", "object_id": "object_id"},
+      body={"enabled": "enabled", "zone_id": "zone_id"}),
     R("add_custom_rule", "POST", "/cameras/{camera_id}/rules/custom",
       path_map={"camera_id": "camera_id"},
       body={"question": "question", "dwell": "dwell"}, status=201),
@@ -358,6 +381,11 @@ def register_writes(app, host: _ApiBackend, require_principal,
                     body = {}
                 if not isinstance(body, dict):
                     return error(400, "bad_request", "JSON object body expected")
+                # Compatibility for early object-watch clients; the backend
+                # contract itself is deliberately explicit rather than an
+                # unvalidated catch-all target dictionary.
+                if route.bridge == "create_object_target" and isinstance(body.get("target"), dict):
+                    body = {**body["target"], **{k: v for k, v in body.items() if k != "target"}}
                 for field, kwarg in route.body.items():
                     if field in body:
                         kwargs[kwarg] = body[field]
@@ -370,7 +398,12 @@ def register_writes(app, host: _ApiBackend, require_principal,
                         return error(400, "bad_request",
                                      f"query param '{q_param}' is not a {cast.__name__}")
             try:
-                result = host.call(principal, route.bridge, **kwargs)
+                # ConsoleBackend is synchronous. Keep even lightweight disk and
+                # SQLite calls off the ASGI loop; expensive enrollment itself is
+                # only enqueued here and runs outside the principal lock.
+                result = await run_in_threadpool(
+                    host.call, principal, route.bridge, **kwargs,
+                )
             except PermissionDenied as exc:
                 return error(403, "forbidden", str(exc),
                              {"permission": exc.permission})

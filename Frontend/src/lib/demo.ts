@@ -42,6 +42,8 @@ const demoObjectTargets = (): ObjectTarget[] => [
     review_state: "active",
     min_similarity: 0.72,
     allowed_zone_ids: ["storage", "loading_bay"],
+    grounding_description:
+      "Rectangular drink carton with a bright printed front face.",
     examples: [
       {
         id: "sample-upload",
@@ -49,9 +51,12 @@ const demoObjectTargets = (): ObjectTarget[] => [
         bbox: [0, 0, 640, 480],
         sha256: "demo-fixture",
         reviewed: true,
+        bbox_format: "pixel_xyxy",
       },
     ],
     negative_examples: [],
+    can_activate: true,
+    reasons: [],
   },
 ];
 interface DemoState {
@@ -374,12 +379,26 @@ export function createDemo(
           if (cam) Object.assign(cam, a);
           break;
         case "object_targets":
-          result = { targets: demoObjectTargets(), demo: true };
+          result = {
+            runtime: {
+              status: "demo",
+              backend: "fixture",
+              fingerprint: null,
+              reason_codes: ["demo_mode_no_local_inference"],
+            },
+            targets: demoObjectTargets(),
+            demo: true,
+          };
           break;
         case "create_object_target":
         case "add_object_example":
+        case "review_object_example":
+        case "object_example_preview":
         case "activate_object_target":
+        case "deactivate_object_target":
         case "reembed_object_targets":
+        case "set_object_watch_runtime_config":
+        case "set_object_watch_rule":
           throw new Error(
             "Object watchlist enrollment requires the local engine. Demo targets are fixture-backed.",
           );

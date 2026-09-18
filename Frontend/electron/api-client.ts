@@ -38,7 +38,8 @@ function normalizeIncident(value: any) {
 }
 
 function loopbackUrl(value: unknown, protocols: string[]): string {
-  if (typeof value !== "string") throw new Error("unsafe stream descriptor URL");
+  if (typeof value !== "string")
+    throw new Error("unsafe stream descriptor URL");
   let parsed: URL;
   try {
     parsed = new URL(value);
@@ -60,8 +61,7 @@ function normalizeStreamDescriptor(value: any) {
     throw new Error("unsafe stream descriptor shape");
   if (value.kind === "mjpeg")
     return { kind: "mjpeg", url: loopbackUrl(value.url, ["http:"]) };
-  if (value.kind !== "webrtc")
-    throw new Error("unsafe stream descriptor kind");
+  if (value.kind !== "webrtc") throw new Error("unsafe stream descriptor kind");
   const normalized: {
     kind: "webrtc";
     url: string;
@@ -286,21 +286,77 @@ const operations: Record<string, Operation> = {
   create_object_target: {
     method: "POST",
     path: fixed("/object-targets"),
-    body: ([target]) => ({ target }),
+    body: ([
+      object_id,
+      label,
+      category,
+      aliases,
+      min_similarity,
+      allowed_zone_ids,
+      grounding_description,
+    ]) =>
+      typeof object_id === "object" && object_id !== null
+        ? { target: object_id }
+        : {
+            object_id,
+            label,
+            category,
+            aliases,
+            min_similarity,
+            allowed_zone_ids,
+            grounding_description,
+          },
+  },
+  set_object_watch_runtime_config: {
+    method: "PUT",
+    path: fixed("/object-targets/runtime"),
+    body: ([config]) => ({ config }),
   },
   add_object_example: {
     method: "POST",
     path: item("/object-targets", "/examples"),
-    body: ([, image_b64, bbox, source]) => ({ image_b64, bbox, source }),
+    body: ([, image_b64, bbox, source, bbox_format, negative]) => ({
+      image_b64,
+      bbox,
+      source,
+      bbox_format,
+      negative,
+    }),
+  },
+  review_object_example: {
+    method: "PUT",
+    path: ([objectId, exampleId]) =>
+      `/object-targets/${encodeURIComponent(String(objectId))}/examples/${encodeURIComponent(String(exampleId))}/review`,
+    body: ([, , reviewed]) => ({ reviewed }),
+  },
+  object_example_preview: {
+    method: "GET",
+    path: ([objectId, exampleId]) =>
+      `/object-targets/${encodeURIComponent(String(objectId))}/examples/${encodeURIComponent(String(exampleId))}/preview`,
   },
   activate_object_target: {
     method: "POST",
     path: item("/object-targets", "/activate"),
   },
+  deactivate_object_target: {
+    method: "POST",
+    path: item("/object-targets", "/deactivate"),
+  },
   reembed_object_targets: {
     method: "POST",
     path: fixed("/object-targets/reembed"),
     body: ([model]) => ({ model }),
+  },
+  object_watch_job_status: {
+    method: "GET",
+    path: ([jobId]) =>
+      `/object-targets/jobs/${encodeURIComponent(String(jobId))}`,
+  },
+  set_object_watch_rule: {
+    method: "PUT",
+    path: ([cameraId, objectId]) =>
+      `/cameras/${encodeURIComponent(String(cameraId))}/object-watch/${encodeURIComponent(String(objectId))}`,
+    body: ([, , enabled, zone_id]) => ({ enabled, zone_id }),
   },
   presets: { method: "GET", path: fixed("/cameras/presets") },
   use_case_templates: { method: "GET", path: fixed("/site/templates") },

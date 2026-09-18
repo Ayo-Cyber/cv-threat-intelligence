@@ -11,15 +11,18 @@ localhost HTTP port. The app just fetches images.
 
     GET /frame/<camera_id>   -> image/jpeg  (latest raw frame)
     GET /stream/<camera_id>?tracking=1 -> MJPEG (movement overlays on demand)
-    GET /cameras             -> {"cameras": [...], "tracks": {...}}
+    GET /cameras             -> {"cameras": [...], "tracks": {...},
+                                  "object_tracks": {...}}
 
 The port is written to <output_dir>/frames.json so the app can find it without
 being told. Loopback only — frames never leave the box.
 """
 from __future__ import annotations
 
+import copy
 import hmac
 import json
+import math
 import os
 import secrets
 import select
@@ -46,6 +49,7 @@ class FrameOverlay:
     bbox: tuple[int, int, int, int]
     label: str
     colour: tuple[int, int, int]
+    namespace: str = "person"
 
 
 class FramePublisher:
@@ -65,7 +69,11 @@ class FramePublisher:
         self.max_width = max_width
         self._raw_frames: dict[str, bytes] = {}
         self._tracking_frames: dict[str, bytes] = {}
+        self._tracking_person_frames: dict[str, bytes] = {}
         self._tracks: dict[str, list] = {}
+        self._object_tracks: dict[str, dict | None] = {}
+        self._object_overlay_expires_at: dict[str, float] = {}
+        self._object_generation: dict[str, int] = {}
         self._alerting: dict[str, set] = {}
         self._raw_seq: dict[str, int] = {}
         self._tracking_seq: dict[str, int] = {}
@@ -90,10 +98,15 @@ class FramePublisher:
 
     # --- engine side ------------------------------------------------------
     def publish(self, camera_id: str, frame: Any,
-                overlays: Sequence[FrameOverlay | tuple] = ()) -> None:
+                overlays: Sequence[FrameOverlay | tuple] = (), *,
+                object_tracks: dict | None = None,
+                object_generation: int | None = None) -> None:
         """Store raw glass and, on demand, an annotated variant of the same frame."""
         import cv2
-        publication = self._begin_publish(camera_id)
+        publication, current_object_generation = self._begin_publish(camera_id)
+        if object_generation is None:
+            object_generation = current_object_generation
+        overlays, object_expiry = self._validated_overlays(overlays, object_tracks)
         img = frame
         h, w = img.shape[:2]
         if self.max_width and w > self.max_width:      # the wall is small; don't ship 1080p
@@ -113,27 +126,49 @@ class FramePublisher:
             alerting = set(self._alerting.get(camera_id, set()))
 
         tracking_jpeg = None
+        person_tracking_jpeg = None
         if tracking_watched:
-            tracking_jpeg = (
-                self._encode_tracking(img, overlays, scale, alerting)
-                if self.draw_boxes and overlays else raw_buf.tobytes()
-            )
+            person_overlays = self._person_overlays(overlays)
+            object_overlays = self._object_overlays(overlays)
+            if not self.draw_boxes:
+                tracking_jpeg = raw_buf.tobytes()
+                person_tracking_jpeg = tracking_jpeg
+            elif not object_overlays:
+                tracking_jpeg = (
+                    self._encode_tracking(img, person_overlays, scale, alerting)
+                    if person_overlays else raw_buf.tobytes()
+                )
+                person_tracking_jpeg = tracking_jpeg
+            else:
+                person_tracking_jpeg = (
+                    self._encode_tracking(img, person_overlays, scale, alerting)
+                    if person_overlays else raw_buf.tobytes()
+                )
+                tracking_jpeg = self._encode_tracking(img, overlays, scale, alerting)
         self._commit(
             camera_id, raw_buf.tobytes(), tracking_jpeg, overlays,
             tracking_generation if tracking_watched else None, publication,
+            object_tracks, person_tracking_jpeg, object_generation,
+            object_expiry,
         )
 
     def publish_jpeg(self, camera_id: str, jpeg: bytes,
                      overlays: Sequence[FrameOverlay | tuple] = (),
-                     source_size: tuple[int, int] | None = None) -> None:
+                     source_size: tuple[int, int] | None = None, *,
+                     object_tracks: dict | None = None,
+                     object_generation: int | None = None) -> None:
         """Store paced raw bytes; decode a tracking copy only while requested."""
-        publication = self._begin_publish(camera_id)
+        publication, current_object_generation = self._begin_publish(camera_id)
+        if object_generation is None:
+            object_generation = current_object_generation
+        overlays, object_expiry = self._validated_overlays(overlays, object_tracks)
         with self._lock:
             tracking_watched = self._tracking_viewers.get(camera_id, 0) > 0
             tracking_generation = self._tracking_generation.get(camera_id, 0)
             alerting = set(self._alerting.get(camera_id, set()))
 
         tracking_jpeg = None
+        person_tracking_jpeg = None
         if tracking_watched:
             if not self.draw_boxes or not overlays:
                 tracking_jpeg = jpeg
@@ -144,28 +179,60 @@ class FramePublisher:
                 if image is not None:
                     scale = (image.shape[1] / float(source_size[1])
                              if source_size and source_size[1] else 1.0)
-                    tracking_jpeg = self._encode_tracking(
-                        image, overlays, scale, alerting
-                    )
+                    person_overlays = self._person_overlays(overlays)
+                    if not self._object_overlays(overlays):
+                        tracking_jpeg = self._encode_tracking(
+                            image, person_overlays, scale, alerting
+                        )
+                        person_tracking_jpeg = tracking_jpeg
+                    else:
+                        tracking_jpeg = self._encode_tracking(
+                            image, overlays, scale, alerting
+                        )
+                        person_tracking_jpeg = (
+                            self._encode_tracking(image, person_overlays, scale, alerting)
+                            if person_overlays else jpeg
+                        )
+            if person_tracking_jpeg is None:
+                person_tracking_jpeg = jpeg
 
         self._commit(
             camera_id, jpeg, tracking_jpeg, overlays,
             tracking_generation if tracking_watched else None, publication,
+            object_tracks, person_tracking_jpeg, object_generation,
+            object_expiry,
         )
 
-    def _begin_publish(self, camera_id: str) -> int:
+    def _begin_publish(self, camera_id: str) -> tuple[int, int]:
         with self._lock:
             publication = self._issued_seq.get(camera_id, 0) + 1
             self._issued_seq[camera_id] = publication
-            return publication
+            return publication, self._object_generation.get(camera_id, 0)
+
+    def object_generation(self, camera_id: str) -> int:
+        """Token callers capture before collecting object overlays/snapshots."""
+        with self._lock:
+            return self._object_generation.get(camera_id, 0)
 
     def _commit(self, camera_id: str, raw_jpeg: bytes,
                 tracking_jpeg: bytes | None,
                 overlays: Sequence[FrameOverlay | tuple],
-                tracking_generation: int | None, publication: int) -> None:
+                tracking_generation: int | None, publication: int,
+                object_tracks: dict | None,
+                person_tracking_jpeg: bytes | None,
+                object_generation: int,
+                object_expiry: float | None) -> None:
         with self._lock:
             if publication <= self._raw_seq.get(camera_id, 0):
                 return
+            object_current = (
+                self._object_generation.get(camera_id, 0) == object_generation
+            )
+            if not object_current:
+                # A source reset won while this JPEG was encoding. Publish the
+                # raw/person frame, but never resurrect its old-source objects.
+                tracking_jpeg = person_tracking_jpeg
+                overlays = self._person_overlays(overlays)
             sequence = publication
             self._raw_frames[camera_id] = raw_jpeg
             self._raw_seq[camera_id] = sequence
@@ -177,15 +244,153 @@ class FramePublisher:
             )
             if tracking_current and tracking_jpeg is not None:
                 self._tracking_frames[camera_id] = tracking_jpeg
+                if person_tracking_jpeg is not None:
+                    self._tracking_person_frames[camera_id] = person_tracking_jpeg
                 self._tracking_seq[camera_id] = sequence
             else:
                 self._tracking_frames.pop(camera_id, None)
+                self._tracking_person_frames.pop(camera_id, None)
                 self._tracking_seq.pop(camera_id, None)
             self._tracks[camera_id] = [
                 int(o.track_id if isinstance(o, FrameOverlay) else o[0])
                 for o in overlays
+                if not isinstance(o, FrameOverlay) or o.namespace == "person"
             ]
+            if object_current:
+                self._object_tracks[camera_id] = copy.deepcopy(object_tracks)
+                if object_expiry is None:
+                    self._object_overlay_expires_at.pop(camera_id, None)
+                else:
+                    self._object_overlay_expires_at[camera_id] = object_expiry
             self.published += 1
+
+    @staticmethod
+    def _person_overlays(overlays: Sequence[FrameOverlay | tuple]) -> list:
+        return [overlay for overlay in overlays
+                if not isinstance(overlay, FrameOverlay)
+                or overlay.namespace == "person"]
+
+    @staticmethod
+    def _object_overlays(overlays: Sequence[FrameOverlay | tuple]) -> list:
+        return [overlay for overlay in overlays
+                if isinstance(overlay, FrameOverlay)
+                and overlay.namespace == "object"]
+
+    @classmethod
+    def _validated_overlays(
+        cls, overlays: Sequence[FrameOverlay | tuple], snapshot: dict | None,
+    ) -> tuple[list, float | None]:
+        """Fail closed: every rendered object must have matching fresh evidence."""
+        person = cls._person_overlays(overlays)
+        objects = cls._object_overlays(overlays)
+        if not objects:
+            return list(overlays), None
+        if not snapshot or snapshot.get("timestamp_clock") != "monotonic":
+            return person, None
+        now = time.monotonic()
+        try:
+            snapshot_at = float(snapshot["timestamp"])
+            max_age = float((snapshot.get("freshness") or {})[
+                "overlay_max_age_seconds"
+            ])
+            if not math.isfinite(snapshot_at) or snapshot_at > now \
+                    or not math.isfinite(max_age) or max_age <= 0:
+                return person, None
+        except (KeyError, TypeError, ValueError):
+            return person, None
+
+        observed: dict[int, float] = {}
+        tracks = snapshot.get("tracks", [])
+        if not isinstance(tracks, (list, tuple)):
+            return person, None
+        for track in tracks:
+            if not isinstance(track, dict):
+                continue
+            if track.get("state") != "observed":
+                continue
+            try:
+                counter = int(str(track.get("id", "")).rsplit("/", 1)[-1])
+                last_seen = float(track["last_seen"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if math.isfinite(last_seen) and last_seen <= snapshot_at:
+                observed[counter] = last_seen
+
+        valid_objects = []
+        deadlines = []
+        for overlay in objects:
+            counter = -overlay.track_id
+            last_seen = observed.get(counter)
+            if last_seen is None:
+                continue
+            deadline = last_seen + max_age
+            if math.isfinite(deadline) and now <= deadline:
+                valid_objects.append(overlay)
+                deadlines.append(deadline)
+        allowed = {id(overlay) for overlay in valid_objects}
+        filtered = [
+            overlay for overlay in overlays
+            if not isinstance(overlay, FrameOverlay)
+            or overlay.namespace != "object"
+            or id(overlay) in allowed
+        ]
+        return filtered, min(deadlines) if deadlines else None
+
+    def _expire_object_overlay_locked(self, camera_id: str, now: float) -> None:
+        expiry = self._object_overlay_expires_at.get(camera_id)
+        if expiry is None or now <= expiry:
+            return
+        person_frame = self._tracking_person_frames.get(camera_id)
+        if person_frame is not None and camera_id in self._tracking_frames:
+            self._tracking_frames[camera_id] = person_frame
+            sequence = self._issued_seq.get(camera_id, 0) + 1
+            self._issued_seq[camera_id] = sequence
+            self._tracking_seq[camera_id] = sequence
+        self._object_overlay_expires_at.pop(camera_id, None)
+
+    @staticmethod
+    def _project_object_snapshot(snapshot: dict | None, now: float) -> dict | None:
+        projected = copy.deepcopy(snapshot)
+        if not projected or projected.get("timestamp_clock") != "monotonic":
+            return projected
+        freshness = projected.get("freshness") or {}
+        try:
+            lost_after = float(freshness["lost_after_seconds"])
+            retention = float(freshness["ended_retention_seconds"])
+        except (KeyError, TypeError, ValueError):
+            return projected
+        kept = []
+        for track in projected.get("tracks", []):
+            last_seen = float(track.get("last_seen", now))
+            if track.get("state") != "ended" and now - last_seen > lost_after:
+                track["state"] = "ended"
+                track["ended_at"] = last_seen + lost_after
+                track["end_reason"] = "lost_timeout"
+            ended_at = track.get("ended_at")
+            if track.get("state") != "ended" or ended_at is None \
+                    or now - float(ended_at) <= retention:
+                kept.append(track)
+        projected["tracks"] = kept
+        last_success = projected.get("last_success_at")
+        if last_success is not None and now - float(last_success) > lost_after:
+            projected["status"] = "stale"
+        projected["timestamp"] = now
+        return projected
+
+    def invalidate_object_tracking(self, camera_id: str,
+                                   object_tracks: dict | None = None) -> None:
+        """Atomically replace metadata and remove only object annotations."""
+        with self._lock:
+            self._object_generation[camera_id] = \
+                self._object_generation.get(camera_id, 0) + 1
+            self._object_tracks[camera_id] = copy.deepcopy(object_tracks)
+            self._object_overlay_expires_at.pop(camera_id, None)
+            person_frame = self._tracking_person_frames.get(camera_id)
+            if person_frame is not None and camera_id in self._tracking_frames:
+                self._tracking_frames[camera_id] = person_frame
+                sequence = self._issued_seq.get(camera_id, 0) + 1
+                self._issued_seq[camera_id] = sequence
+                self._tracking_seq[camera_id] = sequence
 
     def _encode_tracking(self, image: Any,
                          overlays: Sequence[FrameOverlay | tuple], scale: float,
@@ -198,11 +403,13 @@ class FramePublisher:
                 x1, y1, x2, y2 = overlay.bbox
                 label = overlay.label
                 colour = overlay.colour
+                namespace = overlay.namespace
             else:
                 tid, x1, y1, x2, y2 = overlay
                 label = f"#{tid}"
                 colour = _BOX_COLOUR
-            if tid in alerting:
+                namespace = "person"
+            if namespace == "person" and tid in alerting:
                 colour = _ALERT_COLOUR
             p1 = (int(x1 * scale), int(y1 * scale))
             p2 = (int(x2 * scale), int(y2 * scale))
@@ -229,6 +436,7 @@ class FramePublisher:
                     self._tracking_generation[camera_id] = \
                         self._tracking_generation.get(camera_id, 0) + 1
                     self._tracking_frames.pop(camera_id, None)
+                    self._tracking_person_frames.pop(camera_id, None)
                     self._tracking_seq.pop(camera_id, None)
                 self._tracking_viewers[camera_id] = \
                     self._tracking_viewers.get(camera_id, 0) + 1
@@ -245,6 +453,7 @@ class FramePublisher:
                     self._tracking_generation[camera_id] = \
                         self._tracking_generation.get(camera_id, 0) + 1
                     self._tracking_frames.pop(camera_id, None)
+                    self._tracking_person_frames.pop(camera_id, None)
                     self._tracking_seq.pop(camera_id, None)
             self._viewer_last[camera_id] = time.time()
 
@@ -259,19 +468,31 @@ class FramePublisher:
 
     def frame(self, camera_id: str, tracking: bool = False) -> bytes | None:
         with self._lock:
+            if tracking:
+                self._expire_object_overlay_locked(camera_id, time.monotonic())
             frames = self._tracking_frames if tracking else self._raw_frames
             return frames.get(camera_id)
 
     def frame_seq(self, camera_id: str, tracking: bool = False) -> tuple:
         """(jpeg, seq) — seq bumps per publish so a stream sends only new frames."""
         with self._lock:
+            if tracking:
+                self._expire_object_overlay_locked(camera_id, time.monotonic())
             frames = self._tracking_frames if tracking else self._raw_frames
             sequences = self._tracking_seq if tracking else self._raw_seq
             return frames.get(camera_id), sequences.get(camera_id, 0)
 
     def snapshot(self) -> dict:
         with self._lock:
-            return {"cameras": sorted(self._raw_frames), "tracks": dict(self._tracks),
+            now = time.monotonic()
+            for camera_id in tuple(self._object_overlay_expires_at):
+                self._expire_object_overlay_locked(camera_id, now)
+            return {"cameras": sorted(self._raw_frames),
+                    "tracks": copy.deepcopy(self._tracks),
+                    "object_tracks": {
+                        camera_id: self._project_object_snapshot(snapshot, now)
+                        for camera_id, snapshot in self._object_tracks.items()
+                    },
                     "published": self.published}
 
     # --- server -----------------------------------------------------------

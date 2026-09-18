@@ -651,6 +651,11 @@ class ConsoleBackend:
             if k in rules:
                 turning_on = bool(rules[k]) and not cam.get(k)
                 cam[k] = bool(rules[k])
+                if k == "object_watch":
+                    # CameraRuntime prefers the newer flag when it is present.
+                    # Keep the legacy API toggle and its persisted alias atomic
+                    # so disabling object watch cannot leave it effectively on.
+                    cam["object_watch_enabled"] = bool(rules[k])
                 if turning_on:      # seed this detector's tuning params (don't clobber)
                     for pk, pv in self.DETECTOR_DEFAULTS.get(k, {}).items():
                         cam.setdefault(pk, pv)
@@ -663,7 +668,7 @@ class ConsoleBackend:
             # reverted the camera to the pre-template preset.)
             cam["_base_config"] = rules["config"]
             zones = self.list_zones(camera_id)
-            if zones or self._custom_rules(cam):
+            if zones or self._custom_rules(cam) or cam.get("object_watch_rules"):
                 self._regen_zone_rules(camera_id, cam, zones)
             else:
                 cam["config"] = rules["config"]
@@ -683,6 +688,7 @@ class ConsoleBackend:
             "bbox": list(example.bbox),
             "sha256": example.sha256,
             "reviewed": bool(example.reviewed),
+            "bbox_format": example.bbox_format,
         }
 
     @classmethod
@@ -695,6 +701,7 @@ class ConsoleBackend:
             "review_state": target.review_state,
             "min_similarity": target.min_similarity,
             "allowed_zone_ids": list(target.allowed_zone_ids),
+            "grounding_description": target.grounding_description,
             "examples": [cls._redact_object_example(e) for e in target.examples],
             "negative_examples": [
                 cls._redact_object_example(e) for e in target.negative_examples
@@ -703,27 +710,62 @@ class ConsoleBackend:
 
     def object_targets(self) -> dict:
         self._require(perms.VIEW_LIVE)
-        from cvti.object_watch.store import load_targets
-        targets = [
-            self._redact_object_target(target)
-            for target in load_targets(self._object_library_root())
-        ]
-        return {"targets": targets}
+        from types import SimpleNamespace
+        from cvti.object_watch.runtime_config import preflight, resolve_config
+        from cvti.object_watch.store import load_targets, target_readiness
 
-    def create_object_target(self, target: dict) -> dict:
+        config = resolve_config(self._object_library_root())
+        readiness = preflight(config)
+        runtime = {
+            "status": readiness.status,
+            "backend": readiness.backend,
+            "fingerprint": readiness.model_fingerprint,
+            "reason_codes": [self._object_watch_reason_code(v) for v in readiness.reasons],
+        }
+        descriptor = None
+        if readiness.model_fingerprint:
+            descriptor = SimpleNamespace(
+                name=config.backend, fingerprint=readiness.model_fingerprint,
+                preprocessing_version=1,
+            )
+        targets = []
+        for target in load_targets(self._object_library_root()):
+            row = self._redact_object_target(target)
+            reasons = list(runtime["reason_codes"])
+            if descriptor is not None:
+                target_status = target_readiness(self._object_library_root(), target, descriptor)
+                reasons.extend(self._object_watch_reason_code(v) for v in target_status.reasons)
+            row["can_activate"] = not reasons
+            row["reasons"] = list(dict.fromkeys(reasons))
+            targets.append(row)
+        return {"runtime": runtime, "targets": targets}
+
+    @staticmethod
+    def _object_watch_reason_code(reason: str) -> str:
+        import re
+        return re.sub(r"[^a-z0-9]+", "_", reason.lower()).strip("_")
+
+    def create_object_target(
+        self,
+        object_id: str,
+        label: str,
+        category: str,
+        aliases: list[str] | None = None,
+        min_similarity: float = 0.72,
+        allowed_zone_ids: list[str] | None = None,
+        grounding_description: str = "",
+    ) -> dict:
         self._require(perms.CONFIGURE_CAMERAS)
         from cvti.object_watch.store import ObjectTarget, save_target
 
         saved = save_target(self._object_library_root(), ObjectTarget(
-            id=str(target.get("id", "")).strip(),
-            label=str(target.get("label", "")).strip(),
-            category=str(target.get("category", "")).strip(),
-            aliases=tuple(target.get("aliases") or ()),
-            review_state=str(target.get("review_state", "draft")).strip() or "draft",
-            min_similarity=float(target.get("min_similarity", 0.72)),
-            allowed_zone_ids=tuple(target.get("allowed_zone_ids") or ()),
+            id=str(object_id).strip(), label=str(label).strip(),
+            category=str(category).strip(), aliases=tuple(aliases or ()),
+            review_state="draft", min_similarity=float(min_similarity),
+            allowed_zone_ids=tuple(allowed_zone_ids or ()),
             examples=(),
             negative_examples=(),
+            grounding_description=str(grounding_description or "").strip(),
         ))
         self.audit.record(
             self._actor(), "config_change", f"object_target:{saved.id}",
@@ -754,19 +796,30 @@ class ConsoleBackend:
         self,
         object_id: str,
         image_b64: str,
-        bbox: list[int],
+        bbox: list[float | int],
         source: str,
+        bbox_format: str = "legacy",
+        negative: bool = False,
     ) -> dict:
         self._require(perms.CONFIGURE_CAMERAS)
         from cvti.object_watch.store import add_example, load_targets
 
         image_bytes = self._decode_example_image(image_b64)
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            raise ValueError("bbox must have four coordinates")
+        # Keep normalized coordinates as floats until the image helper has
+        # interpreted their declared format. Converting 0.75 to 0 here used to
+        # turn valid HTTP crops into empty/full-image legacy boxes.
+        raw_bbox = tuple(float(v) for v in bbox)
         example = add_example(
             self._object_library_root(),
             object_id,
             image_bytes,
-            tuple(int(v) for v in bbox),
+            (raw_bbox[0], raw_bbox[1], raw_bbox[2], raw_bbox[3]),
             str(source or "upload"),
+            bbox_format=str(bbox_format or "legacy"),
+            negative=bool(negative),
+            reviewed=False,
         )
         target = next(t for t in load_targets(self._object_library_root()) if t.id == object_id)
         self.audit.record(
@@ -779,41 +832,199 @@ class ConsoleBackend:
             "example": self._redact_object_example(example),
         }
 
-    def activate_object_target(self, object_id: str) -> dict:
+    def review_object_example(
+        self, object_id: str, example_id: str, reviewed: bool = True,
+    ) -> dict:
         self._require(perms.CONFIGURE_CAMERAS)
-        from dataclasses import replace
-        from cvti.object_watch.store import load_targets, save_target
+        from cvti.object_watch.store import load_targets, review_example
 
-        target = next(
-            (t for t in load_targets(self._object_library_root()) if t.id == object_id),
-            None,
+        example = review_example(
+            self._object_library_root(), object_id, example_id, reviewed=bool(reviewed),
         )
+        target = next(t for t in load_targets(self._object_library_root()) if t.id == object_id)
+        self.audit.record(
+            self._actor(), "config_change", f"object_target:{object_id}",
+            {"action": "review_example", "example_id": example_id,
+             "reviewed": bool(reviewed)},
+        )
+        return {"target": self._redact_object_target(target),
+                "example": self._redact_object_example(example)}
+
+    def object_example_preview(self, object_id: str, example_id: str) -> dict:
+        self._require(perms.VIEW_LIVE)
+        from cvti.object_watch.store import load_targets
+
+        target = next((t for t in load_targets(self._object_library_root())
+                       if t.id == object_id), None)
         if target is None:
             raise ValueError(f"unknown object target: {object_id}")
-        saved = save_target(self._object_library_root(), replace(target, review_state="active"))
+        example = next((e for e in target.examples + target.negative_examples
+                        if e.id == example_id), None)
+        if example is None:
+            raise ValueError(f"unknown object example: {example_id}")
+        library = (self._object_library_root() / "object_library").resolve()
+        path = (library / example.path).resolve()
+        if library not in path.parents or not path.is_file() or path.suffix.lower() != ".png":
+            raise ValueError("object example preview path is invalid")
+        data = path.read_bytes()
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("object example preview is not a canonical crop")
+        return {"object_id": object_id, "example_id": example_id,
+                "mime_type": "image/png", "image_b64": base64.b64encode(data).decode()}
+
+    def _object_watch_backend(self):
+        """Load only the configured local backend; tests may replace this seam."""
+        from cvti.object_watch.runtime_config import load_configured_backend, resolve_config
+        try:
+            return load_configured_backend(resolve_config(self._object_library_root()))
+        except RuntimeError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def _object_watch_metadata(self):
+        """Return the configured model descriptor without constructing torch."""
+        from cvti.object_watch.runtime_config import configured_backend_metadata, resolve_config
+
+        config = resolve_config(self._object_library_root())
+        try:
+            return configured_backend_metadata(config)
+        except RuntimeError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def activate_object_target(self, object_id: str) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.object_watch.store import activate_target, load_targets
+
+        target = next((item for item in load_targets(self._object_library_root())
+                       if item.id == object_id), None)
+        if target is None:
+            raise ValueError(f"unknown object target: {object_id}")
+        if not any(example.reviewed for example in target.examples):
+            raise ValueError("active target requires at least one reviewed example")
+        metadata = self._object_watch_metadata()
+        saved = activate_target(self._object_library_root(), object_id, metadata)
         self.audit.record(
             self._actor(), "config_change", f"object_target:{saved.id}",
             {"action": "activate", "label": saved.label},
         )
         return {"target": self._redact_object_target(saved)}
 
-    def reembed_object_targets(self, model: str = "hash") -> dict:
+    def deactivate_object_target(self, object_id: str) -> dict:
         self._require(perms.CONFIGURE_CAMERAS)
-        from cvti.object_watch.embeddings import embed_examples, load_embedding_backend
+        from cvti.object_watch.store import deactivate_target
 
-        backend = load_embedding_backend(model or "hash")
-        written = embed_examples(self._object_library_root(), backend)
+        saved = deactivate_target(self._object_library_root(), object_id)
+        self.audit.record(self._actor(), "config_change", f"object_target:{saved.id}",
+                          {"action": "deactivate", "label": saved.label})
+        return {"target": self._redact_object_target(saved)}
+
+    def reembed_object_targets(self, model: str | None = None) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.object_watch.runtime_config import resolve_config
+        from cvti.object_watch.enrollment_jobs import JOBS
+
+        config = resolve_config(self._object_library_root())
+        requested = str(model or config.backend).strip().lower()
+        if requested == "hash" or requested != config.backend:
+            raise ValueError("reembedding must use the configured production backend")
+        queued = JOBS.enqueue(self._object_library_root(), config)
         self.audit.record(
             self._actor(), "config_change", "object_targets",
-            {"action": "reembed", "model": backend.name,
-             "model_fingerprint": backend.fingerprint, "written": written},
+            {"action": "reembed_queued", "model": config.backend,
+             "job_id": queued["job_id"]},
         )
-        return {
-            "ok": True,
-            "written": written,
-            "model": backend.name,
-            "model_fingerprint": backend.fingerprint,
-        }
+        return queued
+
+    def object_watch_job_status(self, job_id: str) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        from cvti.object_watch.enrollment_jobs import JOBS
+
+        return JOBS.status(self._object_library_root(), job_id)
+
+    def set_object_watch_runtime_config(self, config: dict) -> dict:
+        self._require(perms.CONFIGURE_CAMERAS)
+        if not isinstance(config, dict):
+            raise ValueError("object watch config must be an object")
+        allowed = {"backend", "model_path", "device", "world_weights", "clip_weights",
+                   "sample_fps", "max_candidates", "result_ttl_seconds"}
+        unknown = set(config) - allowed
+        if unknown:
+            raise ValueError("unknown object watch config fields: " + ", ".join(sorted(unknown)))
+        from dataclasses import replace
+        from cvti.object_watch.runtime_config import resolve_config, write_config
+
+        current = resolve_config(self._object_library_root())
+        backend = str(config.get("backend", current.backend)).strip().lower()
+        if backend != "siglip":
+            raise ValueError("object watch backend must be siglip; hash is test-only")
+        root = self._object_library_root().resolve()
+
+        def local_path(key, current_value):
+            value = config.get(key, current_value)
+            if value in (None, ""):
+                return None
+            raw = str(value)
+            if "://" in raw or raw.lower().startswith(("http:/", "https:/")):
+                raise ValueError("model paths must be local filesystem paths")
+            path = Path(raw).expanduser()
+            return (path if path.is_absolute() else root / path).resolve()
+
+        sample_fps = float(config.get("sample_fps", current.sample_fps))
+        ttl = float(config.get("result_ttl_seconds", current.result_ttl_seconds))
+        maximum = config.get("max_candidates", current.max_candidates)
+        if isinstance(maximum, bool) or not isinstance(maximum, int) or maximum <= 0:
+            raise ValueError("object watch max_candidates must be a positive integer")
+        import math
+        if not math.isfinite(sample_fps) or not math.isfinite(ttl) or sample_fps <= 0 or ttl <= 0:
+            raise ValueError("object watch runtime limits must be positive")
+        candidate = replace(
+            current, backend=backend,
+            model_path=local_path("model_path", current.model_path),
+            world_weights=local_path("world_weights", current.world_weights),
+            clip_weights=local_path("clip_weights", current.clip_weights),
+            device=str(config.get("device", current.device)).strip() or "cpu",
+            sample_fps=sample_fps, max_candidates=maximum, result_ttl_seconds=ttl,
+            library_path=None,
+        )
+        path = write_config(self._object_library_root(), candidate)
+        self.audit.record(self._actor(), "config_change", "object_watch_runtime",
+                          {"fields": sorted(config), "path": str(path)})
+        return self.object_targets()
+
+    def set_object_watch_rule(
+        self, camera_id: str, object_id: str, enabled: bool,
+        zone_id: str | None = None,
+    ) -> dict:
+        self._require(perms.CONFIGURE_DETECTORS)
+        from cvti.object_watch.store import load_targets
+
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam is None:
+            raise ValueError(f"camera '{camera_id}' not found")
+        if not any(target.id == object_id for target in load_targets(self._object_library_root())):
+            raise ValueError(f"unknown object target: {object_id}")
+        if zone_id is not None and zone_id not in {z.get("name") for z in self.list_zones(camera_id)}:
+            raise ValueError(f"zone '{zone_id}' not found for camera '{camera_id}'")
+        key = f"object_watch:{object_id}:{zone_id or '*'}"
+        rules = [r for r in (cam.get("object_watch_rules") or []) if r.get("key") != key]
+        if enabled:
+            trigger = {"detector": "object_watch", "state": "object_seen",
+                       "object_id": object_id}
+            if zone_id is not None:
+                trigger["zone"] = zone_id
+            rules.append({"key": key, "name": key.replace(":", "_"),
+                          "trigger": trigger, "priority": "medium"})
+        cam["object_watch_rules"] = rules
+        cam["object_watch"] = bool(rules)
+        cam["object_watch_enabled"] = bool(rules)
+        cam["object_watch_library"] = str(
+            (self._object_library_root() / "object_library").resolve())
+        self._regen_zone_rules(camera_id, cam, self.list_zones(camera_id))
+        onboarding.add_camera(self.site_path, cam)
+        self.audit.record(self._actor(), "config_change", f"camera:{camera_id}",
+                          {"object_watch_rule": key, "enabled": bool(enabled)})
+        return {"ok": True, "camera_id": camera_id, "object_id": object_id,
+                "zone_id": zone_id, "enabled": bool(enabled), "rules": rules}
 
     # --- zones (draw in-app -> geometry + a loitering rule the engine runs) ---
     def camera_snapshot(self, camera_id: str) -> dict:
@@ -878,6 +1089,9 @@ class ConsoleBackend:
             rules.append({"name": f"loitering_{z['name']}", "trigger": {"detector": "presence"},
                           "context_filter": f"zone == '{z['name']}' and dwell_seconds >= {dw}",
                           "priority": "medium"})
+        # Keep scoped object-watch rules through every zone/preset regeneration.
+        for object_rule in cam.get("object_watch_rules") or []:
+            rules.append({k: v for k, v in object_rule.items() if k != "key"})
         # English rules do NOT regenerate into presence-gated rules any more:
         # that path only fired when a PERSON lingered, so "detect the white
         # aeroplane" never ran (user report, 23 Aug). The engine's

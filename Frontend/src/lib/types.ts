@@ -75,6 +75,7 @@ export interface ObjectExample {
   bbox: [number, number, number, number];
   sha256: string;
   reviewed: boolean;
+  bbox_format?: string;
 }
 export interface ObjectTarget {
   id: string;
@@ -86,11 +87,31 @@ export interface ObjectTarget {
   allowed_zone_ids: string[];
   examples: ObjectExample[];
   negative_examples: ObjectExample[];
+  grounding_description?: string;
+  can_activate?: boolean;
+  ready_for_activation?: boolean;
+  reasons?: string[];
   needs_reembed?: boolean;
   degraded_unavailable?: boolean;
 }
+export interface ObjectWatchRuntime {
+  status: string;
+  backend: string;
+  fingerprint?: string | null;
+  reason_codes: string[];
+  structurally_available?: boolean;
+  executable_verified?: boolean;
+  dimensions?: number | null;
+}
 export interface ObjectWatchStatus {
+  runtime?: ObjectWatchRuntime;
   targets: ObjectTarget[];
+}
+export interface ObjectWatchJobStatus {
+  job_id: string;
+  status: "queued" | "running" | "completed" | "failed" | string;
+  error?: string;
+  message?: string;
 }
 export interface Auth {
   configured: boolean;

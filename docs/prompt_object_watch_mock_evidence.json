@@ -1,0 +1,43 @@
+{
+  "cases": 2,
+  "scored": 2,
+  "errors": 0,
+  "tp": 1,
+  "fn": 0,
+  "fp": 1,
+  "tn": 0,
+  "precision": 0.5,
+  "precision_ci": [
+    0.0945,
+    0.9055
+  ],
+  "precision_n": 2,
+  "recall": 1.0,
+  "recall_ci": [
+    0.2065,
+    1.0
+  ],
+  "recall_n": 1,
+  "measurement_status": "measured",
+  "measurement_mode": "mock_plumbing",
+  "quality_metrics": false,
+  "fingerprint": "c28b1f0ab14b76afa30ce5fbb4373e9a6a2d1c75b277731d655509d1f8e70900",
+  "prompts": {
+    "SENSITIVITY_QUESTIONS": 3,
+    "_COT_PROMPT_TEMPLATE": 2055,
+    "_DETECTOR_QUESTIONS": 9,
+    "_PROMPT_TEMPLATE": 2209,
+    "_QUESTIONS": 16
+  },
+  "sensitivity": "balanced",
+  "gate_provider": "mock",
+  "gate_model": "mock",
+  "gate_model_digest": null,
+  "measured_at": "2026-09-16T23:03:23",
+  "golden_cases": 2,
+  "corpus_cases": 2,
+  "corpus_meta": {
+    "dataset": "deterministic object-watch prompt plumbing fixture",
+    "measurement_mode": "mock"
+  }
+}

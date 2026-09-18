@@ -130,18 +130,65 @@ when the go2rtc gateway is up, else `{kind: "mjpeg", url}`. Players switch on
 | Bridge method | Endpoint | Permission | Status |
 |---|---|---|---|
 | `object_targets` | `GET /object-targets` | view_live | shipped |
-| `create_object_target` | `POST /object-targets` (body: `{target: {id, label, category, aliases?, allowed_zone_ids?, min_similarity?}}`) | configure_cameras | shipped |
-| `add_object_example` | `POST /object-targets/{id}/examples` (body: `{image_b64, bbox, source}`) | configure_cameras | shipped |
-| `activate_object_target` | `POST /object-targets/{id}/activate` | configure_cameras | shipped |
-| `reembed_object_targets` | `POST /object-targets/reembed` (body: `{model}`; default `hash`) | configure_cameras | shipped |
+| `create_object_target` | `POST /object-targets` (body: `{object_id, label, category, aliases?, min_similarity?, allowed_zone_ids?, grounding_description?}`; legacy `{target: {id, ...}}` is normalized) | configure_cameras | shipped |
+| `set_object_watch_runtime_config` | `PUT /object-targets/runtime` (body: `{config}`) | configure_cameras | shipped |
+| `reembed_object_targets` | `POST /object-targets/reembed` (body: `{model?}`; omitted means the configured backend) | configure_cameras | shipped |
+| `object_watch_job_status` | `GET /object-targets/jobs/{job_id}` | configure_cameras | shipped |
+| `add_object_example` | `POST /object-targets/{object_id}/examples` (body: `{image_b64, bbox, source, bbox_format?, negative?}`) | configure_cameras | shipped |
+| `review_object_example` | `PUT /object-targets/{object_id}/examples/{example_id}/review` (body: `{reviewed}`) | configure_cameras | shipped |
+| `object_example_preview` | `GET /object-targets/{object_id}/examples/{example_id}/preview` | view_live | shipped |
+| `activate_object_target` | `POST /object-targets/{object_id}/activate` | configure_cameras | shipped |
+| `deactivate_object_target` | `POST /object-targets/{object_id}/deactivate` | configure_cameras | shipped |
+| `set_object_watch_rule` | `PUT /cameras/{camera_id}/object-watch/{object_id}` (body: `{enabled, zone_id?}`) | configure_detectors | shipped |
 
 Object-watch enrollment is local-only. Uploaded examples are stored in the
 site-local object library and embedded by the configured local backend; the API
 does not download model weights or call cloud inference. Reads return redacted
 targets: example IDs, bounding boxes, review flags, and crop hashes are visible,
 but local crop paths and raw image bytes are not returned. Activation requires at
-least one reviewed positive example, and re-embedding reports the model
-fingerprint so stale embeddings can be detected.
+least one reviewed positive example and a complete embedding set compatible with
+the configured model fingerprint, preprocessing version, dimensions, model name,
+and canonical crop hashes.
+
+`GET /object-targets` returns
+`{runtime: {status, backend, fingerprint, reason_codes}, targets}`. Each target is
+the redacted `{id, label, category, aliases, review_state, min_similarity,
+allowed_zone_ids, grounding_description, examples, negative_examples,
+can_activate, reasons}` shape; each example is `{id, source, bbox, sha256,
+reviewed, bbox_format}`. There is currently **no served
+`GET /object-targets/runtime`**: the verified method on that path is `PUT`, and
+clients read runtime status through `GET /object-targets`. A `GET` to the runtime
+path therefore receives FastAPI's method-not-allowed response.
+
+The runtime update accepts only `backend`, `model_path`, `device`,
+`world_weights`, `clip_weights`, `sample_fps`, `max_candidates`, and
+`result_ttl_seconds` inside `config`. Production requires `backend: "siglip"`;
+remote model URLs and the test-only `hash` backend are rejected. Its response is
+the same status document as `GET /object-targets`. Changes are persisted locally
+and detected by the live worker; camera enablement is changed independently by
+the camera/object `PUT` route. That route adds or removes only the scoped
+`object_seen` rule and returns `{ok, camera_id, object_id, zone_id, enabled,
+rules}`.
+
+Re-embedding is a bounded process-local background job, not work performed on
+the HTTP request thread. Submission returns `{job_id, status: "queued"}`; if the
+site already has a queued/running job, it returns that job instead. Status is one
+of `queued`, `running`, `completed`, or `failed`. Completion adds `{ok, written,
+model, model_fingerprint}`; failure adds `{error}`. Job IDs are site-scoped,
+unknown/expired IDs return `404`, at most 128 completed/failed records are
+retained, and the worker pool has two threads. Preview returns the saved canonical
+crop as `{object_id, example_id, mime_type: "image/png", image_b64}`. Review,
+example additions, and target changes increment revisions and move an active
+target back to draft when recognition inputs change; deactivation sets
+`review_state` to `disabled`.
+
+The desktop transport allowlists the exact bridge names
+`object_targets`, `create_object_target`, `set_object_watch_runtime_config`,
+`reembed_object_targets`, `add_object_example`, `review_object_example`,
+`object_example_preview`, `activate_object_target`, `deactivate_object_target`,
+`object_watch_job_status`, and `set_object_watch_rule`. These names are part of
+the client contract; UI visibility is not authorization, and the backend
+permissions above remain authoritative.
 
 ### Scene understanding
 
