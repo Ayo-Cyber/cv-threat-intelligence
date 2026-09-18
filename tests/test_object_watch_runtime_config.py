@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -8,6 +9,17 @@ import pytest
 from cvti.object_watch.runtime_config import (
     ObjectWatchConfig, advisory_inference_lock, configured_backend_metadata, preflight,
     resolve_config, write_config,
+)
+
+
+# preflight reads the embedding dimension through transformers.SiglipConfig, so
+# without transformers every SigLIP config is "unavailable" by design. transformers
+# lives in requirements-video.txt, which the CI *test* job does not install — only
+# the build job does. These three assert the available/degraded side of that
+# contract and can only run where it is installed.
+requires_transformers = pytest.mark.skipif(
+    importlib.util.find_spec("transformers") is None,
+    reason="transformers is not installed in this environment",
 )
 
 
@@ -38,6 +50,7 @@ def test_resolver_defaults_to_local_siglip_and_fails_missing_assets(tmp_path: Pa
     assert readiness.model_fingerprint is None
 
 
+@requires_transformers
 def test_config_round_trip_and_artifact_fingerprint(tmp_path: Path):
     model = fake_model(tmp_path)
     write_config(tmp_path, ObjectWatchConfig(model_path=model, sample_fps=2.0,
@@ -59,6 +72,7 @@ def test_config_round_trip_and_artifact_fingerprint(tmp_path: Path):
     assert preflight(config).model_fingerprint != readiness.model_fingerprint
 
 
+@requires_transformers
 def test_optional_missing_proposer_is_degraded_not_unavailable(tmp_path: Path):
     config = ObjectWatchConfig(model_path=fake_model(tmp_path),
                                proposal_provider="yolo_world",
@@ -66,6 +80,7 @@ def test_optional_missing_proposer_is_degraded_not_unavailable(tmp_path: Path):
     assert preflight(config).status == "degraded"
 
 
+@requires_transformers
 def test_siglip_dimension_uses_config_semantics_and_honours_nondefault(tmp_path: Path):
     model = fake_model(tmp_path)
     assert preflight(ObjectWatchConfig(model_path=model)).dimensions == 768
