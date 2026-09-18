@@ -9,6 +9,7 @@ import {
   type LocationSelection,
 } from "../lib/hierarchy";
 import { Notice, Spinner } from "./common";
+import CameraConnection from "./CameraConnection";
 
 export default function AddCamera({
   api,
@@ -124,6 +125,13 @@ export default function AddCamera({
             placeholder="reception_01"
           />
         </label>
+        <CameraConnection
+          disabled={!authorized || mode === "demo"}
+          onBuild={(url) => {
+            setSource(url);
+            setResult("Address built — press Test to check it answers");
+          }}
+        />
         <label>
           Camera source
           <input

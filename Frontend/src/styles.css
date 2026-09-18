@@ -2557,3 +2557,82 @@ fieldset:disabled {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* --- Guided camera connection (v1.8.14) ---------------------------------- */
+.camera-connect {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 12px 14px 14px;
+  margin: 0 0 14px;
+}
+.camera-connect[disabled] { opacity: 0.55; }
+.camera-connect legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.camera-connect-hint {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  max-width: 62ch;
+}
+.camera-connect-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+.camera-connect-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.camera-connect-grid input,
+.camera-connect-grid select {
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input, var(--bg));
+  color: var(--text);
+  font: inherit;
+}
+.camera-connect-reveal {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 7px !important;
+  align-self: end;
+  padding-bottom: 9px;
+}
+.camera-connect-reveal input { width: auto; }
+.camera-connect-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.camera-connect-preview code {
+  flex: 1 1 260px;
+  padding: 7px 9px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  word-break: break-all;
+}
+.camera-connect-preview button {
+  padding: 7px 13px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
