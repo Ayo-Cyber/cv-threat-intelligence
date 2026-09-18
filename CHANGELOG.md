@@ -4,6 +4,45 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.14 — 18 Sep 2026
+
+**Argus now opens on your site, not on a sample one.** Every launch started in
+a demonstration workspace: a fixture site with invented cameras and invented
+incidents, already signed in as nobody. A first-time user never saw the
+sign-up screen, never saw sign-in, and never saw site setup — the only way to
+the real thing was a small Demo / Local engine switch in the top bar that
+nothing drew attention to. The desktop app now opens on your own installation,
+which on a new machine means creating your owner account. The demonstration
+workspace is still there, one click away, and it stays selected if you choose
+it.
+
+**Setting up a new site walks you through it.** Sign in to a site that has not
+been set up yet and Argus opens the setup wizard — cameras, scenes and zones,
+what the site is for, which detectors to run, how verification behaves, and a
+final check — instead of an empty dashboard with no obvious first move.
+
+**Connecting a camera no longer requires knowing RTSP.** Adding a camera asked
+for a stream address, which is fine if you already know that a Hikvision
+substream lives at /Streaming/Channels/102 and a Tapo at /stream2, and useless
+if you don't. Enter the camera's IP address, pick the make, and type the
+username and password: Argus builds the address. The password is masked while
+you type it, with a reveal button, and passwords containing symbols such as @
+or : are handled correctly instead of corrupting the address. You can still
+type a full address by hand.
+
+**Camera discovery on the Add Camera screen works again.** Scanning the network
+for cameras had been returning "no such camera" — the request was being
+answered by the wrong handler. Anyone who tried it got an error with no
+explanation.
+
+**Everything the engine can do is reachable from the interface again.** Moving
+to the new interface left a long tail of capabilities with no way to invoke
+them: PDF incident reports, evidence export, legal holds, weekly summaries,
+shift handovers, backups, the audit trail, account administration, model
+downloads and per-camera rules. All of it is available from the System screen.
+Several of these deserve screens of their own and will get them; being
+reachable comes first.
+
 ## v1.8.13 — 17 Sep 2026
 
 **The new interface is finally the one you install.** Argus has had a rebuilt
