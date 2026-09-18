@@ -598,8 +598,16 @@ describe("camera onboarding hierarchy", () => {
         onAdded: async () => {},
       }),
     );
+    // Only the BRANCH select's options: the screen also carries the guided
+    // connection form's vendor list (v1.8.14), whose values are stream paths
+    // and have nothing to do with hierarchy encoding.
+    const branchLabel = markup.indexOf("Select a branch");
+    const branchSelect = markup.slice(
+      markup.lastIndexOf("<select", branchLabel),
+      markup.indexOf("</select>", branchLabel),
+    );
     const optionValues = Array.from(
-      markup.matchAll(/<option value="([^"]*)"/g),
+      branchSelect.matchAll(/<option value="([^"]*)"/g),
       (match) => match[1],
     );
     expect(optionValues).toEqual([

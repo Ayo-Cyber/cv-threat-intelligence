@@ -94,7 +94,7 @@ deleting a branch that still contains areas returns `409 conflict`.
 | `add_camera` | `POST /cameras` | configure_cameras | shipped |
 | `remove_camera` | `DELETE /cameras/{id}` | configure_cameras | shipped |
 | `test` | `POST /cameras/probe` (body: `{source}`) | configure_cameras | shipped |
-| `discover_cameras` | `GET /cameras/discovery` | configure_cameras | shipped |
+| `discover_cameras` | `GET /discovery/cameras` | configure_cameras | shipped |
 | `scan` | `POST /cameras/discovery/scan` | configure_cameras | shipped |
 | `detect_subnet` | `GET /cameras/discovery/subnet` | configure_cameras | shipped |
 | `presets` | `GET /cameras/presets` | configure_cameras | shipped |
@@ -216,3 +216,42 @@ A change to any shipped shape bumps this file's version and says so in the PR
 title. Pending endpoints may adjust while being built ONLY by editing this
 file in the same PR — the file is always ahead of or equal to the code, never
 behind it. The consistency test fails any drift it can detect mechanically.
+
+### Parity with the retired PyQt console (v1.8.14)
+
+Reachable in the old console and unreachable in the desktop UI until now:
+the backend kept every capability, but no route, client operation or screen
+existed for these. See `tests/test_ui_feature_parity.py`.
+
+| operation | route | permission | status |
+| --- | --- | --- | --- |
+| `auth_accounts` | `GET /auth/accounts` | manage_users | shipped |
+| `auth_recovery` | `GET /auth/recovery` | manage_users | shipped |
+| `change_own_password` | `POST /auth/password` | any | shipped |
+| `set_user_role` | `PUT /users/{username}/role` | manage_users | shipped |
+| `create_owner_override` | `POST /auth/owner-override` | manage_users | shipped |
+| `counts` | `GET /reports/counts` | view_alerts | shipped |
+| `needs_attention` | `GET /reports/needs-attention` | view_alerts | shipped |
+| `export_incident_pdf` | `POST /events/{event_id}/report` | view_alerts | shipped |
+| `export_evidence` | `POST /events/export` | view_alerts | shipped |
+| `set_legal_hold` | `PUT /events/{event_id}/legal-hold` | configure_site | shipped |
+| `weekly_summary` | `GET /reports/weekly` | view_alerts | shipped |
+| `handover` | `GET /reports/handover` | view_alerts | shipped |
+| `list_backups` | `GET /backups` | configure_site | shipped |
+| `restore_backup` | `POST /backups/restore` | configure_site | shipped |
+| `set_backup_dir` | `PUT /backups/directory` | configure_site | shipped |
+| `audit_export` | `POST /audit/export` | view_audit | shipped |
+| `audit_verify` | `GET /audit/verify` | view_audit | shipped |
+| `app_version` | `GET /system/version` | any | shipped |
+| `detector_validation` | `GET /system/detectors` | any | shipped |
+| `heartbeat_status` | `GET /system/heartbeat` | configure_site | shipped |
+| `set_heartbeat` | `PUT /system/heartbeat` | configure_site | shipped |
+| `learning_stats` | `GET /system/learning` | view_alerts | shipped |
+| `learning_calibrate` | `POST /system/learning/calibrate` | configure_site | shipped |
+| `set_value_inputs` | `PUT /value/inputs` | configure_site | shipped |
+| `live_frames` | `GET /engine/frames` | view_alerts | shipped |
+| `set_custom_rule` | `PUT /cameras/{camera_id}/rules/question` | configure_cameras | shipped |
+| `add_custom_threat` | `POST /cameras/{camera_id}/threats` | configure_cameras | shipped |
+| `remove_custom_threat` | `DELETE /cameras/{camera_id}/threats/{index}` | configure_cameras | shipped |
+| `update_site_context` | `PUT /site/context` | configure_site | shipped |
+

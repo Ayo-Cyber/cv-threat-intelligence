@@ -56,6 +56,7 @@ import CameraStream from "./components/CameraStream";
 import StreamsWall from "./components/StreamsWall";
 import { useVisibleStreams } from "./hooks/useVisibleStreams";
 import { applyPushEvent } from "./lib/push";
+import { initialMode, rememberMode } from "./lib/mode";
 import {
   cameraTrackingPreference,
   loadGlobalTrackingPreference,
@@ -125,7 +126,9 @@ const emptyTrackingPreferences = (): TrackingPreferenceState => ({
 });
 
 export default function App() {
-  const [mode, setMode] = useState<Mode>("demo");
+  const [mode, setMode] = useState<Mode>(() =>
+    initialMode(localStorage, Boolean(window.argusDesktop)),
+  );
   const api = useMemo(() => client(mode), [mode]);
   const [view, setView] = useState<View>("watch");
   const [ws, setWs] = useState<Workspace>(blank);
@@ -155,6 +158,7 @@ export default function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const generation = useRef(0);
+  const firstRunRouted = useRef(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const canConfigureCameras = ws.auth.permissions.includes("configure_cameras");
   const trackingPreferencesReady =
@@ -202,6 +206,7 @@ export default function App() {
   }, [api]);
   useEffect(() => {
     generation.current++;
+    firstRunRouted.current = false;
     setWs(blank);
     setLoading(true);
     setError("");
@@ -251,6 +256,14 @@ export default function App() {
     if (add) setAdd(false);
     if (view === "setup") setView("settings");
   }, [add, canConfigureCameras, view]);
+  // A site nobody has set up yet opens on the wizard, not on an empty Overview.
+  // Once only: after that the operator navigates where they like.
+  useEffect(() => {
+    if (firstRunRouted.current) return;
+    if (loading || !ws.auth.signed_in || !canConfigureCameras) return;
+    firstRunRouted.current = true;
+    if (!ws.site.configured) setView("setup");
+  }, [canConfigureCameras, loading, ws.auth.signed_in, ws.site.configured]);
   useEffect(() => {
     if (!ws.auth.signed_in || !ws.auth.username) {
       setPreferenceUser("");
@@ -398,6 +411,7 @@ export default function App() {
     setArea(ALL_LOCATIONS);
     setTrackingPreferences(emptyTrackingPreferences());
     setLastSync(null);
+    rememberMode(localStorage, nextMode);
     setMode(nextMode);
   };
   if (streamsOnly && trackingPreferencesReady) {
