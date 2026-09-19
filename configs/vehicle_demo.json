@@ -1,6 +1,6 @@
 {
   "name": "Vehicle Demo",
-  "notify": "console,telegram:8691681982:AAH216L_pYnTx-L576-PF2JKvwLtUfKXGYc:1883642843,telegram:8691681982:AAH216L_pYnTx-L576-PF2JKvwLtUfKXGYc:-5324877092",
+  "notify": "console",
   "configured": true,
   "cameras": [
     {
