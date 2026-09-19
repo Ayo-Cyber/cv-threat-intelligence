@@ -1,22 +1,97 @@
 {
- "generated_at": 1789030366.0040488,
- "gate": "ollama",
+ "generated_at": 1789832690.4594991,
+ "gate": "mock",
  "smoke": false,
- "digest": "bb6f7f3fe154be5c",
+ "digest": "85162b724bbaa223",
  "rows": [
+  {
+   "sn": 2,
+   "name": "False Positive Rate",
+   "metric": "fpr",
+   "target": 0.05,
+   "n": 170,
+   "hits": 44,
+   "rate": 0.2588,
+   "wilson": [
+    0.1988,
+    0.3295
+   ],
+   "verdict": "NOT MET",
+   "publishable": true
+  },
+  {
+   "sn": 5,
+   "name": "Person Detection",
+   "metric": "recall",
+   "target": 0.95,
+   "n": 103,
+   "hits": 95,
+   "rate": 0.9223,
+   "wilson": [
+    0.8542,
+    0.9601
+   ],
+   "verdict": "NOT MET",
+   "publishable": true
+  },
+  {
+   "sn": 6,
+   "name": "Intrusion Detection",
+   "metric": "recall",
+   "target": 0.95,
+   "n": 165,
+   "hits": 149,
+   "rate": 0.903,
+   "wilson": [
+    0.8483,
+    0.9394
+   ],
+   "verdict": "NOT MET",
+   "publishable": true
+  },
+  {
+   "sn": 7,
+   "name": "Loitering Detection",
+   "metric": "recall",
+   "target": 0.95,
+   "n": 11,
+   "hits": 5,
+   "rate": 0.4545,
+   "wilson": [
+    0.2127,
+    0.7199
+   ],
+   "verdict": "SMOKE (n too small)",
+   "publishable": false
+  },
+  {
+   "sn": 8,
+   "name": "Theft Detection",
+   "metric": "recall",
+   "target": 0.9,
+   "n": 155,
+   "hits": 66,
+   "rate": 0.4258,
+   "wilson": [
+    0.3507,
+    0.5045
+   ],
+   "verdict": "NOT MET",
+   "publishable": true
+  },
   {
    "sn": 9,
    "name": "Suspicious Activity",
    "metric": "recall",
    "target": 0.9,
    "n": 173,
-   "hits": 92,
-   "rate": 0.5318,
+   "hits": 168,
+   "rate": 0.9711,
    "wilson": [
-    0.4576,
-    0.6046
+    0.9341,
+    0.9876
    ],
-   "verdict": "NOT MET",
+   "verdict": "MET",
    "publishable": true
   }
  ]
