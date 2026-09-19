@@ -218,6 +218,20 @@ class RetentionManager:
         finally:
             con.close()
 
+    def _expired_object_audit_ids(self, now: float) -> list[str]:
+        cutoff = now - self.policy.days * 86400
+        con = self._connect()
+        try:
+            return [row[0] for row in con.execute(
+                "SELECT id FROM object_watch_audit WHERE generated_at < ? "
+                "ORDER BY generated_at ASC",
+                (cutoff,),
+            )]
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            con.close()
+
     @staticmethod
     def _delete_audit_ids(con: sqlite3.Connection, audit_ids: list[int]) -> int:
         if not audit_ids:
@@ -240,6 +254,18 @@ class RetentionManager:
         )
         return len(audit_ids)
 
+    @staticmethod
+    def _delete_object_audit_ids(
+        con: sqlite3.Connection, audit_ids: list[str]
+    ) -> int:
+        if not audit_ids:
+            return 0
+        con.executemany(
+            "DELETE FROM object_watch_audit WHERE id = ?",
+            ((audit_id,) for audit_id in audit_ids),
+        )
+        return len(audit_ids)
+
     def purge(self, now: float | None = None, dry_run: bool = False) -> dict:
         """Delete expired, settled events. Returns what happened."""
         if not self.policy.enabled:
@@ -248,6 +274,7 @@ class RetentionManager:
         rows = self.expired(now)
         audit_ids = self._expired_audit_ids(now)
         motion_audit_ids = self._expired_motion_audit_ids(now)
+        object_audit_ids = self._expired_object_audit_ids(now)
         result = {"examined": len(rows), "deleted": 0, "failed": 0,
                   "held": self.held(now), "dry_run": dry_run,
                   "retention_days": self.policy.days, "orphans_removed": 0,
@@ -255,7 +282,9 @@ class RetentionManager:
                   "audit_deleted": 0,
                   "audit_would_delete": audit_ids if dry_run else [],
                   "motion_audit_deleted": 0,
-                  "motion_audit_would_delete": motion_audit_ids if dry_run else []}
+                  "motion_audit_would_delete": motion_audit_ids if dry_run else [],
+                  "object_audit_deleted": 0,
+                  "object_audit_would_delete": object_audit_ids if dry_run else []}
         if dry_run:
             self.last_run = {**result, "at": time.time()}
             return result
@@ -278,6 +307,9 @@ class RetentionManager:
                 result["audit_deleted"] = self._delete_audit_ids(con, audit_ids)
                 result["motion_audit_deleted"] = self._delete_motion_audit_ids(
                     con, motion_audit_ids
+                )
+                result["object_audit_deleted"] = self._delete_object_audit_ids(
+                    con, object_audit_ids
                 )
                 con.commit()
             except sqlite3.Error as exc:
@@ -341,6 +373,7 @@ class RetentionManager:
         deleted = 0
         audit_deleted = 0
         motion_audit_deleted = 0
+        object_audit_deleted = 0
         database_reclaimed: bool | None = None
         db_bytes_reclaimed = 0
         reclaim_error = ""
@@ -352,10 +385,14 @@ class RetentionManager:
                     break
                 audit_ids = self._oldest_audit_ids(con, limit=1000)
                 motion_audit_ids = self._oldest_motion_audit_ids(con, limit=1000)
-                if audit_ids or motion_audit_ids:
+                object_audit_ids = self._oldest_object_audit_ids(con, limit=1000)
+                if audit_ids or motion_audit_ids or object_audit_ids:
                     audit_deleted += self._delete_audit_ids(con, audit_ids)
                     motion_audit_deleted += self._delete_motion_audit_ids(
                         con, motion_audit_ids
+                    )
+                    object_audit_deleted += self._delete_object_audit_ids(
+                        con, object_audit_ids
                     )
                     con.commit()
                     reclaim = self._reclaim_database_bytes(con)
@@ -387,6 +424,7 @@ class RetentionManager:
         return {"triggered": True, "deleted": deleted,
                 "audit_deleted": audit_deleted,
                 "motion_audit_deleted": motion_audit_deleted,
+                "object_audit_deleted": object_audit_deleted,
                 "database_reclaimed": database_reclaimed,
                 "db_bytes_reclaimed": db_bytes_reclaimed,
                 "reclaim_error": reclaim_error,
@@ -451,6 +489,16 @@ class RetentionManager:
             return [row[0] for row in con.execute(
                 "SELECT candidate_id FROM motion_candidate_audit "
                 "ORDER BY generated_at ASC LIMIT ?",
+                (limit,),
+            )]
+        except sqlite3.OperationalError:
+            return []
+
+    @staticmethod
+    def _oldest_object_audit_ids(con: sqlite3.Connection, limit: int) -> list[str]:
+        try:
+            return [row[0] for row in con.execute(
+                "SELECT id FROM object_watch_audit ORDER BY generated_at ASC LIMIT ?",
                 (limit,),
             )]
         except sqlite3.OperationalError:

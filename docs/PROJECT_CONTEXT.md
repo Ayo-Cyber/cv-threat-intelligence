@@ -1,5 +1,282 @@
 # Project Context
 
+## Object identification: product clarification and readiness
+
+### Current corrected implementation and local pretrained smoke (2026-09-16)
+
+At the final full-suite run, engineering verification completed with 1,704
+passed, 8 skipped, and one pre-existing environment-pin failure (installed
+Ultralytics 8.4.64 versus `requirements.txt` 8.4.35). Independent review also
+passed 32 focused tests covering untracked-presence guards and continuity.
+Frontend verification passed all 124 tests and the production/Electron build.
+These counts are engineering evidence, not recognition-accuracy measurements.
+Independent review cleared the
+scoped blocking issues, including real SigLIP interface and offline text-feature
+tensor-shape checks. The local recognition CLI now uses the production offline
+YOLO-World provider.
+The changed verification prompt is explicitly unmeasured; historical prompt
+metrics are preserved with their original fingerprint, not attributed to it.
+
+The object-watch implementation has moved beyond the defects recorded in the
+dated 2026-09-14 review below. Canonical image decoding/cropping is now shared by
+enrollment and runtime matching; reviewed positive and negative crops have
+crop-hash, preprocessing-version, model-name, model-fingerprint, and embedding-
+dimension compatibility checks. Activation refuses an incomplete or incompatible
+embedding set. Those older defect bullets are retained as audit history, not as a
+description of the current code.
+
+The production path now resolves only the configured local SigLIP backend (the
+hash backend remains test-only), uses bounded asynchronous per-camera sampling,
+rejects stale source/config/library/target results, and can merge shared generic
+boxes with optional YOLO-World proposals. YOLO-World's production loader uses
+explicitly provisioned local YOLO-World and OpenAI CLIP weights directly; it does
+not depend on an injected model factory. Active targets, revisions, canonical
+reference crops, and model-compatible embeddings are loaded from the real
+site-local library. TrueSight receives bounded candidate/reference evidence for
+rule-relevant matches; production does not manufacture fake target references or
+bypass the existing gate and alert policy.
+
+The Settings UI exposes create, upload, review/unreview, canonical preview,
+activate/deactivate, runtime configuration, re-embed job status, and per-camera
+enable/zone scope. Runtime configuration and camera/rule changes are watched by
+the running engine and applied hot. Re-embedding runs in a bounded background
+job and reports its configured model fingerprint. Exact HTTP methods, response
+shapes, permissions, and the desktop allowlist are in `docs/api-v1.md`.
+
+The approved offline assets are now provisioned locally under the ignored
+`models/watchlist/` tree: image-only
+`siglip-base-patch16-224/`, `yolov8s-worldv2.pt`, and `ViT-B-32.pt`. The weight
+artifacts total 1,192,572,674 bytes. SigLIP image matching needs only its config,
+image preprocessor, and Safetensors weights; tokenizer files are not needed for
+that path. Official pinned sources, revisions, hashes, and sizes are recorded in
+the ignored `runs/model-provisioning/manifest.json`. OpenAI CLIP 1.0 is installed
+only in `models/watchlist/python`; launch processes that use YOLO-World must set
+`PYTHONPATH=$PWD/models/watchlist/python`. The shared virtual environment was not
+changed and still cannot import `clip` without that path.
+
+CPU/offline execution has now been demonstrated with the real SigLIP matcher and
+YOLO-World proposal provider. The retained site
+`runs/pretrained-watchlist-smoke/site` has one active target,
+`demo-green-atm-kiosk`. The final same-source positive run processed 100 frames:
+75 proposal candidates became 75 matches, 25 frames had no proposal, and track
+continuity produced one diagnostic presence candidate. The 60-frame empty-
+warehouse control produced no proposals, matches, or presence candidates. A
+crop-only control run accepted three same-source positives and rejected the
+vehicle, bollard, and bus controls at the unchanged `0.72` target threshold.
+Exact artifacts are in `runs/pretrained-watchlist-smoke/final-report.json` and
+`runs/pretrained-watchlist-smoke/crop-controls/report.json`.
+
+This is functional smoke evidence, **not recognition acceptance**. The positive
+media and enrollment still share the same scene/video family, the control set is
+tiny and not a lookalike benchmark, and the empty-warehouse run did not exercise
+semantic rejection because it produced no proposals. No held-out proposal recall,
+recognition accuracy, false-alert rate, live performance, camera-condition
+acceptance, TrueSight verification, persisted alert, or operator notification was
+measured. Model loading and execution are demonstrated; removal/loading behavior
+and pilot accuracy are not.
+
+### Product promise and pilot boundary
+
+Object Watchlists means **reference-enrolled recognition**: a customer supplies
+images of an important target, names it, scopes it to cameras/zones/rules, and
+the live system tries to recognize that enrolled target and raise the configured
+alert. It is not arbitrary COCO-category tracking, and it does not promise to
+distinguish one physical instance from an identical-looking instance. The useful
+no-enrollment COCO tracking baseline must remain available, but it is supporting
+infrastructure, not a substitute for the watchlist product.
+
+The intended enrollment record starts with uploaded images or customer-drawn
+crops and a customer display label. It includes reviewed/approved positive and
+negative references, model-fingerprinted/versioned embeddings, target scope,
+zones, and rule bindings. An optional visual-grounding description may describe
+appearance for a proposal model, but it is separate from the customer-facing
+display label and must not silently replace it. Similarity scores are ranking or
+threshold signals, not calibrated probabilities. `unknown` and `ambiguous` must be
+supported outcomes in the intended design, and a larger enrollment count is not by itself evidence of
+reference quality.
+
+Chi's current constraint is a 30-day competition between Argus and two other
+vendors (three vendors total). Chi will supply its important-target list only
+after the pilot; enrollment, tuning, and setup permissions during the pilot are
+not yet confirmed. Therefore the team should demonstrate
+the onboarding loop now with its own enrolled, held-out targets rather than wait
+for Chi media or relabel generic COCO tracks as the product.
+
+The minimum valuable event is target presence (`object_seen`) when a configured
+rule makes presence actionable. Removal/lost, loading inferred from vehicle
+overlap, and unattended/stationary states are later hypotheses with different
+evidence requirements; none is equivalent to recognition and none follows
+automatically from a disappearing or static box.
+
+### Intended product flow (the implementation exists; empirical acceptance is pending)
+
+The proposed flow is:
+
+1. Use the shared generic detector for proposals where its classes are suitable;
+   use a bounded open-vocabulary proposer only where needed.
+2. Preserve the matched candidate crop and compare it with approved positive and
+   negative reference crops in a compatible semantic embedding space.
+3. Attach the resulting semantic hypothesis to local geometry tracks; a track ID
+   is continuity metadata, not public object identity.
+4. Debounce observations and let configured `object_seen` (and later state)
+   rules decide whether to form an alert candidate.
+5. For selected rule-relevant candidates, give TrueSight the enrolled reference,
+   candidate crop, and scene evidence. Do not run continuous VLM inference.
+
+This work must use bounded asynchronous jobs, process-shared model instances,
+stale-result rejection, and explicit overload/accounting so matching never blocks
+the existing safety path. TrueSight is not guaranteed independent truth: an
+uncertain match plus uncertain verification remains uncertain. Existing project
+gate and routing policy must be preserved; this design does not authorize a new
+direct bypass to persisted/notified alerts.
+
+### Current model path is provisioned; empirical acceptance remains pending
+
+- First evaluate the available YOLO-World path as a **text-grounded proposal**
+  source together with repaired SigLIP image matching. Generic YOLO boxes remain
+  an optional cheap proposal source where their broad class recall is useful.
+- YOLO-World does not accept an arbitrary uploaded image as a visual prompt. Its
+  grounding text should come from the optional description, not be confused with
+  the display label or the enrolled image matcher.
+- If proposal-recall tests fail, evaluate YOLOE's separate-reference visual
+  prompting as a bounded alternative. Do not add it by default as another
+  permanent always-on model.
+- Grounding DINO performs text-conditioned localization; DINOv2 is a visual
+  feature encoder. They are not interchangeable and neither is an unconditional
+  runtime dependency.
+
+The provisioned model combination supports current local smoke work, but no model
+choice or threshold is accepted for the pilot until proposal recall, matcher
+quality, end-to-end alerts, latency, and memory are measured on the frozen
+evaluation recipe below.
+
+### Current implementation facts and readiness gaps
+
+> **Historical audit note (2026-09-14):** the implementation defects in this
+> subsection were subsequently corrected as summarized at the top of this
+> document. They are intentionally preserved to record what the review found;
+> do not use them as the current runbook or readiness status.
+
+The repository contains substantial storage/API/rules/audit/rendering scaffolding,
+but live semantic watchlist readiness has **not** been demonstrated:
+
+- `cvti/serving/camera.py` currently constructs object watch with
+  `load_embedding_backend("hash")`. `cvti/object_watch/embeddings.py` explicitly
+  defines that backend as deterministic plumbing, not a semantic vision model.
+- `cvti/object_watch/matcher.py` converts a NumPy crop directly to raw pixel bytes,
+  while `SiglipEmbeddingBackend.embed_image()` in
+  `cvti/object_watch/embeddings.py` expects bytes for a decodable image. That
+  enrollment/runtime image contract must be repaired before SigLIP readiness can
+  be claimed.
+- `cvti/object_watch/store.py` records each reference `bbox`, but
+  `embed_examples()` reads and embeds the whole stored image; the recorded crop
+  is not currently applied. Positive/negative records and embedding fingerprints
+  exist, but this mismatch makes current reference semantics incomplete.
+- `cvti/app/console_backend.py` activation checks that a reviewed example exists,
+  but does not require a complete, compatible embedding set for the runtime
+  model fingerprint. Activation therefore is not yet a semantic-readiness gate.
+- `cvti/serving/camera.py::_object_candidates()` only forwards generic non-person
+  detections. The open-vocabulary provider is represented in configuration and
+  design/bakeoff seams, not integrated as the live arbitrary-target proposer.
+- `cvti/object_watch/matcher.py` limits candidate count, but matching is
+  synchronous and has no elapsed-time deadline. A crop/model stall can still
+  consume the frame path despite count-based accounting.
+- `cvti/object_watch/tracker.py` keys a match by detector track ID, or falls back
+  to a rounded 32-pixel center grid. Separately,
+  `cvti/detector/object_tracks.py` provides no-enrollment per-class ByteTrack over
+  generic non-person detections. These are different paths; general tracking
+  does not produce an enrolled-object match.
+- At this review, the current local general-tracking addition is uncommitted
+  supporting baseline work and has not achieved recognition. Its corridor
+  evidence included a raw false
+  generic `bird` label and intentionally omitted person boxes, exposing model and
+  presentation limits rather than proving object quality. The command and
+  interpretation are documented in `docs/LOCAL_OBJECT_TRACKING.md`.
+
+Passing unit/integration tests and timing runs establish execution behavior, not
+recognition accuracy. Object-watch proposal recall, match precision/recall,
+unknown handling, alert quality, and camera-condition robustness remain
+**unmeasured**.
+
+### Readiness and acceptance plan
+
+Before another broad architecture expansion:
+
+1. Repair enrollment/runtime image encoding and crop handling, enforce model
+   fingerprint/readiness at activation, and define cache invalidation/re-embed
+   behavior.
+2. Build a real semantic smoke test: enroll owned images, run held-out video of
+   those targets, and include hard negatives, unknown targets, compression,
+   scale changes, and partial occlusion. Enrollment examples must not be reused
+   as evaluation frames.
+3. Isolate proposal recall with annotated target boxes, then isolate matcher
+   quality using ground-truth crops, before attributing end-to-end failures.
+4. Measure end-to-end encounter precision/recall, false alerts per camera-hour,
+   duplicate alerts, unknown/coverage rates, and p95 alert age on target hardware.
+   Keep enrollment, development/tuning, and evaluation sets separate.
+5. After the recipe is stable, freeze it and test unseen-target onboarding to
+   measure whether a new customer target can be added without target-specific
+   tuning.
+
+The original detailed design remains
+`docs/superpowers/specs/2026-09-14-chi-object-watchlists-design.md`. It describes
+the intended product and is **not** evidence that the design is implemented or
+accurate. Its dated implementation-order and model-bakeoff statements should be
+read as historical design intent subject to the clarification above.
+
+## Chi KPI 3 Object Watchlists - 2026-09-14
+
+This dated checkpoint recorded that Object Watchlists V1 **infrastructure** was
+implemented on `feat/chi-object-watchlists-v1`: candidate/matching seams, state
+tracking, audit lifecycle capture, and event-only TrueSight integration. Its
+completed checkpoints cover local target storage, deterministic/local embedding
+seams, candidate matching, object-state tracking, serving/audit integration, API
+enrollment, frontend enrollment/status UI, KPI 3 scoring, and a local model
+bakeoff harness. It does not establish that a semantic model contract works in
+live serving or that reference-enrolled recognition is ready; the current
+clarification and readiness gaps above supersede that interpretation.
+
+Current object-watch boundaries remain important:
+
+- inference and enrollment are local-first; no production cloud inference is
+  used for object watchlists;
+- this is not face/person identity recognition;
+- this is not SKU-level inventory counting;
+- TrueSight verifies rule-relevant object events only, not continuous object
+  detection; and
+- prompt and KPI 3 accuracy remain **unmeasured** until the controlled Chi
+  object matrix is recorded and scored.
+
+The frontend exposes object target create/upload/activate/re-embed operations
+in Settings, with mutation controls hidden from operators. Demo mode shows
+fixture-backed targets and states that no local inference is running.
+
+The KPI 3 workflow in `docs/CHI_PILOT_TESTING.md` now defines the object
+recording matrix (`OBJ-P01` through `OBJ-P05`, `OBJ-N01` through `OBJ-N03`),
+strict label/observation/audit schemas, and the
+`tools/score_chi_objects.py` command. The scorer validates half-open intervals,
+explicit visible misses, unknown audit cases, false object-event matches,
+duplicate candidates, duplicate persisted alerts, detection delay, gate status
+counts, and retained input hashes.
+
+`tools/object_model_bakeoff.py` records manifest digests, local-provider
+latency, optional peak memory, and structured `unavailable` results for
+open-vocabulary providers whose dependencies or weights are not installed.
+Do not compare model providers unless the result files have the same manifest
+digest.
+
+Fresh verification for this checkpoint:
+
+- focused object-watch backend: `38 passed, 14 warnings`;
+- touched backend regression slice: `200 passed, 14 warnings`;
+- frontend Vitest: `122 passed`;
+- frontend production build: passed;
+- prompt check: passed, with object-watch prompt metrics explicitly
+  **UNMEASURED** because the frozen corpus is unavailable;
+- focused Playwright object-watch Settings assertion: `1 passed`;
+- full Playwright UI file: `19 passed, 2 failed`, matching the documented local
+  baseline issue where ignored demo media/snapshots are absent in this checkout.
+
 ## Combined Final Fix Wave - 2026-09-13
 
 The four Important final-review blockers are addressed in the current branch:

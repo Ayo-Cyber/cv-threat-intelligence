@@ -1359,6 +1359,287 @@ dd {
   display: block;
   margin-top: 6px;
 }
+.object-target-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.object-target-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--accent-soft), transparent 35%),
+      transparent 55%
+    ),
+    var(--surface);
+}
+.object-target-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.object-target-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.object-target-card small,
+.object-target-card p {
+  color: var(--muted);
+}
+.object-reasons {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.object-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.object-enroll-form,
+.object-example-actions,
+.object-runtime-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+.object-enrollment-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+.object-step-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.object-step-pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface), transparent 8%);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.object-step-pill.active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent), var(--line) 35%);
+  background: color-mix(in srgb, var(--accent-soft), var(--surface) 45%);
+}
+.object-step-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 18px;
+  background: var(--surface);
+}
+.object-step-card--hero {
+  background:
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--accent), transparent 72%),
+      transparent 42%
+    ),
+    var(--surface);
+}
+.object-step-card h3 {
+  color: var(--text);
+}
+.object-step-card p {
+  color: var(--muted);
+  margin: 6px 0 12px;
+  line-height: 1.5;
+}
+.object-step-kicker {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.object-photo-button {
+  justify-content: center;
+}
+.object-photo-note {
+  align-self: center;
+  color: var(--muted);
+}
+.visually-hidden-file {
+  display: none;
+}
+.object-advanced-details {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.object-advanced-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
+}
+.object-model-details {
+  grid-column: 1 / -1;
+}
+.object-action-hint {
+  color: var(--muted);
+  align-self: center;
+  line-height: 1.45;
+}
+.object-rule-warning {
+  grid-column: 1 / -1;
+  border-left: 3px solid var(--amber);
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--amber), transparent 92%);
+  border-radius: 10px;
+}
+.object-example-actions,
+.object-runtime-actions {
+  margin-top: 14px;
+}
+.object-runtime-card,
+.object-crop-panel,
+.object-review-panel {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--surface), var(--accent-soft) 22%);
+  margin-bottom: 14px;
+}
+.object-runtime-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+}
+.object-runtime-card small,
+.object-crop-panel p,
+.object-review-panel p {
+  color: var(--muted);
+  display: block;
+  margin-top: 4px;
+}
+.object-crop-panel {
+  margin-top: 14px;
+}
+.crop-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #101714;
+  margin: 12px 0;
+  touch-action: none;
+  user-select: none;
+}
+.crop-stage img {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+}
+.crop-box {
+  position: absolute;
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent), transparent 78%);
+  box-shadow: 0 0 0 999px rgb(0 0 0 / 0.35);
+  pointer-events: none;
+}
+.crop-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+.crop-coordinate-details {
+  flex-basis: 100%;
+}
+.crop-coordinate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.checkbox-line {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 11px;
+}
+.checkbox-line input {
+  width: auto;
+}
+.object-review-panel {
+  margin-top: 14px;
+}
+.object-example-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.object-example-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px;
+  background: var(--surface);
+}
+.object-example-row img,
+.crop-placeholder {
+  width: 64px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--accent-soft);
+}
+.crop-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+.object-example-row small {
+  display: block;
+  overflow-wrap: anywhere;
+  margin: 3px 0;
+}
+.file-button {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.file-button input {
+  display: none;
+}
+.empty-inline {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+}
 .setup-layout {
   display: grid;
   grid-template-columns: 185px minmax(0, 660px);
@@ -1593,6 +1874,9 @@ dd {
   }
 }
 @media (max-width: 900px) {
+  .object-enrollment-flow {
+    grid-template-columns: 1fr;
+  }
   .overview-layout {
     grid-template-columns: 1fr;
   }

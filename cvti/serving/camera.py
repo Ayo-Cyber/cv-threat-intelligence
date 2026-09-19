@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from math import isfinite
@@ -72,27 +73,40 @@ def _person_boxes(tracked: Any) -> list:
 def _to_queued(camera_id: str, alert: Any, timestamp: float, zone: str | None,
                frames: list, scene: dict | None,
                clip_frames: list | None = None, clip_fps: float = 0.0,
-               bbox: tuple | None = None) -> QueuedAlert:
+               bbox: tuple | None = None, object_watch_token: Any = None,
+               object_watch_result: Any = None) -> QueuedAlert:
     # Evidence frames are captured NOW because the async gate verifies later,
     # by which point the live frame is gone.
     #  * `frames`      — a few sharp stills, for the VLM gate + thumbnails.
     #  * `clip_frames` — the continuous JPEG-encoded window (~last N seconds) so the
     #                    sink can write a REAL video of the event, not a slideshow.
+    frozen_frames = []
+    for frame in frames:
+        try:
+            frame = frame.copy()
+            frame.setflags(write=False)
+        except (AttributeError, TypeError, ValueError):
+            pass
+        frozen_frames.append(frame)
     return QueuedAlert(
         camera_id=camera_id,
         rule_name=alert.rule_name,
         priority=alert.priority,
         title=alert.title,
         timestamp=timestamp,
-        track_id=alert.person_id,
+        track_id=((getattr(alert, "metadata", None) or {}).get("track_id")
+                  if getattr(alert, "detector", "") == "object_watch"
+                  else alert.person_id),
         zone=zone,
         object_label=alert.object_label,
-        payload={"candidate": alert, "frames": frames, "scene": scene,
+        payload={"candidate": alert, "frames": frozen_frames, "scene": scene,
                  "clip_frames": clip_frames or [], "clip_fps": clip_fps,
                  "enqueued_at": time.time(),    # wall-clock, for verify-latency
                  # where the subject was when this fired, so evidence can point at
                  # WHO — an alert with no box makes the operator hunt the frame.
-                 "bbox": bbox},
+                 "bbox": bbox,
+                 "object_watch_token": object_watch_token,
+                 "object_watch_result": object_watch_result},
     )
 
 
@@ -160,6 +174,9 @@ class PerCameraState:
     crowd_formation: bool = False     # tight group formation
     normal_movement: bool = False     # telemetry-only moving-person state
     multiple_people_moving: bool = False
+    object_watch: bool = False
+    general_object_tracking: bool = False
+    general_object_tracking_overlays: bool = False
     running_min_speed_ratio: float = 0.18
     running_min_frames: int = 3
     crowd_min_people: int = 4
@@ -173,6 +190,11 @@ class PerCameraState:
     movement_min_people: int = 2
     movement_persistence_seconds: float = 0.5
     permitted_movement_zones: tuple[str, ...] | None = None
+    object_watch_library: str | None = None
+    object_watch_sample_fps: float = 1.0
+    object_watch_max_candidates_per_frame: int = 24
+    object_watch_min_similarity: float | None = None
+    object_watch_open_vocab_provider: str = "disabled"
     video_action: bool = False
     video_action_model: Any = None    # shared VideoMAEActionModel instance
     # Shared AsyncVideoActionRunner (one worker thread per site). When set,
@@ -225,6 +247,15 @@ class PerCameraState:
     _crowd_det: Any = field(default=None, init=False, repr=False)
     _motion_tracker: Any = field(default=None, init=False, repr=False)
     _simultaneous_movement_det: Any = field(default=None, init=False, repr=False)
+    _object_matcher: Any = field(default=None, init=False, repr=False)
+    _object_state_tracker: Any = field(default=None, init=False, repr=False)
+    _object_watch_runtime: Any = field(default=None, init=False, repr=False)
+    _object_watch_rule_path: str | None = field(default=None, init=False, repr=False)
+    _object_watch_generation: int = field(default=0, init=False, repr=False)
+    _object_watch_sequence: int = field(default=0, init=False, repr=False)
+    _general_object_tracker: Any = field(default=None, init=False, repr=False)
+    _next_object_watch_sample_ts: float = field(default=-1.0, init=False, repr=False)
+    object_watch_skipped_over_budget: int = field(default=0, init=False)
     _motion_overlays: list[dict] = field(default_factory=list, init=False, repr=False)
     context_decisions: list[dict] = field(default_factory=list, init=False)
     context_suppression_count: int = field(default=0, init=False)
@@ -293,11 +324,59 @@ class PerCameraState:
                 min_people=self.movement_min_people,
                 persistence_seconds=self.movement_persistence_seconds,
             )
+        # Object recognition is attached by MultiStreamPipeline as one shared
+        # site runtime.  Never construct a backend/model in camera setup or in
+        # this camera's frame loop.
 
     def _movement_zone_allows(self, zone_names: tuple[str, ...]) -> bool:
         if self.permitted_movement_zones is None:
             return True
         return bool(set(zone_names).intersection(self.permitted_movement_zones))
+
+    def ensure_general_object_tracker(self, names: Any, expected_fps: float) -> None:
+        """Create this camera's tracker once the shared model names are known."""
+        if not self.general_object_tracking or self._general_object_tracker is not None:
+            return
+        from cvti.detector.object_tracks import GeneralObjectTracker
+
+        if not isinstance(names, dict):
+            names = {index: str(label) for index, label in enumerate(names)}
+        self._general_object_tracker = GeneralObjectTracker(
+            camera_id=self.camera_id,
+            session_id=uuid.uuid4().hex,
+            names={int(class_id): str(label) for class_id, label in names.items()},
+            expected_fps=expected_fps,
+        )
+
+    def update_general_object_tracks(self, detections: Any, timestamp: float) -> None:
+        if self._general_object_tracker is not None:
+            self._general_object_tracker.update(detections, timestamp)
+
+    def general_object_snapshot(self, timestamp: float) -> dict | None:
+        if self._general_object_tracker is None:
+            return None
+        snapshot = self._general_object_tracker.snapshot(timestamp)
+        # Lifecycle values are monotonic durations, deliberately immune to NTP
+        # and manual wall-clock corrections. Consumers must not interpret them
+        # as Unix timestamps; freshness bounds let the publisher age a cached
+        # snapshot even when no more frames arrive.
+        snapshot["timestamp_clock"] = "monotonic"
+        snapshot["freshness"] = {
+            "overlay_max_age_seconds": self._general_object_tracker.overlay_max_age_seconds,
+            "lost_after_seconds": self._general_object_tracker.lost_after_seconds,
+            "ended_retention_seconds": self._general_object_tracker.ended_retention_seconds,
+        }
+        return snapshot
+
+    def general_object_overlays(self, timestamp: float) -> list[dict]:
+        if self._general_object_tracker is None or not self.general_object_tracking_overlays:
+            return []
+        return self._general_object_tracker.overlays(timestamp)
+
+    def reset_general_object_tracks(self, timestamp: float,
+                                    reason: str = "source_reset") -> None:
+        if self._general_object_tracker is not None:
+            self._general_object_tracker.reset(timestamp, reason)
 
     def _needs_pose(self) -> bool:
         return self.pose_model is not None and (self.concealment or self.violence or self.theft)
@@ -458,9 +537,101 @@ class PerCameraState:
                     person_id=tid, object_label="vehicle", timestamp=timestamp,
                     extra={"zone": name, "via": "line"}))
         return out
+    def _object_watch_due(self, timestamp: float) -> bool:
+        next_sample = getattr(self, "_next_object_watch_sample_ts", -1.0)
+        sample_fps = float(getattr(self, "object_watch_sample_fps", 1.0) or 1.0)
+        if next_sample < 0:
+            self._next_object_watch_sample_ts = timestamp + (1.0 / sample_fps)
+            return True
+        if timestamp + 1e-9 < next_sample:
+            return False
+        self._next_object_watch_sample_ts = timestamp + (1.0 / sample_fps)
+        return True
+
+    def attach_object_watch_runtime(self, runtime: Any) -> None:
+        self._object_watch_runtime = runtime
+
+    def reset_object_watch(self, source_generation: int) -> None:
+        self._object_watch_generation = int(source_generation)
+        self._object_watch_sequence = 0
+        self._next_object_watch_sample_ts = -1.0
+        runtime = getattr(self, "_object_watch_runtime", None)
+        if runtime is not None:
+            runtime.reset_camera(self.camera_id, self._object_watch_generation)
+
+    def object_watch_status(self) -> dict:
+        runtime = getattr(self, "_object_watch_runtime", None)
+        if not getattr(self, "object_watch", False):
+            return {"status": "disabled"}
+        if runtime is None:
+            return {"status": "unavailable", "reason": "object watch runtime unavailable"}
+        return dict(runtime.status())
+
+    def _object_candidates(
+        self,
+        object_detections: list | None,
+        frame_hw: tuple[int, int],
+    ) -> list:
+        from cvti.object_watch.matcher import ObjectCandidate
+
+        candidates = []
+        for detection in object_detections or []:
+            label = str(getattr(detection, "label", "") or "")
+            if label.lower() == "person":
+                continue
+            bbox = tuple(int(v) for v in getattr(detection, "bbox", ()))
+            if len(bbox) != 4:
+                continue
+            candidates.append(ObjectCandidate(
+                bbox=bbox,
+                label_hint=label,
+                confidence=float(getattr(detection, "confidence", 0.0) or 0.0),
+                track_id=getattr(detection, "track_id", None),
+                zone_id=self._zone_for_bbox(bbox, frame_hw),
+            ))
+        return candidates
+
+    def _zone_for_bbox(self, bbox: tuple[int, int, int, int],
+                       frame_hw: tuple[int, int]) -> str | None:
+        if self.zone_monitor is None:
+            return None
+        try:
+            import cv2
+            self.zone_monitor._fit_to_frame(frame_hw)
+            x1, y1, x2, y2 = bbox
+            point = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+            for spec in self.zone_monitor.zones:
+                if cv2.pointPolygonTest(spec.polygon, point, False) >= 0:
+                    return spec.name
+        except Exception:  # noqa: BLE001 - zone hinting must not block object matching
+            log.debug("object zone hinting failed for %s", self.camera_id,
+                      exc_info=True)
+            return None
+        return None
+    def _object_watch_zone_snapshot(self, frame_hw: tuple[int, int]) -> tuple:
+        """Copy fitted zone polygons for the background object-watch worker."""
+        if self.zone_monitor is None:
+            return ()
+        try:
+            from cvti.object_watch.runtime import WatchZone
+
+            self.zone_monitor._fit_to_frame(frame_hw)
+            return tuple(
+                WatchZone(
+                    str(spec.name),
+                    tuple((int(point[0]), int(point[1])) for point in spec.polygon),
+                )
+                for spec in self.zone_monitor.zones
+            )
+        except Exception:  # noqa: BLE001 - zone hinting must not block object matching
+            log.debug("object zone snapshot failed for %s", self.camera_id,
+                      exc_info=True)
+            return ()
 
     def process(self, detections: Any, image: Any, timestamp: float,
-                object_detections: list | None = None) -> list[QueuedAlert]:
+                object_detections: list | None = None, *,
+                object_watch_source_generation: int | None = None,
+                object_watch_observed_at: float | None = None) -> list[QueuedAlert]:
         """Track + run all enabled signals (zones, concealment, violence, weapons,
         theft) + rules; return candidate alerts with per-rule evidence frames.
 
@@ -706,6 +877,64 @@ class PerCameraState:
             # disk with its own traceback. The counter carries the true scale.
             self._health.failed(exc, log, "processing a frame")
 
+        object_watch_results: dict[tuple[str, Any, int], Any] = {}
+        runtime = getattr(self, "_object_watch_runtime", None)
+        generation = (getattr(self, "_object_watch_generation", 0)
+                      if object_watch_source_generation is None
+                      else int(object_watch_source_generation))
+        observed_at = (time.monotonic() if object_watch_observed_at is None
+                       else float(object_watch_observed_at))
+        if self.object_watch and runtime is not None:
+            try:
+                from cvti.object_watch.runtime import WatchSample
+                from cvti.serving.event_adapters import object_watch_result_events
+
+                # Drain every frame, independently of sampling cadence, so a
+                # finished worker result reaches rules promptly.
+                for result in runtime.drain(self.camera_id, generation, time.monotonic()):
+                    matches = tuple(getattr(result, "matches", ()) or ())
+                    if self.object_watch_min_similarity is not None:
+                        matches = tuple(m for m in matches
+                                        if m.similarity >= self.object_watch_min_similarity)
+                    if not matches:
+                        continue
+                    if matches != tuple(result.matches):
+                        from dataclasses import replace
+                        result = replace(result, matches=matches)
+                    events = object_watch_result_events(result)
+                    if events:
+                        for event in events:
+                            event.extra["runtime_config_stamp"] = (
+                                result._config_signature[0]
+                                if result._config_signature else None
+                            )
+                        match = matches[0]
+                        object_watch_results[(
+                            str(match.object_id), match.track_id,
+                            int(result.sample_sequence),
+                        )] = result
+                        raw_events.extend(events)
+                if self._object_watch_due(timestamp):
+                    self._object_watch_sequence = getattr(
+                        self, "_object_watch_sequence", 0
+                    ) + 1
+                    candidates = tuple(self._object_candidates(object_detections, frame_hw))
+                    zones = self._object_watch_zone_snapshot(frame_hw)
+                    runtime.submit(WatchSample(
+                        camera_id=self.camera_id,
+                        source_generation=generation,
+                        sample_sequence=self._object_watch_sequence,
+                        observed_at_monotonic=observed_at,
+                        event_timestamp=timestamp,
+                        frame=image,
+                        candidates=candidates,
+                        zones=zones,
+                        proposal_provider=self.object_watch_open_vocab_provider,
+                        max_candidates=self.object_watch_max_candidates_per_frame,
+                    ))
+            except Exception as exc:  # noqa: BLE001 - object watch is optional
+                self._health.failed(exc, log, "processing object watch")
+
         if not raw_events:
             return []
 
@@ -716,6 +945,17 @@ class PerCameraState:
             monitoring_scope=self.monitoring_scope,
             scene_reviewed=self.scene_reviewed,
         )
+        if self.object_watch:
+            from cvti.serving.event_adapters import (
+                current_object_watch_rule, object_watch_rule_signature,
+            )
+            for alert in alerts:
+                if alert.detector != "object_watch":
+                    continue
+                rule = current_object_watch_rule(self, alert, disk=False)
+                if rule is not None:
+                    alert.metadata["object_watch_rule_signature"] = \
+                        object_watch_rule_signature(rule)
         self.context_decisions = list(self.engine.context_decisions)
         self.context_suppression_count += sum(
             decision.get("decision") == "context_incompatible"
@@ -736,9 +976,19 @@ class PerCameraState:
                 clip_fps = (len(clip_snap) - 1) / span
         out = []
         for a in alerts:
+            # A verdict may have completed immediately before a live disable.
+            # Never let that already-drained object event enter the queue.
+            if a.detector == "object_watch" and not self.object_watch:
+                continue
+            token = None
+            watch_result = None
             # Zone is only meaningful for presence (zone) alerts; for other
             # detectors leave it None so the dedup key isn't polluted.
-            zone = zone_by_pid.get(a.person_id) if a.detector == "presence" else None
+            zone = (
+                a.metadata.get("zone")
+                if a.detector == "object_watch"
+                else zone_by_pid.get(a.person_id) if a.detector == "presence" else None
+            )
             frames, _ = select_evidence_frames(recent, a.rule_name)
             # Whole-frame detectors (video-action, fire) carry no person_id, so an
             # alert would arrive with nothing to point at. If exactly one person is
@@ -750,23 +1000,40 @@ class PerCameraState:
             boxes = getattr(self, "_box_by_track", {}) or {}
             bbox = (a.metadata.get("group_bbox")
                     if a.detector == "multiple_people_moving" else None)
-            if bbox is None:
+            if bbox is None and a.detector == "object_watch":
+                bbox = a.metadata.get("bbox")
+            if bbox is None and a.detector != "object_watch":
                 bbox = boxes.get(a.person_id)
-            if bbox is None and boxes:
+            if bbox is None and boxes and a.detector != "object_watch":
                 bbox = max(boxes.values(),
                            key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
             # Evidence upgrade: full frames give the gate context; a zoomed
             # crop of the flagged subject gives it hands and held objects —
             # its own rejections say "no people visible" on full CCTV frames.
             from cvti.verification.frame_select import append_subject_crop
-            if a.detector == "multiple_people_moving":
+            if a.detector == "object_watch":
+                watch_result = object_watch_results.get((
+                    str(a.metadata.get("object_id")), a.metadata.get("track_id"),
+                    int(a.metadata.get("sample_sequence", -1)),
+                ))
+                rule_key = a.metadata.get("object_watch_rule_signature") or a.rule_name
+                token = (runtime.reserve(watch_result, rule_key)  # type: ignore[union-attr]
+                         if watch_result is not None else None)
+                evidence = list(getattr(watch_result, "evidence", ()) or ())
+                if token is None or not evidence:
+                    continue
+            elif a.detector == "multiple_people_moving":
                 evidence = frames or [image]
             else:
                 evidence = append_subject_crop(frames or [image], image, bbox)
             out.append(_to_queued(self.camera_id, a, timestamp, zone,
                                   evidence, self.scene_context,
                                   clip_frames=clip_frames, clip_fps=clip_fps,
-                                  bbox=bbox))
+                                  bbox=bbox,
+                                  object_watch_token=(token
+                                                      if a.detector == "object_watch" else None),
+                                  object_watch_result=(watch_result
+                                                       if a.detector == "object_watch" else None)))
         return out
 
 
@@ -777,7 +1044,8 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                         scene_contexts: dict[str, dict] | None = None,
                         monitoring_scopes: dict[str, str] | None = None,
                         reviewed_camera_ids: set | None = None,
-                        imgsz: int = 640) -> dict[str, dict]:
+                        imgsz: int = 640,
+                        output_dir: str | Path | None = None) -> dict[str, dict]:
     """Parse a site config into {camera_id: {"source": ..., "state": PerCameraState}}.
 
     Site config per-camera keys: id, source, config, plus optional zones,
@@ -794,7 +1062,9 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
         detector_flags = (
             "concealment", "violence", "weapons", "theft", "tamper", "fall",
             "fire_smoke", "running", "crowd_formation", "normal_movement",
-            "multiple_people_moving", "video_action",
+            "multiple_people_moving", "video_action", "object_watch",
+            "object_watch_enabled",
+            "general_object_tracking", "general_object_tracking_overlays",
         )
         for flag in detector_flags:
             if flag in cam and not isinstance(cam[flag], bool):
@@ -849,6 +1119,34 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
             raise ValueError(f"camera {cam_id}: movement_min_people must be at least 2")
         if movement_persistence <= 0:
             raise ValueError(f"camera {cam_id}: movement_persistence_seconds must be positive")
+        for field_name in ("object_watch_sample_fps", "object_watch_min_similarity"):
+            if isinstance(cam.get(field_name), bool):
+                raise ValueError(f"camera {cam_id}: {field_name} must be a number, not boolean")
+        max_candidates_raw = cam.get("object_watch_max_candidates_per_frame", 24)
+        if isinstance(max_candidates_raw, bool):
+            raise ValueError(
+                f"camera {cam_id}: object_watch_max_candidates_per_frame must be an integer"
+            )
+        try:
+            object_watch_sample_fps = float(cam.get("object_watch_sample_fps", 1.0))
+            object_watch_min_similarity = (
+                None if cam.get("object_watch_min_similarity") is None
+                else float(cam.get("object_watch_min_similarity"))
+            )
+            max_candidates_number = float(max_candidates_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"camera {cam_id}: invalid object watch configuration: {exc}") from exc
+        if not isfinite(object_watch_sample_fps) or object_watch_sample_fps <= 0:
+            raise ValueError(f"camera {cam_id}: object_watch_sample_fps must be positive")
+        if not isfinite(max_candidates_number) or not max_candidates_number.is_integer() \
+                or max_candidates_number < 1:
+            raise ValueError(
+                f"camera {cam_id}: object_watch_max_candidates_per_frame must be a positive integer"
+            )
+        if object_watch_min_similarity is not None and (
+            not isfinite(object_watch_min_similarity) or not 0.0 <= object_watch_min_similarity <= 1.0
+        ):
+            raise ValueError(f"camera {cam_id}: object_watch_min_similarity must be between 0 and 1")
         permitted_raw = cam.get("permitted_movement_zones")
         permitted_zones: tuple[str, ...] | None = None
         if permitted_raw is not None:
@@ -896,6 +1194,15 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                         active_zone_roles.add(str(role))
             except (OSError, ValueError, TypeError):
                 log.warning("unable to read accepted zone roles for %s", cam_id)
+        object_watch_enabled = bool(cam.get("object_watch_enabled", cam.get("object_watch", False)))
+        configured_library = cam.get("object_watch_library")
+        canonical_library = str((Path(output_dir) / "object_library").resolve()) if output_dir else None
+        if object_watch_enabled and configured_library and canonical_library \
+                and Path(configured_library).expanduser().resolve() != Path(canonical_library):
+            raise ValueError(
+                f"camera {cam_id}: object_watch_library conflicts with canonical site library"
+            )
+        object_watch_library = canonical_library or configured_library
         out[cam_id] = {
             "source": cam["source"],
             "state": PerCameraState(
@@ -934,10 +1241,24 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 movement_min_people=movement_min_people,
                 movement_persistence_seconds=movement_persistence,
                 permitted_movement_zones=permitted_zones,
+                object_watch=object_watch_enabled,
+                general_object_tracking=cam.get("general_object_tracking", False),
+                general_object_tracking_overlays=cam.get(
+                    "general_object_tracking_overlays", False
+                ),
+                object_watch_library=object_watch_library,
+                object_watch_sample_fps=object_watch_sample_fps,
+                object_watch_max_candidates_per_frame=int(max_candidates_number),
+                object_watch_min_similarity=object_watch_min_similarity,
+                object_watch_open_vocab_provider=str(
+                    cam.get("object_watch_open_vocab_provider", "disabled")
+                ),
                 video_action=cam.get("video_action", False),
                 zone_min_person_area_ratio=cam.get("zone_min_person_area_ratio"),
             ),
         }
+        out[cam_id]["state"]._object_watch_rule_path = str(cam["config"])
+        _apply_object_watch_settings(out[cam_id]["state"], cam)
     return out
 
 
@@ -953,8 +1274,11 @@ def refresh_camera_rules(state: "PerCameraState", cam: dict,
     """
     from cvti.retail.zones import RetailZoneMonitor, load_zone_config
     state.engine = CustomizationEngine(cam["config"], baseline_path=baseline_config)
+    state._object_watch_rule_path = str(cam["config"])
     if cam.get("zones"):
         state.zone_monitor = RetailZoneMonitor(load_zone_config(cam["zones"]))
+    else:
+        state.zone_monitor = None
     if cam.get("vehicle_zones"):
         state.vehicle_zone_monitor = RetailZoneMonitor(load_zone_config(cam["vehicle_zones"]))
     if cam.get("vehicle_line") is not None:
@@ -963,7 +1287,47 @@ def refresh_camera_rules(state: "PerCameraState", cam: dict,
     if (cam.get("vehicle_zones") or cam.get("vehicle_line") is not None) and state._vehicle_tracker is None:
         import supervision as sv
         state._vehicle_tracker = sv.ByteTrack()
+    _apply_object_watch_settings(state, cam)
 
+
+def _apply_object_watch_settings(state: "PerCameraState", cam: dict) -> bool:
+    """Apply canonical runtime defaults plus only explicit camera overrides."""
+    old = (
+        state.object_watch, state.object_watch_sample_fps,
+        state.object_watch_max_candidates_per_frame,
+        state.object_watch_min_similarity, state.object_watch_open_vocab_provider,
+    )
+    canonical = None
+    library = getattr(state, "object_watch_library", None)
+    if library:
+        try:
+            from cvti.object_watch.runtime_config import resolve_config
+            canonical = resolve_config(Path(library).resolve().parent)
+        except (OSError, TypeError, ValueError):
+            canonical = None
+    state.object_watch = bool(cam.get("object_watch_enabled", cam.get("object_watch", False)))
+    state.object_watch_sample_fps = float(
+        cam["object_watch_sample_fps"] if "object_watch_sample_fps" in cam
+        else getattr(canonical, "sample_fps", 1.0)
+    )
+    state.object_watch_max_candidates_per_frame = int(
+        cam["object_watch_max_candidates_per_frame"]
+        if "object_watch_max_candidates_per_frame" in cam
+        else getattr(canonical, "max_candidates", 24)
+    )
+    state.object_watch_min_similarity = (
+        None if cam.get("object_watch_min_similarity") is None
+        else float(cam["object_watch_min_similarity"])
+    )
+    provider = (cam["object_watch_open_vocab_provider"]
+                if "object_watch_open_vocab_provider" in cam
+                else getattr(canonical, "proposal_provider", "none"))
+    state.object_watch_open_vocab_provider = str(provider)
+    return old != (
+        state.object_watch, state.object_watch_sample_fps,
+        state.object_watch_max_candidates_per_frame,
+        state.object_watch_min_similarity, state.object_watch_open_vocab_provider,
+    )
 
 def load_site_config(path: str | Path) -> dict:
     return json.loads(Path(path).read_text())

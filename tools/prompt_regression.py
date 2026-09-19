@@ -3,6 +3,7 @@
     python tools/prompt_regression.py capture   # freeze the detector stage (slow, once)
     python tools/prompt_regression.py run       # replay it through the current prompts
     python tools/prompt_regression.py check     # CI: has the wording changed unmeasured?
+    python tools/prompt_regression.py record-unmeasured --reason ... --evidence result.json
 
 **Why `check` does not measure.** Measuring means running the VLM, and the VLM
 is a 3 GB model. A GitHub runner has no GPU and no Ollama; a real measurement
@@ -143,12 +144,20 @@ def cmd_run(args) -> int:
     error_count = int(result.get("errors", 0) or 0)
     scored_cases = int(result.get("scored", max(0, len(verdicts) - error_count)))
     complete = corpus_covered and error_count == 0
+    corpus_meta = getattr(golden, "meta", {})
+    if not isinstance(corpus_meta, dict):
+        corpus_meta = {}
     result.update({"measurement_status": "measured" if complete else "partial",
+                   "measurement_mode": ("mock_plumbing" if args.gate_provider == "mock"
+                                        else "model"),
+                   "quality_metrics": args.gate_provider != "mock",
                    "fingerprint": fingerprint(), "prompts": describe()["constants"],
-                   "sensitivity": args.sensitivity, "gate_model": args.gate_model,
+                   "sensitivity": args.sensitivity, "gate_provider": args.gate_provider,
+                   "gate_model": args.gate_model,
                    "gate_model_digest": _model_digest(args.gate_model),
                    "measured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                   "golden_cases": scored_cases, "corpus_cases": len(golden)})
+                   "golden_cases": scored_cases, "corpus_cases": len(golden),
+                   "corpus_meta": corpus_meta})
 
     print(json.dumps(result, indent=2))
     if result["errors"]:
@@ -258,9 +267,38 @@ def cmd_check(args) -> int:
     return 1
 
 
+def cmd_record_unmeasured(args) -> int:
+    """Record changed prompt text without presenting plumbing evidence as quality metrics."""
+    previous = json.loads(BASELINE.read_text()) if BASELINE.exists() else {}
+    evidence = json.loads(Path(args.evidence).read_text()) if args.evidence else None
+    prior_measurement = (previous if previous.get("measurement_status") == "measured"
+                         else previous.get("previous_measurement"))
+    updated = {
+        "tolerance": previous.get("tolerance", TOLERANCE),
+        "measurement_status": "unmeasured",
+        "unmeasured_reason": args.reason,
+        **score([]),
+        "fingerprint": fingerprint(),
+        "prompts": describe()["constants"],
+        "sensitivity": previous.get("sensitivity", "balanced"),
+        "gate_provider": None,
+        "gate_model": previous.get("gate_model", "gemma3:4b"),
+        "gate_model_digest": None,
+        "measured_at": None,
+        "golden_cases": 0,
+    }
+    if prior_measurement:
+        updated["previous_measurement"] = prior_measurement
+    if evidence is not None:
+        updated["prompt_change_evidence"] = evidence
+    BASELINE.write_text(json.dumps(updated, indent=2) + "\n")
+    log.info("recorded current prompt as unmeasured: %s", BASELINE)
+    return 0
+
+
 def main() -> int:
     setup_logging(component="argus-prompt-regression")
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(description=(__doc__ or "Prompt regression").splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
 
     cap = sub.add_parser("capture", help="freeze the detector stage (slow, run once)")
@@ -289,6 +327,17 @@ def main() -> int:
 
     chk = sub.add_parser("check", help="CI: prompt text vs recorded measurement")
     chk.set_defaults(func=cmd_check)
+
+    unmeasured = sub.add_parser(
+        "record-unmeasured",
+        help="record current wording honestly when the real golden corpus cannot be replayed",
+    )
+    unmeasured.add_argument("--reason", required=True)
+    unmeasured.add_argument(
+        "--evidence", default="",
+        help="optional separate JSON evidence (for example a deterministic mock plumbing run)",
+    )
+    unmeasured.set_defaults(func=cmd_record_unmeasured)
 
     args = p.parse_args()
     return args.func(args)

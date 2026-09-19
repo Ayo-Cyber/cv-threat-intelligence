@@ -1184,3 +1184,94 @@ MPLCONFIGDIR="$MPLCONFIGDIR" "$PYTHON" tools/prompt_regression.py run --golden-d
 Only a complete replay with zero errored cases is a measurement. Review the
 metrics and model digest before deliberately rerunning with
 `--update-baseline`; partial or errored runs must remain non-baseline results.
+
+## KPI 3 Object Watchlists Recording Matrix
+
+KPI 3 covers Chi product/object identification, arrangement, loading/trucking,
+left-behind/removed states, and object-related PPE where applicable. The
+current implementation is local-first: operators enroll reviewed examples,
+runtime matching happens on the local machine, and TrueSight only verifies
+rule-relevant object events. These tests must not be described as SKU-level
+inventory counting or autonomous product counting.
+
+Record fixed-camera clips with stable lighting, documented camera placement,
+and rights-cleared Chi products. Freeze labels before looking at candidates.
+
+| ID | Required recording and labels | Expected result |
+| --- | --- | --- |
+| `OBJ-P01` | Chi product stationary in expected storage zone. | Product object is detected with the enrolled object ID; no removal/loading alert. |
+| `OBJ-P02` | Chi product enters the loading bay. | Object watch emits the expected entered/seen state in `loading_bay`. |
+| `OBJ-P03` | Chi product is removed from storage. | Exactly one `object_removed` candidate in the positive interval. |
+| `OBJ-P04` | Product is loaded near a delivery truck. | Exactly one `object_loaded_near_vehicle` candidate in the loading interval. |
+| `OBJ-P05` | Object is left in a walkway beyond the configured dwell threshold. | Exactly one `object_left_behind` candidate after dwell is satisfied. |
+| `OBJ-N01` | Visually similar non-Chi carton. | No Chi target match and no Chi object alert. |
+| `OBJ-N02` | Chi product remains in allowed storage area. | Object can be tracked, but no removal/loading/left-behind alert. |
+| `OBJ-N03` | Person/vehicle motion without the target product. | No object-watch candidate for the target product. |
+
+### KPI 3 Annotation Contract
+
+Keep clips and enrolled crops outside Git unless redistribution rights are
+documented. Hash every clip and retain the object library fingerprint used for
+the run. Use one `labels.csv` with this exact header:
+
+```csv
+case_id,clip_sha256,clip_duration_s,target_fps,start_s,end_s,label,object_ref,expected_zone,expected_state,expected_object_id,incident_id
+OBJ-P03,<sha256>,6.400,2,1.000,4.000,product_removed,carton-a,storage,object_removed,chi-carton,objp03-removed-1
+```
+
+Use `expected_state=negative` for intervals where a visible object should not
+emit an event. Intervals are half-open `[start_s,end_s)`, with the final decoded
+frame included only when `end_s == clip_duration_s`.
+
+Use one `observations.csv` with this exact header:
+
+```csv
+case_id,timestamp_s,object_ref,visible,detected,track_id,object_id,similarity,zone,bbox
+OBJ-P03,1.500,carton-a,true,true,17,chi-carton,0.82,storage,"120,80,220,180"
+```
+
+Write an explicit row for every expected timestamp and object reference. A
+visible miss is `visible=true,detected=false` with empty `track_id` and
+`object_id`; never omit it. The scorer rejects missing, duplicate, off-grid, or
+unexpected observation rows so recall cannot improve through absent data.
+
+Export object candidate lifecycle rows either as JSON with a top-level `rows`
+list or from SQLite table `object_watch_audit`. Required fields are:
+
+```text
+candidate_id,case_id,timestamp_s,object_id,object_label,state,admission_status,gate_status,persisted_event_id
+```
+
+Run the scorer:
+
+```bash
+PYTHONPATH=. ./.venv/bin/python tools/score_chi_objects.py \
+  --labels data/chi_objects/labels.csv \
+  --observations data/chi_objects/observations.csv \
+  --audit data/chi_objects/object_watch_audit.json \
+  --output runs/eval/object_watch/kpi3_score.json
+```
+
+The retained score reports `object_match_recall`, `false_match_count`,
+`event_recall_by_state`, `event_precision_by_state`, duplicate candidates,
+duplicate persisted alerts, detection delays, gate-status counts, and SHA-256
+hashes of all scoring inputs.
+
+### KPI 3 Local Model Bakeoff
+
+Use the same frozen manifest for every provider so latency and proposal quality
+are comparable. The CI-safe provider is `generic-yolo-embeddings`; optional
+providers (`yolo-world`, `yoloe`, and `grounding-dino-offline`) must report
+`status=unavailable` when local dependencies or weights are missing, not a fake
+accuracy failure.
+
+```bash
+PYTHONPATH=. ./.venv/bin/python tools/object_model_bakeoff.py \
+  --manifest data/chi_objects/manifest.json \
+  --provider generic-yolo-embeddings \
+  --output-dir runs/eval/object_watch
+```
+
+Every output records `schema_version`, provider, manifest digest, model
+versions, median and p95 latency, optional peak memory, and per-case rows.
+Do not compare providers unless their `manifest_digest` values are identical.

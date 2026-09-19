@@ -132,3 +132,16 @@ video-action retrain on domain data (GPU hours, cloud) — not more W3.
 Also worth raising with the customer: kip is staged eye-level phone-style
 footage; whether it belongs in the SIGNED theft row is a definition question
 (real shop CCTV is ceiling-mounted, where Stage-1 already proposes).
+
+## KPI 3 object provider bakeoff — local weights still to evaluate
+
+`tools/object_model_bakeoff.py` now writes comparable result shells for the
+frozen Chi object manifest. Only `generic-yolo-embeddings` is CI-required.
+`yolo-world`, `yoloe`, and `grounding-dino-offline` intentionally return
+structured `unavailable` results until their dependencies and local weights are
+installed on the pilot machine.
+
+Before choosing a production open-vocabulary proposal model, run every
+available provider on the same `manifest_digest`, retain median/p95 latency and
+peak memory, and compare proposal quality only when all providers used the
+identical frozen manifest.

@@ -6,13 +6,19 @@ logic level (no video needed). Run:  python tests/test_zone_customization.py
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from cvti.event_adapters import concealment_to_events, zone_states_to_events  # noqa: E402
+from cvti.event_adapters import (  # noqa: E402
+    concealment_to_events,
+    object_observations_to_events,
+    zone_states_to_events,
+)
+from cvti.object_watch.tracker import ObjectStateEvent  # noqa: E402
 from cvti.retail.concealment import ConcealmentAssessment  # noqa: E402
 from cvti.retail.zones import PersonZoneState  # noqa: E402
 from cvti.rules.customization import CustomizationEngine  # noqa: E402
@@ -81,6 +87,47 @@ def test_concealment_event_fires_shoplifting_rule() -> None:
         scene_context={"environment_type": "retail_shop"},
     ) == [], "a non-candidate must not fire"
     print("PASS concealment candidate fires the shoplifting rule; non-candidate stays silent")
+
+
+def test_object_watch_event_fires_rule_and_preserves_metadata(tmp_path) -> None:
+    cfg = tmp_path / "object_rules.json"
+    cfg.write_text(json.dumps({
+        "use_case_id": "object_test",
+        "rules": [{
+            "name": "chi_product_removed",
+            "trigger": {"detector": "object_watch", "state": "object_removed"},
+            "context_filter": "object_category == 'product' and zone == 'storage'",
+            "priority": "high",
+        }],
+    }))
+    engine = CustomizationEngine(cfg)
+    events = object_observations_to_events([
+        ObjectStateEvent(
+            camera_id="cam1",
+            object_id="chi-carton",
+            object_label="Chi carton",
+            category="product",
+            state="object_removed",
+            bbox=(1, 2, 30, 40),
+            similarity=0.84,
+            timestamp=3.5,
+            track_id=7,
+            zone_id="storage",
+            dwell_seconds=2.0,
+            reasons=("object disappeared after being stable",),
+        )
+    ], timestamp=3.5)
+
+    alerts = engine.evaluate(events, now=DAY)
+
+    assert len(alerts) == 1
+    assert alerts[0].rule_name == "chi_product_removed"
+    assert alerts[0].object_label == "Chi carton"
+    assert alerts[0].metadata["object_id"] == "chi-carton"
+    assert alerts[0].metadata["object_category"] == "product"
+    assert alerts[0].metadata["state"] == "object_removed"
+    assert alerts[0].metadata["zone"] == "storage"
+    assert alerts[0].metadata["bbox"] == (1, 2, 30, 40)
 
 
 if __name__ == "__main__":

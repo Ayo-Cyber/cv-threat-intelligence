@@ -285,6 +285,37 @@ class BaselineTest(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(updated["measurement_status"], "measured")
+        self.assertEqual(updated["gate_provider"], "mock")
+        self.assertEqual(updated["measurement_mode"], "mock_plumbing")
+        self.assertFalse(updated["quality_metrics"])
+
+    def test_record_unmeasured_preserves_real_metrics_and_separates_mock_evidence(self):
+        prior = {
+            "measurement_status": "measured", "fingerprint": "old",
+            "precision": 0.8, "recall": 0.4, "golden_cases": 10,
+            "gate_model": "gemma3:4b", "tolerance": {"precision": 0.05},
+        }
+        evidence = {
+            "measurement_status": "measured", "gate_provider": "mock",
+            "precision": 0.5, "recall": 1.0, "golden_cases": 2,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline = Path(tmp) / "baseline.json"
+            evidence_path = Path(tmp) / "evidence.json"
+            baseline.write_text(json.dumps(prior))
+            evidence_path.write_text(json.dumps(evidence))
+            args = types.SimpleNamespace(
+                reason="real golden corpus unavailable", evidence=str(evidence_path),
+            )
+            with mock.patch.object(prompt_regression, "BASELINE", baseline):
+                result = prompt_regression.cmd_record_unmeasured(args)
+            updated = json.loads(baseline.read_text())
+
+        self.assertEqual(result, 0)
+        self.assertEqual(updated["measurement_status"], "unmeasured")
+        self.assertIsNone(updated["precision"])
+        self.assertEqual(updated["previous_measurement"], prior)
+        self.assertEqual(updated["prompt_change_evidence"], evidence)
 
     def test_partial_replay_is_not_reported_or_compared_as_a_full_measurement(self):
         args = types.SimpleNamespace(

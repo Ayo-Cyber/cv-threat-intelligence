@@ -141,6 +141,11 @@ test("operator sees hierarchy without camera setup mutation entry points", async
   await expect(
     page.getByRole("button", { name: "Add branch", exact: true }),
   ).toHaveCount(0);
+  await expect(page.getByText("Object watchlists", { exact: true })).toBeVisible();
+  await expect(page.getByText("Read-only", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Create target", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("permission revocation closes camera onboarding and prevents invocation", async ({

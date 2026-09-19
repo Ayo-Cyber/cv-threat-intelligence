@@ -32,6 +32,8 @@ class _Site:
                     "legal_hold INTEGER DEFAULT 0, state TEXT, owner TEXT)")
         con.execute("CREATE TABLE concealment_audit ("
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, generated_at REAL NOT NULL)")
+        con.execute("CREATE TABLE object_watch_audit ("
+                    "id TEXT PRIMARY KEY, generated_at REAL NOT NULL)")
         con.commit()
         con.close()
         self.mgr = RetentionManager(self.root, RetentionPolicy(days=retention_days))
@@ -81,6 +83,22 @@ class _Site:
         con.close()
         return out
 
+    def add_object_audit(self, *, age_days: float, audit_id: str) -> str:
+        con = sqlite3.connect(self.db)
+        con.execute(
+            "INSERT INTO object_watch_audit (id, generated_at) VALUES (?, ?)",
+            (audit_id, time.time() - age_days * DAY),
+        )
+        con.commit()
+        con.close()
+        return audit_id
+
+    def object_audit_ids(self) -> set:
+        con = sqlite3.connect(self.db)
+        out = {row[0] for row in con.execute("SELECT id FROM object_watch_audit")}
+        con.close()
+        return out
+
 
 class PurgesWhatItShouldTest(unittest.TestCase):
     def test_concealment_audit_rows_follow_the_configured_retention_window(self):
@@ -94,6 +112,18 @@ class PurgesWhatItShouldTest(unittest.TestCase):
             self.assertEqual(site.audit_ids(), {recent})
             self.assertNotIn(old, site.audit_ids())
             self.assertEqual(result["audit_deleted"], 1)
+
+    def test_object_watch_audit_rows_follow_the_configured_retention_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site = _Site(tmp, retention_days=7)
+            old = site.add_object_audit(age_days=8, audit_id="object-old")
+            recent = site.add_object_audit(age_days=6, audit_id="object-recent")
+
+            result = site.mgr.purge()
+
+            self.assertEqual(site.object_audit_ids(), {recent})
+            self.assertNotIn(old, site.object_audit_ids())
+            self.assertEqual(result["object_audit_deleted"], 1)
 
     def test_expired_and_settled_events_are_deleted_with_their_files(self):
         with tempfile.TemporaryDirectory() as tmp:

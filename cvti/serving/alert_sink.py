@@ -490,6 +490,27 @@ CREATE TABLE IF NOT EXISTS motion_candidate_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_motion_candidate_audit_generated
     ON motion_candidate_audit(generated_at);
+
+CREATE TABLE IF NOT EXISTS object_watch_audit (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    camera_id TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    object_label TEXT NOT NULL,
+    state TEXT NOT NULL,
+    generated_at REAL NOT NULL,
+    timestamp_s REAL NOT NULL,
+    zone TEXT,
+    similarity REAL,
+    admission_status TEXT NOT NULL DEFAULT 'generated',
+    admitted_at REAL,
+    gate_status TEXT NOT NULL DEFAULT 'pending',
+    verdict_at REAL,
+    persisted_event_id TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_object_watch_audit_generated
+    ON object_watch_audit(generated_at);
 """
 
 
@@ -756,6 +777,36 @@ class AlertSink:
         payload = alert.payload or {}
         candidate = payload.get("candidate")
         detector = getattr(candidate, "detector", None)
+        if detector == "object_watch":
+            metadata = getattr(candidate, "metadata", {}) or {}
+            audit_id = f"object-{uuid.uuid4().hex}"
+            payload_json, payload_error = self._audit_json(metadata, {}, "payload")
+            try:
+                with self._lock:
+                    self._db.execute(
+                        "INSERT INTO object_watch_audit ("
+                        "id, candidate_id, camera_id, object_id, object_label, state, "
+                        "generated_at, timestamp_s, zone, similarity, payload_json"
+                        ") VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            audit_id,
+                            audit_id,
+                            alert.camera_id,
+                            str(metadata.get("object_id") or ""),
+                            str(getattr(candidate, "object_label", None) or ""),
+                            str(metadata.get("state") or ""),
+                            time.time(),
+                            float(alert.timestamp),
+                            metadata.get("zone") or alert.zone,
+                            metadata.get("similarity"),
+                            payload_json if payload_error is None else payload_json,
+                        ),
+                    )
+                    self._db.commit()
+                return audit_id
+            except Exception:  # noqa: BLE001 - audit I/O must not stop detection
+                log.error("object watch candidate audit write failed", exc_info=True)
+                return None
         if detector == "multiple_people_moving":
             metadata = getattr(candidate, "metadata", {}) or {}
             candidate_id = f"motion-{uuid.uuid4().hex}"
@@ -826,6 +877,22 @@ class AlertSink:
     def audit_candidate_admission(self, alert: Any, status: str) -> None:
         """Record whether a generated row entered, duplicated, or left the queue."""
         payload = alert.payload or {}
+        object_id = payload.get("object_watch_audit_id")
+        if object_id is not None:
+            gate_status = "pending" if status == "admitted" else "not_gated"
+            try:
+                with self._lock:
+                    self._db.execute(
+                        "UPDATE object_watch_audit SET admission_status = ?, "
+                        "gate_status = ?, admitted_at = "
+                        "CASE WHEN ? = 'admitted' THEN COALESCE(admitted_at, ?) "
+                        "ELSE admitted_at END WHERE id = ?",
+                        (status, gate_status, status, time.time(), object_id),
+                    )
+                    self._db.commit()
+            except Exception:  # noqa: BLE001 - audit I/O must not stop detection
+                log.error("object watch admission audit write failed", exc_info=True)
+            return
         motion_id = payload.get("motion_candidate_audit_id")
         if motion_id is not None:
             gate_status = "pending" if status == "admitted" else "not_gated"
@@ -861,6 +928,51 @@ class AlertSink:
                 self._db.commit()
         except Exception:  # noqa: BLE001 - audit I/O must not stop detection
             log.error("concealment admission audit write failed", exc_info=True)
+
+    def _audit_object_verdict(self, alert: Any, result: Any) -> None:
+        payload = alert.payload or {}
+        candidate = payload.get("candidate")
+        if getattr(candidate, "detector", None) != "object_watch":
+            return
+        audit_id = payload.get("object_watch_audit_id")
+        if audit_id is None:
+            audit_id = self.audit_candidate_generated(alert)
+            if audit_id is None:
+                return
+            payload["object_watch_audit_id"] = audit_id
+            self.audit_candidate_admission(alert, "admitted")
+        if result is None or getattr(result, "errored", False):
+            gate_status = "unverified"
+        elif result.confirmed:
+            gate_status = "confirmed"
+        else:
+            gate_status = "rejected"
+        try:
+            with self._lock:
+                self._db.execute(
+                    "UPDATE object_watch_audit SET gate_status = ?, verdict_at = ? "
+                    "WHERE id = ?",
+                    (gate_status, time.time(), audit_id),
+                )
+                self._db.commit()
+        except Exception:  # noqa: BLE001 - audit I/O must not stop the gate
+            log.error("object watch verdict audit write failed", exc_info=True)
+
+    def _audit_object_persistence(
+        self, alert: Any, event_id: int | None, error: str = ""
+    ) -> None:
+        audit_id = (alert.payload or {}).get("object_watch_audit_id")
+        if audit_id is None:
+            return
+        try:
+            with self._lock:
+                self._db.execute(
+                    "UPDATE object_watch_audit SET persisted_event_id = ? WHERE id = ?",
+                    (str(event_id) if event_id is not None else "", audit_id),
+                )
+                self._db.commit()
+        except Exception:  # noqa: BLE001 - audit I/O must not stop alert delivery
+            log.error("object watch persistence audit write failed", exc_info=True)
 
     def _audit_concealment(self, alert: Any, result: Any) -> None:
         """Attach the eventual gate outcome to its pre-admission audit row."""
@@ -978,6 +1090,7 @@ class AlertSink:
     def handle(self, alert: Any, result: Any) -> None:
         self._audit_concealment(alert, result)
         self._audit_motion_verdict(alert, result)
+        self._audit_object_verdict(alert, result)
         if result is None:
             return
         provisional_id = (alert.payload or {}).get("provisional_event_id")
@@ -1004,9 +1117,11 @@ class AlertSink:
         try:
             event_id = self._persist(alert, result)
             self._audit_motion_persistence(alert, event_id)
+            self._audit_object_persistence(alert, event_id)
             return event_id
         except Exception as exc:  # noqa: BLE001 - persistence must not kill the gate
             self._audit_motion_persistence(alert, None, str(exc))
+            self._audit_object_persistence(alert, None, str(exc))
             log.error(f"[alert-sink error] {str(exc)[:140]}", exc_info=True)
 
     # --- routing ---------------------------------------------------------
