@@ -4,6 +4,28 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.15 — 20 Sep 2026
+
+**Your cameras show a picture again.** Adding a camera and pressing Start
+Monitoring stopped the detection engine dead, on every camera, not only the
+new one. The camera would test as reachable, the button would quietly flip
+back, and no video ever arrived. The cause: a camera added through the app
+carries no detection settings until you pick what the site is for, and the
+engine treated that as a fatal error rather than a choice you had not made
+yet. A camera with no use case selected now runs the general detection set,
+and choosing a use case still replaces it. **Upgrade if you added a camera on
+v1.8.14 and saw no picture — nothing was wrong with your camera.**
+
+**When monitoring stops, Argus now tells you why.** The app reported a
+crashed engine exactly the same way it reported one you had stopped on
+purpose: stopped, no explanation. It now shows the reason and where the log
+is, so a problem arrives as a message on screen instead of a black rectangle.
+
+**Adding your first camera no longer asks where it goes before anywhere
+exists.** On a new site the Branch and Area fields were required but empty,
+because branches are created elsewhere. The first camera now starts unplaced,
+and the app says where to place it once you have set your locations up.
+
 ## v1.8.14 — 18 Sep 2026
 
 **Argus now opens on your site, not on a sample one.** Every launch started in
