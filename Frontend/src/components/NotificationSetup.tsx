@@ -7,6 +7,7 @@ import {
   maskToken,
   notifyProblem,
   parseNotify,
+  TWILIO_SANDBOX,
   type Channels,
 } from "../lib/notify";
 import { Notice, Spinner } from "./common";
@@ -35,6 +36,7 @@ export default function NotificationSetup({
     parseNotify(String(site.notify || "console")),
   );
   const [reveal, setReveal] = useState(false);
+  const [revealTwilio, setRevealTwilio] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -151,6 +153,83 @@ export default function NotificationSetup({
                 Sending as bot <code>{maskToken(channels.botToken)}</code>
               </p>
             )}
+          </div>
+        )}
+
+        <label className="notify-channel">
+          <input
+            type="checkbox"
+            checked={channels.whatsapp}
+            onChange={(e) => set({ whatsapp: e.target.checked })}
+          />
+          <div>
+            <strong>WhatsApp</strong>
+            <small>Alerts to a WhatsApp number, sent through Twilio.</small>
+          </div>
+        </label>
+
+        {channels.whatsapp && (
+          <div className="notify-telegram">
+            <ol className="notify-steps">
+              <li>
+                Create a free account at <strong>twilio.com</strong>. Your
+                Account SID and Auth Token are on the console dashboard.
+              </li>
+              <li>
+                Open <strong>Messaging → Try it out → WhatsApp</strong> and
+                follow the sandbox join step from the phone that should receive
+                alerts. Until you have your own sender, leave the From number as
+                Twilio's sandbox.
+              </li>
+            </ol>
+            <label>
+              Account SID
+              <input
+                value={channels.twilioSid}
+                onChange={(e) => set({ twilioSid: e.target.value })}
+                placeholder="AC..."
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label>
+              Auth token
+              <div className="reveal-field">
+                <input
+                  type={revealTwilio ? "text" : "password"}
+                  value={channels.twilioToken}
+                  onChange={(e) => set({ twilioToken: e.target.value })}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={revealTwilio ? "Hide the token" : "Show the token"}
+                  onClick={() => setRevealTwilio(!revealTwilio)}
+                >
+                  {revealTwilio ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </label>
+            <label>
+              Send alerts to
+              <input
+                value={channels.whatsappTo}
+                onChange={(e) => set({ whatsappTo: e.target.value })}
+                placeholder="+2348012345678"
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              Send from
+              <input
+                value={channels.whatsappFrom}
+                onChange={(e) => set({ whatsappFrom: e.target.value })}
+                placeholder={TWILIO_SANDBOX}
+                autoComplete="off"
+              />
+            </label>
           </div>
         )}
 

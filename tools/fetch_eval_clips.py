@@ -92,6 +92,21 @@ QUERIES = {
         "attempted robbery security footage",
         "vandalism caught on security camera",
     ],
+    # Weapons and theft had no queries at all, so the set had no clip that
+    # genuinely contained either -- weapons_yt_01.mp4 turned out to be a
+    # shoplifting clip with no weapon in it (20 Sep).
+    "weapons": [
+        "armed robbery cctv footage gun visible",
+        "knife attack security camera footage",
+        "shop robbery gunman surveillance camera",
+        "armed holdup store cctv",
+    ],
+    "theft": [
+        "shoplifting caught on cctv camera",
+        "package theft porch camera footage",
+        "bag snatch cctv footage",
+        "warehouse theft surveillance camera",
+    ],
     "normal": [
         "quiet street cctv footage nothing happening",
         "empty parking lot security camera timelapse",

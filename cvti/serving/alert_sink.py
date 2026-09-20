@@ -371,6 +371,18 @@ def _build_one(spec: str) -> Any:
         # Production delivery is paced + retried on its own thread; the gate's
         # verdict callback must never wait on a photo upload or a 429 backoff.
         return TelegramNotifier(token, chat_id, background=True)
+    if spec.startswith("whatsapp:"):
+        # whatsapp:<account_sid>:<auth_token>:<from>:<to>. The UI writes this so
+        # an installed customer can set WhatsApp up at all -- before, the only
+        # source was environment variables, which nobody can set on a machine
+        # that runs an installer, so ticking WhatsApp silently did nothing
+        # (20 Sep). Bare "whatsapp" still reads the env, for the dev path.
+        fields = spec[len("whatsapp:"):].split(":")
+        if len(fields) == 4 and all(f.strip() for f in fields):
+            sid, token, from_number, to_number = (f.strip() for f in fields)
+            return WhatsAppNotifier(sid, token, from_number, to_number)
+        log.warning("[alert-sink] whatsapp spec needs sid:token:from:to; using console")
+        return ConsoleNotifier()
     if spec == "whatsapp":
         try:
             return WhatsAppNotifier.from_env()

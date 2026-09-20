@@ -110,3 +110,51 @@ describe("masking", () => {
     expect(maskToken("")).toBe("");
   });
 });
+
+describe("whatsapp", () => {
+  const WA = {
+    ...EMPTY,
+    whatsapp: true,
+    twilioSid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    twilioToken: "sometoken",
+    whatsappFrom: "+14155238886",
+    whatsappTo: "+2348012345678",
+  };
+
+  it("carries its own credentials so an installed machine can use it", () => {
+    // Before, WhatsApp read Twilio creds from environment variables only --
+    // unsettable on a machine that runs an installer, so it silently did nothing.
+    expect(buildNotify(WA)).toBe(
+      "console,whatsapp:ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx:sometoken:" +
+        "+14155238886:+2348012345678",
+    );
+  });
+
+  it("round-trips", () => {
+    expect(buildNotify(parseNotify(buildNotify(WA)))).toBe(buildNotify(WA));
+  });
+
+  it("refuses to write a half-configured channel", () => {
+    expect(buildNotify({ ...WA, twilioToken: "" })).toBe("console");
+    expect(buildNotify({ ...WA, whatsappTo: "" })).toBe("console");
+  });
+
+  it("checks the SID looks like a Twilio SID", () => {
+    expect(notifyProblem({ ...WA, twilioSid: "12345" })).toContain("AC");
+  });
+
+  it("asks for an international number", () => {
+    expect(notifyProblem({ ...WA, whatsappTo: "0801234" })).toBe("");
+    expect(notifyProblem({ ...WA, whatsappTo: "not-a-number" }))
+      .toContain("international");
+  });
+
+  it("is happy when fully filled in", () => {
+    expect(notifyProblem(WA)).toBe("");
+  });
+
+  it("a bare 'whatsapp' spec is not configured", () => {
+    // That is what the old UI would have written, and it fell back to console.
+    expect(parseNotify("console,whatsapp").whatsapp).toBe(false);
+  });
+});

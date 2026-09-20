@@ -18,14 +18,27 @@ export type Channels = {
   telegram: boolean;
   botToken: string;
   chatId: string;
+  whatsapp: boolean;
+  twilioSid: string;
+  twilioToken: string;
+  whatsappFrom: string;
+  whatsappTo: string;
   webhook: string;
 };
+
+/** Twilio's shared sandbox number, which is what a trial account sends from. */
+export const TWILIO_SANDBOX = "+14155238886";
 
 export const EMPTY: Channels = {
   console: true,
   telegram: false,
   botToken: "",
   chatId: "",
+  whatsapp: false,
+  twilioSid: "",
+  twilioToken: "",
+  whatsappFrom: TWILIO_SANDBOX,
+  whatsappTo: "",
   webhook: "",
 };
 
@@ -44,11 +57,19 @@ export function parseNotify(spec: string): Channels {
         out.botToken = rest.slice(0, cut);
         out.chatId = rest.slice(cut + 1);
       }
+    } else if (part.startsWith("whatsapp:")) {
+      const fields = part.slice("whatsapp:".length).split(":");
+      if (fields.length === 4 && fields.every((f) => f.trim())) {
+        out.whatsapp = true;
+        [out.twilioSid, out.twilioToken, out.whatsappFrom, out.whatsappTo] =
+          fields.map((f) => f.trim());
+      }
     } else if (part.startsWith("webhook:")) {
       out.webhook = part.slice("webhook:".length);
     }
   }
-  if (!out.console && !out.telegram && !out.webhook) out.console = true;
+  if (!out.console && !out.telegram && !out.whatsapp && !out.webhook)
+    out.console = true;
   return out;
 }
 
@@ -58,6 +79,17 @@ export function buildNotify(c: Channels): string {
   if (c.console) parts.push("console");
   if (c.telegram && c.botToken.trim() && c.chatId.trim())
     parts.push(`telegram:${c.botToken.trim()}:${c.chatId.trim()}`);
+  if (
+    c.whatsapp &&
+    c.twilioSid.trim() &&
+    c.twilioToken.trim() &&
+    c.whatsappFrom.trim() &&
+    c.whatsappTo.trim()
+  )
+    parts.push(
+      `whatsapp:${c.twilioSid.trim()}:${c.twilioToken.trim()}:` +
+        `${c.whatsappFrom.trim()}:${c.whatsappTo.trim()}`,
+    );
   if (c.webhook.trim()) parts.push(`webhook:${c.webhook.trim()}`);
   return parts.length ? parts.join(",") : "console";
 }
@@ -72,6 +104,14 @@ export function notifyProblem(c: Channels): string {
     return "Enter the chat ID the alerts should go to.";
   if (c.telegram && !/^-?\d+$/.test(c.chatId.trim()))
     return "A chat ID is a number, and starts with a minus sign for a group.";
+  if (c.whatsapp && !c.twilioSid.trim())
+    return "Paste your Twilio Account SID (it starts with AC).";
+  if (c.whatsapp && !/^AC[0-9a-zA-Z]+$/.test(c.twilioSid.trim()))
+    return "A Twilio Account SID starts with AC.";
+  if (c.whatsapp && !c.twilioToken.trim())
+    return "Paste your Twilio Auth Token.";
+  if (c.whatsapp && !/^\+?\d[\d\s-]+$/.test(c.whatsappTo.trim()))
+    return "Enter the WhatsApp number to alert, in full international form like +234...";
   if (c.webhook.trim() && !/^https?:\/\//.test(c.webhook.trim()))
     return "A webhook must start with http:// or https://";
   return "";
