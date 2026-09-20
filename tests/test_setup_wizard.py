@@ -8,7 +8,11 @@ import json
 import socket
 import tempfile
 import threading
+import re
 import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
 from pathlib import Path
 
 from _backend_helper import signed_in
@@ -129,9 +133,42 @@ class SelfTestTest(unittest.TestCase):
             vo.ollama_binary = lambda: "/fake/ollama"
             try:
                 c = self._by_id(be.setup_check())["verifier"]
-                self.assertIn("Start verifier", c["fix"])
+                self.assertIn("Download model", c["fix"])
             finally:
                 vo.ollama_binary = real_bin
+        finally:
+            vlm.gate_status = real
+
+    def test_the_advice_names_a_control_the_operator_can_actually_find(self):
+        """Advice that names a button nobody can see is worse than silence.
+
+        setup_check told people to "Download the model in the Verification
+        step" long after the React UI shipped without that control, and to
+        "Click Start verifier", which never existed there either. A pilot
+        installed v1.8.15 and reported he never saw the 3.3 GB download,
+        because nothing started one and nothing he could find would
+        (Martin, 20 Sep).
+        """
+        setup = (ROOT / "Frontend/src/components/Setup.tsx").read_text()
+        self.assertIn("VerifierDownload", setup,
+                      "the Verification step must carry the download control")
+        control = (ROOT / "Frontend/src/components/VerifierDownload.tsx").read_text()
+        self.assertIn("Download model (", control,
+                      "the control this advice points at must be a real button")
+
+        be = _site(self.root)
+        real = vlm.gate_status
+        try:
+            for mode in ("no-model", "offline"):
+                with self.subTest(mode=mode):
+                    vlm.gate_status = lambda *a, **k: {"mode": mode}
+                    fix = self._by_id(be.setup_check())["verifier"]["fix"]
+                    lowered = fix.lower()
+                    self.assertTrue(
+                        ("download" in lowered and "model" in lowered)
+                        or "ollama.com" in lowered,
+                        f"advice {fix!r} points at no control the operator has: "
+                        "either the Download model button, or an external install")
         finally:
             vlm.gate_status = real
 

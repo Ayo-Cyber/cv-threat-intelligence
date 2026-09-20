@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { Camera, Json, Mode, Transport } from "../lib/types";
 import { Badge, Notice, Spinner } from "./common";
+import VerifierDownload from "./VerifierDownload";
 const steps = [
   "Cameras",
   "Scenes & zones",
@@ -85,6 +86,9 @@ export default function Setup({
         ))}
       </ol>
       <section className="setup-content">
+        {/* The 3.3 GB model is the slowest part of setup, so it starts here at
+            step 0 and downloads WHILE the operator works, not after. */}
+        <VerifierDownload api={api} mode={mode} autoStart />
         {error && <Notice error>{error}</Notice>}
         {result && <Notice>{result}</Notice>}
         <span className="eyebrow">STEP {step + 1} OF 6</span>
@@ -184,6 +188,7 @@ export default function Setup({
                 checks
               </button>
             )}
+            <VerifierDownload api={api} mode={mode} />
             {checks.map((c) => (
               <div className="setting-row" key={c.id}>
                 <div>
