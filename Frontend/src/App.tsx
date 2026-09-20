@@ -746,7 +746,9 @@ export default function App() {
                       disabled={!ws.auth.permissions.includes("configure_site")}
                     />
                   )}{" "}
-                  {(ws.monitor.stalled || ws.monitor.crash_looping) && (
+                  {(ws.monitor.stalled ||
+                    ws.monitor.crash_looping ||
+                    (!ws.monitor.running && ws.monitor.last_error)) && (
                     <Notice error>
                       Monitoring needs attention.{" "}
                       {ws.monitor.last_error ||

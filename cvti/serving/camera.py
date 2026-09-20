@@ -1037,6 +1037,22 @@ class PerCameraState:
         return out
 
 
+# A camera added through the UI carries only {id, source, area_id}: the rules
+# config is written later, by apply_template on the wizard's "Use case" step.
+# The engine used to index that key directly, so pressing Start before choosing
+# a use case killed it instantly with KeyError: 'config' -- and the operator saw
+# a camera that tested fine, no video, and no error anywhere (20 Sep field
+# report). Seeing your camera must not depend on having decided what to detect
+# on it, so an unconfigured camera falls back to the general live-camera rule
+# set; the template still overwrites this the moment it runs.
+DEFAULT_RULES_CONFIG = "configs/all_threats_v1.json"
+
+
+def rules_config_for(cam: dict) -> str:
+    """The camera's rules config, or the default when none has been chosen."""
+    return str(cam.get("config") or DEFAULT_RULES_CONFIG)
+
+
 def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_model: Any = None,
                         video_action_model: Any = None,
                         va_runner: Any = None,
@@ -1163,7 +1179,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                     f"camera {cam_id}: permitted_movement_zones requires a zone config"
                 )
             permitted_zones = tuple(permitted_raw)
-        engine = CustomizationEngine(cam["config"], baseline_path=baseline_config)
+        engine = CustomizationEngine(rules_config_for(cam), baseline_path=baseline_config)
         zone_monitor = None
         if cam.get("zones"):
             zone_specs = load_zone_config(cam["zones"])
@@ -1257,7 +1273,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 zone_min_person_area_ratio=cam.get("zone_min_person_area_ratio"),
             ),
         }
-        out[cam_id]["state"]._object_watch_rule_path = str(cam["config"])
+        out[cam_id]["state"]._object_watch_rule_path = rules_config_for(cam)
         _apply_object_watch_settings(out[cam_id]["state"], cam)
     return out
 
@@ -1273,8 +1289,8 @@ def refresh_camera_rules(state: "PerCameraState", cam: dict,
     the old engine or the new one, never a half-built one.
     """
     from cvti.retail.zones import RetailZoneMonitor, load_zone_config
-    state.engine = CustomizationEngine(cam["config"], baseline_path=baseline_config)
-    state._object_watch_rule_path = str(cam["config"])
+    state.engine = CustomizationEngine(rules_config_for(cam), baseline_path=baseline_config)
+    state._object_watch_rule_path = rules_config_for(cam)
     if cam.get("zones"):
         state.zone_monitor = RetailZoneMonitor(load_zone_config(cam["zones"]))
     else:

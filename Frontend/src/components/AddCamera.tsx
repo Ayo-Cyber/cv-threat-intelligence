@@ -26,7 +26,15 @@ export default function AddCamera({
 }) {
   const [id, setId] = useState("");
   const [source, setSource] = useState("");
-  const [branch, setBranch] = useState<LocationSelection | null>(null);
+  // A brand-new site has no branches, so demanding one here asked the operator
+  // to choose from an empty list before anything existed to choose (Martin,
+  // 20 Sep: "u added the user to select the location and the branch and stuff"
+  // — the wizard sends you to Add camera first and only reaches Locations
+  // later). With nothing to place a camera in, start unplaced and say so.
+  const noLocationsYet = hierarchy.branches.length === 0;
+  const [branch, setBranch] = useState<LocationSelection | null>(
+    noLocationsYet ? UNASSIGNED_BRANCH : null,
+  );
   const [area, setArea] = useState<LocationSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -142,6 +150,12 @@ export default function AddCamera({
             autoComplete="off"
           />
         </label>
+        {noLocationsYet ? (
+          <p className="field-note">
+            No branches yet, so this camera starts unplaced. Add branches and
+            areas under Settings, then place it from the camera's own screen.
+          </p>
+        ) : (
         <label>
           Branch
           <select
@@ -166,6 +180,7 @@ export default function AddCamera({
             </option>
           </select>
         </label>
+        )}
         {selectedBranch && (
           <label>
             Area
