@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 import importlib
+import pathlib
 import json
 import sys
 import time
@@ -607,7 +608,21 @@ def load_yolov5_model(weights: str, yolov5_repo: str) -> LoadedModel:
     importlib.invalidate_caches()
     hubconf = importlib.import_module("hubconf")
 
-    runner = hubconf.custom(path=weights, autoshape=True, _verbose=False)
+    # models/weapon_best.pt was pickled on Windows, so its checkpoint carries a
+    # WindowsPath. Unpickling one anywhere else raises "cannot instantiate
+    # 'WindowsPath' on your system" -- which the site loader caught and turned
+    # into "weapons disabled", silently, on every macOS and Linux install.
+    # Nothing said the weapons KPI was off; it simply never fired (20 Sep).
+    # Aliasing the class for the duration of the load is the standard remedy:
+    # the path inside the checkpoint is metadata, never opened.
+    restore = None
+    if not isinstance(pathlib.Path(), pathlib.WindowsPath):
+        restore, pathlib.WindowsPath = pathlib.WindowsPath, pathlib.PosixPath
+    try:
+        runner = hubconf.custom(path=weights, autoshape=True, _verbose=False)
+    finally:
+        if restore is not None:
+            pathlib.WindowsPath = restore
     return LoadedModel(
         runner=runner,
         kind="yolov5",
