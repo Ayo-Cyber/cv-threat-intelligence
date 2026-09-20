@@ -34,6 +34,31 @@ def read_health(db_path: str) -> dict:
     return doc
 
 
+def engine_log_tail(db_path: str) -> tuple[str, str]:
+    """(log path, the last telling line) from the engine's own stdout log.
+
+    The retired PyQt console reported this on every stopped poll, after a
+    pilot machine "spent a day as a photo of a black wall" (29 Aug). The API
+    that replaced it reported freshness only, so an engine that died a second
+    after Start looked exactly like one the operator had stopped on purpose —
+    which is how a KeyError on camera config became "the camera connects but
+    there is no picture" with nothing on screen to explain it (20 Sep).
+    """
+    log_path = Path(db_path).parent / "monitor.log"
+    try:
+        lines = [line.strip() for line
+                 in log_path.read_text(errors="replace").splitlines()[-40:]
+                 if line.strip()]
+    except OSError:
+        return str(log_path), ""
+    telling = [line for line in lines
+               if any(key in line for key in ("Error", "ERROR", "Traceback",
+                                              "error:", "Exception", "denied",
+                                              "Permission", "No such"))]
+    candidates = telling or lines
+    return str(log_path), (candidates[-1][:300] if candidates else "")
+
+
 def monitor_state(db_path: str) -> dict:
     """Derive running/starting/stopped from the health doc's freshness — the
     same heartbeat truth the console uses, without owning the subprocess."""
@@ -43,12 +68,18 @@ def monitor_state(db_path: str) -> dict:
     phase = str((doc.get("engine") or {}).get("phase") or "")
     fresh = age is not None and age < 30
     starting = phase.startswith("starting") and (age is not None and age < 90)
-    return {
+    state = {
         "running": bool(fresh or starting),
         "starting": bool(starting),
         "phase": phase or ("stopped" if not fresh else "monitoring"),
         "health_age_s": round(age, 1) if age is not None else None,
     }
+    if not state["running"]:
+        # Stopped is not a diagnosis. Carry why, so the UI can say it.
+        log_path, last_error = engine_log_tail(db_path)
+        state["log_path"] = log_path
+        state["last_error"] = last_error
+    return state
 
 
 # ---- cameras ----------------------------------------------------------------
