@@ -595,7 +595,11 @@ class ConsoleBackend:
         else:
             checks.append({"id": "verifier", "ok": False, "label": "AI verifier (TrueSight)",
                            "detail": "not running",
-                           "fix": "Click Start verifier in the Verification step."
+                           # Naming a control that exists: the Verification
+                           # step's Download button starts the bundled runtime
+                           # before it pulls, so one action covers both.
+                           "fix": "Click Download model in the Verification step "
+                                  "— it starts the bundled AI runtime first."
                            if g.get("runtime_bundled")
                            else "Install Ollama from ollama.com, then recheck."})
 

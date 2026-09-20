@@ -2920,3 +2920,7 @@ fieldset:disabled {
   cursor: pointer;
   white-space: nowrap;
 }
+
+.verifier-download { display: flex; flex-direction: column; gap: 10px; }
+.verifier-download .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.verifier-progress { width: 100%; height: 8px; }
