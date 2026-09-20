@@ -223,8 +223,16 @@ class EvalHarness:
             def __init__(self, inner):
                 self._inner = inner
 
-            def update(self, detections, timestamp):
-                return [s for s in self._inner.update(detections, timestamp)
+            def __getattr__(self, name):
+                # Proxy the rest of the monitor's surface. PerCameraState grew
+                # frame_hw= on update() and a drain_exits() call in #145; this
+                # wrapper knew about neither, so every loitering clip died --
+                # first on TypeError, then on AttributeError. Delegating by
+                # default means the next method the engine adds works here too.
+                return getattr(self._inner, name)
+
+            def update(self, detections, timestamp, **kwargs):
+                return [s for s in self._inner.update(detections, timestamp, **kwargs)
                         if getattr(s, "loitering", False)]
 
         return _LoiterOnly(monitor)

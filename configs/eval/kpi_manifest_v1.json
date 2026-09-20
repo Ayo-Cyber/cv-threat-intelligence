@@ -1,7 +1,7 @@
 {
  "version": 1,
- "built_at": 1788995051.600836,
- "digest": "bb6f7f3fe154be5c",
+ "built_at": 1789827056.810405,
+ "digest": "85162b724bbaa223",
  "rows": {
   "false_positive": {
    "sn": 2,
@@ -1040,7 +1040,7 @@
    "name": "Person Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 102,
+   "positives": 103,
    "negatives": 0,
    "n_floor": 73,
    "publishable": true,
@@ -1167,6 +1167,12 @@
     },
     {
      "path": "data/test_clips/person_23.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_enter_virat_01.mp4",
      "is_threat": true,
      "kind": "person",
      "source": "test_clips/kpi"
