@@ -4,6 +4,26 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.16 — 20 Sep 2026
+
+**The on-device AI downloads again.** Argus verifies alerts with an AI model
+that runs entirely on your machine. It is about 3.3 GB and is fetched once,
+because shipping it inside the installer would double the download for people
+who already have it. The app used to start that download as soon as you began
+setup, so it finished while you did everything else. Since the interface was
+rebuilt, it never started — and nothing on screen said so. An installation
+would detect people and vehicles correctly but leave every alert marked
+unverified, and scene mapping, which uses the same model, would appear not to
+work at all.
+
+The download now starts when setup opens and shows its progress while you
+carry on. The Verification step has a Download button if you would rather
+start it yourself, and an interrupted download resumes where it stopped.
+
+**If you installed v1.8.15 or earlier and never saw a 3.3 GB download, this
+is why.** Upgrade, open setup, and let it run once. Your cameras, accounts
+and recorded events are untouched.
+
 ## v1.8.15 — 20 Sep 2026
 
 **Your cameras show a picture again.** Adding a camera and pressing Start
