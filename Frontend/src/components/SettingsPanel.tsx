@@ -11,6 +11,7 @@ import type {
 import { UsersPanel } from "./AccountAccess";
 import { Badge, Notice, Spinner } from "./common";
 import LocationManager from "./LocationManager";
+import NotificationSetup from "./NotificationSetup";
 import ObjectWatchlistManager from "./ObjectWatchlistManager";
 import SystemPanel from "./SystemPanel";
 export default function SettingsPanel({
@@ -33,7 +34,6 @@ export default function SettingsPanel({
   notify: (s: string) => void;
 }) {
   const [name, setName] = useState(site.name || "");
-  const [notification, setNotification] = useState(site.notify || "console");
   const [days, setDays] = useState(site.retention_days || 30);
   const [gate, setGate] = useState<Json>({});
   const [checks, setChecks] = useState<Json[]>([]);
@@ -90,15 +90,22 @@ export default function SettingsPanel({
         onChange={onChange}
         notify={notify}
       />
+      <NotificationSetup
+        api={api}
+        mode={mode}
+        site={site}
+        onChange={onChange}
+        notify={notify}
+      />
       <section className="settings-section">
         <div>
           <h2>Site identity</h2>
-          <p>The installation and its notification destination.</p>
+          <p>What this installation is called.</p>
         </div>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void run("set_site", [name, notification], "Site settings saved");
+            void run("set_site", [name, site.notify || "console"], "Site settings saved");
           }}
         >
           <label>
@@ -109,35 +116,10 @@ export default function SettingsPanel({
               onChange={(e) => setName(e.target.value)}
             />
           </label>
-          <label>
-            Notification destination
-            <input
-              value={notification}
-              onChange={(e) => setNotification(e.target.value)}
-              placeholder="console"
-              autoComplete="off"
-            />
-          </label>
           <button className="button primary" disabled={busy}>
             <Save size={16} />
             Save site
           </button>
-          {mode === "engine" && (
-            <button
-              className="button"
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  "send_test_notification",
-                  [],
-                  "Test sent. Check the configured destination for receipt.",
-                )
-              }
-            >
-              Send test
-            </button>
-          )}
         </form>
       </section>
       <section className="settings-section">

@@ -6,14 +6,23 @@ import {
   Plus,
   RefreshCw,
 } from "lucide-react";
-import type { Camera, Json, Mode, Transport } from "../lib/types";
+import type { Auth, Camera, Hierarchy, Json, Mode, Transport } from "../lib/types";
 import { Badge, Notice, Spinner } from "./common";
 import VerifierDownload from "./VerifierDownload";
+import LocationManager from "./LocationManager";
+import NotificationSetup from "./NotificationSetup";
+// Locations come FIRST: Add camera asks which branch and area a camera belongs
+// to, and on a new site that list is empty, so the wizard used to demand a
+// choice from nothing ("the flow u added for setup is contradicting" -- Martin,
+// 20 Sep). Alerts get their own step because a site that detects everything and
+// tells nobody is not set up.
 const steps = [
+  "Locations",
   "Cameras",
   "Scenes & zones",
   "Use case",
   "Detectors",
+  "Alerts",
   "Verification",
   "Finish",
 ];
@@ -22,6 +31,10 @@ export default function Setup({
   mode,
   cameras,
   canConfigureCameras,
+  auth,
+  hierarchy,
+  site,
+  notify,
   onAdd,
   onConfigure,
   onChange,
@@ -31,6 +44,10 @@ export default function Setup({
   mode: Mode;
   cameras: Camera[];
   canConfigureCameras: boolean;
+  auth: Auth;
+  hierarchy: Hierarchy;
+  site: Json;
+  notify: (message: string) => void;
   onAdd?: () => void;
   onConfigure: (c: Camera, tab?: string) => void;
   onChange: () => Promise<void>;
@@ -91,9 +108,27 @@ export default function Setup({
         <VerifierDownload api={api} mode={mode} autoStart />
         {error && <Notice error>{error}</Notice>}
         {result && <Notice>{result}</Notice>}
-        <span className="eyebrow">STEP {step + 1} OF 6</span>
+        <span className="eyebrow">STEP {step + 1} OF {steps.length}</span>
         <h2>{steps[step]}</h2>
         {step === 0 && (
+          <>
+            <p>
+              Name the branches and areas of your site first, so a camera has
+              somewhere to go when you add it. You can skip this and place
+              cameras later.
+            </p>
+            <LocationManager
+              api={api}
+              mode={mode}
+              auth={auth}
+              hierarchy={hierarchy}
+              cameras={cameras}
+              onChange={onChange}
+              notify={notify}
+            />
+          </>
+        )}
+        {step === 1 && (
           <>
             <p>Connect cameras and assign them to the areas of your site.</p>
             {canConfigureCameras && onAdd && (
@@ -104,7 +139,7 @@ export default function Setup({
             )}
           </>
         )}
-        {[0, 1, 3].includes(step) && (
+        {[1, 2, 4].includes(step) && (
           <div className="setup-cameras">
             {cameras.map((c) => (
               <div className="setting-row" key={c.id}>
@@ -115,12 +150,12 @@ export default function Setup({
                 <button
                   className="button"
                   onClick={() =>
-                    onConfigure(c, step === 3 ? "detectors" : "scene")
+                    onConfigure(c, step === 4 ? "detectors" : "scene")
                   }
                 >
-                  {step === 3 ? "Configure detectors" : "Review scene"}
+                  {step === 4 ? "Configure detectors" : "Review scene"}
                 </button>
-                {step === 1 && (
+                {step === 2 && (
                   <button
                     className="button"
                     onClick={() => onConfigure(c, "zones")}
@@ -132,13 +167,13 @@ export default function Setup({
             ))}
           </div>
         )}
-        {step === 1 && (
+        {step === 2 && (
           <Notice>
             Each camera needs its own evidence. Review the scene and correct it
             before approval, even when cameras share an area.
           </Notice>
         )}
-        {step === 2 && (
+        {step === 3 && (
           <>
             <label>
               Site use case
@@ -167,7 +202,22 @@ export default function Setup({
             </button>
           </>
         )}
-        {step === 4 && (
+        {step === 5 && (
+          <>
+            <p>
+              Choose where an alert goes. A site that detects everything and
+              tells nobody is not set up.
+            </p>
+            <NotificationSetup
+              api={api}
+              mode={mode}
+              site={site}
+              onChange={onChange}
+              notify={notify}
+            />
+          </>
+        )}
+        {step === 6 && (
           <>
             <p>
               Check camera connectivity, detector weights and the local vision
@@ -211,7 +261,7 @@ export default function Setup({
             ))}
           </>
         )}
-        {step === 5 && (
+        {step === 7 && (
           <>
             <h3>
               {mode === "demo"
@@ -256,7 +306,7 @@ export default function Setup({
           {step < 5 ? (
             <button
               className="button primary"
-              disabled={busy || (!cameras.length && step === 0)}
+              disabled={busy || (!cameras.length && step === 1)}
               onClick={() => {
                 setResult("");
                 setStep(step + 1);

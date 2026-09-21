@@ -240,14 +240,22 @@ class TelegramNotifier:
         self._deliver(event)
 
     def _deliver(self, event: dict) -> None:
+        """Send one alert, and SAY SO. Success used to be completely silent,
+        so a log showed the console notifier's [NOTIFY] line either way and
+        there was no way to tell a delivered alert from one that died in the
+        queue. 20 Sep: hours of runs were reported as 'sent' on the strength
+        of that line, while a stale build dropped every message on exit.
+        Delivery is the product; it gets a log line."""
         import urllib.parse
         import urllib.request
         frames = self._frames(event)
         clip = self._clip(event)
+        what = f"{event.get('rule')} on {event.get('camera_id')}"
         try:
             if not frames and not clip:
                 data = urllib.parse.urlencode({"chat_id": self.chat_id, "text": self._caption(event)}).encode()
                 self._call(urllib.request.Request(f"{self.base}/sendMessage", data=data))
+                log.info(f"[notify telegram] delivered {what} (text only) to chat {self.chat_id}")
                 return
             if frames:
                 self._send_photos(frames, self._caption(event))
@@ -256,8 +264,10 @@ class TelegramNotifier:
                 # group chat', 12 Sep) — its own message, so a slow video upload
                 # can never delay the photos that page someone.
                 self._send_video(clip, self._caption_base(event))
+            log.info(f"[notify telegram] delivered {what} to chat {self.chat_id} "
+                     f"({len(frames)} photo(s){', video' if clip else ''})")
         except Exception as exc:  # noqa: BLE001 - a notify failure must not kill the gate
-            log.error(f"[notify telegram error] {str(exc)[:140]}", exc_info=True)
+            log.error(f"[notify telegram error] {what}: {str(exc)[:140]}", exc_info=True)
 
     def _send_video(self, clip: "Path", caption: str) -> None:
         import urllib.request
@@ -371,6 +381,18 @@ def _build_one(spec: str) -> Any:
         # Production delivery is paced + retried on its own thread; the gate's
         # verdict callback must never wait on a photo upload or a 429 backoff.
         return TelegramNotifier(token, chat_id, background=True)
+    if spec.startswith("whatsapp:"):
+        # whatsapp:<account_sid>:<auth_token>:<from>:<to>. The UI writes this so
+        # an installed customer can set WhatsApp up at all -- before, the only
+        # source was environment variables, which nobody can set on a machine
+        # that runs an installer, so ticking WhatsApp silently did nothing
+        # (20 Sep). Bare "whatsapp" still reads the env, for the dev path.
+        fields = spec[len("whatsapp:"):].split(":")
+        if len(fields) == 4 and all(f.strip() for f in fields):
+            sid, token, from_number, to_number = (f.strip() for f in fields)
+            return WhatsAppNotifier(sid, token, from_number, to_number)
+        log.warning("[alert-sink] whatsapp spec needs sid:token:from:to; using console")
+        return ConsoleNotifier()
     if spec == "whatsapp":
         try:
             return WhatsAppNotifier.from_env()

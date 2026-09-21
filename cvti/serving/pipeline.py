@@ -1552,7 +1552,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                 warn_actions=warn_actions,
                                 critical_actions=crit_actions).start()
 
-    log.info(f"[site] {len(states)} camera(s) | gate={gate_provider} | notify={notify} | rules per camera")
+    log.info(f"[site] {len(states)} camera(s) | gate={gate_provider} | "
+             f"notify={notify_channels(notify)} | rules per camera")
 
     # Escalation ticker: re-notify alerts nobody acknowledged in time. Cheap poll,
     # daemon so it never holds shutdown open.
@@ -1952,6 +1953,39 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
               f"pending_escalation={sink.escalations.pending_count}")
 
 
+def notify_channels(spec: str) -> str:
+    """Channel names only -- never the credentials inside them.
+
+    A telegram spec carries a bot token and a whatsapp spec a Twilio auth
+    token. This banner goes to monitor.log, which cvti/diagnostics.py packs
+    into the Diagnose zip a customer emails us, so printing the raw spec would
+    put live credentials in our inbox. It only ever said "console" before the
+    site config could reach it, which is the only reason it was safe.
+    """
+    names = []
+    for part in (spec or "console").split(","):
+        part = part.strip()
+        if part:
+            names.append(part.split(":", 1)[0])
+    return ",".join(names) or "console"
+
+
+def _notify_for(args) -> str:
+    """--notify wins; otherwise the site config decides; otherwise console."""
+    if args.notify:
+        return args.notify
+    try:
+        from cvti.serving.onboarding import get_site_meta
+        spec = (get_site_meta(args.site_config).get("notify") or "").strip()
+        if spec:
+            log.info("[site] notify taken from the site config: %s",
+                     notify_channels(spec))
+            return spec
+    except Exception:  # noqa: BLE001 - an unreadable site is not a reason to die
+        log.debug("could not read notify from the site config", exc_info=True)
+    return "console"
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Phase 8.1 multi-stream pipeline.")
     p.add_argument("--sources", nargs="+", help="Video files / RTSP URLs / webcam indices (demo mode).")
@@ -1992,9 +2026,16 @@ def main() -> None:
                    help="Concurrent VLM gate workers; 0 = auto from camera count.")
     p.add_argument("--gate-drain", type=float, default=180.0,
                    help="Seconds to let in-flight verdicts finish after streams end.")
-    p.add_argument("--notify", default="console",
+    # No default here on purpose: an unset --notify means "use what the site
+    # config says", resolved below. A literal default of "console" silently
+    # overrode a site that asked for Telegram, and the only clue was one word
+    # in the banner ("notify=console"). The desktop app always passes --notify
+    # explicitly so it was never affected, but --site-config claims to describe
+    # a whole deployment and did not (20 Sep).
+    p.add_argument("--notify", default=None,
                    help="Alert notifier: console | webhook:<url> | telegram:<token>:<chat_id> "
-                        "| whatsapp (Twilio creds from env)")
+                        "| whatsapp:<sid>:<token>:<from>:<to> | whatsapp (Twilio creds from env). "
+                        "Unset: whatever the site config's notify field says.")
     p.add_argument("--security-dir", default="",
                    help="where auth.db/audit.db live — GLOBAL to the install, not "
                         "per-feed (defaults to the output dir for standalone runs)")
@@ -2035,7 +2076,7 @@ def main() -> None:
                  mapper_provider=args.mapper_provider,
                  mapper_model=args.mapper_model,
                  mapper_base_url=args.mapper_base_url,
-                 notify=args.notify, output_dir=args.output_dir,
+                 notify=_notify_for(args), output_dir=args.output_dir,
                  gate_workers=args.gate_workers, gate_drain=args.gate_drain)
         return
 

@@ -1298,6 +1298,10 @@ export default function App() {
                   mode={mode}
                   cameras={ws.cameras}
                   canConfigureCameras={canConfigureCameras}
+                  auth={ws.auth}
+                  hierarchy={ws.hierarchy}
+                  site={ws.site}
+                  notify={setToast}
                   onAdd={openCameraOnboarding}
                   onConfigure={configure}
                   onChange={refresh}

@@ -1,6 +1,6 @@
 {
   "name": "Vehicle Demo",
-  "notify": "console,telegram:8691681982:AAH216L_pYnTx-L576-PF2JKvwLtUfKXGYc:1883642843,telegram:8691681982:AAH216L_pYnTx-L576-PF2JKvwLtUfKXGYc:-5324877092",
+  "notify": "console",
   "configured": true,
   "cameras": [
     {
@@ -9,5 +9,6 @@
       "config": "configs/vehicle_demo.rules.json",
       "vehicle_zones": "configs/vehicle_demo.zones.json"
     }
-  ]
+  ],
+  "_notify_comment": "Never put a real notify spec in a tracked config: it embeds a live bot/auth token and this repository is public. Set alert destinations in the app (Settings -> Alerts), which writes to the per-user data directory, or pass --notify on a dev run."
 }
