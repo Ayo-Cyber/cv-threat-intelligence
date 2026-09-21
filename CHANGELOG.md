@@ -4,6 +4,19 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.19 — 22 Sep 2026
+
+**Loitering, intrusion and restricted-area alerts need a zone — and Argus
+now says so.** These alerts only exist inside a zone you have drawn on the
+camera. A new site has none, so those alerts could not fire, and nothing on
+screen explained why. Each camera's Detectors and Rules tabs now tell you
+when it has no zone, and setup lists every camera still without one.
+
+**Watch the whole view in one click.** If you want loitering on a camera
+without drawing anything, open its Zones tab and choose "Watch the whole
+view". Argus covers the camera's full picture as a zone with the dwell time
+you set. You can still draw a precise area instead, or later.
+
 ## v1.8.18 — 21 Sep 2026
 
 Three things found on a Windows installation, and one on a gate camera.
