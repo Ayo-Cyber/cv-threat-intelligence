@@ -4,6 +4,33 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.17 — 21 Sep 2026
+
+**Set up phone alerts from the app.** Where alerts go used to be a single text
+box you had to already know how to fill in: Telegram meant typing a
+colon-separated string that was documented nowhere, and typing just
+`telegram` quietly did nothing at all. Now Settings → Alerts is a list of
+channels. Tick Telegram and the app walks you through getting a bot token
+from BotFather and your chat ID; tick WhatsApp and it walks you through
+Twilio. Tokens are masked as you type, a group chat ID is recognised, and
+**Send test alert** confirms it arrives before you rely on it. WhatsApp could
+not previously be set up on an installed machine at all.
+
+**Alerts are a setup step.** First-run setup now asks where alerts should go,
+and asks you to name your locations before it asks which location a camera
+belongs to — so nothing is requested before it exists.
+
+**Argus now says when it has delivered an alert.** Delivery to a phone used to
+leave no record on success, so a log could not tell a delivered alert from
+one that was lost. Each delivery is now recorded with the alert and the
+destination, and a failure names the alert it lost.
+
+**Housekeeping you should know about.** A test now prevents any credential
+being committed inside a configuration file. If you had put a bot token into
+a config by hand because there was no better place, move it to Settings →
+Alerts, which stores it in your own data directory rather than a file that
+travels with the software.
+
 ## v1.8.16 — 20 Sep 2026
 
 **The on-device AI downloads again.** Argus verifies alerts with an AI model
