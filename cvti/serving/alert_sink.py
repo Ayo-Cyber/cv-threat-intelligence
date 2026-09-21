@@ -542,6 +542,7 @@ def _ffmpeg_exe() -> "str | None":
         import imageio_ffmpeg
         return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:  # noqa: BLE001 - optional dependency; the clip still exists
+        log.debug("imageio-ffmpeg unavailable; evidence clips keep OpenCV's codec", exc_info=True)
         return None
 
 
@@ -583,7 +584,7 @@ def ensure_h264(path: "Path", timeout: float = 60.0) -> str:
         try:
             tmp.unlink()
         except OSError:
-            pass
+            log.debug("could not remove %s after a failed transcode", tmp.name, exc_info=True)
         return codec
 
 
@@ -597,7 +598,8 @@ def _clip_codec(path: "Path") -> str:
         tag = "".join(chr((raw >> (8 * i)) & 0xFF) for i in range(4)).strip("\x00 ")
         return {"avc1": "h264", "H264": "h264", "h264": "h264",
                 "mp4v": "mp4v", "FMP4": "mp4v"}.get(tag, tag.lower() or "unknown")
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - an unreadable container is reported, not raised
+        log.debug("could not read the codec of %s", path, exc_info=True)
         return "unknown"
 
 
