@@ -69,3 +69,6 @@ onnxslim==0.1.96
 fastapi==0.128.8
 uvicorn[standard]==0.39.0
 httpx==0.28.1
+# Static ffmpeg for H.264 evidence clips: the headless OpenCV wheel has no
+# H.264 encoder on Windows, and Chromium cannot play the mp4v fallback.
+imageio-ffmpeg>=0.5

@@ -536,6 +536,72 @@ CREATE INDEX IF NOT EXISTS idx_object_watch_audit_generated
 """
 
 
+def _ffmpeg_exe() -> "str | None":
+    """The static ffmpeg imageio-ffmpeg ships, or None if the wheel is absent."""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001 - optional dependency; the clip still exists
+        return None
+
+
+def ensure_h264(path: "Path", timeout: float = 60.0) -> str:
+    """Re-encode an evidence clip to H.264 so a browser can play it. Returns the
+    codec the file ends up in ("h264", or the fourcc OpenCV managed).
+
+    OpenCV tries avc1 first, but the opencv-python-headless wheel that every
+    build installs carries NO H.264 encoder on Windows, so the writer falls
+    back to mp4v -- MPEG-4 Part 2 -- which Chromium (and therefore the Electron
+    renderer) cannot decode in <video>. On a Mac the OS supplies an encoder, so
+    clips played on every developer machine and on none of the pilot's
+    ("the replay videos weren't playing", Windows, 21 Sep). Telegram's own
+    player was more forgiving, which is why phones showed video and the app
+    did not.
+
+    imageio-ffmpeg bundles a static ffmpeg per platform and PyInstaller has a
+    hook for it, so the fix is one transcode, atomically replacing the file.
+    """
+    import subprocess
+    codec = _clip_codec(path)
+    if codec == "h264":
+        return codec
+    exe = _ffmpeg_exe()
+    if not exe:
+        log.warning("[evidence] clip %s is %s and no ffmpeg is bundled; "
+                    "the app's player may not decode it", path.name, codec)
+        return codec
+    tmp = path.with_suffix(".h264.tmp.mp4")
+    cmd = [exe, "-y", "-loglevel", "error", "-i", str(path),
+           "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+           "-movflags", "+faststart", "-an", str(tmp)]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
+        tmp.replace(path)
+        return "h264"
+    except Exception as exc:  # noqa: BLE001 - keep the playable-somewhere original
+        log.warning("[evidence] H.264 transcode of %s failed: %s", path.name, str(exc)[:120])
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return codec
+
+
+def _clip_codec(path: "Path") -> str:
+    """What OpenCV wrote, read back from the container's fourcc."""
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(path))
+        raw = int(cap.get(cv2.CAP_PROP_FOURCC))
+        cap.release()
+        tag = "".join(chr((raw >> (8 * i)) & 0xFF) for i in range(4)).strip("\x00 ")
+        return {"avc1": "h264", "H264": "h264", "h264": "h264",
+                "mp4v": "mp4v", "FMP4": "mp4v"}.get(tag, tag.lower() or "unknown")
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+
 class AlertSink:
     """Persist + notify CONFIRMED alerts. `handle(alert, result)` is the
     GatePool on_verdict callback (also prints every verdict, confirmed or not)."""
@@ -1390,6 +1456,7 @@ class AlertSink:
                     for _ in range(repeat):
                         vw.write(out)
                 vw.release()
+                ensure_h264(path)
                 return
 
     def _write_clip(self, path: Path, frames: list, fps: int = 12,
@@ -1413,6 +1480,7 @@ class AlertSink:
                     for _ in range(repeat):
                         vw.write(out)
                 vw.release()
+                ensure_h264(path)
                 return
 
     def close(self) -> None:
