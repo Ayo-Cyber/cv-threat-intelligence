@@ -157,8 +157,8 @@ jobs:
         run: |
           for /L %%a in (1,1,5) do (
             call scripts\fetch_ollama.bat && exit /b 0
-            echo ::warning::Ollama runtime fetch failed (attempt %%a) - retrying
-            timeout /t 15 /nobreak >nul
+            echo ::warning::Ollama runtime fetch failed on attempt %%a, retrying
+            ping -n 16 127.0.0.1 >nul
           )
           exit /b 1
       - name: Fetch go2rtc gateway (macOS/Linux)
@@ -175,8 +175,8 @@ jobs:
         run: |
           for /L %%a in (1,1,5) do (
             call scripts\fetch_go2rtc.bat && exit /b 0
-            echo ::warning::go2rtc gateway fetch failed (attempt %%a) - retrying
-            timeout /t 15 /nobreak >nul
+            echo ::warning::go2rtc gateway fetch failed on attempt %%a, retrying
+            ping -n 16 127.0.0.1 >nul
           )
           exit /b 1
       # runs/ is gitignored, so a fresh CI checkout has NO VideoMAE weights —
