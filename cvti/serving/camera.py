@@ -132,6 +132,15 @@ def encode_clip_frame(image: Any, max_width: int = CLIP_BUFFER_WIDTH) -> bytes |
     return enc.tobytes() if ok else None
 
 
+
+def _box_iou(a: tuple, b: tuple) -> float:
+    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
+    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
 @dataclass
 class PerCameraState:
     camera_id: str
@@ -220,6 +229,10 @@ class PerCameraState:
     _tracker: Any = field(default=None, init=False, repr=False)
     _vehicle_tracker: Any = field(default=None, init=False, repr=False)
     _vehicle_line_zone: Any = field(default=None, init=False, repr=False)
+    # (timestamp, direction, box) of recent tripwire crossings, so a vehicle
+    # the tracker re-acquires under a new id is not counted again. See
+    # _vehicle_line_events.
+    _vehicle_line_recent: list = field(default_factory=list, init=False, repr=False)
     _conceal: Any = field(default=None, init=False, repr=False)
     _violence_gate: Any = field(default=None, init=False, repr=False)
     _theft: Any = field(default=None, init=False, repr=False)
@@ -500,6 +513,19 @@ class PerCameraState:
                 events += vehicle_exits_to_events(exits, timestamp=timestamp)
         return events
 
+    # A stop-and-go gate is adversarial for a tripwire: a car waiting ~20s at a
+    # barrier arm is lost and re-acquired by the tracker several times, and
+    # every fresh id that then inches over the line is a 'new' crossing.
+    # Replayed on the barrier clip, 21 Sep: ONE car -> 6 tracker ids -> 5
+    # same-direction crossings, all within a few px of the same spot. Time
+    # and track-age guards barely helped (5 -> 4): the gaps were 7-8s. What
+    # identifies the same vehicle is WHERE it is: a new id whose box overlaps
+    # where a recently-crossed track was last seen is that vehicle again.
+    # With this guard the same replay counts 1. (The #145 idea -- a fresh id
+    # at that spot inherits -- applied to lines.)
+    VEHICLE_LINE_MEMORY_S = 30.0
+    VEHICLE_LINE_SAME_IOU = 0.3
+
     def _vehicle_line_events(self, tracked: Any, frame_hw: tuple, timestamp: float) -> list:
         import supervision as sv
         if self._vehicle_line_zone is None:
@@ -521,11 +547,27 @@ class PerCameraState:
         flip = bool(self.vehicle_line.get("flip", False))
         tids = tracked.tracker_id
         out: list = []
+        # forget crossings older than the memory window. getattr, not the
+        # attribute: tests and rebinds build PerCameraState with __new__ and
+        # skip the dataclass init, the same reason the object-watch fields
+        # are read this way.
+        recent = getattr(self, "_vehicle_line_recent", None) or []
+        self._vehicle_line_recent = [r for r in recent
+                                     if timestamp - r[0] <= self.VEHICLE_LINE_MEMORY_S]
         for i in range(len(tracked)):
             tid = int(tids[i]) if tids is not None and tids[i] is not None else None
             ci, co = bool(crossed_in[i]), bool(crossed_out[i])
             if flip:
                 ci, co = co, ci
+            if not (ci or co):
+                continue
+            box = tuple(float(v) for v in tracked.xyxy[i][:4])
+            direction = "in" if ci else "out"
+            if any(d == direction and _box_iou(box, b) >= self.VEHICLE_LINE_SAME_IOU
+                   for _, d, b in self._vehicle_line_recent):
+                # the same vehicle, re-acquired under a new id: already counted
+                continue
+            self._vehicle_line_recent.append((timestamp, direction, box))
             if ci:
                 out.append(RawEvent(detector="vehicle_entry", active=True,
                     title=f"VEHICLE ENTERED VIA {name.upper()}", level="high",
