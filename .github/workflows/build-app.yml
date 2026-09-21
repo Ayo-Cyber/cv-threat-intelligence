@@ -145,16 +145,40 @@ jobs:
       # availability varies); the mac/windows installers must carry it.
       - name: Fetch Ollama runtime (macOS/Linux)
         if: runner.os != 'Windows'
-        run: bash scripts/fetch_ollama.sh || [ "$RUNNER_OS" = "Linux" ]
+        run: |
+          for attempt in 1 2 3 4 5; do
+            (bash scripts/fetch_ollama.sh || [ "$RUNNER_OS" = "Linux" ]) && break
+            echo "::warning::Ollama runtime fetch failed (attempt $attempt) — retrying"
+            sleep $((attempt * 15))
+          done
       - name: Fetch Ollama runtime (Windows)
         if: runner.os == 'Windows'
-        run: scripts\fetch_ollama.bat
+        shell: cmd
+        run: |
+          for /L %%a in (1,1,5) do (
+            call scripts\fetch_ollama.bat && exit /b 0
+            echo ::warning::Ollama runtime fetch failed (attempt %%a) - retrying
+            timeout /t 15 /nobreak >nul
+          )
+          exit /b 1
       - name: Fetch go2rtc gateway (macOS/Linux)
         if: runner.os != 'Windows'
-        run: bash scripts/fetch_go2rtc.sh
+        run: |
+          for attempt in 1 2 3 4 5; do
+            bash scripts/fetch_go2rtc.sh && break
+            echo "::warning::go2rtc gateway fetch failed (attempt $attempt) — retrying"
+            sleep $((attempt * 15))
+          done
       - name: Fetch go2rtc gateway (Windows)
         if: runner.os == 'Windows'
-        run: scripts\fetch_go2rtc.bat
+        shell: cmd
+        run: |
+          for /L %%a in (1,1,5) do (
+            call scripts\fetch_go2rtc.bat && exit /b 0
+            echo ::warning::go2rtc gateway fetch failed (attempt %%a) - retrying
+            timeout /t 15 /nobreak >nul
+          )
+          exit /b 1
       # runs/ is gitignored, so a fresh CI checkout has NO VideoMAE weights —
       # the spec's conditional silently skipped them and every installer ever
       # built by CI shipped WITHOUT the video-action (theft) detector. Field
@@ -351,6 +375,23 @@ jobs:
       # dist/Argus tree in as resources/engine (Frontend/electron-builder.yml).
       # Its NSIS target also produces the Windows installer, replacing the Inno
       # Setup script that installed the now-retired PyQt shell.
+      - name: Cache the Electron download and electron-builder tooling
+        # The Electron zip and app-builder binaries are identical on every run
+        # and are fetched from GitHub, which returned 5xx mid-run and killed
+        # the v1.8.17 Linux build. Cached, the packaging step no longer needs
+        # the network for them at all.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('Frontend/package-lock.json') }}
+          restore-keys: electron-${{ runner.os }}-
+
       - name: Package the desktop app
         working-directory: Frontend
         shell: bash
@@ -377,8 +418,12 @@ jobs:
             echo "::warning::no signing certificate for $RUNNER_OS — the desktop app ships UNSIGNED (docs/SIGNING.md)"
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
-          npx electron-builder --config electron-builder.yml --publish never \
-            -c.extraMetadata.version="$version"
+          for attempt in 1 2 3; do
+            npx electron-builder --config electron-builder.yml --publish never -c.extraMetadata.version="$version" && break
+            [ "$attempt" = 3 ] && exit 1
+            echo "::warning::electron-builder failed (attempt $attempt) — retrying; the Electron download is the usual culprit"
+            sleep $((attempt * 20))
+          done
           rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.pfx"
           ls -la release
 
