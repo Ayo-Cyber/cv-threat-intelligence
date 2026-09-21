@@ -84,6 +84,18 @@ def monitor_state(db_path: str) -> dict:
 
 # ---- cameras ----------------------------------------------------------------
 
+def _zone_count(zones_path) -> int:
+    """How many zones a camera's zones file defines; 0 when there is none."""
+    if not zones_path:
+        return 0
+    try:
+        from pathlib import Path as _P
+        data = json.loads(_P(str(zones_path)).read_text())
+        return len([z for z in data.get("zones", []) if z.get("polygon")])
+    except (OSError, ValueError, AttributeError):
+        return 0
+
+
 def read_cameras(site_path: str, db_path: str) -> list[dict]:
     """Configured cameras (credential-redacted) merged with live link state
     from the health doc."""
@@ -124,6 +136,11 @@ def read_cameras(site_path: str, db_path: str) -> list[dict]:
         item = {
             "id": cid,
             "source": redact_credentials(str(c.get("source", ""))),
+            # Loitering, intrusion and restricted-area alerts only exist inside
+            # a zone (PerCameraState.process gates them on zone_monitor). The
+            # UI needs this number to say so, because until 21 Sep nothing did
+            # and a pilot's "loitering isn't working" was a camera with no zone.
+            "zone_count": _zone_count(c.get("zones")),
             "view_only": bool(c.get("view_only")),
             "state": live.get("state", "unknown"),
             "last_frame_age_s": live.get("last_frame_age_s"),

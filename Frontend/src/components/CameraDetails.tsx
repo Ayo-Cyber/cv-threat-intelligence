@@ -42,6 +42,7 @@ export default function CameraDetails({
   const [scene, setScene] = useState<Scene | null>(null);
   const [draft, setDraft] = useState<Scene | null>(null);
   const [busy, setBusy] = useState(false);
+  const [zoneCount, setZoneCount] = useState<number>(camera.zone_count ?? 0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [question, setQuestion] = useState("");
@@ -62,10 +63,12 @@ export default function CameraDetails({
       api.invoke<Json[]>("list_areas"),
       api.invoke<Json>("english_rules_status"),
       api.invoke<Json>("presets"),
+      api.invoke<Json[]>("list_zones", [camera.id]).catch(() => [] as Json[]),
     ])
-      .then(([s, a, e, p]) => {
+      .then(([s, a, e, p, zoneList]) => {
         if (active) {
           setScene(s);
+          setZoneCount(Array.isArray(zoneList) ? zoneList.length : 0);
           setDraft(s);
           setDirty(false);
           setAreas(a);
@@ -402,6 +405,13 @@ export default function CameraDetails({
             )}
             {tab === "detectors" && (
               <>
+                {zoneCount === 0 && (
+                  <Notice error>
+                    This camera has no zone, so loitering, intrusion and
+                    restricted-area alerts cannot fire on it. Open the Zones tab
+                    and draw one, or choose "Watch the whole view".
+                  </Notice>
+                )}
                 <div className="section-heading">
                   <h3>What should this camera watch for?</h3>
                   <p>Detector changes apply on the next monitoring start.</p>
@@ -466,6 +476,13 @@ export default function CameraDetails({
             )}
             {tab === "rules" && (
               <>
+                {zoneCount === 0 && (
+                  <Notice error>
+                    This camera has no zone, so loitering, intrusion and
+                    restricted-area alerts cannot fire on it. Open the Zones tab
+                    and draw one, or choose "Watch the whole view".
+                  </Notice>
+                )}
                 <div className="section-heading">
                   <h3>Describe what matters.</h3>
                   <p>Define a visible condition to watch for in this camera.</p>
