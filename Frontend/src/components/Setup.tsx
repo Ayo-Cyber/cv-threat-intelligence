@@ -167,6 +167,14 @@ export default function Setup({
             ))}
           </div>
         )}
+        {step === 2 && cameras.some((c) => !(c.zone_count ?? 0)) && (
+          <Notice error>
+            Loitering, intrusion and restricted-area alerts only exist inside a
+            zone. These cameras have none yet:{" "}
+            {cameras.filter((c) => !(c.zone_count ?? 0)).map((c) => c.id).join(", ")}.
+            Draw a zone, or open the camera and choose "Watch the whole view".
+          </Notice>
+        )}
         {step === 2 && (
           <Notice>
             Each camera needs its own evidence. Review the scene and correct it

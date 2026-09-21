@@ -1,4 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+
+/** Four corners of the camera's own frame, in its ORIGINAL pixels -- what
+ * add_zone expects. Loitering and intrusion only exist inside a zone; this
+ * gives an operator one without drawing a polygon. */
+export function wholeViewPolygon(size: { width: number; height: number }) {
+  const w = Math.max(1, Math.round(size.width));
+  const h = Math.max(1, Math.round(size.height));
+  return [[0, 0], [w, 0], [w, h], [0, h]];
+}
+
 import { Undo2, Trash2, MousePointer2, Check, Square } from "lucide-react";
 import type { Camera, Point, Transport, Zone } from "../lib/types";
 import { relativePoint, validPolygon } from "../lib/geometry";
@@ -64,6 +74,20 @@ export default function ZoneEditor({
       active = false;
     };
   }, [api, camera.id, camera.snapshot]);
+  async function watchWholeView() {
+    setBusy(true);
+    setError("");
+    try {
+      await api.invoke("add_zone", [camera.id, "whole view", wholeViewPolygon(size), dwell]);
+      setZones(await api.invoke("list_zones", [camera.id]));
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save() {
     if (!validPolygon(points) || !name.trim() || dwell < 1) return;
     setBusy(true);
@@ -259,6 +283,15 @@ export default function ZoneEditor({
         >
           <Check size={16} />
           Save zone
+        </button>
+        <button
+          type="button"
+          className="button"
+          disabled={busy}
+          title="Loitering and intrusion only work inside a zone. This watches the camera's whole view."
+          onClick={() => void watchWholeView()}
+        >
+          Watch the whole view
         </button>
         <div className="zone-list">
           {zones.map((z) => (

@@ -16,6 +16,7 @@ export interface Scene {
   confidence: number;
   source_frame_uri?: string;
   zones?: Json[];
+  zone_count?: number;
   mapping: { status: string; provenance?: string; reviewed_by?: string };
 }
 export interface Camera {
