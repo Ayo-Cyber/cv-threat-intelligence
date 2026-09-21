@@ -83,12 +83,19 @@ class FixedCameraGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "violence_synthetic.mp4"
             out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (320, 180))
+            if not out.isOpened():
+                self.skipTest("this OpenCV build cannot write mp4v")
             for frame in _frames("cuts", n=60):
                 out.write(np.ascontiguousarray(frame))
             out.release()
+            # A headless OpenCV on CI can write a container ffprobe reads as a
+            # few frames long; that is a REJECT for length, not for cuts, and
+            # says nothing about the gate. Only judge the gate on a real clip.
+            if verify_clips._duration(path) < verify_clips.MIN_SECONDS:
+                self.skipTest("writer produced an undecodable clip on this platform")
             row = verify_clips.verify(path)
         self.assertEqual(row["verdict"], "REJECT", row)
-        self.assertIn("hard cuts", row["why"])
+        self.assertIn("hard cuts", row["why"], row)
 
 
 if __name__ == "__main__":
