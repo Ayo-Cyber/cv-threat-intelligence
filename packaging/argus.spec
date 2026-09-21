@@ -170,6 +170,10 @@ engine_a = Analysis(
     datas=_ort_datas,              # shared datas ride with the app Analysis
     binaries=_ort_bins,
     hiddenimports=_ort_hidden + [
+        # Static ffmpeg for H.264 evidence clips. The headless OpenCV wheel
+        # has no H.264 encoder on Windows; without this the app's player
+        # got mp4v it cannot decode (21 Sep). hooks-contrib collects the binary.
+        "imageio_ffmpeg",
         "cvti.serving.pipeline",
         # Imported inside functions (pipeline starts the PPE worker only for
         # cameras with a `ppe` block; camera.py builds the motion tracker on

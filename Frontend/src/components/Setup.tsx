@@ -261,6 +261,27 @@ export default function Setup({
             ))}
           </>
         )}
+        {step === 7 && mode === "engine" && (
+          <>
+            {!checks.length && (
+              <Notice>
+                Readiness checks have not been run. You can finish now and run
+                them later from Settings; anything that needs attention will be
+                shown there.
+              </Notice>
+            )}
+            {checks.some((c) => c.ok === false) && (
+              <Notice error>
+                You can finish now. These still need attention:{" "}
+                {checks
+                  .filter((c) => c.ok === false)
+                  .map((c) => c.label)
+                  .join(", ")}
+                .
+              </Notice>
+            )}
+          </>
+        )}
         {step === 7 && (
           <>
             <h3>
@@ -318,11 +339,16 @@ export default function Setup({
           ) : (
             <button
               className="button primary"
-              disabled={
-                busy ||
-                !cameras.length ||
-                (mode === "engine" &&
-                  (!checks.length || checks.some((c) => c.ok === false)))
+              // Readiness checks INFORM; they do not lock the door. This used
+              // to be disabled until every check passed, so an installed site
+              // whose AI model had not finished its 3.3 GB download had a
+              // Finish button that did nothing, with no word as to why
+              // (Martin, 21 Sep: "finish setup button wasn't clicking"). The
+              // engine runs generic and loud without the model by design --
+              // complete_first_run says so in its own docstring.
+              disabled={busy || !cameras.length}
+              title={
+                !cameras.length ? "Add at least one camera first" : undefined
               }
               onClick={() => void run("mark_configured")}
             >

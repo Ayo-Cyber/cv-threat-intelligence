@@ -66,6 +66,31 @@ UNGROUNDED_AREA_FRAC = 0.9
 MIN_SNAP_IOU = 0.15
 
 
+def plain_error(exc_text: str) -> str:
+    """What the Rules panel should say when a scan could not ask the model.
+
+    The raw exception was shown verbatim -- "urlopen error [Errno 61]
+    Connection refused" or "model 'gemma3:4b' not found" -- on the camera's
+    Rules panel, where the pilot read it as the rules being broken rather
+    than the AI not being installed yet ("describe in English alerts weren't
+    firing", Windows, 21 Sep). The cause was the 3.3 GB model never having
+    downloaded; the sentences were saved and would have worked.
+    """
+    t = (exc_text or "").lower()
+    if ("not found" in t and "model" in t) or "pull" in t and "model" in t:
+        return ("the on-device AI model is not installed yet — download it in "
+                "Setup → Verification; your sentences are saved and will run once it is")
+    if any(k in t for k in ("connection refused", "errno 61", "errno 111",
+                            "10061", "failed to establish", "max retries",
+                            "urlopen error", "name or service not known")):
+        return ("the on-device AI is not running — open Setup → Verification and "
+                "press Download model, which also starts it; your sentences are saved")
+    if "timed out" in t or "timeout" in t:
+        return "the on-device AI did not answer in time on this machine; it will retry next scan"
+    return exc_text
+
+
+
 def _iou(a: tuple, b: tuple) -> float:
     ax1, ay1, ax2, ay2 = a
     bx1, by1, bx2, by2 = b
@@ -405,7 +430,7 @@ class CustomRuleScanner:
             return
         except Exception as exc:  # noqa: BLE001 - a scan error must not kill the loop
             log.info(f"[custom-rules {c['id']}] {str(exc)[:120]}")
-            self._record(c, None, error=str(exc)[:200])
+            self._record(c, None, error=plain_error(str(exc))[:200])
             return
         self._route_hits(c, frame, hits)
 
