@@ -4,6 +4,33 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.18 — 21 Sep 2026
+
+Three things found on a Windows installation, and one on a gate camera.
+
+**Replay videos now play in the app on Windows.** Evidence clips were being
+written in a format Windows machines could encode but the app's own player
+could not decode, so the clip existed, reached your phone, and showed as a
+blank box in the app. Clips are now converted to standard H.264 as they are
+written, on every platform.
+
+**Finish setup is no longer locked by the readiness checks.** The button
+stayed grey until every check had passed, which on a fresh installation
+meant until the 3.3 GB AI model had finished downloading — with nothing on
+screen saying so. You can now finish with a camera connected; anything still
+needing attention is listed instead of blocking you.
+
+**"Describe in English" rules explain themselves when the AI is not ready.**
+Your sentences were always saved. But until the on-device model is
+downloaded they cannot be evaluated, and the panel showed a raw connection
+error that read as if the rules were broken. It now says the model is not
+installed yet, where to download it, and that your rules are safe.
+
+**One vehicle through a gate is one alert.** A car waiting at a barrier arm
+could be counted several times as the tracker lost and re-found it. A vehicle
+re-appearing where one just crossed, going the same way, is recognised as the
+same vehicle. On the test footage this took one car from nine alerts to one.
+
 ## v1.8.17 — 21 Sep 2026
 
 **Set up phone alerts from the app.** Where alerts go used to be a single text
