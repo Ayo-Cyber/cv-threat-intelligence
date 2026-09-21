@@ -88,3 +88,77 @@ class SeveralChannels(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeliveryIsProvable(unittest.TestCase):
+    """A delivered alert must leave a trace, not just a silence.
+
+    TelegramNotifier logged nothing on success, so an engine log showed the
+    CONSOLE notifier's [NOTIFY] line whether or not a message ever reached
+    Telegram. On 20 Sep that made a stale build -- which dropped every queued
+    alert on exit, because its notifier had no close() to flush -- look
+    identical to a working one for hours.
+    """
+
+    def test_a_successful_send_is_logged(self):
+        import logging
+        from unittest import mock
+        notifier = TelegramNotifier("123:AAH", "555", background=False)
+        event = {"ts": 0.0, "iso": "now", "camera_id": "cam1", "rule": "fire",
+                 "priority": "high", "confidence": 0.9, "reason": "test",
+                 "evidence_dir": None, "zone": None, "track_id": None,
+                 "object_label": None}
+        with mock.patch.object(notifier, "_call", return_value=None):
+            with self.assertLogs("cvti.serving.alert_sink", level=logging.INFO) as caught:
+                notifier._deliver(event)
+        joined = " ".join(caught.output)
+        self.assertIn("delivered", joined)
+        self.assertIn("fire on cam1", joined)
+        self.assertIn("555", joined, "the destination chat belongs in the line")
+
+    def test_a_failed_send_names_the_alert_it_lost(self):
+        import logging
+        from unittest import mock
+        notifier = TelegramNotifier("123:AAH", "555", background=False)
+        event = {"ts": 0.0, "iso": "now", "camera_id": "cam9", "rule": "weapon",
+                 "priority": "critical", "confidence": 0.9, "reason": "test",
+                 "evidence_dir": None, "zone": None, "track_id": None,
+                 "object_label": None}
+        with mock.patch.object(notifier, "_call", side_effect=OSError("network down")):
+            with self.assertLogs("cvti.serving.alert_sink", level=logging.ERROR) as caught:
+                notifier._deliver(event)
+        joined = " ".join(caught.output)
+        self.assertIn("weapon on cam9", joined,
+                      "an error that does not name the lost alert is not much use")
+
+
+class TheBannerNeverPrintsCredentials(unittest.TestCase):
+    """monitor.log goes into the Diagnose zip customers email us.
+
+    The engine's startup banner prints its notify setting. That was safe only
+    because a CLI default of "console" always won, so the site config's real
+    spec never reached it. Letting the site config through (so --site-config
+    describes a whole deployment) would have put a live bot token in our inbox
+    (20 Sep).
+    """
+
+    def test_channel_names_survive_and_secrets_do_not(self):
+        from cvti.serving.pipeline import notify_channels
+        spec = ("console,telegram:8691681982:AAHSECRETSECRETSECRET:1883642843,"
+                "whatsapp:ACsid:authtokensecret:+1:+234")
+        shown = notify_channels(spec)
+        self.assertEqual(shown, "console,telegram,whatsapp")
+        for secret in ("AAHSECRETSECRETSECRET", "authtokensecret", "ACsid",
+                       "1883642843", "8691681982"):
+            self.assertNotIn(secret, shown)
+
+    def test_a_webhook_url_is_not_printed_either(self):
+        from cvti.serving.pipeline import notify_channels
+        shown = notify_channels("webhook:https://hooks.example.com/T00/B11/xyz")
+        self.assertEqual(shown, "webhook")
+        self.assertNotIn("hooks.example.com", shown)
+
+    def test_empty_and_plain_specs_still_read_sensibly(self):
+        from cvti.serving.pipeline import notify_channels
+        self.assertEqual(notify_channels(""), "console")
+        self.assertEqual(notify_channels("console"), "console")
