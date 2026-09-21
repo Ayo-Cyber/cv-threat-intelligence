@@ -29,6 +29,23 @@ Verification differs by what the class actually is:
   WEAPON classes                  -- the weapon model calls cardboard boxes guns
                                      at 0.60, so it cannot police its own data.
 
+Before any of that, every clip must look like it came from a SURVEILLANCE
+CAMERA, because the fetcher's YouTube queries return news coverage ABOUT
+incidents at least as often as footage OF them, and a news anchor is a person
+as far as a people-count is concerned. Two measurements separate them:
+
+  cuts   -- hard scene changes. CCTV is one continuous shot; a news package
+            cuts every few seconds; a vendor demo opens on a title card.
+  motion -- global camera movement between frames. CCTV is bolted to a wall;
+            a police body-cam and a panning news camera are not.
+
+Calibrated 21 Sep on clips already judged by eye: five known fixed cameras
+all measured 0 cuts and a median motion of 0.06-0.34 px; a news studio
+(2 cuts), a picture-in-picture montage (3), a title-card demo (3), a body-cam
+(1.0-1.4 px) and a panning advert (0.9-1.7 px) all fell outside. Thresholds
+sit in the gap. The median is deliberate: the 90th percentile read 9.6 px on
+a bolted-down camera watching a fire, because smoke moves.
+
 The last three are reported REVIEW: the tool has no trustworthy opinion and a
 person must watch them. That is a smaller claim than a verdict, and an honest
 one -- a verifier that guesses is how the mislabels got in.
@@ -59,6 +76,39 @@ REVIEW_CLASSES = {"violence", "theft", "suspicious", "concealment",
                   "normal", "empty"}
 
 MIN_SECONDS = 2.0
+# Fixed-camera gate. A single cut is flagged, not rejected: a barrier arm or a
+# headlight sweep can produce one histogram spike on a real camera.
+CUT_DISTANCE = 0.45          # Bhattacharyya distance between consecutive frames
+REJECT_CUTS = 2
+# MEDIAN global motion, not the 90th percentile: a fixed camera watching a
+# fire reads a p90 of 9.6 px at 2 fps because the SMOKE moves, and phase
+# correlation cannot tell content from camera in the tail. The median ignores
+# a few frames of billowing. Fixed cameras measured 0.06-0.34 px; a body-cam,
+# a panning advert and a montage measured 0.68-1.74. Threshold in the gap.
+MAX_MOTION_MEDIAN_PX = 0.5
+
+
+def camera_stability(frames) -> tuple[int, float]:
+    """(hard cuts, MEDIAN global motion in px) over sampled frames."""
+    import cv2
+    import numpy as np
+    prev_hist = prev_gray = None
+    cuts = 0
+    motions = []
+    window = cv2.createHanningWindow((160, 90), cv2.CV_32F)
+    for frame in frames:
+        small = cv2.resize(frame, (160, 90))
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        hist = cv2.calcHist([small], [0, 1, 2], None, [8, 8, 8], [0, 256] * 3)
+        hist = cv2.normalize(hist, hist).flatten()
+        if prev_hist is not None:
+            if cv2.compareHist(prev_hist, hist, cv2.HISTCMP_BHATTACHARYYA) > CUT_DISTANCE:
+                cuts += 1
+            (dx, dy), _ = cv2.phaseCorrelate(prev_gray, gray, window)
+            motions.append(float(np.hypot(dx, dy)))
+        prev_hist, prev_gray = hist, gray
+    median = float(np.median(motions)) if motions else 0.0
+    return cuts, median
 
 
 def _class_of(path: Path) -> str:
@@ -109,19 +159,33 @@ def verify(path: Path) -> dict:
         row.update(verdict="REJECT", why=f"only {seconds:.2f}s of footage")
         return row
 
-    if cls in REVIEW_CLASSES:
-        row.update(verdict="REVIEW",
-                   why="no trustworthy automatic check for this class -- watch it")
-        return row
-
     frames = list(_sample(path))
     if not frames:
         row.update(verdict="REJECT", why="no decodable frames")
         return row
 
+    cuts, motion = camera_stability(frames)
+    row.update(cuts=cuts, motion_median_px=round(motion, 2))
+    if cuts >= REJECT_CUTS:
+        row.update(verdict="REJECT",
+                   why=f"{cuts} hard cuts -- edited footage, not a surveillance camera")
+        return row
+    if motion > MAX_MOTION_MEDIAN_PX:
+        row.update(verdict="REJECT",
+                   why=f"camera moves {motion:.1f}px between frames -- handheld or "
+                       f"body-worn, not a fixed camera")
+        return row
+    unsteady = f" (1 cut -- check it is not a title card)" if cuts == 1 else ""
+
+    if cls in REVIEW_CLASSES:
+        row.update(verdict="REVIEW",
+                   why="no trustworthy automatic check for this class -- watch it" + unsteady)
+        return row
+
     from ultralytics import YOLO
     model = YOLO(str(ROOT / "models" / "yolov8n.pt"))
     counts, aspects = [], []
+    # frames were sampled once above and are reused here
     # A fall is a SUSTAINED horizontal posture, so the verifier applies the same
     # test cvti/detector/fall.py does. Peak alone passed a WSJ segment about BMW
     # cars as fall_03.mp4: a presenter gesturing hits w/h 1.39 for one frame.
@@ -152,7 +216,7 @@ def verify(path: Path) -> dict:
         ok = best_run >= need_run
         row.update(verdict="OK" if ok else "REJECT",
                    why=(f"a person stays horizontal for {best_run} sampled frames "
-                        f"(w/h peaks at {widest:.2f})" if ok else
+                        f"(w/h peaks at {widest:.2f}){unsteady}" if ok else
                         f"no sustained horizontal posture -- longest run {best_run} "
                         f"frame(s), need {need_run} (w/h peaks at {widest:.2f})"))
         return row
@@ -165,7 +229,7 @@ def verify(path: Path) -> dict:
     peak = max(counts) if counts else 0
     row.update(peak_people=peak)
     row.update(verdict="OK" if peak >= need else "REJECT",
-               why=f"peak {peak} people (need >= {need})")
+               why=f"peak {peak} people (need >= {need}){unsteady}")
     return row
 
 
