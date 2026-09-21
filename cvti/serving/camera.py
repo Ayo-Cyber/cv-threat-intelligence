@@ -547,8 +547,12 @@ class PerCameraState:
         flip = bool(self.vehicle_line.get("flip", False))
         tids = tracked.tracker_id
         out: list = []
-        # forget crossings older than the memory window
-        self._vehicle_line_recent = [r for r in self._vehicle_line_recent
+        # forget crossings older than the memory window. getattr, not the
+        # attribute: tests and rebinds build PerCameraState with __new__ and
+        # skip the dataclass init, the same reason the object-watch fields
+        # are read this way.
+        recent = getattr(self, "_vehicle_line_recent", None) or []
+        self._vehicle_line_recent = [r for r in recent
                                      if timestamp - r[0] <= self.VEHICLE_LINE_MEMORY_S]
         for i in range(len(tracked)):
             tid = int(tids[i]) if tids is not None and tids[i] is not None else None
