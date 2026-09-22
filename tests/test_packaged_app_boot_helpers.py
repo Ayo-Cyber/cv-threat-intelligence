@@ -20,13 +20,23 @@ class BinaryPerPlatform(unittest.TestCase):
         self.assertEqual(app_binary(Path("C:/r/win-unpacked"), "win32"),
                          Path("C:/r/win-unpacked/Argus.exe"))
 
-    def test_linux_prefers_whatever_exists(self):
+    def test_linux_is_named_after_the_package_not_the_product(self):
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "Argus").write_text("")
-            found = app_binary(Path(d), "linux")
-            self.assertTrue(found.exists(), found)              # case-insensitive FS: either spelling
-            self.assertEqual(found.name.lower(), "argus")
-            self.assertEqual(app_binary(Path("/nowhere"), "linux"), Path("/nowhere/argus"))
+            (Path(d) / "argus-desktop").write_text("")
+            (Path(d) / "chrome-sandbox").write_text("")
+            self.assertEqual(app_binary(Path(d), "linux"), Path(d) / "argus-desktop")
+
+    def test_linux_falls_back_to_the_one_big_executable(self):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            for name, size in (("chrome-sandbox", 10), ("chrome_crashpad_handler", 10),
+                               ("some-renamed-app", 5000), ("libffmpeg.so", 9000)):
+                f = Path(d) / name
+                f.write_bytes(b"x" * size)
+                os.chmod(f, 0o755)
+            (Path(d) / "resources").mkdir()
+            self.assertEqual(app_binary(Path(d), "linux"), Path(d) / "some-renamed-app")
+            self.assertEqual(app_binary(Path("/nowhere"), "linux"), Path("/nowhere/argus-desktop"))
 
 
 class Connected(unittest.TestCase):
