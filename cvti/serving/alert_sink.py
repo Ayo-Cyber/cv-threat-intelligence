@@ -588,6 +588,38 @@ def ensure_h264(path: "Path", timeout: float = 60.0) -> str:
         return codec
 
 
+def probe_clip_encoder(dest_dir: Path | str) -> dict:
+    """Write a synthetic evidence clip exactly the way the sink does and report
+    what came out. The one question that could not be answered from a Mac:
+    does the SHIPPED Windows engine produce an H.264 clip the app can play?
+
+    Returns {"codec", "ffmpeg", "path"}. codec == "h264" is the pass; anything
+    else means the bundle's ffmpeg did not run and replays will be black boxes
+    in the app (pilot, 21-22 Sep). Runs in seconds, needs no camera or model,
+    so CI can ask the real binary on every build (`--check-clip-encoder`)."""
+    import cv2
+    import numpy as np
+    dest = Path(dest_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    path = dest / "clip_probe.mp4"
+    h, w = 96, 160
+    written = None
+    for fourcc in ("avc1", "mp4v"):        # the same preference order as evidence
+        vw = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*fourcc), 24, (w, h))
+        if vw.isOpened():
+            for i in range(24):
+                im = np.zeros((h, w, 3), dtype=np.uint8)
+                cv2.rectangle(im, (i * 5, 20), (i * 5 + 30, 70), (0, 200, 255), -1)
+                vw.write(im)
+            vw.release()
+            written = fourcc
+            break
+    if written is None or not path.exists():
+        return {"codec": "none", "ffmpeg": _ffmpeg_exe(), "path": str(path)}
+    codec = ensure_h264(path)
+    return {"codec": codec, "ffmpeg": _ffmpeg_exe(), "path": str(path)}
+
+
 def _clip_codec(path: "Path") -> str:
     """What OpenCV wrote, read back from the container's fourcc."""
     try:

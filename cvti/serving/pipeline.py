@@ -2043,7 +2043,22 @@ def main() -> None:
                    help="Port for the phone response view on the site network; 0 disables.")
     p.add_argument("--output-dir", default="runs/serving",
                    help="Where confirmed events + evidence + events.db are written.")
+    p.add_argument("--check-clip-encoder", action="store_true",
+                   help="Write one synthetic evidence clip, print its codec and exit "
+                        "(0 = H.264, playable in the app). CI runs this against the "
+                        "shipped binary; nothing else can prove the Windows bundle's "
+                        "ffmpeg works.")
     args = p.parse_args()
+    if args.check_clip_encoder:
+        import tempfile
+
+        from cvti.serving.alert_sink import probe_clip_encoder
+        got = probe_clip_encoder(tempfile.mkdtemp(prefix="argus-clip-probe-"))
+        print(f"clip encoder: {got['codec']} (ffmpeg: {got['ffmpeg'] or 'not bundled'})")
+        if got["codec"] != "h264":
+            print("FAIL: evidence clips would not play in the app's player on this machine")
+            raise SystemExit(1)
+        raise SystemExit(0)
 
     # Before anything else: a failure during model loading is exactly the kind
     # that used to vanish. Component-scoped because the app runs this as a

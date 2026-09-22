@@ -120,12 +120,43 @@ def ollama_binary() -> str | None:
     return bundled_binary() or shutil.which("ollama")
 
 
-def start_server(models_dir: str | None = None) -> bool:
+OLLAMA_LOG_NAME = "ollama.log"
+OLLAMA_LOG_MAX_BYTES = 5 * 1024 * 1024
+
+
+def default_log_path() -> Path:
+    """Where the spawned server's own output goes: the log dir the Diagnose
+    zip already collects, so a runtime that refuses to load a model or dies
+    on a missing DLL leaves a trace someone can read."""
+    from cvti.logging_setup import resolve_log_dir
+    return resolve_log_dir() / OLLAMA_LOG_NAME
+
+
+def _open_server_log(log_path: Path | str | None):
+    """A file handle for the server's stdout/stderr, or DEVNULL if none can
+    be opened. Truncates a log that has grown past OLLAMA_LOG_MAX_BYTES —
+    the server is chatty per request and this file is never rotated by
+    anything else."""
+    target = Path(log_path) if log_path else default_log_path()
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and target.stat().st_size > OLLAMA_LOG_MAX_BYTES:
+            target.write_bytes(b"")
+        return open(target, "ab")  # handed to Popen, lives with the child
+    except OSError:
+        log.debug("could not open %s; server output is discarded", target, exc_info=True)
+        return subprocess.DEVNULL
+
+
+def start_server(models_dir: str | None = None, log_path: Path | str | None = None) -> bool:
     """Best-effort launch of `ollama serve` in the background. True if spawned.
 
     `models_dir` sets OLLAMA_MODELS for the spawned server. The bundled app
     passes its per-user data directory so the ~3 GB model lands somewhere
     writable that survives app updates — never inside the .app itself.
+    `log_path` is where the server's own stdout/stderr go (default: the app's
+    log dir). Until 22 Sep it was DEVNULL, so a runtime that could not load
+    the model on the pilot's box left NOTHING to read anywhere.
     """
     binary = ollama_binary()
     if not binary:
@@ -167,16 +198,23 @@ def start_server(models_dir: str | None = None) -> bool:
     if models_dir:
         Path(models_dir).mkdir(parents=True, exist_ok=True)
         env["OLLAMA_MODELS"] = str(models_dir)
+    sink = _open_server_log(log_path)
     try:
         subprocess.Popen(
             [binary, "serve"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=sink,
+            stderr=subprocess.STDOUT if sink is not subprocess.DEVNULL else subprocess.DEVNULL,
             env=env,
         )
         return True
     except OSError:
         return False
+    finally:
+        if sink is not subprocess.DEVNULL:
+            try:
+                sink.close()          # the child holds its own descriptor
+            except OSError:
+                pass
 
 
 LOW_MEMORY_TOTAL_GB = 16.0

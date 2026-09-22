@@ -151,7 +151,11 @@ def build_bundle(output_dir: str | Path, dest: str | Path | None = None) -> Path
         # This is the file that turns "it's slow" into a named stage — the
         # entire point of the 4 Sep instrumentation build. Counts only,
         # never content.
-        for name in ("perf_report.json", "gate_health.json"):
+        # english_rules_status.json is the scanner's own account of every
+        # "describe in English" rule — scans, matches, errors, last outcome.
+        # Three pilot reports said those rules "don't run"; the file that
+        # says whether they even scanned was not in the zip until 22 Sep.
+        for name in ("perf_report.json", "gate_health.json", "english_rules_status.json"):
             candidate = out_dir / name
             if candidate.is_file():
                 try:
