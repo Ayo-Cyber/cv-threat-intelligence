@@ -137,13 +137,17 @@ def _open_server_log(log_path: Path | str | None):
     be opened. Truncates a log that has grown past OLLAMA_LOG_MAX_BYTES —
     the server is chatty per request and this file is never rotated by
     anything else."""
-    target = Path(log_path) if log_path else default_log_path()
+    # Everything, including resolving the default path, stays inside the
+    # try: this runs on the engine-start path and a log file is never worth
+    # a failed spawn (CI, 22 Sep: tests that stub os.stat reached this).
+    target = None
     try:
+        target = Path(log_path) if log_path else default_log_path()
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and target.stat().st_size > OLLAMA_LOG_MAX_BYTES:
             target.write_bytes(b"")
         return open(target, "ab")  # handed to Popen, lives with the child
-    except OSError:
+    except Exception:  # noqa: BLE001 - a log is best-effort; the spawn is not
         log.debug("could not open %s; server output is discarded", target, exc_info=True)
         return subprocess.DEVNULL
 

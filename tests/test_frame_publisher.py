@@ -539,7 +539,7 @@ class MjpegStreamTests(unittest.TestCase):
 
 
 class UiStreamWiringTests(unittest.TestCase):
-    UI = (Path(__file__).resolve().parents[1] / "cvti/app/web/index.html").read_text()
+    UI = (Path(__file__).resolve().parents[1] / "cvti/app/web/index.html").read_text(encoding="utf-8")
 
     def test_tiles_use_the_stream_not_a_polled_still(self):
         self.assertIn("streamUrl(c.id)", self.UI)

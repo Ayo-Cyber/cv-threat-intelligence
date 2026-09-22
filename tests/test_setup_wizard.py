@@ -149,10 +149,10 @@ class SelfTestTest(unittest.TestCase):
         because nothing started one and nothing he could find would
         (Martin, 20 Sep).
         """
-        setup = (ROOT / "Frontend/src/components/Setup.tsx").read_text()
+        setup = (ROOT / "Frontend/src/components/Setup.tsx").read_text(encoding="utf-8")
         self.assertIn("VerifierDownload", setup,
                       "the Verification step must carry the download control")
-        control = (ROOT / "Frontend/src/components/VerifierDownload.tsx").read_text()
+        control = (ROOT / "Frontend/src/components/VerifierDownload.tsx").read_text(encoding="utf-8")
         self.assertIn("Download model (", control,
                       "the control this advice points at must be a real button")
 
@@ -195,7 +195,7 @@ class BackgroundPrefetchTest(unittest.TestCase):
     not as a wall at step 6. Pins the wiring; the visual flow was verified in
     a browser across every step."""
 
-    UI = (Path(__file__).resolve().parents[1] / "cvti/app/web/index.html").read_text()
+    UI = (Path(__file__).resolve().parents[1] / "cvti/app/web/index.html").read_text(encoding="utf-8")
 
     def test_the_download_starts_when_the_wizard_opens(self):
         opener = self.UI.split("function openWizard")[1].split("\nfunction ")[0]
