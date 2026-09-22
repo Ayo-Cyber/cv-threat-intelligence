@@ -112,6 +112,34 @@ jobs:
         shell: bash
         run: python -m pytest -q
 
+  # The desktop UI's own tests and type-check, on every PR. Until 22 Sep they
+  # ran only inside the packaging job (tags and dispatches), so a frontend
+  # break — a select that could not pick "Generic", a card asking for a clip
+  # by the wrong key — reached main unchecked and surfaced in a tag build or
+  # on the pilot's screen. Cheap (~1 min), so it gates PRs.
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+      - name: Install
+        working-directory: Frontend
+        run: npm ci
+      - name: Type-check the renderer and the Electron main process
+        working-directory: Frontend
+        run: |
+          npx tsc -b
+          npx tsc -p electron/tsconfig.json --noEmit
+      - name: Unit tests
+        working-directory: Frontend
+        run: npm test
+
   # The product, end to end, in containers: a real RTSP camera feeding the real
   # engine, with assertions on what came out. Runs on every push — this is the
   # test that would have caught the bugs humans found by running it. (25 Aug.)
