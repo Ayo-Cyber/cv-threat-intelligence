@@ -53,24 +53,34 @@ class SettleWindowTest(unittest.TestCase):
         self.assertFalse([e for e in events if "fire" in e],
                          f"fire alert during exposure settle: {events}")
 
-    def _flame_frame(self):
-        # A LOCALIZED hot region (~15% of frame) — what an actual fire looks
-        # like to a fixed camera, unlike the whole-frame bloom above, which
-        # the detector now rejects outright (max_hot_area_ratio, 3 Sep).
-        f = np.zeros((120, 160, 3), dtype=np.uint8)
-        f[40:90, 50:110, 0] = 30
-        f[40:90, 50:110, 1] = 140
-        f[40:90, 50:110, 2] = 250
+    def _room_frame(self):
+        # A dark, ordinary scene: what the detector should learn as background.
+        return np.full((120, 160, 3), 40, dtype=np.uint8)
+
+    def _flame_frame(self, t: int):
+        # A LOCALIZED hot region (~15% of frame) that FLICKERS — edge and size
+        # jitter every frame, as a flame does to a fixed camera. Since 22 Sep
+        # the detector wants new + changing, not merely warm: a static warm
+        # block is a wall, and was the pilot's every-start fire alert.
+        f = self._room_frame()
+        jitter = (t * 7) % 11
+        f[40:90 + jitter, 50:110 + (t % 3) * 4, 0] = 30
+        f[40:90 + jitter, 50:110 + (t % 3) * 4, 1] = 140
+        f[40:90 + jitter, 50:110 + (t % 3) * 4, 2] = 250
         return f
 
     def test_fire_can_still_fire_after_settling(self):
-        """The window must delay the detector, not delete it: a real,
-        localized flame that is ignored during settle DOES alert once the
-        camera is past it — proving the guard is a delay, not a mute."""
+        """The window must delay the detector, not delete it: a flame that
+        appears once the camera is past settle (and past the detector's own
+        scene warm-up) DOES alert — proving the guard is a delay, not a mute."""
         st = self._state()
         events = []
-        for i in range(80):                    # 20s: settle ends at 8s
-            out = st.process(_no_detections(), self._flame_frame(), timestamp=i * 0.25)
+        for i in range(60):                    # 15s of a quiet room: settle (8s) + warm-up
+            out = st.process(_no_detections(), self._room_frame(), timestamp=i * 0.25)
+            events.extend(a.rule_name for a in (out or []))
+        self.assertFalse([e for e in events if "fire" in e], f"quiet room read as fire: {events}")
+        for t in range(12):                    # then a fire starts and flickers for 3s
+            out = st.process(_no_detections(), self._flame_frame(t), timestamp=15.0 + t * 0.25)
             events.extend(a.rule_name for a in (out or []))
         self.assertTrue([e for e in events if "fire" in e],
                         "the settle window muted the fire detector forever")

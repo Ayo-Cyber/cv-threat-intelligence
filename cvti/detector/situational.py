@@ -159,51 +159,161 @@ class CrowdFormationDetector:
 
 @dataclass
 class FireSmokeCandidateDetector:
-    """Detect persistent flame-colored or smoke-like frame regions."""
+    """Flag flame-coloured or smoke-like regions that are NEW to the scene and
+    keep changing — never the scene's own colours.
+
+    The first version thresholded colour over the whole frame: any frame with
+    ≥1.2% warm pixels or ≥8% grey pixels was a candidate. Measured on 22 Sep
+    against normal footage that flagged EVERY frame — 39/39 of an ordinary
+    indoor camera, 116/116 of a night-IR driveway (grey = "smoke"), every
+    gate and PPE clip — so each engine start produced a critical fire alert
+    within seconds of the settle window, and it kept happening ("the baseline
+    fire just comes up from start", pilot, 22 Sep). Fire is a critical alert
+    and reaches the operator BEFORE verification, so a colour histogram of the
+    room was ringing the phone.
+
+    What fire and smoke actually are, in a fixed camera: regions that were not
+    there (relative to a slowly learned background of the scene's own warm and
+    grey areas), that flicker or drift frame to frame, and that persist for a
+    few frames. A warm wall, a wooden floor, an orange sign and an IR-lit yard
+    are background; they never become candidates. Something warm that appears
+    and moves (a hi-vis vest walking through) still can — that is the VLM
+    gate's call, and its prompt already says signage and lighting are not fire.
+    Colour smoke detection is skipped on monochrome (IR night) frames, where
+    "grey" is every pixel.
+
+    Tried and rejected on the same footage (22 Sep): masking out YOLO
+    person/vehicle boxes (no gain on people, worse on gates — the box hides
+    the floor and the floor comes back "new"), and a centroid-drift test for
+    in-place flicker (no gain). Raising the brightness floor did the work.
+    """
 
     min_frames: int = 3
     min_hot_area_ratio: float = 0.012
-    # Ceiling, symmetric with smoke's (3 Sep): the smoke path always knew
-    # whole-frame grey is fog or exposure, but the hot path had NO upper
-    # bound — so a night camera's IR/exposure bloom (globally warm, bright,
-    # saturated after tone-mapping) read as fire at every engine start on
-    # the pilot's camera, sailing past the 8s settle window whenever the
-    # bloom hunted longer. A real fire covering two thirds of a fixed CCTV
-    # frame is a swallowed camera (tamper's job to report); whole-frame hot
-    # is the camera's own optics, not a candidate.
+    # Whole-frame ceilings (3 Sep): whole-frame warm or grey is the camera's
+    # own optics (IR bloom, exposure hunt, fog), not a candidate.
     max_hot_area_ratio: float = 0.65
     min_smoke_area_ratio: float = 0.08
     max_smoke_area_ratio: float = 0.65
-    _candidate_frames: int = 0
-    _latched: bool = False
+    # Background model: an EMA of each pixel's hot/grey membership. 0.05 ≈ 20
+    # frames (~5 s at the engine's 4 fps) to absorb a change into "normal".
+    background_alpha: float = 0.05
+    # Learn the scene before judging it (~3 s at 4 fps). Together with the
+    # camera's 8 s settle window this covers the exposure/IR hunt at start.
+    warmup_frames: int = 12
+    # Flicker: fraction of the new region that changed since the last frame.
+    # A flame or a smoke plume never holds still; a newly parked orange car
+    # does, and drops out here.
+    min_change_ratio: float = 0.15
+    # Mean HSV saturation below this = monochrome frame (IR night mode).
+    min_saturation_for_smoke: float = 12.0
+    # After one candidate, hold the same camera quiet for this long unless the
+    # new area doubles. One provisional per camera per 5 min at most — the
+    # engine and the gate decide the rest.
+    rearm_seconds: float = 300.0
+    # Flame is BRIGHT: V floor for the hot mask. Skin shares the hue band
+    # (0-35) at V 130-190 and made every walking person a candidate; flame
+    # cores sit near white. Measured 22 Sep: 130 -> 180 cut people-clip
+    # events 15 -> 3 per minute with every real fire still caught.
+    hot_min_value: int = 180
+    # Analyse at this width; colour masks do not need full resolution.
+    analysis_width: int = 320
+
+    _bg_hot: Any = field(default=None, init=False, repr=False)
+    _bg_smoke: Any = field(default=None, init=False, repr=False)
+    _prev_new_hot: Any = field(default=None, init=False, repr=False)
+    _prev_new_smoke: Any = field(default=None, init=False, repr=False)
+    _frames_seen: int = field(default=0, init=False, repr=False)
+    # Candidate flags for the last 2*min_frames frames. Persistence is
+    # "min_frames hits in that window", not "consecutive": a flame's
+    # frame-to-frame change is not uniform, and one quiet frame must not
+    # reset the count (it did, and a steady synthetic flame never fired).
+    _recent: list = field(default_factory=list, init=False, repr=False)
+    _candidate_frames: int = field(default=0, init=False, repr=False)
+    _latched: bool = field(default=False, init=False, repr=False)
+    _last_fired_ts: float = field(default=float("-inf"), init=False, repr=False)
+    _last_fired_area: float = field(default=0.0, init=False, repr=False)
+
+    def _masks(self, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+        h, w = frame.shape[:2]
+        if w > self.analysis_width:
+            frame = cv2.resize(frame, (self.analysis_width, max(1, int(h * self.analysis_width / w))),
+                               interpolation=cv2.INTER_AREA)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hot = cv2.inRange(hsv, np.array([0, 70, self.hot_min_value]), np.array([35, 255, 255]))
+        smoke = cv2.inRange(hsv, np.array([0, 0, 80]), np.array([180, 60, 230]))
+        return (hot > 0), (smoke > 0), float(hsv[..., 1].mean())
+
+    @staticmethod
+    def _change(now: np.ndarray, prev: Any) -> float:
+        """Fraction of the current region that differs from the previous frame."""
+        area = float(now.sum())
+        if area <= 0:
+            return 0.0
+        if prev is None or prev.shape != now.shape:
+            return 1.0
+        return float(np.logical_xor(now, prev).sum()) / area
 
     def update(self, frame: np.ndarray, timestamp: float) -> dict[str, Any] | None:
         if frame.size == 0:
             return None
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        hot_mask = cv2.inRange(hsv, np.array([0, 70, 130]), np.array([35, 255, 255]))
-        smoke_mask = cv2.inRange(hsv, np.array([0, 0, 80]), np.array([180, 60, 230]))
-
-        total = float(frame.shape[0] * frame.shape[1])
-        hot_area_ratio = float(cv2.countNonZero(hot_mask)) / max(total, 1.0)
-        smoke_area_ratio = float(cv2.countNonZero(smoke_mask)) / max(total, 1.0)
-        smoke_candidate = self.min_smoke_area_ratio <= smoke_area_ratio <= self.max_smoke_area_ratio
-        hot_candidate = self.min_hot_area_ratio <= hot_area_ratio <= self.max_hot_area_ratio
-        candidate = hot_candidate or smoke_candidate
-
-        if not candidate:
+        hot, smoke, saturation = self._masks(frame)
+        if self._bg_hot is None or self._bg_hot.shape != hot.shape:
+            # New scene (first frame, or a resolution change): learn, don't judge.
+            self._bg_hot = hot.astype(np.float32)
+            self._bg_smoke = smoke.astype(np.float32)
+            self._prev_new_hot = self._prev_new_smoke = None
+            self._frames_seen = 1
+            self._recent = []
             self._candidate_frames = 0
             self._latched = False
             return None
-        self._candidate_frames += 1
-        if self._candidate_frames < self.min_frames or self._latched:
+
+        new_hot = np.logical_and(hot, self._bg_hot < 0.5)
+        new_smoke = np.logical_and(smoke, self._bg_smoke < 0.5)
+        a = self.background_alpha
+        self._bg_hot += a * (hot.astype(np.float32) - self._bg_hot)
+        self._bg_smoke += a * (smoke.astype(np.float32) - self._bg_smoke)
+        self._frames_seen += 1
+
+        total = float(hot.size)
+        hot_ratio = float(hot.sum()) / total
+        new_hot_ratio = float(new_hot.sum()) / total
+        new_smoke_ratio = float(new_smoke.sum()) / total
+        hot_change = self._change(new_hot, self._prev_new_hot)
+        smoke_change = self._change(new_smoke, self._prev_new_smoke)
+        self._prev_new_hot, self._prev_new_smoke = new_hot, new_smoke
+
+        if self._frames_seen <= self.warmup_frames:
             return None
 
+        hot_candidate = (self.min_hot_area_ratio <= new_hot_ratio
+                         and hot_ratio <= self.max_hot_area_ratio
+                         and hot_change >= self.min_change_ratio)
+        smoke_candidate = (saturation >= self.min_saturation_for_smoke
+                           and self.min_smoke_area_ratio <= new_smoke_ratio <= self.max_smoke_area_ratio
+                           and smoke_change >= self.min_change_ratio)
+        self._recent.append(bool(hot_candidate or smoke_candidate))
+        del self._recent[:-max(1, 2 * self.min_frames)]
+        self._candidate_frames = sum(self._recent)
+        if self._candidate_frames == 0:
+            self._latched = False
+            return None
+        if not (hot_candidate or smoke_candidate) or self._candidate_frames < self.min_frames \
+                or self._latched:
+            return None
         self._latched = True
+
+        area = max(new_hot_ratio, new_smoke_ratio)
+        if (timestamp - self._last_fired_ts) < self.rearm_seconds and area < 2.0 * self._last_fired_area:
+            return None                     # same camera, same-sized episode, too soon
+        self._last_fired_ts = timestamp
+        self._last_fired_area = area
         return {
             "kind": "fire_smoke",
-            "hot_area_ratio": round(hot_area_ratio, 4),
-            "smoke_area_ratio": round(smoke_area_ratio, 4),
+            "hot_area_ratio": round(new_hot_ratio, 4),
+            "smoke_area_ratio": round(new_smoke_ratio, 4),
+            "change_ratio": round(max(hot_change, smoke_change), 3),
             "candidate_frames": self._candidate_frames,
             "timestamp": timestamp,
         }
