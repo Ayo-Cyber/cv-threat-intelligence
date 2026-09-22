@@ -473,6 +473,19 @@ jobs:
         shell: bash
         run: python tests/e2e/packaged_app_check.py Frontend/release
 
+      # The app a customer double-clicks must START. Until 22 Sep the Electron
+      # shell was only checked for files (above) and the step that "booted the
+      # app" launched the retired PyQt Argus.exe — so "it might not start on
+      # Windows" could not be answered by anyone. This launches the packaged
+      # shell cold with a clean data directory and walks a first user's chain:
+      # API up -> first owner -> sign in -> add a camera -> start the engine
+      # -> the engine reports the camera connected. Fails with the app's own
+      # logs in this build log.
+      - name: Boot the packaged app cold and run a first hour
+        shell: bash
+        timeout-minutes: 15
+        run: python tests/e2e/packaged_app_boot.py Frontend/release
+
       - name: Notarise and staple the disk image (macOS)
         if: runner.os == 'macOS'
         env:
