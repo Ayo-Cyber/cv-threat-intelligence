@@ -4,7 +4,7 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
-## v1.8.21 — 23 Sep 2026
+## v1.8.21 — 22 Sep 2026
 
 Proof instead of guesswork on Windows.
 

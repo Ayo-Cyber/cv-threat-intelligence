@@ -38,9 +38,10 @@ def main(engine: str) -> int:
     probe_out = tmp / "clip_probe.txt"
     with probe_out.open("w", encoding="utf-8", errors="replace") as f:
         probe = subprocess.run([str(engine), "--check-clip-encoder"],
-                               stdout=f, stderr=subprocess.STDOUT, timeout=300)
+                               stdout=f, stderr=subprocess.STDOUT, timeout=300, check=False)
     probe_text = probe_out.read_text(encoding="utf-8", errors="replace").strip()
-    print(f"  {probe_text.splitlines()[0] if probe_text else '(no output)'}")
+    verdict = [ln for ln in probe_text.splitlines() if "clip encoder" in ln]
+    print(f"  {verdict[0] if verdict else (probe_text.splitlines() or ['(no output)'])[0]}")
     if probe.returncode != 0 or "clip encoder: h264" not in probe_text:
         problems.append("the shipped engine does not write H.264 evidence clips — "
                         f"replays would be black in the app: {probe_text[-300:]}")
