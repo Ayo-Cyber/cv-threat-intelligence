@@ -147,7 +147,7 @@ def _open_server_log(log_path: Path | str | None):
         if target.exists() and target.stat().st_size > OLLAMA_LOG_MAX_BYTES:
             target.write_bytes(b"")
         return open(target, "ab")  # handed to Popen, lives with the child
-    except Exception:  # noqa: BLE001 - a log is best-effort; the spawn is not
+    except Exception:  # a log is best-effort; the spawn is not
         log.debug("could not open %s; server output is discarded", target, exc_info=True)
         return subprocess.DEVNULL
 
