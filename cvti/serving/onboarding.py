@@ -10,6 +10,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import socket
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -31,14 +32,44 @@ RULE_PRESETS = {
 }
 
 
+def _open_for_test(source, cv2):
+    """A VideoCapture for the Test button, opened the way the ENGINE opens it.
+
+    The form's "0 for webcam" arrived here as the STRING "0", and OpenCV
+    reads a string as a file path or URL — so Test connection could never
+    open a webcam on any OS while Add camera + monitoring worked fine
+    (Adekunle's screen share, 22 Sep: "Could not open" on source 0 with the
+    camera permissions all green). Digits become a device index; on Windows
+    DirectShow first, as cvti.serving.capture.open_capture does, because the
+    default MSMF backend is slow to open and often refuses a busy device.
+    """
+    src = int(source) if str(source).strip().isdigit() else source
+    if isinstance(src, int) and sys.platform == "win32":
+        cap = cv2.VideoCapture(src, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            return cap, src
+        cap.release()
+    return cv2.VideoCapture(src), src
+
+
 def test_url(url: str, snapshot_size: int = 320) -> dict:
     """Open a stream and report whether it works (+ a base64 snapshot to preview)."""
     import base64
+
     import cv2
-    cap = cv2.VideoCapture(url)
+    cap, src = _open_for_test(url, cv2)
     if not cap.isOpened():
+        if isinstance(src, int):
+            return {"ok": False, "error": f"Could not open webcam {src} — close any app that is using "
+                                          "the camera (Meet, Teams, Zoom) and check Windows camera "
+                                          "permissions for desktop apps."}
         return {"ok": False, "error": "Could not open — check the IP, credentials, path, and that the PC is on the same network."}
     ok, frame = cap.read()
+    # A webcam's first reads often return nothing while it powers up.
+    tries = 0
+    while (not ok or frame is None) and isinstance(src, int) and tries < 10:
+        ok, frame = cap.read()
+        tries += 1
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
     cap.release()
     if not ok or frame is None:
