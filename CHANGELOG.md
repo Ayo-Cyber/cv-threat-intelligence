@@ -8,6 +8,17 @@ to update. Dates are release dates. Every version is built by CI from a tag on
 
 Proof instead of guesswork on Windows.
 
+**Fire and smoke alerts no longer fire on an ordinary room.** The fire
+detector judged colour alone: a scene with a little warm colour, or a lot of
+grey — every night-vision camera — was a fire candidate on every frame, so a
+critical fire alert appeared seconds after every start and kept returning.
+It now looks for warm or smoke-like regions that are *new* to the scene and
+keep changing, learns the camera's own colours as background, ignores the
+colour test on black-and-white night video, and reports at most one
+candidate per camera every five minutes unless it grows. Measured on our
+footage: an indoor camera went from a candidate on 39 of 39 frames to none;
+a night driveway from 116 of 116 to none; real fires are still caught.
+
 **Every Windows build now proves its replay clips play.** The shipped engine
 writes one test clip during the build, and the build fails unless it comes
 out as H.264 — the format the app's player decodes. Until now only a

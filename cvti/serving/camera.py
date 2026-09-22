@@ -193,6 +193,7 @@ class PerCameraState:
     crowd_max_cluster_ratio: float = 0.24
     fire_min_frames: int = 3
     fire_min_hot_area_ratio: float = 0.012
+    fire_rearm_seconds: float = 300.0      # one fire candidate per camera per window unless it doubles
     movement_enter_speed_ratio: float = 0.05
     movement_exit_speed_ratio: float = 0.02
     movement_min_track_seconds: float = 0.4
@@ -715,7 +716,8 @@ class PerCameraState:
                 from cvti.detector.situational import FireSmokeCandidateDetector
                 self._fire_det = FireSmokeCandidateDetector(
                     min_frames=self.fire_min_frames,
-                    min_hot_area_ratio=self.fire_min_hot_area_ratio)
+                    min_hot_area_ratio=self.fire_min_hot_area_ratio,
+                    rearm_seconds=self.fire_rearm_seconds)
             f = self._fire_det.update(image, timestamp)
             if f is not None:
                 raw_events.append(RawEvent(
@@ -1293,6 +1295,7 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                 crowd_max_cluster_ratio=float(cam.get("crowd_max_cluster_ratio", 0.24)),
                 fire_min_frames=int(cam.get("fire_min_frames", 3)),
                 fire_min_hot_area_ratio=float(cam.get("fire_min_hot_area_ratio", 0.012)),
+                fire_rearm_seconds=float(cam.get("fire_rearm_seconds", 300.0)),
                 movement_enter_speed_ratio=movement_enter,
                 movement_exit_speed_ratio=movement_exit,
                 movement_min_track_seconds=movement_min_track,
