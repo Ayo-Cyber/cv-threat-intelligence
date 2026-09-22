@@ -96,6 +96,24 @@ def _zone_count(zones_path) -> int:
         return 0
 
 
+def _custom_rules(cam: dict) -> list[dict]:
+    """The camera's plain-English rules as the app shows them ({question, dwell}).
+
+    Same normalisation as ConsoleBackend._custom_rules: the `custom_rules`
+    list plus the wizard-era single `custom_rule`, blanks dropped. Until
+    22 Sep the camera list carried neither field, so the Rules tab rendered
+    `camera.custom_rules || []` -- always empty -- and a sentence that HAD
+    been written to the site file looked like it was never saved (pilot,
+    Windows: "describe in English doesn't save")."""
+    rules = [dict(r) for r in (cam.get("custom_rules") or []) if isinstance(r, dict)]
+    legacy = cam.get("custom_rule")
+    if isinstance(legacy, dict) and (legacy.get("question") or "").strip() and \
+            legacy["question"] not in [r.get("question") for r in rules]:
+        rules.insert(0, dict(legacy))
+    return [{"question": r["question"].strip(), "dwell": float(r.get("dwell") or 0.0)}
+            for r in rules if (r.get("question") or "").strip()]
+
+
 def read_cameras(site_path: str, db_path: str) -> list[dict]:
     """Configured cameras (credential-redacted) merged with live link state
     from the health doc."""
@@ -141,6 +159,7 @@ def read_cameras(site_path: str, db_path: str) -> list[dict]:
             # UI needs this number to say so, because until 21 Sep nothing did
             # and a pilot's "loitering isn't working" was a camera with no zone.
             "zone_count": _zone_count(c.get("zones")),
+            "custom_rules": _custom_rules(c),
             "view_only": bool(c.get("view_only")),
             "state": live.get("state", "unknown"),
             "last_frame_age_s": live.get("last_frame_age_s"),
