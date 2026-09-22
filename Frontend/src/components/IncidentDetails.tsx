@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { Check, Flag, ShieldCheck } from "lucide-react";
-import type { Incident, Json, Transport } from "../lib/types";
+import type { Incident, Transport } from "../lib/types";
+import {
+  clipRequestKey,
+  evidenceView,
+  playbackProblem,
+  PENDING_POLL_MS,
+  type ClipReply,
+} from "../lib/evidence";
 import { Badge, Notice, Spinner } from "./common";
 export default function IncidentDetails({
   event,
@@ -11,24 +18,39 @@ export default function IncidentDetails({
   api: Transport;
   onChange: () => Promise<void>;
 }) {
-  const [clip, setClip] = useState<Json>({});
+  const [clip, setClip] = useState<ClipReply>({});
   const [loading, setLoading] = useState(!event.demo_video);
+  const [videoFailed, setVideoFailed] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(event.note || "");
   const [done, setDone] = useState(event.triage_state === "resolved");
+  const view = evidenceView(clip, event, { videoFailed });
+  // Ask by event id (never by evidence path: a freshly pushed alert has
+  // none yet), ask again when the settled row arrives with its evidence,
+  // and while the engine is still writing, poll until it lands.
   useEffect(() => {
+    if (event.demo_video) return;
     let active = true;
-    if (!event.demo_video)
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setVideoFailed(false);
+    const fetchClip = () =>
       api
-        .invoke("event_clip", [event.evidence_dir || null])
-        .then((r) => active && setClip(r))
+        .invoke<ClipReply>("event_clip", [clipRequestKey(event)])
+        .then((r) => {
+          if (!active) return;
+          setClip(r || {});
+          if (evidenceView(r, event) === "pending")
+            timer = setTimeout(fetchClip, PENDING_POLL_MS);
+        })
         .catch((e) => active && setError(e.message))
         .finally(() => active && setLoading(false));
+    void fetchClip();
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
     };
-  }, [event.id, api]);
+  }, [event.id, event.evidence_dir, api]);
   async function submit(outcome?: string) {
     setBusy(true);
     setError("");
@@ -47,6 +69,7 @@ export default function IncidentDetails({
       setBusy(false);
     }
   }
+  const problem = playbackProblem(clip, videoFailed);
   return (
     <>
       {error && <Notice error>{error}</Notice>}
@@ -59,17 +82,32 @@ export default function IncidentDetails({
         <span>{new Date(event.ts * 1000).toLocaleString()}</span>
         {event.demo_video && <Badge>Sample incident</Badge>}
       </div>
+      {problem && <Notice>{problem}</Notice>}
       <div className="evidence">
         {loading ? (
           <Spinner />
-        ) : event.demo_video || clip.uri ? (
-          <video controls muted autoPlay src={event.demo_video || clip.uri} />
-        ) : clip.frames?.length ? (
+        ) : event.demo_video ? (
+          <video controls muted autoPlay src={event.demo_video} />
+        ) : view === "video" ? (
+          <video
+            controls
+            muted
+            autoPlay
+            src={clip.uri || undefined}
+            onError={() => setVideoFailed(true)}
+          />
+        ) : view === "frames" ? (
           <div className="evidence-frames">
-            {clip.frames.map((uri: string, i: number) => (
+            {(clip.frames || []).map((uri: string, i: number) => (
               <img src={uri} key={i} alt={`Evidence frame ${i + 1}`} />
             ))}
           </div>
+        ) : view === "pending" ? (
+          <p>
+            Evidence is still being written for this alert. The replay appears
+            here as soon as the engine has saved it, usually within a few
+            seconds of the verdict.
+          </p>
         ) : (
           <p>No recorded evidence is available for this event.</p>
         )}

@@ -4,6 +4,29 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.20 — 22 Sep 2026
+
+Two more reports from the Windows installation.
+
+**Your "Describe in English" sentences now stay on screen after you save
+them.** They were being saved, and the engine was scanning for them, but the
+camera list the Rules tab reads never carried them — so every sentence
+vanished from the panel the moment it refreshed and looked as if it had not
+saved. The list now includes them, and the "N English rules" count on each
+camera card is right.
+
+**Alert replays no longer show as missing when they exist.** Three different
+situations all produced "No recorded evidence is available":
+
+- A critical alert opened straight after it fired. Its record exists about
+  20 seconds before its evidence does; the card now says the evidence is
+  still being written and fills in by itself when it lands.
+- A clip this machine cannot play. Instead of a silent black box, the card
+  falls back to the recorded frames and says which format the clip was
+  saved in.
+- The card asked for the clip by its evidence folder, which a just-pushed
+  alert does not have yet. It now asks by the alert's own id.
+
 ## v1.8.19 — 22 Sep 2026
 
 **Loitering, intrusion and restricted-area alerts need a zone — and Argus

@@ -533,10 +533,17 @@ export class ArgusApiClient {
       return (result ?? { ok: true }) as T;
     }
     if (method === "event_clip") {
+      // The card asks by event id. An evidence path is still honoured for
+      // callers that remember one, but an empty key must never become
+      // GET /events//clip -- that was a 404 dressed up as "no evidence".
       const key = String(args[0] ?? "");
+      if (!key) throw new Error("event_clip needs an event id");
+      const id = key.startsWith("evt_")
+        ? key
+        : (this.evidenceIds.get(key) ?? key);
       return (await this.request(
         { method: "GET", path: item("/events", "/clip") },
-        [this.evidenceIds.get(key) ?? key],
+        [id],
         true,
       )) as T;
     }

@@ -23,6 +23,10 @@ from cvti.logging_setup import get_logger
 
 log = get_logger(__name__)
 
+# How long after an alert fires its missing evidence is "still being written"
+# rather than absent. Verification takes ~20s; a slow box under load, more.
+CLIP_PENDING_WINDOW_S = 120.0
+
 API_PREFIX = "/api/v1"
 WS_AUTH_PROTOCOL = "argus.v1"
 WS_TOKEN_PROTOCOL_PREFIX = "argus.token."
@@ -422,13 +426,21 @@ def create_app(*, db_path: str = "runs/site/events.db",
             return _error(404, "not_found", f"no such event '{event_id}'")
         from cvti.security.permissions import PermissionDenied
         try:
-            return host.call(principal, "event_clip",
+            clip = host.call(principal, "event_clip",
                              evidence_dir=got.get("evidence", {}).get("dir")
                              if isinstance(got.get("evidence"), dict)
                              else got.get("evidence_dir"))
         except PermissionDenied as exc:
             return _error(403, "forbidden", str(exc),
                           {"permission": exc.permission})
+        # A critical alert is persisted BEFORE its evidence exists (two-tier:
+        # the row lands in <1s, the clip when the verdict settles ~20s later)
+        # and the push loop hands the UI that early row. "No recorded
+        # evidence" was the wrong sentence for it -- the evidence is coming.
+        if isinstance(clip, dict) and not clip.get("uri") and not clip.get("frames"):
+            age = time.time() - float(got.get("ts") or 0)
+            clip["pending"] = 0 <= age < CLIP_PENDING_WINDOW_S
+        return clip
 
     register_index(app, mock=False)
     return app

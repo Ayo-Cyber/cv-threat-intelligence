@@ -2654,14 +2654,24 @@ class ConsoleBackend:
         subject = self._subject_uri(evidence_dir, frame_base)
         clip = d / "clip.mp4"
         uri = None
+        codec = None
         if clip.exists():
             uri = "data:video/mp4;base64," + base64.b64encode(clip.read_bytes()).decode()
+            # Say what the file is. A clip OpenCV wrote as mp4v is a black box
+            # in Chromium with no error anyone can read; with the codec in the
+            # reply the card can fall back to the frames and SAY why.
+            try:
+                from cvti.serving.alert_sink import _clip_codec
+                codec = _clip_codec(clip)
+            except Exception:  # diagnostics never block the clip
+                log.debug("clip codec probe failed", exc_info=True)
         fps = None
         try:
             fps = json.loads((d / "event.json").read_text()).get("clip_fps")
         except (OSError, ValueError):
             pass
-        return {"uri": uri, "frames": frames, "subject": subject, "fps": fps}
+        return {"uri": uri, "frames": frames, "subject": subject, "fps": fps,
+                "codec": codec}
 
     def search_events(self, query: str, limit: int = 200) -> dict:
         """Ask-your-cameras: natural-language search over past events.

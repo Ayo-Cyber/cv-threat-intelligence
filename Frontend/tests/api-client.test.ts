@@ -155,6 +155,43 @@ describe("ArgusApiClient", () => {
     );
   });
 
+  it("fetches a clip by event id without needing an evidence path", async () => {
+    const net = fetchSequence([
+      response({
+        token: "t",
+        user: { username: "a", role: "owner", permissions: [] },
+      }),
+      response({ uri: null, frames: [], pending: true }),
+    ]);
+    const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
+      fetch: net.fetch,
+    });
+    await client.invoke("sign_in", ["a", "b"]);
+    // a freshly pushed critical alert: row exists, evidence not yet written
+    const clip = await client.invoke<any>("event_clip", ["evt_9"]);
+    expect(clip).toMatchObject({ pending: true });
+    expect(net.calls[1].url).toBe(
+      "http://127.0.0.1:8787/api/v1/events/evt_9/clip",
+    );
+  });
+
+  it("refuses an empty clip key instead of requesting /events//clip", async () => {
+    const net = fetchSequence([
+      response({
+        token: "t",
+        user: { username: "a", role: "owner", permissions: [] },
+      }),
+    ]);
+    const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
+      fetch: net.fetch,
+    });
+    await client.invoke("sign_in", ["a", "b"]);
+    await expect(client.invoke("event_clip", [null])).rejects.toThrow(
+      /event id/,
+    );
+    expect(net.calls).toHaveLength(1);
+  });
+
   it("combines public auth state with auth me", async () => {
     const net = fetchSequence([
       response({
