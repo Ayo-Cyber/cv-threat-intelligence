@@ -30,6 +30,20 @@ def main(engine: str) -> int:
         return 0
 
     tmp = Path(tempfile.mkdtemp())
+    problems: list[str] = []
+    # Replay clips must come out H.264 or the app shows a black box (pilot,
+    # Windows, 21-22 Sep). Only the SHIPPED binary on the SHIPPED OS can say
+    # whether its bundled ffmpeg runs — so ask it, in seconds, before the
+    # long run. Output to a file, never a pipe (see below).
+    probe_out = tmp / "clip_probe.txt"
+    with probe_out.open("w", encoding="utf-8", errors="replace") as f:
+        probe = subprocess.run([str(engine), "--check-clip-encoder"],
+                               stdout=f, stderr=subprocess.STDOUT, timeout=300)
+    probe_text = probe_out.read_text(encoding="utf-8", errors="replace").strip()
+    print(f"  {probe_text.splitlines()[0] if probe_text else '(no output)'}")
+    if probe.returncode != 0 or "clip encoder: h264" not in probe_text:
+        problems.append("the shipped engine does not write H.264 evidence clips — "
+                        f"replays would be black in the app: {probe_text[-300:]}")
     site = tmp / "site.json"
     site.write_text(json.dumps({
         "name": "bundle-smoke", "notify": "console", "configured": True,
@@ -82,7 +96,6 @@ def main(engine: str) -> int:
     proc.stdout, proc.stderr = out, err     # keep the old names for the checks below
     tail = out[-1500:] + err[-1500:]
 
-    problems = []
     # W8: offline object rules need both halves IN the bundle — the world
     # weights and the CLIP checkpoint the engine pre-seeds into ~/.cache/clip.
     # Absence here is v1.8.8's silent-rot class again; fail loudly instead.

@@ -73,6 +73,45 @@ jobs:
       - name: Prompt regression guard
         run: python tools/prompt_regression.py check
 
+  # The same suite on Windows. Every pilot-visible break of the last two weeks
+  # (mp4v replay clips, WindowsPath model loading, the cmd retry loop, path
+  # handling in tests) was Windows-only and reached a release because nothing
+  # ran there before the tag. Not a required check yet: it reports, and the
+  # merge chain reads it by name.
+  test-windows:
+    name: Test suite (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.8.0 torchvision==0.23.0
+          pip install -r requirements.txt
+          pip install pytest
+          pip uninstall -y opencv-python
+          pip install "opencv-python-headless==4.13.0.92"
+
+      # The question no Mac can answer: does the Windows wheel set produce an
+      # H.264 evidence clip? (The bundle smoke asks the shipped binary the
+      # same thing on tag builds; this asks the source on every PR.)
+      - name: Evidence clips encode as H.264 on Windows
+        shell: bash
+        run: python -m cvti.serving.pipeline --check-clip-encoder
+
+      - name: Run tests
+        shell: bash
+        run: python -m pytest -q
+
   # The product, end to end, in containers: a real RTSP camera feeding the real
   # engine, with assertions on what came out. Runs on every push — this is the
   # test that would have caught the bugs humans found by running it. (25 Aug.)

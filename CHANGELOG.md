@@ -4,6 +4,24 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.21 — 23 Sep 2026
+
+Proof instead of guesswork on Windows.
+
+**Every Windows build now proves its replay clips play.** The shipped engine
+writes one test clip during the build, and the build fails unless it comes
+out as H.264 — the format the app's player decodes. Until now only a
+Windows user could tell us whether the bundled converter ran.
+
+**The AI runtime's own log is kept.** When the on-device model refuses to
+load — not enough memory, a missing library, a damaged download — the
+runtime says why, and that text was being thrown away. It is now written to
+`ollama.log` beside the other logs and included in the Diagnose zip, along
+with the "describe in English" scanner's status file, which the zip also
+did not carry.
+
+**The test suite now runs on Windows for every change**, not only Linux.
+
 ## v1.8.20 — 22 Sep 2026
 
 Two more reports from the Windows installation.
