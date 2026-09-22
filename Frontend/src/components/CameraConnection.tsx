@@ -24,6 +24,23 @@ export const VENDORS: { label: string; path: string; note?: string }[] = [
   { label: "Generic", path: "/stream1" },
 ];
 
+/** The Make select's "no vendor" choice: nothing is assembled. */
+export const NO_VENDOR = "";
+export const NO_VENDOR_LABEL = "None — I'll type the address myself";
+
+/**
+ * Stream path for a Make LABEL, or null for none/unknown.
+ *
+ * The select used to carry the PATH as each option's value. Two vendors share
+ * "/stream1", and a <select> with duplicate values snaps back to the first
+ * match — so "Generic" could not be chosen (it read as Tapo full quality) and
+ * nothing could be cleared. Options are keyed by their unique label now.
+ */
+export function vendorPath(label: string): string | null {
+  const hit = VENDORS.find((v) => v.label === label);
+  return hit ? hit.path : null;
+}
+
 /** rtsp://user:pass@host:port/path — credentials percent-encoded. */
 export function buildRtspUrl(
   host: string,
@@ -53,12 +70,13 @@ export default function CameraConnection({
 }) {
   const [host, setHost] = useState("");
   const [port, setPort] = useState("554");
-  const [vendor, setVendor] = useState(VENDORS[0].path);
+  const [vendor, setVendor] = useState<string>(NO_VENDOR);
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
   const [reveal, setReveal] = useState(false);
 
-  const url = buildRtspUrl(host, vendor, user, password, port);
+  const path = vendorPath(vendor);
+  const url = path === null ? "" : buildRtspUrl(host, path, user, password, port);
   // Never render the password back to the room; a camera password is often
   // reused, and this screen gets projected during installs.
   const shown = password
@@ -99,8 +117,9 @@ export default function CameraConnection({
         <label>
           Make
           <select value={vendor} onChange={(e) => setVendor(e.target.value)}>
+            <option value={NO_VENDOR}>{NO_VENDOR_LABEL}</option>
             {VENDORS.map((v) => (
-              <option key={v.label} value={v.path}>
+              <option key={v.label} value={v.label}>
                 {v.label}
                 {v.note ? ` — ${v.note}` : ""}
               </option>

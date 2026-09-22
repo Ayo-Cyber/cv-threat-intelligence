@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { VENDORS, buildRtspUrl } from "../src/components/CameraConnection";
+import {
+  NO_VENDOR,
+  VENDORS,
+  buildRtspUrl,
+  vendorPath,
+} from "../src/components/CameraConnection";
 
 /**
  * The guided form the React shell dropped. Its whole job is that an installer
@@ -44,3 +49,26 @@ describe("building a camera address", () => {
     expect(paths["Tapo / TP-Link"]).toBe("/stream2");
   });
 });
+
+/**
+ * 22 Sep, live on a Windows screen share: "Generic" could not be selected
+ * and the Make box could not be emptied. Options carried the PATH as their
+ * value; two vendors share "/stream1", and a <select> with duplicate values
+ * always shows the first match.
+ */
+describe("choosing a make", () => {
+  it("every make is a distinct choice even when two share a stream path", () => {
+    const labels = VENDORS.map((v) => v.label);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(vendorPath("Generic")).toBe("/stream1");
+    expect(vendorPath("Tapo / TP-Link (full quality)")).toBe("/stream1");
+    // the same path, but they must remain two selectable options
+    expect(VENDORS.filter((v) => v.path === "/stream1")).toHaveLength(2);
+  });
+
+  it("has a 'none' choice that assembles nothing", () => {
+    expect(vendorPath(NO_VENDOR)).toBeNull();
+    expect(vendorPath("no such make")).toBeNull();
+  });
+});
+
