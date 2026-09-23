@@ -4,6 +4,29 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.22 — 23 Sep 2026
+
+Two things found live on a Windows screen share, and proof that the app starts.
+
+**Test connection now works for a webcam.** Typing `0` for the built-in
+camera and pressing Test connection always answered "Could not open", on
+every computer — the test handed the camera index to the video library as
+text, which it read as a file name. Adding the camera and starting monitoring
+worked all along; now the test does too, and if the webcam is busy the
+message says so: close the app using it (Meet, Teams, Zoom) and check the
+camera permission for desktop apps.
+
+**The Make list can be left empty, and every make can be chosen.** "Generic"
+could not be selected (it shared a stream path with another entry and the
+list kept showing that one), and there was no way to have no make at all. The
+list now starts at "None — I'll type the address myself", which is the right
+choice for a webcam or a pasted RTSP address.
+
+**Every Windows build now starts the installed app itself** — not just its
+engine — with a clean data directory: the app comes up, an owner is created,
+a camera is added, the engine connects to it. A build that cannot do that
+does not ship.
+
 ## v1.8.21 — 22 Sep 2026
 
 Proof instead of guesswork on Windows.
