@@ -126,6 +126,21 @@ def _tail(path: Path, n: int = 40) -> str:
     return "\n".join(f"    {ln}" for ln in lines[-n:]) or f"    ({path.name}: empty)"
 
 
+def resolve_app_root(target: Path, platform: str = sys.platform) -> Path:
+    """The app root, whether given electron-builder's release dir or an
+    INSTALLED directory.
+
+    The cold-boot smoke was only ever handed `Frontend/release`, i.e. the
+    unpacked tree. What a customer actually runs is the copy the NSIS
+    installer writes to %LOCALAPPDATA%\\Programs\\Argus — a path nothing in CI
+    had ever launched (24 Sep). Both are app roots; tell them apart by
+    whether the binary sits directly inside.
+    """
+    if app_binary(target, platform).exists():
+        return target
+    return _find_app(target)[0]
+
+
 def main(release_dir: str) -> int:
     code = _run(release_dir)
     if code and sys.platform.startswith("linux") and os.environ.get("ARGUS_BOOT_STRICT") != "1":
@@ -138,7 +153,7 @@ def main(release_dir: str) -> int:
 
 
 def _run(release_dir: str) -> int:
-    app_root, _ = _find_app(Path(release_dir).resolve())
+    app_root = resolve_app_root(Path(release_dir).resolve())
     binary = app_binary(app_root)
     if not binary.exists():
         listing = sorted(p.name for p in app_root.iterdir()) if app_root.is_dir() else []

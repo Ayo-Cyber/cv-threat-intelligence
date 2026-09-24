@@ -514,6 +514,31 @@ jobs:
         timeout-minutes: 15
         run: python tests/e2e/packaged_app_boot.py Frontend/release
 
+      # The step above boots the UNPACKED tree. What the pilot double-clicks is
+      # the NSIS installer, which had never been run anywhere: it writes to
+      # %LOCALAPPDATA%\Programs\Argus (perMachine: false), makes its own
+      # shortcuts, and is the one remaining difference between this runner and
+      # his machine. Install it silently, then boot what it installed.
+      - name: Install the Windows installer and boot what it installed
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          $setup = Get-ChildItem Frontend/release -Filter 'argus-windows-setup.exe' |
+            Select-Object -First 1
+          if (-not $setup) { throw "no argus-windows-setup.exe was produced" }
+          Write-Host "installing $($setup.Name) silently..."
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          Write-Host "installer exited $($p.ExitCode)"
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs\Argus'
+          if (-not (Test-Path (Join-Path $installed 'Argus.exe'))) {
+            Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -ErrorAction SilentlyContinue |
+              Out-String | Write-Host
+            throw "the installer did not produce $installed\Argus.exe"
+          }
+          Write-Host "installed to $installed"
+          python tests/e2e/packaged_app_boot.py $installed
+
       - name: Notarise and staple the disk image (macOS)
         if: runner.os == 'macOS'
         env:
