@@ -1,7 +1,7 @@
 {
  "version": 1,
- "built_at": 1789827056.810405,
- "digest": "85162b724bbaa223",
+ "built_at": 1790243205.446479,
+ "digest": "047e113c08380eb1",
  "rows": {
   "false_positive": {
    "sn": 2,
@@ -1040,7 +1040,7 @@
    "name": "Person Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 103,
+   "positives": 107,
    "negatives": 0,
    "n_floor": 73,
    "publishable": true,
@@ -1167,6 +1167,30 @@
     },
     {
      "path": "data/test_clips/person_23.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_24.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_25.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_26.mp4",
+     "is_threat": true,
+     "kind": "person",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/person_27.mp4",
      "is_threat": true,
      "kind": "person",
      "source": "test_clips/kpi"
@@ -2672,7 +2696,7 @@
    "name": "Loitering Detection",
    "target": 0.95,
    "metric": "recall",
-   "positives": 11,
+   "positives": 18,
    "negatives": 0,
    "n_floor": 73,
    "publishable": false,
@@ -2685,6 +2709,48 @@
     },
     {
      "path": "data/test_clips/loitering_03.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_07.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_08.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_09.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_10.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_11.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_12.mp4",
+     "is_threat": true,
+     "kind": "loitering",
+     "source": "test_clips/kpi"
+    },
+    {
+     "path": "data/test_clips/loitering_13.mp4",
      "is_threat": true,
      "kind": "loitering",
      "source": "test_clips/kpi"
@@ -2750,11 +2816,53 @@
    "name": "Theft Detection",
    "target": 0.9,
    "metric": "recall",
-   "positives": 155,
+   "positives": 162,
    "negatives": 0,
    "n_floor": 35,
    "publishable": true,
    "clips": [
+    {
+     "path": "data/test_clips/theft_100.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_101.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_102.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_96.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_97.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_98.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/theft_99.mp4",
+     "is_threat": true,
+     "kind": "theft",
+     "source": "local-clips"
+    },
     {
      "path": "data/test_clips/theft_kip_001.mp4",
      "is_threat": true,
@@ -3692,7 +3800,7 @@
    "name": "Suspicious Activity",
    "target": 0.9,
    "metric": "recall",
-   "positives": 173,
+   "positives": 178,
    "negatives": 0,
    "n_floor": 35,
    "publishable": true,
@@ -3710,7 +3818,37 @@
      "source": "local-clips"
     },
     {
+     "path": "data/test_clips/violence_05.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/violence_06.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/violence_07.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/violence_08.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
      "path": "data/test_clips/violence_09.mp4",
+     "is_threat": true,
+     "kind": "violence",
+     "source": "local-clips"
+    },
+    {
+     "path": "data/test_clips/violence_10.mp4",
      "is_threat": true,
      "kind": "violence",
      "source": "local-clips"
