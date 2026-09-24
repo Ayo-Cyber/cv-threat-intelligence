@@ -55,7 +55,7 @@ nsis:
 # Runs after the app tree is packed and BEFORE the dmg is built, so an
 # ad-hoc signature (when no Apple certificate exists) ends up inside the
 # image the customer actually mounts.
-afterPack: build/after-pack.cjs
+afterPack: scripts/after-pack.cjs
 
 mac:
   # HOST architecture only, deliberately. PyInstaller cannot cross-compile, so
