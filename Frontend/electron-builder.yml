@@ -52,6 +52,11 @@ nsis:
   shortcutName: Argus
   artifactName: argus-windows-setup.${ext}
 
+# Runs after the app tree is packed and BEFORE the dmg is built, so an
+# ad-hoc signature (when no Apple certificate exists) ends up inside the
+# image the customer actually mounts.
+afterPack: scripts/after-pack.cjs
+
 mac:
   # HOST architecture only, deliberately. PyInstaller cannot cross-compile, so
   # resources/engine is whatever the runner built; packaging a universal or

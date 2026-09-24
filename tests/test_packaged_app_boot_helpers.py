@@ -8,7 +8,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests" / "e2e"))
 
-from packaged_app_boot import app_binary, camera_connected, free_port
+from packaged_app_boot import (
+    app_binary,
+    camera_connected,
+    free_port,
+    resolve_app_root,
+)
 
 
 class BinaryPerPlatform(unittest.TestCase):
@@ -56,3 +61,28 @@ class Port(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResolveAppRoot(unittest.TestCase):
+    """Boot either electron-builder's release dir or an INSTALLED copy.
+
+    The pilot double-clicks the NSIS installer, which writes to
+    %LOCALAPPDATA%\\Programs\\Argus — a directory nothing in CI had launched
+    until 24 Sep.
+    """
+
+    def test_an_installed_directory_is_its_own_app_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            installed = Path(d) / "Argus"
+            installed.mkdir()
+            (installed / "Argus.exe").write_text("")
+            self.assertEqual(resolve_app_root(installed, "win32"), installed)
+
+    def test_a_release_directory_still_resolves_to_the_unpacked_tree(self):
+        with tempfile.TemporaryDirectory() as d:
+            release = Path(d) / "release"
+            unpacked = release / "win-unpacked"
+            unpacked.mkdir(parents=True)
+            (unpacked / "Argus.exe").write_text("")
+            self.assertEqual(resolve_app_root(release, "win32"), unpacked)
+
