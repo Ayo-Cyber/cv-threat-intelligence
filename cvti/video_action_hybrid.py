@@ -15,6 +15,27 @@ from cvti.video_action_model import VideoActionPrediction
 DEFAULT_EVIDENCE_WEIGHT = 0.35
 DEFAULT_RAW_CONFIDENCE_THRESHOLD = 0.05
 
+# Per-signal bars, because one number cannot serve signals of very different
+# quality. Measured 25 Sep over the KPI manifest's 170 normals + 162 theft
+# clips (tools/video_action_sweep.py, runs/eval/video_action/scores.jsonl):
+#
+#   theft, at the shipped 0.05   20.6% of NORMAL clips raised a candidate,
+#                                for 45.7% recall
+#   theft, at 0.95                3.5% false positives, 28.4% recall
+#   AUC                           0.659  (0.5 is a coin flip)
+#
+# An AUC of 0.66 means the score barely ranks theft above normal, so no
+# threshold makes this signal good -- the curve only trades one failure for
+# the other. It matters because theft was the sole source of every false
+# positive in the 24 Sep scorecard, and each one costs a ~12s VLM
+# verification on the pilot's 4-core box, starving the alerts that are real.
+# 0.95 is the point where it stops flooding the queue; the honest option is
+# to stop raising it at all and let concealment plus the object watchlist
+# carry theft. A site can set either, and the rest of the signals -- violence
+# especially, which row 9 measures at 97.2% -- keep the permissive bar that
+# suits them.
+SIGNAL_CONFIDENCE_THRESHOLDS: dict = {"theft_candidate": 0.95}
+
 
 _SIGNAL_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -71,13 +92,16 @@ def predictions_to_events(
     timestamp: float = 0.0,
     evidence_weight: float = DEFAULT_EVIDENCE_WEIGHT,
     raw_confidence_threshold: float = DEFAULT_RAW_CONFIDENCE_THRESHOLD,
+    signal_thresholds: dict | None = None,
 ) -> list[RawEvent]:
     events: list[RawEvent] = []
     for prediction in predictions:
         signal_type = classify_action_label(prediction.label)
         if signal_type is None:
             continue
-        if prediction.confidence < raw_confidence_threshold:
+        bar = (signal_thresholds or SIGNAL_CONFIDENCE_THRESHOLDS).get(
+            signal_type, raw_confidence_threshold)
+        if prediction.confidence < bar:
             continue
 
         adjusted_confidence = prediction.confidence * evidence_weight
