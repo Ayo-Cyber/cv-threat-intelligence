@@ -69,3 +69,43 @@ class VideoActionHybridTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- per-signal thresholds (25 Sep) -----------------------------------------
+# Every false positive in the 24 Sep KPI scorecard came from the theft signal,
+# and each one costs a ~12s VLM verification on the pilot's 4-core box. A sweep
+# over 170 normals + 162 theft clips put its AUC at 0.659 — barely above a coin
+# flip — so theft now carries its own, much higher bar while the signals that
+# measure well keep the permissive one.
+
+def _prediction(label, confidence):
+    from cvti.video_action_model import VideoActionPrediction
+    return VideoActionPrediction(label=label, confidence=confidence, rank=1)
+
+
+def _events(label, confidence, **kw):
+    from cvti.video_action_hybrid import predictions_to_events
+    return predictions_to_events(
+        [_prediction(label, confidence)], backend="videomae", model_name="m",
+        window_name="w", sampled_frame_indices=[0], **kw)
+
+
+def test_a_weak_theft_score_no_longer_raises_a_candidate():
+    # 0.20 cleared the old global 0.05 bar and was 12.9% false positives.
+    assert _events("theft", 0.20) == []
+
+
+def test_a_confident_theft_score_still_raises_one():
+    events = _events("theft", 0.97)
+    assert len(events) == 1
+    assert events[0].extra["signal_type"] == "theft_candidate"
+
+
+def test_violence_keeps_the_permissive_bar():
+    # Row 9 measures the violence path at 97.2%; the theft bar must not touch it.
+    assert len(_events("punching", 0.20)) == 1
+
+
+def test_a_site_can_override_the_bar_in_either_direction():
+    assert _events("theft", 0.20, signal_thresholds={"theft_candidate": 0.10})
+    assert _events("theft", 0.99, signal_thresholds={"theft_candidate": 1.01}) == []
