@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -36,10 +37,31 @@ def _tracking_init(self, *args, **kwargs):
 ConsoleBackend.__init__ = _tracking_init
 
 
-@pytest.fixture(autouse=True)
-def _close_backends_after_each_test():
-    yield
+def _close_live_backends() -> None:
     while _live:
         backend = _live.pop()
         with contextlib.suppress(Exception):   # teardown must never fail a test
             backend.close()
+
+
+# The close has to happen BEFORE the directory is removed, and unittest runs
+# tearDown (where these tests call TemporaryDirectory.cleanup) before any
+# pytest fixture teardown -- so an autouse fixture is already too late and
+# left the count at 165. Closing from cleanup itself is early enough however
+# the directory is removed: tearDown, a context manager, or the finalizer.
+_original_cleanup = tempfile.TemporaryDirectory.cleanup
+
+
+def _cleanup_closing_backends(self) -> None:
+    _close_live_backends()
+    _original_cleanup(self)
+
+
+tempfile.TemporaryDirectory.cleanup = _cleanup_closing_backends
+
+
+@pytest.fixture(autouse=True)
+def _close_backends_after_each_test():
+    """Backstop for tests that never clean a temp directory at all."""
+    yield
+    _close_live_backends()
