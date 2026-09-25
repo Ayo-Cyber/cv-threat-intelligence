@@ -35,7 +35,7 @@ class LocationHierarchyTests(unittest.TestCase):
         self.assertEqual(
             first["branches"][0]["areas"][0]["cameras"][0]["id"], "cam1"
         )
-        self.assertNotIn("organization", json.loads(site.read_text()))
+        self.assertNotIn("organization", json.loads(site.read_text(encoding="utf-8")))
 
     def test_area_must_reference_a_known_branch(self):
         site = self.write_site({
@@ -62,7 +62,7 @@ class LocationHierarchyTests(unittest.TestCase):
             site, {"id": "warehouse", "name": "Warehouse"}
         )
 
-        saved = json.loads(site.read_text())
+        saved = json.loads(site.read_text(encoding="utf-8"))
         self.assertEqual(saved["organization"], {
             "id": "organization--default",
             "name": "Plant One",
@@ -108,14 +108,14 @@ class LocationHierarchyTests(unittest.TestCase):
             }],
             "cameras": [],
         })
-        original = site.read_text()
+        original = site.read_text(encoding="utf-8")
 
         with self.assertRaisesRegex(
             onboarding.HierarchyConflict, "branch contains areas"
         ):
             onboarding.remove_branch(site, "lagos")
 
-        self.assertEqual(site.read_text(), original)
+        self.assertEqual(site.read_text(encoding="utf-8"), original)
 
     def test_remove_empty_branch_succeeds(self):
         site = self.write_site({
@@ -131,7 +131,7 @@ class LocationHierarchyTests(unittest.TestCase):
         branches = onboarding.remove_branch(site, "abuja")
 
         self.assertEqual(branches, [{"id": "lagos", "name": "Lagos"}])
-        self.assertEqual(json.loads(site.read_text())["branches"], branches)
+        self.assertEqual(json.loads(site.read_text(encoding="utf-8"))["branches"], branches)
 
     def test_unknown_area_camera_is_returned_unassigned(self):
         site = self.write_site({
@@ -217,7 +217,7 @@ class LocationHierarchyTests(unittest.TestCase):
             site, {"id": "customer", "name": "Customer Ltd"}
         )
 
-        saved = json.loads(site.read_text())
+        saved = json.loads(site.read_text(encoding="utf-8"))
         self.assertEqual(organization, {"id": "customer", "name": "Customer Ltd"})
         self.assertEqual(saved["organization"], organization)
         self.assertEqual(saved["branches"], [
@@ -227,12 +227,12 @@ class LocationHierarchyTests(unittest.TestCase):
 
     def test_set_organization_rejects_empty_id(self):
         site = self.write_site({"name": "Plant One", "cameras": []})
-        original = site.read_text()
+        original = site.read_text(encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "organization id and name"):
             onboarding.set_organization(site, {"id": " ", "name": "Customer"})
 
-        self.assertEqual(site.read_text(), original)
+        self.assertEqual(site.read_text(encoding="utf-8"), original)
 
     def test_duplicate_branch_ids_are_rejected(self):
         site = self.write_site({
@@ -248,12 +248,12 @@ class LocationHierarchyTests(unittest.TestCase):
 
     def test_upsert_branch_rejects_empty_id(self):
         site = self.write_site({"name": "Plant One", "cameras": []})
-        original = site.read_text()
+        original = site.read_text(encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "branch id and name"):
             onboarding.upsert_branch(site, {"id": " ", "name": "Lagos"})
 
-        self.assertEqual(site.read_text(), original)
+        self.assertEqual(site.read_text(encoding="utf-8"), original)
 
 if __name__ == "__main__":
     unittest.main()

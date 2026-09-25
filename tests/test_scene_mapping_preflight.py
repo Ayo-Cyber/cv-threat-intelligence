@@ -131,7 +131,7 @@ def test_approval_landing_during_mapping_survives_the_late_result(
     assert completed[0].contexts["cam_1"]["environment_type"] == "parking_lot"
     assert completed[0].statuses["cam_1"]["status"] == "ready_reviewed"
     assert (
-        json.loads(store.proposal_context_path.read_text())["environment_type"]
+        json.loads(store.proposal_context_path.read_text(encoding="utf-8"))["environment_type"]
         == "retail_shop"
     )
 

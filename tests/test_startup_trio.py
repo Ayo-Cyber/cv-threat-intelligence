@@ -114,14 +114,14 @@ class FrozenBundleCarriesLoggingConfigTest(unittest.TestCase):
         """'No module named logging.config' killed the weapons model on every
         install — stdlib, but only imported dynamically by the yolov5 loader,
         so PyInstaller never saw it."""
-        spec = Path("packaging/argus.spec").read_text()
+        spec = Path("packaging/argus.spec").read_text(encoding="utf-8")
         self.assertIn('"logging.config"', spec)
 
 
 class UiTellsTheTruthTest(unittest.TestCase):
 
     def setUp(self):
-        self.html = Path("cvti/app/web/index.html").read_text()
+        self.html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
 
     def test_the_timeline_never_shows_verified_for_unverified(self):
         block = self.html.split("function timelineHTML")[1].split("function ")[0]

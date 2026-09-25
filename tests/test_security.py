@@ -163,15 +163,32 @@ class AuditAppendOnlyTest(unittest.TestCase):
             self.assertFalse(hasattr(self.log, forbidden),
                              f"AuditLog exposes {forbidden}() — the log is append-only")
 
+    def _own_connection(self):
+        """A connection of OUR OWN to the same file.
+
+        Stronger than reaching into the log's private handle: it proves the
+        trigger stops anybody, including a tool opening audit.db directly,
+        which is the threat the append-only guarantee is actually about.
+        """
+        return sqlite3.connect(Path(self._tmp.name) / "audit.db")
+
     def test_the_database_itself_refuses_an_update(self):
         self.log.record("ayo", "login")
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.log._db.execute("UPDATE audit SET actor='someone-else' WHERE seq=1")
+        con = self._own_connection()
+        try:
+            with self.assertRaises(sqlite3.IntegrityError):
+                con.execute("UPDATE audit SET actor='someone-else' WHERE seq=1")
+        finally:
+            con.close()
 
     def test_the_database_itself_refuses_a_delete(self):
         self.log.record("ayo", "login")
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.log._db.execute("DELETE FROM audit WHERE seq=1")
+        con = self._own_connection()
+        try:
+            with self.assertRaises(sqlite3.IntegrityError):
+                con.execute("DELETE FROM audit WHERE seq=1")
+        finally:
+            con.close()
 
     def test_it_records_every_class_the_plan_requires(self):
         from cvti.security.audit import ACTIONS
@@ -250,7 +267,7 @@ class AuditTamperEvidenceTest(unittest.TestCase):
         import json
         self.log.record("ayo", "login")
         out = self.log.export(Path(self._tmp.name) / "audit-export.json")
-        data = json.loads(out.read_text())
+        data = json.loads(out.read_text(encoding="utf-8"))
         self.assertTrue(data["verification"]["ok"])
         self.assertEqual(len(data["entries"]), 1)
 

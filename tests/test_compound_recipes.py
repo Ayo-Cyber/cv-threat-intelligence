@@ -128,13 +128,13 @@ class MultipleEnglishRulesTest(unittest.TestCase):
                 be = self._backend(tmp)
                 be.add_custom_rule("c1", "Is anyone wearing a black hoodie?")
                 be.add_custom_rule("c1", "Is there a white aeroplane on the apron?")
-                cam = json.loads((Path(tmp) / "site.json").read_text())["cameras"][0]
+                cam = json.loads((Path(tmp) / "site.json").read_text(encoding="utf-8"))["cameras"][0]
                 threats = _rules_for(cam)
                 descs = [t["description"] for t in threats]
                 self.assertEqual(len(descs), 2, "the second sentence overwrote the first")
                 self.assertIn("hoodie", descs[0]); self.assertIn("aeroplane", descs[1])
                 # a plane needs no person: the scanner path has no presence gate
-                rules = json.loads(Path(cam["config"]).read_text())["rules"]
+                rules = json.loads(Path(cam["config"]).read_text(encoding="utf-8"))["rules"]
                 self.assertFalse([r for r in rules if r.get("gate_question")],
                                  "English rules leaked back into the person-gated path")
             finally:
@@ -151,7 +151,7 @@ class MultipleEnglishRulesTest(unittest.TestCase):
                 be.add_custom_rule("c1", "Is anyone wearing a black hoodie?")
                 be.add_custom_rule("c1", "Is anyone carrying a ladder?")
                 be.remove_custom_rule("c1", "Is anyone wearing a black hoodie?")
-                cam = json.loads((Path(tmp) / "site.json").read_text())["cameras"][0]
+                cam = json.loads((Path(tmp) / "site.json").read_text(encoding="utf-8"))["cameras"][0]
                 descs = [t["description"] for t in _rules_for(cam)]
                 self.assertEqual(len(descs), 1)
                 self.assertIn("ladder", descs[0])
@@ -186,11 +186,11 @@ class MultipleEnglishRulesTest(unittest.TestCase):
             try:
                 be = self._backend(tmp)
                 # a site file from before the list existed
-                site = json.loads((Path(tmp) / "site.json").read_text())
+                site = json.loads((Path(tmp) / "site.json").read_text(encoding="utf-8"))
                 site["cameras"][0]["custom_rule"] = {"question": "Old sentence?", "dwell": 4}
                 (Path(tmp) / "site.json").write_text(json.dumps(site))
                 be.add_custom_rule("c1", "New sentence?")
-                cam = json.loads((Path(tmp) / "site.json").read_text())["cameras"][0]
+                cam = json.loads((Path(tmp) / "site.json").read_text(encoding="utf-8"))["cameras"][0]
                 self.assertNotIn("custom_rule", cam, "legacy field left to shadow the list")
                 qs = [r["question"] for r in cam["custom_rules"]]
                 self.assertEqual(qs, ["Old sentence?", "New sentence?"])

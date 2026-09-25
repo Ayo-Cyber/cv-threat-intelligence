@@ -140,7 +140,7 @@ class SeamPins(unittest.TestCase):
         import inspect
         import ultralytics
         from ultralytics.nn.backends import onnx as backend
-        req = (ROOT / "requirements.txt").read_text()
+        req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn(f"ultralytics=={ultralytics.__version__}", req,
                       "the DirectML seam patch leans on a PINNED ultralytics")
         src = inspect.getsource(backend.ONNXBackend)

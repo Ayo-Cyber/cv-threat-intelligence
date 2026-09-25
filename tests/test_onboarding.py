@@ -34,7 +34,7 @@ class OnboardingTests(unittest.TestCase):
         onboarding.remove_camera(self.site, "front")
         self.assertEqual([c["id"] for c in onboarding.list_cameras(self.site)], ["back"])
         # file is valid JSON the pipeline can read
-        self.assertIn("cameras", json.loads(Path(self.site).read_text()))
+        self.assertIn("cameras", json.loads(Path(self.site).read_text(encoding="utf-8")))
 
     def test_add_requires_source(self):
         with self.assertRaises(ValueError):
@@ -64,7 +64,7 @@ class OnboardingTests(unittest.TestCase):
 
         result = onboarding.complete_first_run(self.site)
 
-        saved = json.loads(Path(self.site).read_text())
+        saved = json.loads(Path(self.site).read_text(encoding="utf-8"))
         self.assertTrue(result["configured"])
         self.assertNotIn("scene_context_policy", saved)
 
@@ -77,7 +77,7 @@ class OnboardingTests(unittest.TestCase):
 
         onboarding.complete_first_run(self.site)
 
-        saved = json.loads(Path(self.site).read_text())
+        saved = json.loads(Path(self.site).read_text(encoding="utf-8"))
         self.assertNotIn("scene_context_policy", saved)
 
 

@@ -33,7 +33,7 @@ def _tracked(rel: str) -> bool:
 class E2EComposeInputsTest(unittest.TestCase):
 
     def setUp(self):
-        self.text = COMPOSE.read_text()
+        self.text = COMPOSE.read_text(encoding="utf-8")
 
     def test_every_clip_the_camera_publishes_is_committed(self):
         """`-i /clips/<name>` resolves through the ../../data/test_clips mount."""

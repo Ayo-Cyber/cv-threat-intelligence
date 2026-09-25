@@ -139,7 +139,7 @@ class ReviewedBadgeStaysDeadTests(unittest.TestCase):
             self.assertTrue(result.statuses["cam1"].get("usable"))
 
     def test_the_console_fallback_reports_unreviewed(self):
-        src = (ROOT / "cvti" / "app" / "console_backend.py").read_text()
+        src = (ROOT / "cvti" / "app" / "console_backend.py").read_text(encoding="utf-8")
         self.assertNotIn('"reviewed_by": "site_config"', src)
 
 
@@ -184,11 +184,11 @@ class LeanOllamaProfileTests(unittest.TestCase):
 
 class BundleLessonsTests(unittest.TestCase):
     def test_the_build_installs_the_video_requirements(self):
-        wf = (ROOT / ".github" / "workflows" / "build-app.yml").read_text()
+        wf = (ROOT / ".github" / "workflows" / "build-app.yml").read_text(encoding="utf-8")
         self.assertIn("requirements-video.txt", wf)
 
     def test_vendored_yolov5_survives_without_seaborn(self):
-        src = (ROOT / "external" / "yolov5" / "utils" / "plots.py").read_text()
+        src = (ROOT / "external" / "yolov5" / "utils" / "plots.py").read_text(encoding="utf-8")
         self.assertIn("except ImportError", src.split("import seaborn")[1][:200])
         self.assertIn("sn is None", src)
 

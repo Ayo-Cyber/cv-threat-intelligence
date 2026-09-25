@@ -61,14 +61,14 @@ class LoggingSetupTest(unittest.TestCase):
             path = setup_logging(tmp, component="t", console=False)
             get_logger("cvti.test").info("first process")
             logging.shutdown()
-            self.assertIn("first process", path.read_text())
+            self.assertIn("first process", path.read_text(encoding="utf-8"))
 
             # Second process, same directory: appends rather than truncating.
             reset_for_tests()
             setup_logging(tmp, component="t", console=False)
             get_logger("cvti.test").info("second process")
             logging.shutdown()
-            body = path.read_text()
+            body = path.read_text(encoding="utf-8")
             self.assertIn("first process", body)
             self.assertIn("second process", body)
 
@@ -91,7 +91,7 @@ class LoggingSetupTest(unittest.TestCase):
             get_logger("cvti.test").info("should not appear")
             get_logger("cvti.test").warning("should appear")
             logging.shutdown()
-            body = path.read_text()
+            body = path.read_text(encoding="utf-8")
             self.assertNotIn("should not appear", body)
             self.assertIn("should appear", body)
 
@@ -165,7 +165,7 @@ class LoggingSetupTest(unittest.TestCase):
             except ValueError:
                 log.exception("detector failed")
             logging.shutdown()
-            body = path.read_text()
+            body = path.read_text(encoding="utf-8")
             self.assertIn("detector failed", body)
             self.assertIn("ValueError", body)
             self.assertIn("detector blew up mid-frame", body)

@@ -58,7 +58,7 @@ class ReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = write_report(tmp)
             self.assertIsNotNone(path)
-            doc = json.loads(Path(path).read_text())
+            doc = json.loads(Path(path).read_text(encoding="utf-8"))
             self.assertIn("report-test-cam", doc["stages"]["decode"])
             self.assertIn("system", doc)              # CPU/RAM context rides along
             self.assertLess(abs(doc["generated_at"] - time.time()), 10)

@@ -73,7 +73,7 @@ class AuthRecoveryTest(unittest.TestCase):
             self.assertGreater(n, 0, "audit history was lost in the reset")
 
     def test_the_signin_screen_offers_the_path(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         self.assertIn("showAuthRecovery", html)
         self.assertIn('call("authRecovery"', html)
         self.assertIn("Can\\'t sign in?", html)
@@ -92,12 +92,12 @@ class FirstPaintIsAuthTest(unittest.TestCase):
     create an account not this thing we are seeing')."""
 
     def test_the_gate_is_open_in_the_static_html(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         self.assertIn('<div id="authGate" class="on">', html,
                       "first paint shows the console, not the auth gate")
 
     def test_a_missing_bridge_reports_into_the_gate(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         self.assertNotIn('document.getElementById("screen").innerHTML=\'<div class="pad mut">Backend bridge', html)
 
 
@@ -108,7 +108,7 @@ class BothDoorsOnTheFirstScreenTest(unittest.TestCase):
     at the login screen join the site."""
 
     def setUp(self):
-        self.html = Path("cvti/app/web/index.html").read_text()
+        self.html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
 
     def test_both_tabs_exist(self):
         self.assertIn('tab("signin","Sign in")', self.html)
@@ -182,7 +182,7 @@ class OwnerOverrideTest(unittest.TestCase):
                              "the old session outlived its account")
 
     def test_the_ui_confirms_before_replacing(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         self.assertIn("doOwnerOverride", html)
         self.assertIn("confirm(", html.split("function doOwnerOverride")[1][:400],
                       "the override fires without a confirmation")
@@ -195,7 +195,7 @@ class WallSaysWhyItsDarkTest(unittest.TestCase):
     the one button that fixes it."""
 
     def test_the_wall_never_renders_tiles_without_the_engine(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         block = html.split("function renderLive(){")[1].split("function ")[0]
         self.assertIn("if(!state.monitoring){", block)
         self.assertIn("Monitoring is off", block)
@@ -210,7 +210,7 @@ class SubjectShotSurvivesTheCacheTest(unittest.TestCase):
     box. The cache carries the whole evidence record now, in both consumers."""
 
     def test_both_cache_writers_store_the_full_record(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         import re
         writes = re.findall(r"state\.clipCache\[key\]\s*=\s*(\{[^;]*\}|[a-zA-Z]+)", html)
         self.assertTrue(writes)
@@ -219,6 +219,6 @@ class SubjectShotSurvivesTheCacheTest(unittest.TestCase):
                             f"a cache writer stores a bare frames array: {w!r}")
 
     def test_the_cache_hit_restores_the_subject(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         block = html.split("function ensureFrames")[1][:900]
         self.assertIn("cached.subject", block)

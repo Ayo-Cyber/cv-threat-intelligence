@@ -122,7 +122,7 @@ class HandlersAreNotSilentTest(unittest.TestCase):
 
         silent = []
         for path in sorted(pathlib.Path("cvti").rglob("*.py")):
-            lines = path.read_text().splitlines()
+            lines = path.read_text(encoding="utf-8").splitlines()
             for i, line in enumerate(lines):
                 if not re.match(r"\s*except Exception\b", line):
                     continue

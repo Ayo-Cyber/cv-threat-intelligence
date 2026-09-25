@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-DOC = (ROOT / "docs" / "api-v1.md").read_text()
+DOC = (ROOT / "docs" / "api-v1.md").read_text(encoding="utf-8")
 
 
 class ImplementedRoutesAppearInTheContract(unittest.TestCase):
@@ -67,7 +67,7 @@ class ImplementedRoutesAppearInTheContract(unittest.TestCase):
 
 class TheClientSurfaceIsFullyMapped(unittest.TestCase):
     def test_every_bridge_method_has_a_contract_row(self):
-        bridge = (ROOT / "Frontend" / "bridge.py").read_text()
+        bridge = (ROOT / "Frontend" / "bridge.py").read_text(encoding="utf-8")
         m = re.search(r"METHODS = set\('([^']+)'", bridge)
         self.assertIsNotNone(m, "bridge METHODS moved — update this test")
         methods = set(m.group(1).split())
@@ -82,7 +82,7 @@ class GeneratedSpecMatchesTheApp(unittest.TestCase):
         from cvti.api.app import create_app
         live = set(create_app().openapi().get("paths", {}))
         committed = set(json.loads(
-            (ROOT / "docs" / "openapi.json").read_text()).get("paths", {}))
+            (ROOT / "docs" / "openapi.json").read_text(encoding="utf-8")).get("paths", {}))
         self.assertEqual(live, committed,
                          "docs/openapi.json is stale — regenerate it in the "
                          "same PR that changed the routes")

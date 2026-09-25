@@ -68,10 +68,10 @@ class BackendTests(unittest.TestCase):
             be.add_camera({"id": "gate", "source": "rtsp://h/1"})
             out = be.set_view_only("gate", True)
             self.assertTrue(out["ok"] and out["view_only"])
-            cam = json.loads(Path(site).read_text())["cameras"][0]
+            cam = json.loads(Path(site).read_text(encoding="utf-8"))["cameras"][0]
             self.assertTrue(cam["view_only"])
             be.set_view_only("gate", False)
-            cam = json.loads(Path(site).read_text())["cameras"][0]
+            cam = json.loads(Path(site).read_text(encoding="utf-8"))["cameras"][0]
             self.assertNotIn("view_only", cam)
 
     def test_an_unknown_camera_is_a_named_error(self):
@@ -83,7 +83,7 @@ class BackendTests(unittest.TestCase):
 
 class UiTests(unittest.TestCase):
     def test_the_rules_card_carries_the_toggle(self):
-        html = (ROOT / "cvti" / "app" / "web" / "index.html").read_text()
+        html = (ROOT / "cvti" / "app" / "web" / "index.html").read_text(encoding="utf-8")
         start = html.index("function renderRules()")
         card = html[start:start + 6000]
         self.assertIn("toggleViewOnly", card)

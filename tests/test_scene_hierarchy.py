@@ -29,8 +29,8 @@ def test_manufacturing_and_supermarket_are_distinct_site_types() -> None:
 
 def test_json_schemas_match_runtime_area_vocabulary() -> None:
     root = Path(__file__).resolve().parents[1]
-    area_schema = json.loads((root / "schemas/area_context.schema.json").read_text())
-    camera_schema = json.loads((root / "schemas/scene_context.schema.json").read_text())
+    area_schema = json.loads((root / "schemas/area_context.schema.json").read_text(encoding="utf-8"))
+    camera_schema = json.loads((root / "schemas/scene_context.schema.json").read_text(encoding="utf-8"))
 
     assert set(area_schema["properties"]["area_type"]["enum"]) == AREA_TYPES
     assert set(camera_schema["properties"]["area_type_candidate"]["enum"]) == AREA_TYPES
@@ -110,7 +110,7 @@ def test_loading_legacy_site_does_not_rewrite_it(tmp_path) -> None:
         "implicit": True,
         "camera_ids": ["Front Gate"],
     }]
-    assert site.read_text() == original
+    assert site.read_text(encoding="utf-8") == original
 
 
 def test_three_cameras_can_share_one_area(tmp_path) -> None:

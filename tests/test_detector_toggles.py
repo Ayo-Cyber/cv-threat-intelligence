@@ -31,7 +31,7 @@ INFRASTRUCTURE_FLAGS = {
 
 
 def _all_engine_bool_flags() -> set[str]:
-    src = (ROOT / "cvti" / "serving" / "camera.py").read_text()
+    src = (ROOT / "cvti" / "serving" / "camera.py").read_text(encoding="utf-8")
     return set(re.findall(r"^    ([a-z_]+): bool = False", src, re.M))
 
 
@@ -42,7 +42,7 @@ def _engine_flags() -> set[str]:
 
 def _ui_chips() -> set[str]:
     """Detector keys the Rules screen renders as toggle chips."""
-    html = (ROOT / "cvti" / "app" / "web" / "index.html").read_text()
+    html = (ROOT / "cvti" / "app" / "web" / "index.html").read_text(encoding="utf-8")
     return set(re.findall(r'\["([a-z_]+)","[^"]+","[^"]+",(?:true|false),"(?:security|safety)"', html))
 
 
@@ -80,7 +80,7 @@ class TogglePersistenceTests(unittest.TestCase):
                                  enable_demo=False)
 
     def _cam(self):
-        return json.loads(self.site.read_text())["cameras"][0]
+        return json.loads(self.site.read_text(encoding="utf-8"))["cameras"][0]
 
     def test_toggle_on_persists_for_every_detector(self):
         for key in ConsoleBackend.RULE_FLAGS:
@@ -100,7 +100,7 @@ class TogglePersistenceTests(unittest.TestCase):
 
     def test_defaults_never_clobber_operator_values(self):
         self.be.set_camera_rules("cam1", {"running": True})
-        cams = json.loads(self.site.read_text())
+        cams = json.loads(self.site.read_text(encoding="utf-8"))
         cams["cameras"][0]["running_min_speed_ratio"] = 0.25      # operator tuned it
         self.site.write_text(json.dumps(cams))
         self.be.set_camera_rules("cam1", {"running": False})

@@ -127,7 +127,7 @@ class HarnessWiringTest(unittest.TestCase):
         self.assertTrue(state.weapons)
 
     def test_loading_is_conditional_on_the_detector_set(self):
-        src = (ROOT / "cvti" / "eval" / "harness.py").read_text()
+        src = (ROOT / "cvti" / "eval" / "harness.py").read_text(encoding="utf-8")
         self.assertIn('if "weapons" in self.detectors', src)
 
 
@@ -151,15 +151,15 @@ class MeasurementTractabilityTest(unittest.TestCase):
         self.assertFalse(self._harness(stop_on_first_confirm=False).stop_on_first_confirm)
 
     def test_the_loop_stops_verifying_after_the_first_confirmation(self):
-        src = (ROOT / "cvti/eval/harness.py").read_text()
+        src = (ROOT / "cvti/eval/harness.py").read_text(encoding="utf-8")
         loop = src.split("for alert in state.process")[1].split("except Exception")[0]
         self.assertIn("if res.confirmed and self.stop_on_first_confirm", loop)
         self.assertIn("res.verified += 1", loop)
 
     def test_a_capped_clip_is_flagged_so_recall_reads_as_a_lower_bound(self):
-        src = (ROOT / "cvti/eval/harness.py").read_text()
+        src = (ROOT / "cvti/eval/harness.py").read_text(encoding="utf-8")
         self.assertIn("res.capped = True", src)
-        tool = (ROOT / "tools/measure_critical.py").read_text()
+        tool = (ROOT / "tools/measure_critical.py").read_text(encoding="utf-8")
         self.assertIn("recall is a LOWER BOUND", tool)
 
     def test_verified_count_is_reported_separately_from_candidates(self):
@@ -182,13 +182,13 @@ class ProductionFidelityTest(unittest.TestCase):
         self.assertFalse(EvalHarness(dedup_like_production=False).dedup_like_production)
 
     def test_it_uses_the_product_queue_not_a_lookalike(self):
-        src = (ROOT / "cvti/eval/harness.py").read_text()
+        src = (ROOT / "cvti/eval/harness.py").read_text(encoding="utf-8")
         self.assertIn("from cvti.serving.alert_queue import AlertQueue", src)
         self.assertIn("queue.add(_queued(alert, ts))", src)
         self.assertIn("res.deduped += 1", src)
 
     def test_the_queue_is_per_clip_so_cooldowns_never_leak(self):
-        src = (ROOT / "cvti/eval/harness.py").read_text()
+        src = (ROOT / "cvti/eval/harness.py").read_text(encoding="utf-8")
         body = src.split("def run_clip")[1].split("def _confirm")[0]
         self.assertIn("AlertQueue(cooldown_seconds=self.dedup_cooldown_s)", body,
                       "a shared queue would suppress clip B's alerts using clip A's")

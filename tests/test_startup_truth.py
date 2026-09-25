@@ -46,7 +46,7 @@ class StartingHeartbeatTest(unittest.TestCase):
                                 {"id": "cam2", "source": "y.mp4"}]}
             pipeline.write_starting_health(tmp, site, gate_provider="local",
                                            gate_model="gemma3:4b")
-            doc = json.loads((Path(tmp) / "gate_health.json").read_text())
+            doc = json.loads((Path(tmp) / "gate_health.json").read_text(encoding="utf-8"))
             self.assertEqual([c["state"] for c in doc["cameras"]],
                              ["starting", "starting"])
             self.assertTrue(doc["engine"]["phase"].startswith("starting"))
@@ -85,7 +85,7 @@ class StartingHeartbeatTest(unittest.TestCase):
             self.assertFalse(s.get("starting"))
 
     def test_the_footer_renders_starting_as_its_own_state(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         self.assertIn('st==="starting"', html)
         self.assertIn("engine starting", html)
         self.assertIn('"Starting…"', html.replace("'", '"'))

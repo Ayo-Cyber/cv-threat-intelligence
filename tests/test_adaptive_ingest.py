@@ -119,7 +119,7 @@ class TruthTravelsTests(unittest.TestCase):
 
     def test_the_cameras_screen_shows_the_limit(self):
         html = (Path(__file__).resolve().parents[1]
-                / "cvti" / "app" / "web" / "index.html").read_text()
+                / "cvti" / "app" / "web" / "index.html").read_text(encoding="utf-8")
         self.assertIn("machine-limited", html)
         self.assertIn("link.ingest", html)
 

@@ -173,7 +173,7 @@ def test_all_blocked_preflight_writes_degraded_credential_free_health(tmp_path) 
         str(tmp_path), preflight, gate_provider="ollama", gate_model="gemma3:4b"
     )
 
-    document = json.loads((tmp_path / "gate_health.json").read_text())
+    document = json.loads((tmp_path / "gate_health.json").read_text(encoding="utf-8"))
     serialized = json.dumps(document)
     assert document["status"] == "degraded"
     assert "scene mapping failed" in document["reasons"][0]

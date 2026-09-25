@@ -20,7 +20,7 @@ class EmitCallSitesTest(unittest.TestCase):
         allowed = set(inspect.signature(emit).parameters) - {"parts"}
         bad = []
         for path in sorted(pathlib.Path("cvti").rglob("*.py")):
-            tree = ast.parse(path.read_text())
+            tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue

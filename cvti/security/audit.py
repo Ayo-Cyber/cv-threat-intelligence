@@ -26,6 +26,7 @@ import json
 import os
 import sqlite3
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -118,17 +119,51 @@ class AuditLog:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(self.db_path, check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
-        self._db.executescript(_SCHEMA)
-        self._db.commit()
+        with self._connect(write=True) as con:
+            con.executescript(_SCHEMA)
         try:
             os.chmod(self.db_path, 0o600)
         except OSError:
             log.debug("could not tighten permissions on %s", self.db_path, exc_info=True)
 
-    def _last_hash(self) -> str:
-        row = self._db.execute("SELECT hash FROM audit ORDER BY seq DESC LIMIT 1").fetchone()
+    @contextmanager
+    def _connect(self, write: bool = False):
+        """One connection per operation, closed when it ends.
+
+        This used to hold a single connection open for the life of the
+        process, with check_same_thread=False so several threads could share
+        it. Two problems, both real:
+
+          * Windows will not let anyone move or delete a file that a process
+            holds open, so audit.db stayed locked for as long as Argus ran --
+            which an in-place upgrade or an uninstall has to do. It also made
+            167 tests fail on Windows and nowhere else, because POSIX happily
+            unlinks an open file and nobody noticed for months.
+          * record() read the previous hash and then inserted the next entry
+            on a shared connection with no transaction around the pair. Two
+            threads recording at once could read the same previous hash and
+            write a forked chain -- in the one structure whose entire purpose
+            is to prove it has not been tampered with.
+
+        BEGIN IMMEDIATE takes the write lock before the read, so the
+        read-then-append is atomic; the audit log is written on config
+        changes and sign-ins, so a connection per call costs nothing that
+        matters.
+        """
+        con = sqlite3.connect(self.db_path, timeout=10.0)
+        con.row_factory = sqlite3.Row
+        try:
+            if write:
+                con.execute("BEGIN IMMEDIATE")
+            yield con
+            if write:
+                con.commit()
+        finally:
+            con.close()
+
+    @staticmethod
+    def _last_hash_on(con) -> str:
+        row = con.execute("SELECT hash FROM audit ORDER BY seq DESC LIMIT 1").fetchone()
         return row["hash"] if row else GENESIS
 
     def record(self, actor: str, action: str, target: str = "",
@@ -141,15 +176,16 @@ class AuditLog:
         ts = time.time()
         iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ts))
         detail = detail or {}
-        prev = self._last_hash()
-        digest = entry_hash(ts, actor, action, target, detail, prev)
-        cur = self._db.execute(
-            "INSERT INTO audit (ts, iso, actor, action, target, detail, prev_hash, hash) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (ts, iso, actor, action, target, json.dumps(detail, default=str), prev, digest))
-        self._db.commit()
+        with self._connect(write=True) as con:
+            prev = self._last_hash_on(con)
+            digest = entry_hash(ts, actor, action, target, detail, prev)
+            cur = con.execute(
+                "INSERT INTO audit (ts, iso, actor, action, target, detail, prev_hash, hash) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (ts, iso, actor, action, target, json.dumps(detail, default=str), prev, digest))
+            seq = cur.lastrowid
         log.info("audit: %s %s %s", actor, action, target or "")
-        return AuditEntry(cur.lastrowid, ts, iso, actor, action, target, detail, prev, digest)
+        return AuditEntry(seq, ts, iso, actor, action, target, detail, prev, digest)
 
     def entries(self, limit: int = 200, action: str = "", actor: str = "") -> list[AuditEntry]:
         sql = "SELECT * FROM audit"
@@ -165,7 +201,9 @@ class AuditLog:
         sql += " ORDER BY seq DESC LIMIT ?"
         params.append(int(limit))
         out = []
-        for r in self._db.execute(sql, params):
+        with self._connect() as con:
+            rows = con.execute(sql, params).fetchall()
+        for r in rows:
             try:
                 detail = json.loads(r["detail"] or "{}")
             except ValueError:
@@ -183,7 +221,9 @@ class AuditLog:
         """
         prev = GENESIS
         checked = 0
-        for r in self._db.execute("SELECT * FROM audit ORDER BY seq ASC"):
+        with self._connect() as con:
+            rows = con.execute("SELECT * FROM audit ORDER BY seq ASC").fetchall()
+        for r in rows:
             try:
                 detail = json.loads(r["detail"] or "{}")
             except ValueError:
@@ -208,9 +248,10 @@ class AuditLog:
         rows = [e.to_dict() for e in reversed(self.entries(limit=10 ** 9))]
         path.write_text(json.dumps(
             {"exported_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-             "verification": self.verify(), "entries": rows}, indent=2, default=str))
+             "verification": self.verify(), "entries": rows}, indent=2, default=str),
+            encoding="utf-8")
         log.info("audit log exported: %d entr(ies) -> %s", len(rows), path)
         return path
 
     def close(self) -> None:
-        self._db.close()
+        """Kept for callers that close explicitly; nothing is held open now."""

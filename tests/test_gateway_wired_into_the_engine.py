@@ -283,24 +283,24 @@ class OneSessionPerCameraPins(unittest.TestCase):
     they were still false. Pinned so they cannot quietly become false again."""
 
     def test_every_secondary_consumer_reads_the_engines_frames(self):
-        src = (ROOT / "cvti" / "serving" / "pipeline.py").read_text()
+        src = (ROOT / "cvti" / "serving" / "pipeline.py").read_text(encoding="utf-8")
         self.assertIn("mapping_service.frame_source = _mapper_frame", src)
         self.assertIn("frame_source=_scanner_frame", src)
         self.assertIn("frame_source=_latest_frame", src)
 
     def test_ingest_prefers_the_gateway_and_keeps_the_cameras_url_in_hand(self):
-        src = (ROOT / "cvti" / "serving" / "pipeline.py").read_text()
+        src = (ROOT / "cvti" / "serving" / "pipeline.py").read_text(encoding="utf-8")
         self.assertIn("gateway.restream_url(", src)
         self.assertIn("fallback_sources=_gw_fallbacks", src)
         self.assertIn("gateway.write_descriptor()", src)
         self.assertIn("gateway.stop()", src)
 
     def test_health_carries_the_gateway_row(self):
-        src = (ROOT / "cvti" / "serving" / "pipeline.py").read_text()
+        src = (ROOT / "cvti" / "serving" / "pipeline.py").read_text(encoding="utf-8")
         self.assertIn('"stream_gateway": gateway.status()', src)
 
     def test_the_console_wall_prefers_engine_frames(self):
-        src = (ROOT / "cvti" / "app" / "console_backend.py").read_text()
+        src = (ROOT / "cvti" / "app" / "console_backend.py").read_text(encoding="utf-8")
         self.assertIn("Prefer the engine's already-decoded frames", src)
 
 

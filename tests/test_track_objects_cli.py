@@ -170,14 +170,14 @@ def test_samples_once_per_selected_frame_and_writes_explicit_source_end(tmp_path
 
     assert main(_argv(tmp_path, output=output, extra=("--every-n-frames", "2", "--max-frames", "3")), dependencies=deps) == 0
 
-    records = [json.loads(line) for line in (output / "snapshots.jsonl").read_text().splitlines()]
+    records = [json.loads(line) for line in (output / "snapshots.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [item["timestamp"] for item in records[:-1]] == [0.0, 0.2, 0.4]
     assert [item["source_frame_index"] for item in records[:-1]] == [0, 2, 4]
     assert records[-1]["event"] == "source_end"
     assert records[-1]["source_end"] == {"outcome": "complete", "reason": "max_frames"}
     assert len(model.calls) == 3
     assert all(call["device"] == "cpu" and call["verbose"] is False for call in model.calls)
-    summary = json.loads((output / "summary.json").read_text())
+    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"] == {
         "processed_frames": 3, "skipped_frames": 2,
         "source_frames_read": 5, "tracks_created": 0,
@@ -190,7 +190,7 @@ def test_webcam_uses_monotonic_elapsed_without_touching_a_real_camera(tmp_path):
     assert main(_argv(tmp_path, source="0", extra=("--max-frames", "1")), dependencies=deps) == 0
     assert cv2.opened_source == 0
     assert FakeTracker.instances[-1].kwargs["camera_id"] == "webcam"
-    summary = json.loads((tmp_path / "run" / "summary.json").read_text())
+    summary = json.loads((tmp_path / "run" / "summary.json").read_text(encoding="utf-8"))
     assert summary["video"]["timestamp_basis"] == "monotonic_elapsed"
 
 
@@ -222,7 +222,7 @@ def test_existing_output_is_never_overwritten(tmp_path):
     marker.write_text("keep")
     with pytest.raises(SystemExit):
         main(_argv(tmp_path, output=output))
-    assert marker.read_text() == "keep"
+    assert marker.read_text(encoding="utf-8") == "keep"
 
 
 def test_failure_releases_resources_and_preserves_partial_evidence(tmp_path):
@@ -233,12 +233,12 @@ def test_failure_releases_resources_and_preserves_partial_evidence(tmp_path):
     assert main(_argv(tmp_path, output=output, extra=("--save-video",)), dependencies=deps) == 2
     assert capture.released and writer.released
     assert (output / "snapshots.jsonl").exists()
-    summary = json.loads((output / "summary.json").read_text())
+    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
     assert summary["outcome"] == "error"
     assert summary["source_end"] == "error"
     assert summary["counts"]["processed_frames"] == 1
     assert summary["artifacts"]["annotated_video"] == "annotated.mp4"
-    records = [json.loads(line) for line in (output / "snapshots.jsonl").read_text().splitlines()]
+    records = [json.loads(line) for line in (output / "snapshots.jsonl").read_text(encoding="utf-8").splitlines()]
     assert records[-1]["event"] == "source_end"
 
 
@@ -249,7 +249,7 @@ def test_save_video_writes_sampled_annotated_frames_and_releases(tmp_path):
     assert main(_argv(tmp_path, extra=("--save-video",)), dependencies=deps) == 0
     assert len(writer.frames) == 1
     assert writer.released and capture.released
-    summary = json.loads((tmp_path / "run" / "summary.json").read_text())
+    summary = json.loads((tmp_path / "run" / "summary.json").read_text(encoding="utf-8"))
     assert summary["artifacts"]["annotated_video"] == "annotated.mp4"
 
 
@@ -259,7 +259,7 @@ def test_opened_file_returning_zero_frames_is_an_error_with_summary(tmp_path, ca
     output = tmp_path / "run"
     assert main(_argv(tmp_path, output=output), dependencies=deps) == 2
     assert "returned zero frames" in capsys.readouterr().err
-    summary = json.loads((output / "summary.json").read_text())
+    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
     assert summary["outcome"] == "error"
     assert summary["source_end"] == "capture_failure"
     assert summary["artifacts"]["annotated_video"] is None
@@ -271,7 +271,7 @@ def test_webcam_read_failure_is_not_reported_as_eof(tmp_path, capsys):
     deps, _cv2, _model = _deps(capture)
     assert main(_argv(tmp_path, source="0"), dependencies=deps) == 2
     assert "webcam capture failed" in capsys.readouterr().err
-    summary = json.loads((tmp_path / "run" / "summary.json").read_text())
+    summary = json.loads((tmp_path / "run" / "summary.json").read_text(encoding="utf-8"))
     assert summary["source_end"] == "capture_failure"
 
 
@@ -282,7 +282,7 @@ def test_interrupt_preserves_partial_video_jsonl_and_interrupted_summary(tmp_pat
     deps, _cv2, _model = _deps(capture, model=model, writer=writer)
     assert main(_argv(tmp_path, extra=("--save-video",)), dependencies=deps) == 130
     assert "partial artifacts were preserved" in capsys.readouterr().err
-    summary = json.loads((tmp_path / "run" / "summary.json").read_text())
+    summary = json.loads((tmp_path / "run" / "summary.json").read_text(encoding="utf-8"))
     assert summary["outcome"] == "interrupted"
     assert summary["source_end"] == "interrupted"
     assert summary["artifacts"]["annotated_video"] == "annotated.mp4"
@@ -294,9 +294,9 @@ def test_nonmonotonic_media_timestamps_fall_back_to_frame_index(tmp_path):
     capture = FakeCapture(frames, fps=10.0, positions_ms=[50.0, 40.0, float("nan")])
     deps, _cv2, _model = _deps(capture)
     assert main(_argv(tmp_path), dependencies=deps) == 0
-    records = [json.loads(line) for line in (tmp_path / "run" / "snapshots.jsonl").read_text().splitlines()]
+    records = [json.loads(line) for line in (tmp_path / "run" / "snapshots.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [record["timestamp"] for record in records[:-1]] == pytest.approx([0.05, 0.1, 0.2])
-    summary = json.loads((tmp_path / "run" / "summary.json").read_text())
+    summary = json.loads((tmp_path / "run" / "summary.json").read_text(encoding="utf-8"))
     assert summary["video"]["media_timestamp_frames"] == 1
     assert summary["video"]["frame_index_fallback_frames"] == 2
 
@@ -318,7 +318,7 @@ def test_timing_and_track_bookkeeping_are_bounded(tmp_path, monkeypatch):
     frames = [np.zeros((2, 2, 3), dtype=np.uint8) for _ in range(10)]
     deps, _cv2, _model = _deps(FakeCapture(frames), tracker_factory=SequentialTracker)
     assert main(_argv(tmp_path), dependencies=deps) == 0
-    summary = json.loads((tmp_path / "run" / "summary.json").read_text())
+    summary = json.loads((tmp_path / "run" / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"]["tracks_created"] == 10
     assert summary["timing_ms"]["inference"]["sample_count"] == 3
     assert summary["timing_ms"]["inference"]["observations_total"] == 10
