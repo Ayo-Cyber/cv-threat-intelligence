@@ -476,7 +476,7 @@ class AuditHardeningTests(unittest.TestCase):
                            db_path=str(tmp / "events.db"), enable_demo=False)
             be.set_custom_rule("c1", "Is anyone wearing a black hoodie?")
             be.apply_template("office")
-            cam = json.loads((tmp / "site.json").read_text())["cameras"][0]
+            cam = json.loads((tmp / "site.json").read_text(encoding="utf-8"))["cameras"][0]
             from cvti.serving.custom_rules import _rules_for
             descs = [t["description"] for t in _rules_for(cam)]
             self.assertTrue(any("hoodie" in d for d in descs),

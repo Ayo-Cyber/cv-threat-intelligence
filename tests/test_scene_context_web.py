@@ -13,7 +13,7 @@ def _function_body(source: str, function_name: str) -> str:
 
 
 def test_rules_screen_has_mapping_status_review_and_remap_controls() -> None:
-    html = HTML.read_text()
+    html = HTML.read_text(encoding="utf-8")
 
     for token in (
         "mapping-status",
@@ -27,20 +27,20 @@ def test_rules_screen_has_mapping_status_review_and_remap_controls() -> None:
 
 
 def test_mapper_load_does_not_auto_accept_suggested_zones() -> None:
-    html = HTML.read_text()
+    html = HTML.read_text(encoding="utf-8")
 
     assert "acceptSuggestedZone" not in _function_body(html, "fillScene")
 
 
 def test_mapper_review_targets_current_web_console() -> None:
-    html = HTML.read_text()
+    html = HTML.read_text(encoding="utf-8")
 
     assert "renderSceneMapper" in html
     assert "cvti/app/widgets/mapper.py" not in html
 
 
 def test_scene_mutation_controls_follow_camera_configuration_permission() -> None:
-    html = HTML.read_text()
+    html = HTML.read_text(encoding="utf-8")
 
     assert 'sceneCanEdit()' in html
     assert 'configure_cameras' in _function_body(html, "sceneCanEdit")
@@ -50,7 +50,7 @@ def test_onboarding_collects_scene_hints_and_sends_them_with_the_camera() -> Non
     """Both add-camera flows (Configure form and the first-run wizard) must
     collect the operator's scene knowledge and ship it on the camera payload —
     the frontend half of the onboarding→mapper bridge."""
-    html = HTML.read_text()
+    html = HTML.read_text(encoding="utf-8")
     assert "sceneHintFields(\"ch\")" in html, "Configure add-camera form lost its scene hint fields"
     assert "sceneHintFields(\"wz\")" in html, "wizard lost its scene hint fields"
     assert html.count("sceneHintValues(") >= 3, "hints are not merged into addCamera payloads"
@@ -60,7 +60,7 @@ def test_onboarding_collects_scene_hints_and_sends_them_with_the_camera() -> Non
 
 
 def test_wizard_assigns_camera_to_selected_area() -> None:
-    html = HTML.read_text()
+    html = HTML.read_text(encoding="utf-8")
     body = _function_body(html, "wizAdd")
 
     assert "area_id" in body
@@ -68,13 +68,13 @@ def test_wizard_assigns_camera_to_selected_area() -> None:
 
 
 def test_finishing_setup_starts_monitoring_then_opens_scene_review() -> None:
-    body = _function_body(HTML.read_text(), "wizFinish")
+    body = _function_body(HTML.read_text(encoding="utf-8"), "wizFinish")
 
     assert body.index('call("startMonitoring"') < body.index("openSceneReview")
 
 
 def test_scene_review_is_one_grouped_workspace() -> None:
-    html = HTML.read_text()
+    html = HTML.read_text(encoding="utf-8")
     assert 'id="sceneReview"' in html
     body = _function_body(html, "renderSceneReview")
     assert "summary.areas" in body
@@ -86,7 +86,7 @@ def test_scene_review_is_one_grouped_workspace() -> None:
 
 
 def test_scene_review_shows_per_camera_evidence_before_bulk_confirmation() -> None:
-    html = HTML.read_text()
+    html = HTML.read_text(encoding="utf-8")
     body = _function_body(html, "renderSceneReview")
 
     assert "environment_type" in body

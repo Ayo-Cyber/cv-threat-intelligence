@@ -51,7 +51,7 @@ class RotationTests(unittest.TestCase):
     def test_a_small_log_is_left_alone(self):
         self.log.write_text("recent crash context")
         _rotate_monitor_log(self.log)
-        self.assertEqual(self.log.read_text(), "recent crash context")
+        self.assertEqual(self.log.read_text(encoding="utf-8"), "recent crash context")
         self.assertFalse(self.log.with_name("monitor.log.1").exists())
 
     def test_the_predecessor_is_replaced_not_accumulated(self):

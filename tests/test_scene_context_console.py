@@ -185,7 +185,7 @@ def test_qt_bridge_exposes_all_scene_review_actions() -> None:
     # required check failed on ModuleNotFoundError while the same test passed
     # on any dev laptop with Qt. Every other bridge test reads the file for
     # the same reason.
-    source = Path("cvti/app/bridge.py").read_text()
+    source = Path("cvti/app/bridge.py").read_text(encoding="utf-8")
     for method in (
         "updateSceneContext",
         "approveSceneContext",

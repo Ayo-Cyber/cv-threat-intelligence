@@ -42,7 +42,7 @@ class ValidationTableTest(unittest.TestCase):
     def test_the_table_agrees_with_the_published_numbers_sheet(self):
         # NUMBERS.md is the claims sheet. Anything it lists as measured must be
         # measured here, and anything 'not yet validated' must not be.
-        text = (ROOT / "docs" / "NUMBERS.md").read_text()
+        text = (ROOT / "docs" / "NUMBERS.md").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as tmp:
             be = _backend(tmp)
             v = be.detector_validation()

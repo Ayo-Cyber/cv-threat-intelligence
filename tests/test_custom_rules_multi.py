@@ -99,7 +99,7 @@ class EveryTrueRuleFiresTest(unittest.TestCase):
         route = inspect.getsource(CustomRuleScanner._route_hits)
         self.assertIn("for hit in hits:", route,
                       "the routing stopped iterating over all hits")
-        src = Path("cvti/serving/custom_rules.py").read_text()
+        src = Path("cvti/serving/custom_rules.py").read_text(encoding="utf-8")
         self.assertNotIn('"threat": "<exact threat name', src,
                          "the singular-answer prompt is back")
 

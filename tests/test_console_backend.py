@@ -77,7 +77,7 @@ class ConsoleBackendTests(unittest.TestCase):
         self.assertEqual(s1["site_name"], "Front Store")
         self.assertEqual(s1["notify"], "whatsapp")
         self.assertEqual(s1["cameras"], 1)
-        saved = json.loads(Path(self.site).read_text())
+        saved = json.loads(Path(self.site).read_text(encoding="utf-8"))
         self.assertNotIn("scene_context_policy", saved,
                          "the wizard must never stamp a strict policy (1 Sep)")
 

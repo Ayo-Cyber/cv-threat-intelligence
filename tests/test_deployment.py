@@ -25,7 +25,7 @@ class SpecBundlesTheProductTest(unittest.TestCase):
     """Static truth about packaging/argus.spec — cheap, but it is exactly the
     file whose silent regression re-creates the audit finding."""
 
-    spec = (ROOT / "packaging" / "argus.spec").read_text()
+    spec = (ROOT / "packaging" / "argus.spec").read_text(encoding="utf-8")
 
     def test_both_executables_are_declared(self):
         self.assertIn('name="Argus"', self.spec)
@@ -44,11 +44,11 @@ class SpecBundlesTheProductTest(unittest.TestCase):
     def test_the_old_name_is_gone_from_packaging_and_ci(self):
         for rel in ("packaging/argus.spec", "packaging/build.py",
                     "packaging/make_dmg.sh", ".github/workflows/build-app.yml"):
-            text = (ROOT / rel).read_text()
+            text = (ROOT / rel).read_text(encoding="utf-8")
             self.assertNotIn("CVTI Console", text, f"{rel} still says CVTI Console")
 
     def test_ci_still_gates_builds_on_the_test_suite(self):
-        wf = (ROOT / ".github/workflows/build-app.yml").read_text()
+        wf = (ROOT / ".github/workflows/build-app.yml").read_text(encoding="utf-8")
         self.assertIn("name: Test suite", wf)      # branch protection matches on this
         self.assertIn("needs: test", wf)
 
@@ -132,7 +132,7 @@ class DataDirMigrationTest(unittest.TestCase):
             utils = self._with_home(home)
             got = utils.user_data_dir()
             self.assertEqual(got, new)
-            self.assertEqual((new / "events.db").read_text(), "precious")
+            self.assertEqual((new / "events.db").read_text(encoding="utf-8"), "precious")
             self.assertFalse(old.exists(), "legacy dir left behind as a decoy")
 
     def test_a_fresh_machine_just_gets_argus(self):
@@ -210,7 +210,7 @@ class FrozenDefaultsTest(unittest.TestCase):
     """The shell's frozen path must not write into the filesystem root."""
 
     def test_shell_source_routes_frozen_site_into_user_data_dir(self):
-        src = (ROOT / "cvti" / "app" / "shell.py").read_text()
+        src = (ROOT / "cvti" / "app" / "shell.py").read_text(encoding="utf-8")
         self.assertIn("user_data_dir() / \"site\"", src.replace("'", '"'))
         self.assertNotIn('default="configs/site_live.json"', src,
                          "frozen app would resolve this against cwd '/'")
@@ -224,7 +224,7 @@ class BundleWeightTest(unittest.TestCase):
     """A customer's download must not carry what the product never calls
     (bundle audit of the shipped v1.0.0 windows zip, 25 Aug)."""
 
-    spec = (ROOT / "packaging" / "argus.spec").read_text()
+    spec = (ROOT / "packaging" / "argus.spec").read_text(encoding="utf-8")
 
     def test_polars_is_excluded_from_every_analysis(self):
         # EVERY Analysis, not a fixed count: the spec grew a third one

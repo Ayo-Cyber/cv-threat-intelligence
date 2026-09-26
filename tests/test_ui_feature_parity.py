@@ -21,24 +21,24 @@ def _snake(name: str) -> str:
 
 
 def old_console_methods() -> set[str]:
-    src = (ROOT / "cvti/app/bridge.py").read_text()
+    src = (ROOT / "cvti/app/bridge.py").read_text(encoding="utf-8")
     return {_snake(m) for m in re.findall(r"def ([A-Za-z_][A-Za-z_0-9]*)", src)
             if not m.startswith("_")}
 
 
 def api_routes() -> set[str]:
-    src = (ROOT / "cvti/api/writes.py").read_text()
+    src = (ROOT / "cvti/api/writes.py").read_text(encoding="utf-8")
     return set(re.findall(r'R\("([a-z_0-9]+)"', src))
 
 
 def ipc_allowlist() -> set[str]:
-    src = (ROOT / "Frontend/electron/main.ts").read_text()
+    src = (ROOT / "Frontend/electron/main.ts").read_text(encoding="utf-8")
     block = src[src.index("const methods"):]
     return set(re.findall(r'"([a-z_0-9]+)"', block[:block.index("])")]))
 
 
 def client_operations() -> set[str]:
-    src = (ROOT / "Frontend/electron/api-client.ts").read_text()
+    src = (ROOT / "Frontend/electron/api-client.ts").read_text(encoding="utf-8")
     block = src[src.index("const operations"):]
     depth = 0
     for i, ch in enumerate(block):
@@ -56,7 +56,7 @@ def client_operations() -> set[str]:
 
 
 def stdio_methods() -> set[str]:
-    src = (ROOT / "Frontend/bridge.py").read_text()
+    src = (ROOT / "Frontend/bridge.py").read_text(encoding="utf-8")
     return set(re.search(r"METHODS = set\('([^']+)'", src, re.S).group(1).split())
 
 
@@ -110,9 +110,9 @@ class FeatureParity(unittest.TestCase):
         Verb matters: a POST is never shadowed by a GET, which is why
         POST /cameras/probe reaches its handler (verified live: 400, not 404).
         """
-        src = (ROOT / "cvti/api/writes.py").read_text()
+        src = (ROOT / "cvti/api/writes.py").read_text(encoding="utf-8")
         rows = re.findall(r'R\("[a-z_0-9]+",\s*"([A-Z]+)",\s*"([^"]+)"', src)
-        app = (ROOT / "cvti/api/app.py").read_text()
+        app = (ROOT / "cvti/api/app.py").read_text(encoding="utf-8")
         declared = {(v.upper(), p.replace("{{", "{").replace("}}", "}"))
                     for v, p in re.findall(
                         r'@app\.(get|post|put|delete)\(f"\{API_PREFIX\}([^"]+)"', app)}
@@ -133,8 +133,8 @@ class FeatureParity(unittest.TestCase):
         self.assertEqual(clashes, [], "; ".join(clashes))
 
     def test_the_system_panel_exposes_what_has_no_screen(self):
-        panel = (ROOT / "Frontend/src/components/SystemPanel.tsx").read_text()
-        src = "\n".join(p.read_text() for p in (ROOT / "Frontend/src").rglob("*.ts*"))
+        panel = (ROOT / "Frontend/src/components/SystemPanel.tsx").read_text(encoding="utf-8")
+        src = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "Frontend/src").rglob("*.ts*"))
         called = set(re.findall(r'["\']([a-z_0-9]+)["\']', src))
         orphans = sorted(m for m in ipc_allowlist() if m not in called)
         self.assertEqual(

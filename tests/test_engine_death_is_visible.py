@@ -72,7 +72,7 @@ class FeedDirsAreWritableOnInstallsTest(unittest.TestCase):
 class UiShowsTheReasonTest(unittest.TestCase):
 
     def setUp(self):
-        self.html = Path("cvti/app/web/index.html").read_text()
+        self.html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
 
     def test_the_footer_and_wall_surface_the_failure(self):
         self.assertIn("engine exited (code ", self.html)
@@ -106,7 +106,7 @@ class ZoneSavesWorkOnInstallsTest(unittest.TestCase):
                                                     "dwell_alert_seconds": 16}])
             self.assertTrue(cam["config"].startswith(str(Path(tmp) / "userdata")),
                             f"rules file at {cam['config']} — the install dir on a real machine")
-            rules = json.loads(Path(cam["config"]).read_text())["rules"]
+            rules = json.loads(Path(cam["config"]).read_text(encoding="utf-8"))["rules"]
             self.assertTrue(any(r["name"] == "loitering_entrance" for r in rules))
 
     def test_the_base_preset_survives_a_foreign_cwd(self):
@@ -122,7 +122,7 @@ class ZoneSavesWorkOnInstallsTest(unittest.TestCase):
             try:
                 cb._regen_zone_rules("cam1", cam, [{"name": "entrance",
                                                     "dwell_alert_seconds": 16}])
-                rules = json.loads(Path(cam["config"]).read_text())["rules"]
+                rules = json.loads(Path(cam["config"]).read_text(encoding="utf-8"))["rules"]
             finally:
                 os.chdir(cwd)
             base = [r for r in rules if not r["name"].startswith("loitering_")]
@@ -169,7 +169,7 @@ class CrashLoopIsVisibleTest(unittest.TestCase):
                 cb._monitor.kill()
 
     def test_the_wall_banner_says_nothing_is_recorded(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         self.assertIn("crash-looping", html)
         self.assertIn("nothing is being detected or recorded", html)
 
@@ -226,7 +226,7 @@ class HeartbeatDecidesTest(unittest.TestCase):
                 cb._monitor.kill()
 
     def test_the_ui_names_the_stalled_state(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         self.assertIn("unresponsive", html)
         self.assertIn("no heartbeat", html)
 
@@ -240,7 +240,7 @@ class TrueSightStatusIsRealTest(unittest.TestCase):
     rules panel says in place when its rules are not running."""
 
     def setUp(self):
-        self.html = Path("cvti/app/web/index.html").read_text()
+        self.html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
 
     def test_only_the_health_poller_declares_the_ai_alive(self):
         """The 25s setTimeout that stamped 'TrueSight · live' regardless of
@@ -280,13 +280,13 @@ class SlowMachinesAndMissingModelsTest(unittest.TestCase):
         self.assertGreaterEqual(default, 150)
 
     def test_a_failed_weapon_model_disables_the_flag_it_serves(self):
-        src = Path("cvti/serving/pipeline.py").read_text()
+        src = Path("cvti/serving/pipeline.py").read_text(encoding="utf-8")
         block = src.split("weapons detector configured but its model failed")[1][:700]
         self.assertIn('c["weapons"] = False', block,
                       "cameras keep a weapons flag with a None model — one throw per frame")
 
     def test_the_vendored_yolov5_ships(self):
-        spec = Path("packaging/argus.spec").read_text()
+        spec = Path("packaging/argus.spec").read_text(encoding="utf-8")
         self.assertIn('_tree("external/yolov5"', spec,
                       "the weapon detector's hub repo is not in the bundle")
         import subprocess

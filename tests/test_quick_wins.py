@@ -34,7 +34,7 @@ class NoDoubleDecodeTest(unittest.TestCase):
         self.assertEqual(checked[0][0], "c1")
 
     def test_engine_wires_peek_not_read_for_scanner_and_watches(self):
-        src = (ROOT / "cvti/serving/pipeline.py").read_text()
+        src = (ROOT / "cvti/serving/pipeline.py").read_text(encoding="utf-8")
         self.assertIn("frame_source=_scanner_frame", src)
         # neither side helper may CONSUME frames meant for detection
         for helper in ("_scanner_frame", "_latest_frame", "_any_latest_frame"):
@@ -68,7 +68,7 @@ class PerFeedStoreTest(unittest.TestCase):
                 os.chdir(cwd)
 
     def test_switch_updates_the_db_path(self):
-        src = (ROOT / "cvti/app/console_backend.py").read_text()
+        src = (ROOT / "cvti/app/console_backend.py").read_text(encoding="utf-8")
         self.assertIn('self.db_path = self._db_for_feed(key, cfg)', src)
 
 

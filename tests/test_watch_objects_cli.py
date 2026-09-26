@@ -77,7 +77,7 @@ def test_configure_persists_local_cpu_first_configuration(tmp_path):
     model.mkdir()
     assert main(["configure", "--site-dir", str(tmp_path), "--model-path", str(model),
                  "--device", "cpu"]) == 0
-    config = json.loads((tmp_path / "object_library" / "runtime.json").read_text())
+    config = json.loads((tmp_path / "object_library" / "runtime.json").read_text(encoding="utf-8"))
     assert config["backend"] == "siglip"
     assert config["device"] == "cpu"
     assert config["model_path"] == str(model.resolve())
@@ -168,7 +168,7 @@ def test_yolo_world_proposals_only_uses_active_descriptions_and_loads_once(
     ], dependencies=_run_dependencies([_Frame(), _Frame()], factory)) == 0
 
     result = json.loads(capsys.readouterr().out)
-    decisions = [json.loads(line) for line in (output / "decisions.jsonl").read_text().splitlines()]
+    decisions = [json.loads(line) for line in (output / "decisions.jsonl").read_text(encoding="utf-8").splitlines()]
     assert result["proposal_mode"] == "yolo_world"
     assert [row["object_id"] for row in decisions] == ["carton-a", "carton-a"]
     assert constructed == [True]
@@ -239,7 +239,7 @@ def test_untracked_matches_do_not_create_cli_presence(tmp_path, monkeypatch, cap
     ], dependencies=_run_dependencies([_Frame()] * 6, lambda _config: Provider())) == 0
 
     summary = json.loads(capsys.readouterr().out)
-    rows = [json.loads(line) for line in (output / "decisions.jsonl").read_text().splitlines()]
+    rows = [json.loads(line) for line in (output / "decisions.jsonl").read_text(encoding="utf-8").splitlines()]
     decisions = [row for row in rows if row["status"] == "matched"]
     presence = [row for row in rows if row["status"] == "presence_candidate"]
     assert [row["track_id"] is None for row in decisions] == [False, False, True, True, False, False]

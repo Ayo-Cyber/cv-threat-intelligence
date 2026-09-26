@@ -236,6 +236,33 @@ class ConsoleBackend:
         self._session = ""
         return {"ok": True}
 
+
+    def close(self) -> None:
+        """Release the databases this backend owns.
+
+        Windows will not let anyone move or delete a file a process holds
+        open, and auth.db/audit.db were held for the life of the backend with
+        nothing ever closing them. In the product that blocks an in-place
+        upgrade or an uninstall; in the suite it failed 400+ assertions on
+        Windows alone, because POSIX unlinks open files without complaint.
+        Safe to call twice, and the backend is still readable afterwards for
+        anything that does not need its stores.
+        """
+        for store in ("accounts", "audit"):
+            closer = getattr(getattr(self, store, None), "close", None)
+            if closer is None:
+                continue
+            try:
+                closer()
+            except Exception:  # teardown must not raise
+                log.debug("closing %s failed", store, exc_info=True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
     def change_own_password(self, current: str, new: str) -> dict:
         user = self.current_user
         if user is None:

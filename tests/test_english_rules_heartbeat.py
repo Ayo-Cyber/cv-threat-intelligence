@@ -30,7 +30,7 @@ def _scanner(tmp):
 class HeartbeatTest(unittest.TestCase):
 
     def _status(self, s):
-        return json.loads(s.status_path.read_text())["cameras"]["cam1"]
+        return json.loads(s.status_path.read_text(encoding="utf-8"))["cameras"]["cam1"]
 
     def test_a_none_answer_is_recorded_in_words(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -85,7 +85,7 @@ class HeartbeatTest(unittest.TestCase):
                          "a scan path bypasses _scan_camera and its recording")
 
     def test_the_ui_shows_the_pulse(self):
-        html = Path("cvti/app/web/index.html").read_text()
+        html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")
         self.assertIn("fillRulePulse", html)
         self.assertIn('call("englishRulesStatus"', html)
 
@@ -128,4 +128,4 @@ class ScannerBacksOffUnderLoadTest(unittest.TestCase):
 
 
 def self_status(s):
-    return json.loads(s.status_path.read_text())["cameras"]["cam1"]
+    return json.loads(s.status_path.read_text(encoding="utf-8"))["cameras"]["cam1"]

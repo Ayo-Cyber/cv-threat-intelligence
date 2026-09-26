@@ -81,7 +81,7 @@ def test_review_embedding_readiness_and_mutation_deactivates(tmp_path: Path):
 def test_legacy_example_is_not_crop_ready(tmp_path: Path):
     save_target(tmp_path, target())
     library = tmp_path / "object_library"
-    doc = json.loads((library / "targets.json").read_text())
+    doc = json.loads((library / "targets.json").read_text(encoding="utf-8"))
     doc["targets"][0]["examples"] = [{
         "id": "ex-legacy", "source": "upload", "path": "examples/chi-carton/ex-legacy.jpg",
         "bbox": [0, 0, 1, 1], "sha256": "0" * 64, "reviewed": True,
@@ -131,7 +131,7 @@ def test_invalid_json_is_retained_and_atomic_temps_are_unique(tmp_path: Path):
     targets.write_text("{not json")
     with pytest.raises(ValueError, match="invalid object target store"):
         load_targets(tmp_path)
-    assert targets.read_text() == "{not json"
+    assert targets.read_text(encoding="utf-8") == "{not json"
 
 
 def test_load_embeddings_rejects_mismatched_crop_hash(tmp_path: Path):

@@ -113,7 +113,7 @@ def test_scoped_rule_survives_regeneration_and_disables_only_it(tmp_path, monkey
 
     backend.set_object_watch_rule("cam-1", "red-box", True, "door")
     camera = backend.list_cameras()[0]
-    rules = json.loads((tmp_path / camera["config"]).read_text())["rules"]
+    rules = json.loads((tmp_path / camera["config"]).read_text(encoding="utf-8"))["rules"]
     scoped = next(rule for rule in rules if rule["name"].startswith("object_watch_"))
     assert scoped["trigger"] == {"detector": "object_watch", "state": "object_seen",
                                   "object_id": "red-box", "zone": "door"}
@@ -123,7 +123,7 @@ def test_scoped_rule_survives_regeneration_and_disables_only_it(tmp_path, monkey
 
     backend.set_object_watch_rule("cam-1", "red-box", False, "door")
     camera = backend.list_cameras()[0]
-    rules = json.loads((tmp_path / camera["config"]).read_text())["rules"]
+    rules = json.loads((tmp_path / camera["config"]).read_text(encoding="utf-8"))["rules"]
     assert any(rule["name"] == "baseline" for rule in rules)
     assert not any(rule["name"].startswith("object_watch_") for rule in rules)
 
@@ -140,7 +140,7 @@ def test_legacy_detector_toggle_disables_persisted_object_watch_alias(tmp_path, 
     backend.set_object_watch_rule("cam-1", "red-box", True, "door")
     backend.set_camera_rules("cam-1", {"object_watch": False})
 
-    persisted = json.loads((tmp_path / "site.json").read_text())["cameras"][0]
+    persisted = json.loads((tmp_path / "site.json").read_text(encoding="utf-8"))["cameras"][0]
     assert persisted["object_watch"] is False
     assert persisted["object_watch_enabled"] is False
     assert bool(persisted.get("object_watch_enabled", persisted.get("object_watch", False))) is False
@@ -167,7 +167,7 @@ def test_preset_change_regenerates_camera_with_watchlist_rules_only(tmp_path, mo
     backend.set_camera_rules("cam-1", {"config": str(new_base)})
 
     camera = backend.list_cameras()[0]
-    generated = json.loads((tmp_path / camera["config"]).read_text())
+    generated = json.loads((tmp_path / camera["config"]).read_text(encoding="utf-8"))
     names = [rule["name"] for rule in generated["rules"]]
     assert camera["_base_config"] == str(new_base)
     assert camera["config"] != str(new_base)

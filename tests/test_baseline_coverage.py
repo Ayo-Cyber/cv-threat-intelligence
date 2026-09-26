@@ -29,12 +29,12 @@ NON_BASELINE = {"presence", "concealment", "video_action", "theft",
 
 
 def _baseline_detectors() -> set[str]:
-    rules = json.loads(BASELINE.read_text())["rules"]
+    rules = json.loads(BASELINE.read_text(encoding="utf-8"))["rules"]
     return {r["trigger"].get("detector") for r in rules}
 
 
 def _emitted_detectors() -> set[str]:
-    return set(re.findall(r'detector="([a-z_]+)"', CAMERA.read_text()))
+    return set(re.findall(r'detector="([a-z_]+)"', CAMERA.read_text(encoding="utf-8")))
 
 
 class BaselineCoverageTests(unittest.TestCase):
@@ -49,7 +49,7 @@ class BaselineCoverageTests(unittest.TestCase):
             self.assertIn(det, listens, f"no baseline rule for {det}")
 
     def test_baseline_rules_are_wellformed(self):
-        for r in json.loads(BASELINE.read_text())["rules"]:
+        for r in json.loads(BASELINE.read_text(encoding="utf-8"))["rules"]:
             self.assertTrue(r.get("name"))
             self.assertIn("detector", r.get("trigger", {}))
             self.assertIn(r.get("priority"), {"critical", "high", "medium", "low"})

@@ -34,7 +34,7 @@ def test_mapping_queue_is_bounded_and_completes_all_cameras(tmp_path) -> None:
 
     assert mapper.max_active == 1
     assert coordinator.progress().ready == 3
-    saved = json.loads((tmp_path / "out/context/mapping_queue.json").read_text())
+    saved = json.loads((tmp_path / "out/context/mapping_queue.json").read_text(encoding="utf-8"))
     assert all("source" not in job for job in saved["jobs"])
 
 
@@ -69,7 +69,7 @@ def test_camera_completion_builds_area_and_site_proposals(tmp_path) -> None:
 
 def test_area_metadata_reaches_each_camera_as_a_prior(tmp_path) -> None:
     site = write_site(tmp_path, ["cam1"])
-    payload = json.loads(site.read_text())
+    payload = json.loads(site.read_text(encoding="utf-8"))
     payload["site_type"] = "manufacturing_plant"
     payload["areas"][0]["area_type"] = "production_floor"
     site.write_text(json.dumps(payload))

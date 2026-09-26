@@ -191,7 +191,7 @@ class ResumableReplayTest(unittest.TestCase):
             golden = self._write(tmp, 4)
             resume = Path(tmp) / "replay.jsonl"
             golden.replay(self._Counting(), resume_path=resume, limit=2)
-            lines = [json.loads(l) for l in resume.read_text().splitlines()]
+            lines = [json.loads(l) for l in resume.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(len(lines), 2, "verdicts were not written as they landed")
             self.assertTrue(all(l["confirmed"] for l in lines))
 
@@ -218,14 +218,14 @@ class BaselineTest(unittest.TestCase):
         self.assertTrue(self.BASELINE.exists(),
                         "no prompt baseline — run tools/prompt_regression.py run "
                         "--update-baseline")
-        base = json.loads(self.BASELINE.read_text())
+        base = json.loads(self.BASELINE.read_text(encoding="utf-8"))
         self.assertEqual(
             base.get("fingerprint"), fp.fingerprint(),
             "gate prompt text changed without re-measuring — see "
             "tools/prompt_regression.py")
 
     def test_baseline_status_matches_its_metric_provenance(self):
-        base = json.loads(self.BASELINE.read_text())
+        base = json.loads(self.BASELINE.read_text(encoding="utf-8"))
         for key in ("measurement_status", "precision", "recall", "golden_cases",
                     "gate_model", "tolerance", "measured_at"):
             self.assertIn(key, base)
@@ -281,7 +281,7 @@ class BaselineTest(unittest.TestCase):
                     mock.patch.object(prompt_regression, "_model_digest", return_value="digest"), \
                     redirect_stdout(io.StringIO()):
                 result = prompt_regression.cmd_run(args)
-            updated = json.loads(baseline.read_text())
+            updated = json.loads(baseline.read_text(encoding="utf-8"))
 
         self.assertEqual(result, 0)
         self.assertEqual(updated["measurement_status"], "measured")
@@ -309,7 +309,7 @@ class BaselineTest(unittest.TestCase):
             )
             with mock.patch.object(prompt_regression, "BASELINE", baseline):
                 result = prompt_regression.cmd_record_unmeasured(args)
-            updated = json.loads(baseline.read_text())
+            updated = json.loads(baseline.read_text(encoding="utf-8"))
 
         self.assertEqual(result, 0)
         self.assertEqual(updated["measurement_status"], "unmeasured")
@@ -370,7 +370,7 @@ class BaselineTest(unittest.TestCase):
                         redirect_stdout(output):
                     result = prompt_regression.cmd_run(args)
 
-                self.assertEqual(json.loads(baseline.read_text()), original_baseline)
+                self.assertEqual(json.loads(baseline.read_text(encoding="utf-8")), original_baseline)
 
             reported = json.loads(output.getvalue())
             self.assertEqual(result, 2)
@@ -381,7 +381,7 @@ class BaselineTest(unittest.TestCase):
     def test_tolerance_is_tighter_on_recall_than_precision(self):
         # Losing precision costs an operator a review. Losing recall means a
         # threat is not reported, and there is no second chance at that.
-        tol = json.loads(self.BASELINE.read_text())["tolerance"]
+        tol = json.loads(self.BASELINE.read_text(encoding="utf-8"))["tolerance"]
         self.assertLess(tol["recall"], tol["precision"])
 
 

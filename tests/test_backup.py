@@ -46,7 +46,7 @@ class BackupRestoreEndToEndTest(unittest.TestCase):
         self.assertTrue(res["ok"], res)
         for p, want in before.items():
             self.assertEqual(Path(p).read_bytes(), want, f"{p} did not round-trip")
-        site = json.loads(Path("site.json").read_text())
+        site = json.loads(Path("site.json").read_text(encoding="utf-8"))
         from cvti.serving.custom_rules import _rules_for
         descs = [t["description"] for t in _rules_for(site["cameras"][0])]
         self.assertTrue(any("hoodie" in d for d in descs),

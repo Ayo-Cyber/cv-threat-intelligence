@@ -64,7 +64,7 @@ class NoEvidenceIsNotTheCwdTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1] / "cvti"
         offenders = []
         for f in root.rglob("*.py"):
-            for i, line in enumerate(f.read_text().splitlines(), 1):
+            for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
                 code = line.split("#", 1)[0]        # the pattern in a COMMENT is fine
                 if re.search(r'Path\([^)]*\bor\s+""\s*\)', code):
                     offenders.append(f"{f.relative_to(root)}:{i}")

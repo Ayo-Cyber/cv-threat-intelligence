@@ -20,7 +20,7 @@ import unittest
 class TheLoaderSurvivesAWindowsPickledCheckpoint(unittest.TestCase):
     def test_it_aliases_windowspath_for_the_load(self):
         source = (pathlib.Path(__file__).resolve().parents[1]
-                  / "cvti" / "detector" / "core.py").read_text()
+                  / "cvti" / "detector" / "core.py").read_text(encoding="utf-8")
         loader = source[source.index("def load_yolov5_model"):
                         source.index("def load_detection_model")]
         self.assertIn("pathlib.WindowsPath", loader,
@@ -30,7 +30,7 @@ class TheLoaderSurvivesAWindowsPickledCheckpoint(unittest.TestCase):
     def test_it_puts_the_class_back(self):
         """A permanent alias would corrupt every later WindowsPath use."""
         source = (pathlib.Path(__file__).resolve().parents[1]
-                  / "cvti" / "detector" / "core.py").read_text()
+                  / "cvti" / "detector" / "core.py").read_text(encoding="utf-8")
         loader = source[source.index("def load_yolov5_model"):
                         source.index("def load_detection_model")]
         self.assertIn("finally:", loader,

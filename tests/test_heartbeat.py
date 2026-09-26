@@ -108,7 +108,7 @@ class SenderTest(unittest.TestCase):
                            health_provider=lambda: FULL_HEALTH, output_dir=tmp,
                            transport=lambda p: sent.append(p) or 200)
             hb.beat()
-            on_disk = json.loads((Path(tmp) / "heartbeat_last.json").read_text())
+            on_disk = json.loads((Path(tmp) / "heartbeat_last.json").read_text(encoding="utf-8"))
             self.assertEqual(on_disk, json.loads(json.dumps(sent[0], default=str)))
 
     def test_a_failed_send_is_recorded_and_does_not_raise(self):

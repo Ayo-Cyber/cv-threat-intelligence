@@ -69,7 +69,7 @@ class HostileInstallTest(unittest.TestCase):
 
         z = cb.add_zone("cam1", "entrance", [[0, 0], [10, 0], [10, 10]], 16.0)
         self.assertNotIn("error", z, f"zone save failed in the jail: {z}")
-        rules = json.loads(Path(z and self._rules_file()).read_text())["rules"]
+        rules = json.loads(Path(z and self._rules_file()).read_text(encoding="utf-8"))["rules"]
         self.assertTrue(any(r0["name"] == "loitering_entrance" for r0 in rules))
         self.assertTrue(any(not r0["name"].startswith("loitering_") for r0 in rules),
                         "baseline preset vanished in the jail")

@@ -23,7 +23,7 @@ from cvti.app.console_backend import ConsoleBackend
 
 class RemovalReachableFromCamerasScreen(unittest.TestCase):
     def setUp(self):
-        self.html = (ROOT / "cvti" / "app" / "web" / "index.html").read_text()
+        self.html = (ROOT / "cvti" / "app" / "web" / "index.html").read_text(encoding="utf-8")
 
     def test_camera_rows_carry_a_remove_button(self):
         # The chip lives in renderCameras' row template, not just the wizard.

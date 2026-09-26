@@ -179,7 +179,7 @@ def test_engine_uses_only_separately_accepted_zone_roles(tmp_path) -> None:
 
 
 def test_always_on_baseline_rules_are_explicitly_context_exempt() -> None:
-    rules = json.loads(Path("configs/baseline_critical_v1.json").read_text())["rules"]
+    rules = json.loads(Path("configs/baseline_critical_v1.json").read_text(encoding="utf-8"))["rules"]
 
     assert rules
     assert all(rule.get("critical_baseline") is True for rule in rules)
@@ -194,7 +194,7 @@ def test_shipped_shoplifting_rules_declare_retail_context() -> None:
     )
     found = 0
     for path in paths:
-        rules = json.loads(Path(path).read_text())["rules"]
+        rules = json.loads(Path(path).read_text(encoding="utf-8"))["rules"]
         for rule in rules:
             if rule.get("name") not in {"shoplifting", "theft_depart"}:
                 continue

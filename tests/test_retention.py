@@ -299,7 +299,7 @@ class NoOrphansTest(unittest.TestCase):
             con.close()
             result = site.mgr.purge()
             self.assertTrue(victim.exists(), "retention deleted a directory outside its own tree")
-            self.assertEqual((victim / "important.txt").read_text(), "do not delete me")
+            self.assertEqual((victim / "important.txt").read_text(encoding="utf-8"), "do not delete me")
             self.assertEqual(result["failed"], 1)
 
 

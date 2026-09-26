@@ -89,7 +89,7 @@ class ConfigTests(unittest.TestCase):
             gw.api_port = gw.rtsp_port = gw.webrtc_port = 1
             path = gw.write_config()
             self.assertEqual(path.name, "go2rtc.yaml")
-            doc = yaml.safe_load(path.read_text())
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
             self.assertIn("main_corridor", doc["streams"])
 
 

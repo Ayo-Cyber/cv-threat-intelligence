@@ -47,14 +47,14 @@ class ServerOutputGoesToAFile(unittest.TestCase):
             log = Path(d) / "logs" / "ollama.log"
             got = self._spawn(log_path=log)
             self.assertEqual(got["stderr"], subprocess.STDOUT)
-            self.assertIn("more system memory", log.read_text())
+            self.assertIn("more system memory", log.read_text(encoding="utf-8"))
 
     def test_an_oversized_log_is_truncated_first(self):
         with tempfile.TemporaryDirectory() as d:
             log = Path(d) / "ollama.log"
             log.write_bytes(b"x" * (ollama.OLLAMA_LOG_MAX_BYTES + 1))
             self._spawn(log_path=log)
-            text = log.read_text()
+            text = log.read_text(encoding="utf-8")
             self.assertNotIn("xxxx", text)
             self.assertIn("more system memory", text)
 

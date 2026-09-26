@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _backend_helper import signed_in
 
 ROOT = Path(__file__).resolve().parents[1]
-PIPELINE = (ROOT / "cvti/serving/pipeline.py").read_text()
+PIPELINE = (ROOT / "cvti/serving/pipeline.py").read_text(encoding="utf-8")
 
 
 class ReadOnceVsLiveTest(unittest.TestCase):
@@ -185,7 +185,7 @@ class SceneContextPersistenceTest(unittest.TestCase):
             context_file = output / "context/cam1/scene_context.json"
             self.assertTrue(context_file.exists())
             self.assertEqual(
-                json.loads(context_file.read_text())["environment_type"],
+                json.loads(context_file.read_text(encoding="utf-8"))["environment_type"],
                 "retail_shop",
             )
             self.assertEqual(

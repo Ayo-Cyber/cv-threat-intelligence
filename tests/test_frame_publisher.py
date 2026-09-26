@@ -62,7 +62,7 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(body[:2], JPEG_MAGIC)
 
     def test_publishes_port_so_the_app_can_find_it(self):
-        self.assertEqual(json.loads((self.d / "frames.json").read_text())["port"], self.pub.port)
+        self.assertEqual(json.loads((self.d / "frames.json").read_text(encoding="utf-8"))["port"], self.pub.port)
 
     def test_cameras_endpoint_lists_cameras_and_tracks(self):
         self.pub.publish("cam1", self.frame, [(7, 10, 10, 50, 90), (9, 60, 10, 90, 90)])
@@ -353,7 +353,7 @@ class PublisherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pub = FramePublisher().start(tmp)
             try:
-                info = json.loads((Path(tmp) / "frames.json").read_text())
+                info = json.loads((Path(tmp) / "frames.json").read_text(encoding="utf-8"))
                 self.assertEqual(info["token"], pub.token)
                 mode = os.stat(Path(tmp) / "frames.json").st_mode & 0o777
                 self.assertEqual(mode, 0o600, "the frame token was world-readable")

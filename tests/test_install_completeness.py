@@ -34,7 +34,7 @@ def _tracked(rel) -> bool:
 class EveryReferencedFileShipsTest(unittest.TestCase):
 
     def setUp(self):
-        self.feeds = json.loads((ROOT / "configs/feeds.json").read_text())
+        self.feeds = json.loads((ROOT / "configs/feeds.json").read_text(encoding="utf-8"))
 
     def test_the_registry_and_every_feed_config_are_tracked(self):
         self.assertTrue(_tracked("configs/feeds.json"))
@@ -49,7 +49,7 @@ class EveryReferencedFileShipsTest(unittest.TestCase):
         for src in self.feeds["sources"]:
             if src.get("kind") != "demo" or not _tracked(src["config"]):
                 continue
-            site = json.loads((ROOT / src["config"]).read_text())
+            site = json.loads((ROOT / src["config"]).read_text(encoding="utf-8"))
             for cam in site.get("cameras", []):
                 s = str(cam.get("source", ""))
                 if s.isdigit() or "://" in s:
@@ -62,7 +62,7 @@ class EveryReferencedFileShipsTest(unittest.TestCase):
         for src in self.feeds["sources"]:
             if not _tracked(src["config"]):
                 continue
-            site = json.loads((ROOT / src["config"]).read_text())
+            site = json.loads((ROOT / src["config"]).read_text(encoding="utf-8"))
             for cam in site.get("cameras", []):
                 for key in ("config", "zones", "_base_config"):
                     v = cam.get(key)
@@ -122,7 +122,7 @@ class EveryDefaultModelShipsTest(unittest.TestCase):
 
     def test_every_default_weights_path_is_tracked(self):
         import re
-        src = (ROOT / "cvti/serving/pipeline.py").read_text()
+        src = (ROOT / "cvti/serving/pipeline.py").read_text(encoding="utf-8")
         weights = set(re.findall(r'"(models/[\w.\-]+\.pt)"', src))
         self.assertTrue(weights, "no default weights found — did the signature move?")
         for w in sorted(weights):
@@ -151,7 +151,7 @@ class MacBundleTakesKeyboardFocusTest(unittest.TestCase):
     window behind Argus (field report, 31 Aug). The spec must pin it False."""
 
     def test_the_spec_pins_lsbackgroundonly_off(self):
-        spec = (ROOT / "packaging/argus.spec").read_text()
+        spec = (ROOT / "packaging/argus.spec").read_text(encoding="utf-8")
         self.assertIn('"LSBackgroundOnly": False', spec,
                       "argus.spec must force LSBackgroundOnly off, or the "
                       "console=True engine EXE makes the whole .app untypeable")
@@ -163,7 +163,7 @@ class BuildIdentityTest(unittest.TestCase):
     under Program Files (x86) (pilot log, 1 Sep)."""
 
     def test_the_spec_takes_the_version_from_the_release_tag(self):
-        spec = (ROOT / "packaging/argus.spec").read_text()
+        spec = (ROOT / "packaging/argus.spec").read_text(encoding="utf-8")
         self.assertNotIn('APP_VERSION = "1', spec,
                          "version must come from the tag, not a hardcode")
         self.assertIn("GITHUB_REF_NAME", spec)
@@ -174,7 +174,7 @@ class BuildIdentityTest(unittest.TestCase):
         # The Windows installer is electron-builder's NSIS target since
         # v1.8.13; the Inno Setup script it replaced installed the retired
         # PyQt shell.
-        cfg = (ROOT / "Frontend/electron-builder.yml").read_text()
+        cfg = (ROOT / "Frontend/electron-builder.yml").read_text(encoding="utf-8")
         self.assertIn("nsis", cfg)
         self.assertIn("x64", cfg)
 
@@ -186,7 +186,7 @@ class BuildIdentityTest(unittest.TestCase):
         React one existed only on developer machines. No test looked, so
         nothing failed. This looks.
         """
-        wf = (ROOT / ".github/workflows/build-app.yml").read_text()
+        wf = (ROOT / ".github/workflows/build-app.yml").read_text(encoding="utf-8")
         for needle in ("setup-node", "npm ci", "npm run build", "electron-builder"):
             self.assertIn(needle, wf,
                           f"the release build must {needle!r} — without it the "
@@ -197,7 +197,7 @@ class BuildIdentityTest(unittest.TestCase):
     def test_the_bundle_ships_the_api_the_ui_talks_to(self):
         """The Electron shell spawns argus-api; an installed machine has no
         Python, so it must be a frozen binary in the bundle."""
-        spec = (ROOT / "packaging/argus.spec").read_text()
+        spec = (ROOT / "packaging/argus.spec").read_text(encoding="utf-8")
         self.assertIn("api_entry.py", spec)
         self.assertIn('name="argus-api"', spec)
         self.assertIn("api_exe", spec)
@@ -207,7 +207,7 @@ class BuildIdentityTest(unittest.TestCase):
             self.assertIn(hidden, spec)
 
     def test_the_sidebar_version_is_live_not_hardcoded(self):
-        html = (ROOT / "cvti/app/web/index.html").read_text()
+        html = (ROOT / "cvti/app/web/index.html").read_text(encoding="utf-8")
         self.assertNotIn("v0.9", html)
         self.assertIn('call("appVersion"', html)
 
@@ -225,7 +225,7 @@ class EngineBundleCarriesItsDynamicImports(unittest.TestCase):
     3 Sep). Pin the imports to the Analysis that actually needs them."""
 
     def _engine_block(self) -> str:
-        spec = (ROOT / "packaging" / "argus.spec").read_text()
+        spec = (ROOT / "packaging" / "argus.spec").read_text(encoding="utf-8")
         start = spec.index("engine_a = Analysis")
         return spec[start:spec.index("app_pyz")]
 

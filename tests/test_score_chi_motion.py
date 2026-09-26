@@ -129,7 +129,7 @@ def _write_perf(path: Path, rate: float, *, mode: str, pair_id: str) -> Path:
 
 
 def _mutate_perf(path: Path, **metadata: object) -> None:
-    report = json.loads(path.read_text())
+    report = json.loads(path.read_text(encoding="utf-8"))
     report["chi_motion_performance"].update(metadata)
     path.write_text(json.dumps(report))
 
@@ -394,7 +394,7 @@ def test_scores_motion_acceptance_and_writes_a_retained_artifact(tmp_path: Path)
         *(str(path) for path in shown),
         *(str(path) for path in captures),
     }
-    assert json.loads(output.read_text()) == result
+    assert json.loads(output.read_text(encoding="utf-8")) == result
 
 
 def test_intervals_are_half_open_except_the_exact_final_frame(tmp_path: Path) -> None:
@@ -429,7 +429,7 @@ def test_out_of_window_candidate_is_a_false_positive_not_an_input_error(
     tmp_path: Path,
 ) -> None:
     labels, observations, audit, hidden, shown = _valid_inputs(tmp_path)
-    document = json.loads(audit.read_text())
+    document = json.loads(audit.read_text(encoding="utf-8"))
     document["rows"].append({
         "candidate_id": "outside-positive-window",
         "case_id": "S5-P01",
@@ -462,7 +462,7 @@ def test_candidate_case_must_exist_and_timestamp_must_be_inside_clip(
     tmp_path: Path,
 ) -> None:
     labels, observations, audit, hidden, shown = _valid_inputs(tmp_path)
-    document = json.loads(audit.read_text())
+    document = json.loads(audit.read_text(encoding="utf-8"))
     document["rows"][0]["case_id"] = "UNKNOWN"
     audit.write_text(json.dumps(document))
     with pytest.raises(InputError, match="unknown case_id"):
@@ -597,7 +597,7 @@ def test_rejects_unpaired_or_unproven_performance_reports(
     elif mutation == "pair_id":
         _mutate_perf(shown[0], pair_id="pair-other")
     elif mutation == "run_id":
-        first = json.loads(hidden[0].read_text())["chi_motion_performance"]["run_id"]
+        first = json.loads(hidden[0].read_text(encoding="utf-8"))["chi_motion_performance"]["run_id"]
         _mutate_perf(shown[0], run_id=first)
     elif mutation == "case_id":
         _mutate_perf(shown[0], case_id="S5-N01")
@@ -615,7 +615,7 @@ def test_rejects_unpaired_or_unproven_performance_reports(
     elif mutation == "sample_duration":
         _mutate_perf(shown[0], sample_duration_s=19.0)
     elif mutation == "paired_sample_count":
-        report = json.loads(shown[0].read_text())
+        report = json.loads(shown[0].read_text(encoding="utf-8"))
         report["chi_motion_performance"]["sample_count"] = 180
         report["stages"]["detect_batch"]["engine"].update({
             "units": 180,
@@ -623,7 +623,7 @@ def test_rejects_unpaired_or_unproven_performance_reports(
         })
         shown[0].write_text(json.dumps(report))
     elif mutation == "paired_sample_duration":
-        report = json.loads(shown[0].read_text())
+        report = json.loads(shown[0].read_text(encoding="utf-8"))
         report["chi_motion_performance"]["sample_duration_s"] = 19.0
         report["stages"]["detect_batch"]["engine"].update({
             "span_s": 19.0,
@@ -666,7 +666,7 @@ def test_rejects_rate_inconsistent_with_sample_count_and_duration(
     tmp_path: Path,
 ) -> None:
     labels, observations, audit, hidden, shown = _valid_inputs(tmp_path)
-    report = json.loads(hidden[0].read_text())
+    report = json.loads(hidden[0].read_text(encoding="utf-8"))
     report["stages"]["detect_batch"]["engine"]["rate_per_s"] = 9.5
     hidden[0].write_text(json.dumps(report))
 
@@ -681,7 +681,7 @@ def test_accepts_rate_rounded_from_serialized_count_and_duration(
 ) -> None:
     labels, observations, audit, hidden, shown = _valid_inputs(tmp_path)
     for path in (hidden[0], shown[0]):
-        report = json.loads(path.read_text())
+        report = json.loads(path.read_text(encoding="utf-8"))
         report["chi_motion_performance"].update({
             "sample_count": 48,
             "observation_count": 24,
@@ -778,7 +778,7 @@ def test_rejects_missing_or_malformed_inputs(
             [{key: value for key, value in row.items() if key in fields} for row in rows],
         )
     elif mutation == "bad_perf":
-        report = json.loads(hidden[0].read_text())
+        report = json.loads(hidden[0].read_text(encoding="utf-8"))
         report["stages"]["detect_batch"]["engine"]["rate_per_s"] = None
         hidden[0].write_text(json.dumps(report))
     elif mutation == "wrong_pair_count":

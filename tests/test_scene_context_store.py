@@ -114,8 +114,8 @@ def test_save_mapping_writes_site_scoped_artifacts_atomically(tmp_path) -> None:
 
     resolution = store.save_mapping(_mapping_result(), source)
 
-    context = json.loads(store.context_path.read_text())
-    status = json.loads(store.status_path.read_text())
+    context = json.loads(store.context_path.read_text(encoding="utf-8"))
+    status = json.loads(store.status_path.read_text(encoding="utf-8"))
     assert context["camera_id"] == "cam_1"
     assert context["source_frame_path"] == str(store.frame_path)
     assert status["status"] == "ready_unreviewed"
@@ -129,7 +129,7 @@ def test_raw_response_is_debug_only(tmp_path) -> None:
     store = SceneContextStore(tmp_path / "context", "cam_1")
     store.save_mapping(_mapping_result(), _source(tmp_path), dump_raw_response=True)
 
-    assert store.raw_response_path.read_text().startswith("{")
+    assert store.raw_response_path.read_text(encoding="utf-8").startswith("{")
 
 
 def test_late_mapping_becomes_proposal_instead_of_overwriting_review(tmp_path) -> None:
@@ -144,13 +144,13 @@ def test_late_mapping_becomes_proposal_instead_of_overwriting_review(tmp_path) -
     assert resolution.context == reviewed.context
     assert resolution.status.status == "ready_reviewed"
     assert resolution.provenance == "reviewed_during_mapping"
-    assert json.loads(store.context_path.read_text())["environment_type"] == "parking_lot"
+    assert json.loads(store.context_path.read_text(encoding="utf-8"))["environment_type"] == "parking_lot"
     assert (
-        json.loads(store.proposal_context_path.read_text())["environment_type"]
+        json.loads(store.proposal_context_path.read_text(encoding="utf-8"))["environment_type"]
         == "retail_shop"
     )
     assert store.proposal_frame_path.read_bytes().startswith(b"\xff\xd8")
-    assert store.proposal_raw_response_path.read_text().startswith("{")
+    assert store.proposal_raw_response_path.read_text(encoding="utf-8").startswith("{")
 
 
 def test_windows_atomic_replace_retries_transient_permission_errors(
@@ -241,7 +241,7 @@ def test_old_site_config_reviewed_stamps_demote_on_read(tmp_path) -> None:
     store = SceneContextStore(tmp_path / "context", "cam_1")
     store.resolve(source, "auto", manual_context=_context("retail_shop"))
     # Forge the pre-3-Sep stamp on disk.
-    status = _json.loads(store.status_path.read_text())
+    status = _json.loads(store.status_path.read_text(encoding="utf-8"))
     status.update(status="ready_reviewed", reviewed_by="site_config",
                   reviewed_at="2026-09-01T00:00:00Z")
     store.status_path.write_text(_json.dumps(status))
