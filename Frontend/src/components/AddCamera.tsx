@@ -9,6 +9,7 @@ import {
   type LocationSelection,
 } from "../lib/hierarchy";
 import { Notice, Spinner } from "./common";
+import { addCameraBlockedReason } from "../lib/add-camera";
 import CameraConnection from "./CameraConnection";
 
 export default function AddCamera({
@@ -208,6 +209,9 @@ export default function AddCamera({
             This camera will remain visible under Unassigned until it is placed
             in an area.
           </p>
+        )}
+        {addCameraBlockedReason({ id, source, placementReady }) && (
+          <Notice>{addCameraBlockedReason({ id, source, placementReady })}</Notice>
         )}
         <div className="actions">
           <button

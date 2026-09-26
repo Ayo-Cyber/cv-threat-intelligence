@@ -32,6 +32,28 @@ RULE_PRESETS = {
 }
 
 
+def webcam_advice(index: int, platform: str = sys.platform) -> str:
+    """Why a webcam would not open, in terms of the machine it happened on.
+
+    This said "check Windows camera permissions for desktop apps" on every
+    platform, because it was written from one pilot's Windows box (#183).
+    A Linux operator hit it on 26 Sep and was told to open a Windows settings
+    page that does not exist -- advice that is wrong is worse than none,
+    because it sends someone looking in a place the answer cannot be.
+    """
+    shared = (f"Could not open webcam {index} — close any app that is using the "
+              "camera (Meet, Teams, Zoom)")
+    if platform == "win32":
+        return (f"{shared}, and check Settings → Privacy & security → Camera → "
+                "'Let desktop apps access your camera'.")
+    if platform == "darwin":
+        return (f"{shared}, and allow camera access for Argus in System Settings → "
+                "Privacy & Security → Camera.")
+    return (f"{shared}. On Linux also check that the device exists (ls /dev/video*) "
+            "and that your user is in the 'video' group "
+            "(sudo usermod -aG video $USER, then log out and back in).")
+
+
 def _open_for_test(source, cv2):
     """A VideoCapture for the Test button, opened the way the ENGINE opens it.
 
@@ -60,9 +82,7 @@ def test_url(url: str, snapshot_size: int = 320) -> dict:
     cap, src = _open_for_test(url, cv2)
     if not cap.isOpened():
         if isinstance(src, int):
-            return {"ok": False, "error": f"Could not open webcam {src} — close any app that is using "
-                                          "the camera (Meet, Teams, Zoom) and check Windows camera "
-                                          "permissions for desktop apps."}
+            return {"ok": False, "error": webcam_advice(src)}
         return {"ok": False, "error": "Could not open — check the IP, credentials, path, and that the PC is on the same network."}
     ok, frame = cap.read()
     # A webcam's first reads often return nothing while it powers up.
