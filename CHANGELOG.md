@@ -4,6 +4,34 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.23 — 26 Sep 2026
+
+**macOS no longer reports Argus as damaged.** Without an Apple certificate the
+app was shipped with no signature at all, and Apple Silicon reports an
+unsigned app as corrupt rather than unsigned — so a perfectly good download
+said "Argus is damaged and can't be opened", and the only way past it was a
+Terminal command. The app is now signed as it is packaged, so macOS shows the
+ordinary "unidentified developer" prompt instead, which right-click → Open
+clears. Full notarisation still needs an Apple developer account.
+
+**The Windows installer is tested on every build.** Until now the build
+checked the unpacked application; what you actually double-click — the
+installer — had never been run anywhere. Each build now installs Argus
+silently and starts that installed copy, creates an account, adds a camera and
+waits for the engine to connect to it. A build that cannot do that is not
+published.
+
+**Fewer false theft alerts.** The video-action theft signal raised an alert on
+one normal clip in five, and each one costs the on-device AI a verification it
+could have spent on something real. It now needs to be far more certain before
+it says anything.
+
+**The audit log no longer holds its file open.** Windows will not let anything
+move or delete a file a running program holds, which blocked upgrading or
+uninstalling over an existing installation. The log also now writes each entry
+in a single step, so two things happening at once can no longer break the
+chain that proves the log has not been edited.
+
 ## v1.8.22 — 23 Sep 2026
 
 Two things found live on a Windows screen share, and proof that the app starts.
