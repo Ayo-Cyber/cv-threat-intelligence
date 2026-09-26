@@ -105,3 +105,37 @@ class TestConnectionWebcam(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- the advice has to match the machine it appears on (26 Sep) -------------
+# "check Windows camera permissions for desktop apps" was shown to a Linux
+# operator, who went looking for a settings page that does not exist on their
+# OS. Advice that is confidently wrong costs more than no advice.
+
+def test_windows_advice_names_the_windows_setting():
+    from cvti.serving.onboarding import webcam_advice
+    msg = webcam_advice(0, "win32")
+    assert "Privacy & security" in msg and "desktop apps" in msg
+    assert "/dev/video" not in msg
+
+
+def test_macos_advice_names_system_settings():
+    from cvti.serving.onboarding import webcam_advice
+    msg = webcam_advice(0, "darwin")
+    assert "System Settings" in msg
+    assert "Windows" not in msg and "/dev/video" not in msg
+
+
+def test_linux_advice_names_the_device_and_the_video_group():
+    from cvti.serving.onboarding import webcam_advice
+    msg = webcam_advice(0, "linux")
+    assert "/dev/video" in msg and "video' group" in msg
+    assert "Windows" not in msg
+
+
+def test_every_platform_still_names_the_index_and_the_busy_camera():
+    from cvti.serving.onboarding import webcam_advice
+    for platform in ("win32", "darwin", "linux"):
+        msg = webcam_advice(2, platform)
+        assert "webcam 2" in msg
+        assert "Meet" in msg
