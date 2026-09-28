@@ -4,6 +4,39 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.24 — 28 Sep 2026
+
+**Vehicle entering and exiting is now something you draw.** Open a camera's
+Zones tab, choose the gate-line tool, click where the line starts and where it
+ends. An arrow across the line shows which way counts as *entering*; Swap
+direction turns it round. A vehicle whose centre crosses the line one way is
+an entry and the other way an exit, counted once per vehicle — a parked car
+never crosses it. One line per camera; it is stored as a fraction of the
+frame, so a change of camera resolution does not move it. Checked end to end:
+a site built entirely through the app's own API, lines included, sent vehicle
+entered / exited alerts to Telegram from recorded gate footage.
+
+**Setup starts with the AI model, and Finish waits for it.** The 3.3 GB
+on-device model used to sit in a Verification step near the end, where it was
+easy to walk past — and a site finished without it had cameras whose scenes
+were never read and alerts nobody checked. The download now starts on step 1
+and carries on while locations and cameras are set up, with its progress shown
+on every step. There is no skip. Finish is the one thing that waits for the
+model, and the reason is printed above the button with the percentage, so it
+is never a button that silently does nothing. Going offline is named as such,
+and the download resumes where it stopped. Cameras is one step for as many
+cameras as the site has, with Review scene and Draw zone beside each.
+
+**Detector toggles show their real state.** Every toggle on a camera's
+Detectors tab rendered off, whatever the engine had, and clicking one could
+only ever switch it on. The camera list now carries each detector's actual
+setting, so a toggle reads correctly and turns off as well as on.
+
+**The Linux webcam message stops pointing at Windows.** A webcam that could
+not be opened on Linux told the operator to open a Windows settings page. The
+advice is now per operating system: on Linux, check that `/dev/video0` exists
+and that your user is in the `video` group.
+
 ## v1.8.23 — 26 Sep 2026
 
 **macOS no longer reports Argus as damaged.** Without an Apple certificate the
