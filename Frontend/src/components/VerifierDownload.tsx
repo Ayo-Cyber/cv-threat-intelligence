@@ -66,10 +66,16 @@ export default function VerifierDownload({
   api,
   mode,
   autoStart = false,
+  onStatus,
+  compact = false,
 }: {
   api: Transport;
   mode: Mode;
   autoStart?: boolean;
+  /** Every poll's result, so the wizard can gate Finish on the model. */
+  onStatus?: (gate: GateStatus | null, pull: PullProgress | null) => void;
+  /** One line of status, no buttons: the banner shown on later steps. */
+  compact?: boolean;
 }) {
   const [gate, setGate] = useState<GateStatus | null>(null);
   const [pull, setPull] = useState<PullProgress | null>(null);
@@ -83,6 +89,7 @@ export default function VerifierDownload({
       setGate(status as GateStatus);
       const progress = await api.invoke<Json>("pull_progress");
       setPull(progress as PullProgress);
+      onStatus?.(status as GateStatus, progress as PullProgress);
       return { status, progress } as {
         status: GateStatus;
         progress: PullProgress;
@@ -91,7 +98,7 @@ export default function VerifierDownload({
       setError((e as Error).message);
       return null;
     }
-  }, [api]);
+  }, [api, onStatus]);
 
   const download = useCallback(async () => {
     setBusy(true);
@@ -137,6 +144,9 @@ export default function VerifierDownload({
   if (!message) return null;
   const pulling = pull?.state === "pulling";
   const percent = Math.max(0, Math.min(100, Math.round(pull?.percent ?? 0)));
+  const offline =
+    typeof navigator !== "undefined" && navigator.onLine === false;
+  if (compact && message.tone === "ready") return null;
   return (
     <div className="verifier-download">
       {error && <Notice error>{error}</Notice>}
@@ -144,7 +154,14 @@ export default function VerifierDownload({
       {pulling && (
         <progress className="verifier-progress" max={100} value={percent} />
       )}
-      {message.tone === "action" && (
+      {offline && message.tone !== "ready" && (
+        <Notice error>
+          This computer is offline. The model ({MODEL_SIZE}) needs an internet
+          connection; the download resumes where it stopped once you are back
+          online.
+        </Notice>
+      )}
+      {!compact && message.tone === "action" && (
         <div className="actions">
           <button className="button primary" disabled={busy} onClick={() => void download()}>
             {busy ? <Spinner /> : <Download size={16} />}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Check,
   ChevronLeft,
@@ -8,24 +8,33 @@ import {
 } from "lucide-react";
 import type { Auth, Camera, Hierarchy, Json, Mode, Transport } from "../lib/types";
 import { Badge, Notice, Spinner } from "./common";
-import VerifierDownload from "./VerifierDownload";
+import VerifierDownload, {
+  MODEL_SIZE,
+  type GateStatus,
+  type PullProgress,
+} from "./VerifierDownload";
 import LocationManager from "./LocationManager";
 import NotificationSetup from "./NotificationSetup";
-// Locations come FIRST: Add camera asks which branch and area a camera belongs
-// to, and on a new site that list is empty, so the wizard used to demand a
-// choice from nothing ("the flow u added for setup is contradicting" -- Martin,
-// 20 Sep). Alerts get their own step because a site that detects everything and
-// tells nobody is not set up.
-const steps = [
-  "Locations",
-  "Cameras",
-  "Scenes & zones",
-  "Use case",
-  "Detectors",
-  "Alerts",
-  "Verification",
-  "Finish",
-];
+import {
+  SETUP_STEPS,
+  finishBlockedReason,
+  modelReady,
+  stepIndex,
+} from "../lib/setup-flow";
+
+// The order is the point (lib/setup-flow.ts says why): the AI model starts
+// downloading FIRST and keeps going while locations and cameras are set up;
+// Finish waits for it, and says so, instead of a Skip that left sites with
+// cameras nobody mapped ("agent mapping wont run", 28 Sep). Locations still
+// come before cameras: Add camera asks which area a camera belongs to, and
+// on a new site that list is empty (Martin, 20 Sep).
+const STEP_AI = stepIndex("AI model");
+const STEP_LOCATIONS = stepIndex("Locations");
+const STEP_CAMERAS = stepIndex("Cameras");
+const STEP_DETECTORS = stepIndex("Detectors");
+const STEP_ALERTS = stepIndex("Alerts");
+const STEP_FINISH = stepIndex("Finish");
+
 export default function Setup({
   api,
   mode,
@@ -60,6 +69,26 @@ export default function Setup({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
+  // The model's state, reported by whichever VerifierDownload is mounted.
+  const [gate, setGate] = useState<GateStatus | null>(null);
+  const [pull, setPull] = useState<PullProgress | null>(null);
+  const [online, setOnline] = useState(
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
+  );
+  const onStatus = useCallback((g: GateStatus | null, p: PullProgress | null) => {
+    setGate(g);
+    setPull(p);
+  }, []);
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
   useEffect(() => {
     api
       .invoke("use_case_templates")
@@ -87,10 +116,19 @@ export default function Setup({
       setBusy(false);
     }
   }
+  const ready = mode === "demo" || modelReady(gate);
+  const blocked = finishBlockedReason({
+    mode,
+    cameras: cameras.length,
+    gate,
+    pull,
+    online,
+  });
+  const withoutZones = cameras.filter((c) => !(c.zone_count ?? 0));
   return (
     <div className="setup-layout">
       <ol className="setup-steps">
-        {steps.map((s, i) => (
+        {SETUP_STEPS.map((s, i) => (
           <li
             key={s}
             className={i === step ? "active" : i < step ? "complete" : ""}
@@ -103,19 +141,40 @@ export default function Setup({
         ))}
       </ol>
       <section className="setup-content">
-        {/* The 3.3 GB model is the slowest part of setup, so it starts here at
-            step 0 and downloads WHILE the operator works, not after. */}
-        <VerifierDownload api={api} mode={mode} autoStart />
+        {/* On every later step the download's progress stays in view, so
+            nobody wonders on Finish why the button is waiting. */}
+        {step !== STEP_AI && (
+          <VerifierDownload api={api} mode={mode} compact onStatus={onStatus} />
+        )}
         {error && <Notice error>{error}</Notice>}
         {result && <Notice>{result}</Notice>}
-        <span className="eyebrow">STEP {step + 1} OF {steps.length}</span>
-        <h2>{steps[step]}</h2>
-        {step === 0 && (
+        <span className="eyebrow">STEP {step + 1} OF {SETUP_STEPS.length}</span>
+        <h2>{SETUP_STEPS[step]}</h2>
+        {step === STEP_AI && (
+          <>
+            <p>
+              Argus runs its AI on this computer. The model ({MODEL_SIZE}) is
+              downloaded once and reads what each camera sees and checks every
+              alert before it reaches you. The download starts now and carries
+              on while you set up your cameras; Finish waits for it.
+            </p>
+            {mode === "demo" ? (
+              <Notice>
+                Demo mode has no AI model to download. Sample footage only.
+              </Notice>
+            ) : (
+              <VerifierDownload api={api} mode={mode} autoStart onStatus={onStatus} />
+            )}
+            {mode === "engine" && ready && (
+              <Notice>On-device AI ready. Continue to set up your site.</Notice>
+            )}
+          </>
+        )}
+        {step === STEP_LOCATIONS && (
           <>
             <p>
               Name the branches and areas of your site first, so a camera has
-              somewhere to go when you add it. You can skip this and place
-              cameras later.
+              somewhere to go when you add it. You can place cameras later.
             </p>
             <LocationManager
               api={api}
@@ -128,61 +187,83 @@ export default function Setup({
             />
           </>
         )}
-        {step === 1 && (
+        {step === STEP_CAMERAS && (
           <>
-            <p>Connect cameras and assign them to the areas of your site.</p>
+            <p>
+              Connect every camera you want watched, one at a time. Each camera
+              gets its own scene and, for loitering and intrusion, its own
+              zone.
+            </p>
             {canConfigureCameras && onAdd && (
               <button className="button primary" onClick={onAdd}>
                 <Plus size={16} />
-                Add camera
+                {cameras.length ? "Add another camera" : "Add camera"}
               </button>
+            )}
+            {!cameras.length && (
+              <Notice>No cameras yet. Add at least one to continue.</Notice>
             )}
           </>
         )}
-        {[1, 2, 4].includes(step) && (
+        {[STEP_CAMERAS, STEP_DETECTORS].includes(step) && (
           <div className="setup-cameras">
             {cameras.map((c) => (
               <div className="setting-row" key={c.id}>
                 <div>
                   <strong>{c.id}</strong>
-                  <small>{c.area_id || "Ungrouped"}</small>
+                  <small>
+                    {c.area_id || "Ungrouped"}
+                    {step === STEP_CAMERAS &&
+                      ` · ${c.zone_count ? `${c.zone_count} zone(s)` : "no zone"}`}
+                  </small>
                 </div>
-                <button
-                  className="button"
-                  onClick={() =>
-                    onConfigure(c, step === 4 ? "detectors" : "scene")
-                  }
-                >
-                  {step === 4 ? "Configure detectors" : "Review scene"}
-                </button>
-                {step === 2 && (
+                {step === STEP_CAMERAS ? (
+                  <>
+                    <button
+                      className="button"
+                      onClick={() => onConfigure(c, "scene")}
+                    >
+                      Review scene
+                    </button>
+                    <button
+                      className="button"
+                      onClick={() => onConfigure(c, "zones")}
+                    >
+                      Draw zone
+                    </button>
+                  </>
+                ) : (
                   <button
                     className="button"
-                    onClick={() => onConfigure(c, "zones")}
+                    onClick={() => onConfigure(c, "detectors")}
                   >
-                    Draw zone
+                    Configure detectors
                   </button>
                 )}
               </div>
             ))}
           </div>
         )}
-        {step === 2 && cameras.some((c) => !(c.zone_count ?? 0)) && (
+        {step === STEP_CAMERAS && cameras.length > 0 && withoutZones.length > 0 && (
           <Notice error>
             Loitering, intrusion and restricted-area alerts only exist inside a
             zone. These cameras have none yet:{" "}
-            {cameras.filter((c) => !(c.zone_count ?? 0)).map((c) => c.id).join(", ")}.
-            Draw a zone, or open the camera and choose "Watch the whole view".
+            {withoutZones.map((c) => c.id).join(", ")}. Draw a zone, or open
+            the camera and choose "Watch the whole view".
           </Notice>
         )}
-        {step === 2 && (
+        {step === STEP_CAMERAS && cameras.length > 0 && mode === "engine" && !ready && (
           <Notice>
-            Each camera needs its own evidence. Review the scene and correct it
-            before approval, even when cameras share an area.
+            Scene reviews need the AI model. Cameras added now are mapped
+            automatically once the download completes.
           </Notice>
         )}
-        {step === 3 && (
+        {step === STEP_DETECTORS && (
           <>
+            <p>
+              Pick the use case closest to this site, then tune what each
+              camera watches for.
+            </p>
             <label>
               Site use case
               <select
@@ -198,8 +279,8 @@ export default function Setup({
               </select>
             </label>
             <p className="muted">
-              Applying a template changes detector settings for the site.
-              Existing zone and English rules remain managed by the backend.
+              Applying a use case changes detector settings for the whole
+              site. Zones and English rules stay as you set them.
             </p>
             <button
               className="button primary"
@@ -210,7 +291,7 @@ export default function Setup({
             </button>
           </>
         )}
-        {step === 5 && (
+        {step === STEP_ALERTS && (
           <>
             <p>
               Choose where an alert goes. A site that detects everything and
@@ -225,11 +306,16 @@ export default function Setup({
             />
           </>
         )}
-        {step === 6 && (
+        {step === STEP_FINISH && (
           <>
+            <h3>
+              {mode === "demo"
+                ? "Demo walkthrough complete."
+                : "Review before going live."}
+            </h3>
             <p>
-              Check camera connectivity, detector weights and the local vision
-              verifier.
+              {cameras.length} camera(s) configured. Monitoring starts only
+              when you choose Start monitoring in the overview.
             </p>
             {mode === "demo" ? (
               <Notice>
@@ -237,16 +323,24 @@ export default function Setup({
                 walkthrough does not validate an AI installation.
               </Notice>
             ) : (
-              <button
-                className="button"
-                disabled={busy}
-                onClick={() => void run("setup_check")}
-              >
-                {busy ? <Spinner /> : <RefreshCw size={16} />}Run readiness
-                checks
-              </button>
+              <div className="actions">
+                <button
+                  className="button"
+                  disabled={busy}
+                  onClick={() => void run("setup_check")}
+                >
+                  {busy ? <Spinner /> : <RefreshCw size={16} />}Run readiness
+                  checks
+                </button>
+                <button
+                  className="button"
+                  disabled={busy}
+                  onClick={() => void run("send_test_notification")}
+                >
+                  Send test notification
+                </button>
+              </div>
             )}
-            <VerifierDownload api={api} mode={mode} />
             {checks.map((c) => (
               <div className="setting-row" key={c.id}>
                 <div>
@@ -267,57 +361,17 @@ export default function Setup({
                 </Badge>
               </div>
             ))}
-          </>
-        )}
-        {step === 7 && mode === "engine" && (
-          <>
-            {!checks.length && (
-              <Notice>
-                Readiness checks have not been run. You can finish now and run
-                them later from Settings; anything that needs attention will be
-                shown there.
-              </Notice>
-            )}
-            {checks.some((c) => c.ok === false) && (
+            {mode === "engine" && checks.some((c) => c.ok === false) && (
               <Notice error>
-                You can finish now. These still need attention:{" "}
+                These still need attention:{" "}
                 {checks
                   .filter((c) => c.ok === false)
                   .map((c) => c.label)
                   .join(", ")}
-                .
+                . You can finish now and fix them from Settings.
               </Notice>
             )}
-          </>
-        )}
-        {step === 7 && (
-          <>
-            <h3>
-              {mode === "demo"
-                ? "Demo walkthrough complete."
-                : "Review before going live."}
-            </h3>
-            <p>
-              {cameras.length} cameras configured. Monitoring starts only when
-              you choose Start monitoring in the overview.
-            </p>
-            {mode === "engine" && (
-              <>
-                <button
-                  className="button"
-                  disabled={busy}
-                  onClick={() => void run("send_test_notification")}
-                >
-                  Send test notification
-                </button>
-                {checks.some((c) => c.ok === false) && (
-                  <Notice error>
-                    Some readiness checks need attention. Resolve them before
-                    relying on monitoring.
-                  </Notice>
-                )}
-              </>
-            )}
+            {blocked && <Notice error={!ready}>{blocked}</Notice>}
           </>
         )}
         <div className="setup-footer">
@@ -332,10 +386,15 @@ export default function Setup({
             <ChevronLeft size={16} />
             Back
           </button>
-          {step < 5 ? (
+          {step < STEP_FINISH ? (
             <button
               className="button primary"
-              disabled={busy || (!cameras.length && step === 1)}
+              disabled={busy || (!cameras.length && step === STEP_CAMERAS)}
+              title={
+                !cameras.length && step === STEP_CAMERAS
+                  ? "Add at least one camera first"
+                  : undefined
+              }
               onClick={() => {
                 setResult("");
                 setStep(step + 1);
@@ -347,17 +406,13 @@ export default function Setup({
           ) : (
             <button
               className="button primary"
-              // Readiness checks INFORM; they do not lock the door. This used
-              // to be disabled until every check passed, so an installed site
-              // whose AI model had not finished its 3.3 GB download had a
-              // Finish button that did nothing, with no word as to why
-              // (Martin, 21 Sep: "finish setup button wasn't clicking"). The
-              // engine runs generic and loud without the model by design --
-              // complete_first_run says so in its own docstring.
-              disabled={busy || !cameras.length}
-              title={
-                !cameras.length ? "Add at least one camera first" : undefined
-              }
+              // Readiness checks INFORM; they do not lock the door (Martin,
+              // 21 Sep: "finish setup button wasn't clicking", with no word
+              // as to why). The one thing Finish does wait for is the AI
+              // model -- and the reason is printed right above the button,
+              // with the download's progress, for as long as it applies.
+              disabled={busy || Boolean(blocked)}
+              title={blocked ?? undefined}
               onClick={() => void run("mark_configured")}
             >
               Finish setup
