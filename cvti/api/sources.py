@@ -114,6 +114,25 @@ def _custom_rules(cam: dict) -> list[dict]:
             for r in rules if (r.get("question") or "").strip()]
 
 
+# The detector toggles the Detectors tab draws, mirroring
+# ConsoleBackend.RULE_FLAGS. They must round-trip: the tab reads
+# camera[key] for the switch's position AND sends `not camera[key]` when it
+# is clicked, so a camera list that omits them does not merely draw the
+# switches grey -- every click computes `not None` and sends True, which
+# means a detector can be switched ON and never OFF (reported 25 Sep:
+# "the toggles are working but it's not turning green when clicked").
+DETECTOR_FLAGS: tuple = (
+    "concealment", "video_action", "violence", "weapons", "theft", "object_watch",
+    "tamper", "fire_smoke", "running", "crowd_formation", "normal_movement",
+    "multiple_people_moving", "fall",
+)
+
+
+def _detectors(cam: dict) -> dict:
+    """Every detector toggle's state, explicitly true or false — never absent."""
+    return {flag: bool(cam.get(flag)) for flag in DETECTOR_FLAGS}
+
+
 def read_cameras(site_path: str, db_path: str) -> list[dict]:
     """Configured cameras (credential-redacted) merged with live link state
     from the health doc."""
@@ -160,6 +179,7 @@ def read_cameras(site_path: str, db_path: str) -> list[dict]:
             # and a pilot's "loitering isn't working" was a camera with no zone.
             "zone_count": _zone_count(c.get("zones")),
             "custom_rules": _custom_rules(c),
+            **_detectors(c),
             "view_only": bool(c.get("view_only")),
             "state": live.get("state", "unknown"),
             "last_frame_age_s": live.get("last_frame_age_s"),
