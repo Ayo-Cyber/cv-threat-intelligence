@@ -79,4 +79,28 @@ describe("isolated demo transport", () => {
   it("does not simulate evidence retention", async () => {
     await expect(createDemo().invoke("set_retention", [10])).rejects.toThrow();
   });
+  it("keeps one vehicle gate line per camera and its direction", async () => {
+    const a = createDemo();
+    expect(
+      (await a.invoke("vehicle_line", ["Loading Bay"])).vehicle_line,
+    ).toBeNull();
+    await a.invoke("set_vehicle_line", [
+      "Loading Bay",
+      [0.5, 0.05],
+      [0.5, 0.95],
+      true,
+      "gate",
+    ]);
+    const line = (await a.invoke("vehicle_line", ["Loading Bay"])).vehicle_line;
+    expect(line.flip).toBe(true);
+    expect(line.normalized).toBe(true);
+    expect(line.start).toEqual([0.5, 0.05]);
+    await expect(
+      a.invoke("set_vehicle_line", ["Loading Bay", [0.5, 0.5], [0.5, 0.5]]),
+    ).rejects.toThrow("same point");
+    await a.invoke("remove_vehicle_line", ["Loading Bay"]);
+    expect(
+      (await a.invoke("vehicle_line", ["Loading Bay"])).vehicle_line,
+    ).toBeNull();
+  });
 });

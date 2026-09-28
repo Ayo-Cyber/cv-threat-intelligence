@@ -9,6 +9,16 @@ export interface Zone {
   dwell_alert_seconds: number;
   kind?: string;
 }
+/** The drawn vehicle tripwire: two points, in fractions of the frame when
+ * `normalized` (what the editor sends) or original pixels. `flip` swaps
+ * which side counts as entering. */
+export interface VehicleLine {
+  name: string;
+  start: [number, number];
+  end: [number, number];
+  normalized?: boolean;
+  flip?: boolean;
+}
 export interface Scene {
   environment_type: string;
   scene_description: string;
@@ -30,6 +40,7 @@ export interface Camera {
   custom_threats?: { name: string; description: string }[];
   demo_video?: string;
   snapshot?: string;
+  vehicle_line?: VehicleLine | null;
   [key: string]: any;
 }
 export interface Organization {
