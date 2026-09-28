@@ -1,0 +1,116 @@
+name: KPI on Windows (clips -> engine -> Telegram)
+
+# Proof, on the pilot's operating system, that the two headline KPIs work end
+# to end: recorded person and vehicle footage goes through the Windows engine,
+# the site is configured through the app's own API (zone in pixels, gate line
+# in fractions), and the alerts must actually be DELIVERED to every Telegram
+# chat listed -- '[NOTIFY]' in the log is not enough, only the Bot API's yes.
+#
+# Sends real messages, so it does not run on every push: on demand from the
+# Actions tab, and once per release tag. Needs two repository secrets:
+#   TELEGRAM_BOT_TOKEN  the bot's token
+#   TELEGRAM_CHAT_IDS   comma-separated chat ids (private chat, group, ...)
+# and the clips on the kpi-clips-v1 release (not a software release).
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "How long the engine runs (the longest clip is ~43 s)"
+        default: "75"
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: kpi-telegram-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  kpi-windows:
+    name: KPI 1 & 2 on Windows -> Telegram
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.8.0 torchvision==0.23.0
+          pip install -r requirements.txt
+          pip uninstall -y opencv-python
+          pip install "opencv-python-headless==4.13.0.92"
+
+      - name: Secrets are present
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHATS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+        run: |
+          [ -n "$TOKEN" ] || { echo "::error::TELEGRAM_BOT_TOKEN secret is not set"; exit 1; }
+          [ -n "$CHATS" ] || { echo "::error::TELEGRAM_CHAT_IDS secret is not set"; exit 1; }
+          echo "chats: $CHATS"
+
+      - name: Fetch the KPI clips
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p kpi/clips
+          gh release download kpi-clips-v1 --repo "$GITHUB_REPOSITORY" --dir kpi/clips
+          ls -la kpi/clips
+
+      - name: Configure the site through the API (zone + gate lines)
+        shell: bash
+        run: python tests/e2e/kpi_site.py --clips kpi/clips --out kpi/site
+
+      - name: Evidence clips encode as H.264 on Windows
+        shell: bash
+        run: python -m cvti.serving.pipeline --check-clip-encoder
+
+      - name: Run the engine and send the alerts
+        shell: bash
+        env:
+          ARGUS_ALLOW_MOCK_GATE: "1"
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHATS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+          SECONDS_TO_RUN: ${{ github.event.inputs.seconds || '75' }}
+        run: |
+          # one telegram channel per chat: telegram:<token>:<chat>,telegram:<token>:<chat>
+          spec=""
+          IFS=',' read -ra ids <<< "$CHATS"
+          for id in "${ids[@]}"; do
+            id="$(echo "$id" | tr -d '[:space:]')"
+            [ -n "$id" ] && spec="${spec:+$spec,}telegram:${TOKEN}:${id}"
+          done
+          python -m cvti.serving.pipeline \
+            --site-config kpi/site/site.json \
+            --notify "$spec" \
+            --gate-provider mock --gate-drain 60 \
+            --seconds "$SECONDS_TO_RUN" --no-publish-frames \
+            --output-dir kpi/site/runs 2>&1 | tee kpi/engine.log
+          # the token must never reach an artifact
+          sed -i "s#${TOKEN}#<token>#g" kpi/engine.log
+
+      - name: Every alert kind reached every chat
+        shell: bash
+        env:
+          CHATS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+        run: python tests/e2e/kpi_assert.py kpi/engine.log --chats "$CHATS"
+
+      - name: Engine log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kpi-windows-engine-log
+          path: kpi/engine.log
+          if-no-files-found: ignore
