@@ -277,6 +277,22 @@ const operations: Record<string, Operation> = {
     path: ([camera, name]) =>
       `/cameras/${encodeURIComponent(String(camera))}/zones/${encodeURIComponent(String(name))}`,
   },
+  // The vehicle tripwire (KPI 2). One per camera, so the path has no name.
+  vehicle_line: { method: "GET", path: item("/cameras", "/vehicle-line") },
+  set_vehicle_line: {
+    method: "POST",
+    path: item("/cameras", "/vehicle-line"),
+    body: ([, start, end, flip = false, name = "gate"]) => ({
+      start,
+      end,
+      flip,
+      name,
+    }),
+  },
+  remove_vehicle_line: {
+    method: "DELETE",
+    path: item("/cameras", "/vehicle-line"),
+  },
   set_camera_rules: {
     method: "PUT",
     path: item("/cameras", "/rules"),

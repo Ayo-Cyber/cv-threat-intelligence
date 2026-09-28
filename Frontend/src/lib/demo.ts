@@ -9,6 +9,7 @@ import type {
   Organization,
   Scene,
   Transport,
+  VehicleLine,
   Zone,
 } from "./types";
 const KEY = "argus.desktop.demo.v1";
@@ -22,6 +23,8 @@ const MUTATING_METHODS = new Set([
   "approve_scene_context",
   "add_zone",
   "remove_zone",
+  "set_vehicle_line",
+  "remove_vehicle_line",
   "set_camera_rules",
   "add_custom_rule",
   "remove_custom_rule",
@@ -66,6 +69,7 @@ interface DemoState {
   events: Incident[];
   scenes: Record<string, Scene>;
   zones: Record<string, Zone[]>;
+  lines: Record<string, VehicleLine>;
   areas: Omit<Area, "cameras">[];
   site: Json;
   running: boolean;
@@ -147,6 +151,7 @@ export function initialDemo(): DemoState {
     cameras,
     scenes,
     zones: {},
+    lines: {},
     areas: [
       {
         id: "warehouse",
@@ -259,6 +264,8 @@ export function createDemo(
           organization: saved.organization || state.organization,
           branches,
           areas,
+          // Saves from before the tripwire editor carry no lines map.
+          lines: saved.lines || {},
           cameras: saved.cameras.map((camera: Camera) => ({
             ...camera,
             branch_id: branchByArea.get(camera.area_id || ""),
@@ -272,7 +279,7 @@ export function createDemo(
   const save = () => storage?.setItem(KEY, JSON.stringify(state));
   return {
     async invoke<T>(method: string, args: unknown[] = []): Promise<T> {
-      const [id, a, b, c] = args as any[];
+      const [id, a, b, c, d] = args as any[];
       let result: any = { ok: true };
       const cam = state.cameras.find((v) => v.id === id);
       switch (method) {
@@ -374,6 +381,32 @@ export function createDemo(
         }
         case "remove_zone":
           state.zones[id] = (state.zones[id] || []).filter((z) => z.name !== a);
+          break;
+        case "vehicle_line":
+          result = { vehicle_line: state.lines[id] ?? null };
+          break;
+        case "set_vehicle_line": {
+          const [start, end] = [a, b] as [number, number][];
+          if (!start || !end || start.length < 2 || end.length < 2)
+            throw new Error("a line needs a start and an end, each [x, y]");
+          if (start[0] === end[0] && start[1] === end[1])
+            throw new Error("the line's start and end are the same point");
+          const line: VehicleLine = {
+            name: (d as string) || "gate",
+            start: [start[0], start[1]],
+            end: [end[0], end[1]],
+            normalized: Math.max(start[0], start[1], end[0], end[1]) <= 1,
+            flip: Boolean(c),
+          };
+          state.lines[id] = line;
+          if (cam) cam.vehicle_line = line;
+          result = { ok: true, vehicle_line: line };
+          break;
+        }
+        case "remove_vehicle_line":
+          delete state.lines[id];
+          if (cam) cam.vehicle_line = null;
+          result = { ok: true, vehicle_line: null };
           break;
         case "set_camera_rules":
           if (cam) Object.assign(cam, a);

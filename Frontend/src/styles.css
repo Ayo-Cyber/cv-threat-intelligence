@@ -2942,3 +2942,35 @@ fieldset:disabled {
 }
 .reveal-field { display: flex; gap: 8px; align-items: center; }
 .reveal-field input { flex: 1; }
+/* The vehicle gate line (KPI 2). The arrow points to the ENTER side. */
+.saved-line line,
+.draft-line line {
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+}
+.saved-line line {
+  stroke: #79d795;
+}
+.draft-line line {
+  stroke: #ffce65;
+}
+.saved-line .enter-arrow,
+.draft-line .enter-arrow {
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+.saved-line .enter-arrow-head {
+  fill: #79d795;
+}
+.draft-line .enter-arrow-head {
+  fill: #ffce65;
+}
+.zone-properties .muted {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 6px 0 12px;
+}
+.zone-properties .button + .button {
+  margin-top: 8px;
+}

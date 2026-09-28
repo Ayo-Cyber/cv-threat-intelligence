@@ -604,4 +604,64 @@ describe("ArgusApiClient", () => {
       "unsafe stream descriptor",
     );
   });
+  it("draws and clears the vehicle gate line through its own route", async () => {
+    const net = fetchSequence([
+      response({ token: "t", user: { username: "a", role: "operator" } }),
+      response({ vehicle_line: null }),
+      response(
+        {
+          ok: true,
+          vehicle_line: {
+            name: "gate",
+            start: [0.42, 0.05],
+            end: [0.42, 0.95],
+            normalized: true,
+            flip: true,
+          },
+        },
+        201,
+      ),
+      response({ ok: true, vehicle_line: null }),
+    ]);
+    const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", {
+      fetch: net.fetch,
+    });
+    await client.invoke("sign_in", ["a", "pw"]);
+    await client.invoke("vehicle_line", ["Front Door"]);
+    const set = await client.invoke("set_vehicle_line", [
+      "Front Door",
+      [0.42, 0.05],
+      [0.42, 0.95],
+      true,
+      "gate",
+    ]);
+    await client.invoke("remove_vehicle_line", ["Front Door"]);
+    expect(set.vehicle_line.flip).toBe(true);
+    expect(
+      net.calls
+        .slice(1)
+        .map((call) => [call.url, call.init.method, call.init.body]),
+    ).toEqual([
+      [
+        "http://127.0.0.1:8787/api/v1/cameras/Front%20Door/vehicle-line",
+        "GET",
+        undefined,
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/cameras/Front%20Door/vehicle-line",
+        "POST",
+        JSON.stringify({
+          start: [0.42, 0.05],
+          end: [0.42, 0.95],
+          flip: true,
+          name: "gate",
+        }),
+      ],
+      [
+        "http://127.0.0.1:8787/api/v1/cameras/Front%20Door/vehicle-line",
+        "DELETE",
+        undefined,
+      ],
+    ]);
+  });
 });
