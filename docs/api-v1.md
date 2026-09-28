@@ -115,6 +115,9 @@ when the go2rtc gateway is up, else `{kind: "mjpeg", url}`. Players switch on
 | `add_zone` | `POST /cameras/{id}/zones` | configure_cameras | shipped |
 | `remove_zone` | `DELETE /cameras/{id}/zones/{name}` | configure_cameras | shipped |
 | `accept_suggested_zone` | `POST /cameras/{id}/zones/suggestions/{name}/accept` | configure_cameras | shipped |
+| `vehicle_line` | `GET /cameras/{id}/vehicle-line` | view_live | shipped |
+| `set_vehicle_line` | `POST /cameras/{id}/vehicle-line` | configure_cameras | shipped |
+| `remove_vehicle_line` | `DELETE /cameras/{id}/vehicle-line` | configure_cameras | shipped |
 
 ### Rules & detectors
 

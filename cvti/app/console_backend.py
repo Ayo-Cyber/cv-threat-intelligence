@@ -1120,6 +1120,16 @@ class ConsoleBackend:
             rules.append({"name": f"loitering_{z['name']}", "trigger": {"detector": "presence"},
                           "context_filter": f"zone == '{z['name']}' and dwell_seconds >= {dw}",
                           "priority": "medium"})
+        # A tripwire without rules is a detector whose events nothing listens
+        # for, which the engine discards in silence — the same way crowd and
+        # panic-running went unnoticed (see configs/baseline_critical_v1.json).
+        # No shipped preset carries vehicle rules, so the camera's own config
+        # grows them the moment a line exists, and loses them when it goes.
+        if cam.get("vehicle_line"):
+            rules.append({"name": "vehicle_entered", "trigger": {"detector": "vehicle_entry"},
+                          "priority": "high"})
+            rules.append({"name": "vehicle_exited", "trigger": {"detector": "vehicle_exit"},
+                          "priority": "medium"})
         # Keep scoped object-watch rules through every zone/preset regeneration.
         for object_rule in cam.get("object_watch_rules") or []:
             rules.append({k: v for k, v in object_rule.items() if k != "key"})
@@ -1288,6 +1298,66 @@ class ConsoleBackend:
         self._regen_zone_rules(camera_id, cam, data["zones"])
         onboarding.add_camera(self.site_path, cam)
         return {"ok": True, "zones": data["zones"]}
+
+    def set_vehicle_line(self, camera_id: str, start: list, end: list,
+                         flip: bool = False, name: str = "gate") -> dict:
+        """Save the directional tripwire a vehicle crosses to count as an
+        entry or an exit, and wire the rules that listen for it.
+
+        Two points, not a polygon: a car crossing the line one way is an
+        ENTRY and the other way an EXIT, counted once per track. A parked car
+        never crosses it, which is why this replaced the polygon-dwell
+        approach that reported 30 entries for one car through a barrier.
+
+        Points may be given in frame FRACTIONS (0..1, portable across
+        resolutions, what a drawn line should send) or in original pixels;
+        which it is, is recorded rather than guessed later. `flip` swaps
+        which side counts as entering — the one thing that cannot be read off
+        the geometry, because only the operator knows which way is in.
+        """
+        self._require(perms.CONFIGURE_CAMERAS)
+        try:
+            s = [float(start[0]), float(start[1])]
+            e = [float(end[0]), float(end[1])]
+        except (TypeError, ValueError, IndexError):
+            return {"ok": False, "error": "a line needs a start and an end, each [x, y]"}
+        if s == e:
+            return {"ok": False, "error": "the line's start and end are the same point"}
+        normalized = max(s[0], s[1], e[0], e[1]) <= 1.0
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam is None:
+            return {"ok": False, "error": f"camera '{camera_id}' not found"}
+        cam["vehicle_line"] = {"name": name or "gate", "start": s, "end": e,
+                               "normalized": bool(normalized), "flip": bool(flip)}
+        self._regen_zone_rules(camera_id, cam, self.list_zones(camera_id))
+        onboarding.add_camera(self.site_path, cam)
+        self.audit.record(self.current_user.username, "config_change",
+                          f"camera:{camera_id}", detail={"vehicle_line": cam["vehicle_line"]})
+        return {"ok": True, "vehicle_line": cam["vehicle_line"],
+                "note": "vehicle entry/exit alerts apply on the next monitoring start"}
+
+    def remove_vehicle_line(self, camera_id: str) -> dict:
+        """Drop the tripwire and the rules that listened for it."""
+        self._require(perms.CONFIGURE_CAMERAS)
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam is None:
+            return {"ok": False, "error": f"camera '{camera_id}' not found"}
+        cam.pop("vehicle_line", None)
+        self._regen_zone_rules(camera_id, cam, self.list_zones(camera_id))
+        onboarding.add_camera(self.site_path, cam)
+        self.audit.record(self.current_user.username, "config_change",
+                          f"camera:{camera_id}", detail={"vehicle_line": "(removed)"})
+        return {"ok": True, "vehicle_line": None}
+
+    def vehicle_line(self, camera_id: str) -> dict:
+        """The camera's tripwire, or None — what a line editor opens with."""
+        cams = onboarding.list_cameras(self.site_path)
+        cam = self._cam(cams, camera_id)
+        if cam is None:
+            return {"ok": False, "error": f"camera '{camera_id}' not found"}
+        return {"vehicle_line": cam.get("vehicle_line")}
 
     def remove_zone(self, camera_id: str, name: str) -> dict:
         self._require(perms.CONFIGURE_CAMERAS)

@@ -180,6 +180,9 @@ def read_cameras(site_path: str, db_path: str) -> list[dict]:
             "zone_count": _zone_count(c.get("zones")),
             "custom_rules": _custom_rules(c),
             **_detectors(c),
+            # The drawn tripwire, so a line editor opens on the current one
+            # rather than a blank frame. None when the camera has none.
+            "vehicle_line": c.get("vehicle_line"),
             "view_only": bool(c.get("view_only")),
             "state": live.get("state", "unknown"),
             "last_frame_age_s": live.get("last_frame_age_s"),
