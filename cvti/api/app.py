@@ -179,7 +179,12 @@ def create_app(*, db_path: str = "runs/site/events.db",
     @app.delete(f"{API_PREFIX}/auth/session", status_code=204)
     async def sign_out(authorization: Optional[str] = Header(default=None)):
         if authorization and authorization.lower().startswith("bearer "):
+            signed_in = app.state.tokens.resolve(authorization[7:].strip())
             app.state.tokens.revoke(authorization[7:].strip())
+            backend = app.state.backend_host._backend
+            if signed_in is not None and backend is not None:
+                from starlette.concurrency import run_in_threadpool
+                await run_in_threadpool(backend._close_preview)
         # 204 = No Content: the body MUST be empty. JSONResponse(None) writes
         # "null" (4 bytes) against a 0 Content-Length, which crashes the whole
         # uvicorn worker on every logout (12 Sep). An empty Response is correct.
@@ -281,13 +286,26 @@ def create_app(*, db_path: str = "runs/site/events.db",
     @app.get(f"{API_PREFIX}/cameras/{{camera_id}}/stream")
     async def stream(camera_id: str, tracking: bool = False,
                      principal=Depends(require_principal)):
+        from cvti.security import permissions as perms
+        from starlette.concurrency import run_in_threadpool
+        perms.require(principal.role, perms.VIEW_LIVE)
+
+        async def preview():
+            try:
+                result = await run_in_threadpool(
+                    app.state.backend_host.call, principal, "camera_preview", camera_id=camera_id)
+            except (OSError, RuntimeError):
+                log.debug("camera preview unavailable", exc_info=True)
+                return _error(503, "preview_unavailable", "Camera preview is temporarily unavailable; retry shortly")
+            if result.get("error"):
+                return _error(503, "preview_unavailable", result["error"])
+            return result
+
         if _engine_alive() is False:
             # A publisher file can outlive the engine that wrote it, and every
             # run listens on a fresh port: a stale URL is a tile stuck on
             # "fallback stream could not be loaded". A 503 is retryable.
-            return _error(503, "engine_unavailable",
-                          "no live stream — monitoring is stopped",
-                          {"phase": "stopped"})
+            return await preview()
         out_dir = Path(_db()).parent
         # MJPEG publisher details — the fallback transport, and part of the
         # WebRTC answer so a player can degrade without a second round-trip.
@@ -322,9 +340,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
                 pass
         if mjpeg:
             return {"kind": "mjpeg", "url": mjpeg}
-        return _error(503, "engine_unavailable",
-                      "no live stream — engine not publishing frames",
-                      {"phase": sources.monitor_state(_db())["phase"]})
+        return await preview()
 
     # ---- websocket ----------------------------------------------------------
     @app.websocket(f"{API_PREFIX}/stream")
@@ -416,6 +432,10 @@ def create_app(*, db_path: str = "runs/site/events.db",
     from cvti.api.writes import _ApiBackend, register_writes
     host = _ApiBackend(site_path=app.state.site_path, db_path=app.state.db_path)
     app.state.backend_host = host
+    @app.on_event("shutdown")
+    def close_backend():
+        if host._backend is not None:
+            host._backend.close()
     register_writes(app, host, require_principal, API_PREFIX, _error)
 
     @app.get(f"{API_PREFIX}/events/{{event_id}}/clip")

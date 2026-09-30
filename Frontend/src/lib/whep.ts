@@ -2,8 +2,8 @@ import type { CameraStreamArgs, StreamDescriptor, Transport } from "./types";
 
 export type ResolvedCameraStream =
   | { kind: "inactive" }
-  | { kind: "webrtc"; peer: RTCPeerConnection }
-  | { kind: "mjpeg"; url: string; degraded: boolean };
+  | { kind: "webrtc"; peer: RTCPeerConnection; url: string }
+  | { kind: "mjpeg"; url: string; degraded: boolean; preview?: boolean };
 
 const WHEP_TIMEOUT_MS = 8_000;
 const DEFAULT_RETRY_DELAYS_MS = [500, 1_000];
@@ -150,10 +150,12 @@ export async function resolveCameraStream({
         args,
       );
       if (descriptor.kind === "mjpeg")
-        return { kind: "mjpeg", url: descriptor.url, degraded: false };
+        return { kind: "mjpeg", url: descriptor.url, degraded: false,
+          ...(descriptor.preview ? { preview: true } : {}) };
       try {
         return {
           kind: "webrtc",
+          url: descriptor.url,
           peer: await connect(video, descriptor.url, signal, onWebRtcTrack),
         };
       } catch (error) {

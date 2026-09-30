@@ -229,6 +229,7 @@ class ConsoleBackend:
         return {"ok": True, **self.auth_state()}
 
     def sign_out(self) -> dict:
+        self._close_preview()
         user = self.current_user
         if user:
             self.audit.record(user.username, "login", detail={"outcome": "signed out"})
@@ -248,6 +249,7 @@ class ConsoleBackend:
         Safe to call twice, and the backend is still readable afterwards for
         anything that does not need its stores.
         """
+        self._close_preview()
         for store in ("accounts", "audit"):
             closer = getattr(getattr(self, store, None), "close", None)
             if closer is None:
@@ -446,10 +448,12 @@ class ConsoleBackend:
 
     def add_camera(self, camera: dict) -> list[dict]:
         self._require(perms.CONFIGURE_CAMERAS)
+        self._close_preview()
         return onboarding.add_camera(self.site_path, camera)
 
     def remove_camera(self, camera_id: str) -> list[dict]:
         self._require(perms.CONFIGURE_CAMERAS)
+        self._close_preview()
         return onboarding.remove_camera(self.site_path, camera_id)
 
     def presets(self) -> dict:
@@ -1062,6 +1066,28 @@ class ConsoleBackend:
         """A still from the camera to draw zones on — plus its ORIGINAL pixel
         size so the UI can map canvas coords back to real zone coordinates."""
         import cv2
+        monitoring = self._monitor is not None and self._monitor.poll() is None
+        if not monitoring:
+            result = self.camera_preview(camera_id)
+            if result.get("error"):
+                return result
+            preview = self._preview
+            if not preview.acquire(camera_id):
+                return {"error": "preview is closing; retry shortly"}
+            try:
+                for _ in range(30):
+                    snapshot = preview.snapshot(camera_id)
+                    if snapshot and "uri" in snapshot:
+                        return snapshot
+                    time.sleep(0.1)
+                return {"error": "could not read a frame from this camera"}
+            finally:
+                preview.release(camera_id)
+        preview = getattr(self, "_preview", None)
+        if preview is not None:
+            snapshot = preview.snapshot(camera_id)
+            if snapshot is not None:
+                return snapshot
         cam = next((c for c in self.list_cameras() if c.get("id") == camera_id), None)
         if cam is None or not cam.get("source"):
             return {"error": "camera not found"}
@@ -2110,6 +2136,24 @@ class ConsoleBackend:
         return vlm.pull_progress(model)
 
     # --- live wall (multi-camera video grid) ---
+    def _close_preview(self):
+        preview = getattr(self, "_preview", None)
+        if preview is not None:
+            preview.close()
+            self._preview = None
+
+    def camera_preview(self, camera_id: str) -> dict:
+        self._require(perms.VIEW_LIVE)
+        if self._monitor is not None and self._monitor.poll() is None:
+            return {"error": "monitoring is starting; waiting for its stream"}
+        cam = next((c for c in self.list_cameras() if c.get("id") == camera_id), None)
+        if cam is None or cam.get("source") in (None, ""):
+            return {"error": "camera not found"}
+        from cvti.app.preview import CameraPreview
+        if getattr(self, "_preview", None) is None:
+            self._preview = CameraPreview()
+        return self._preview.descriptor(camera_id, cam["source"])
+
     def _live_sources(self, count: int) -> list[dict]:
         """Sources for the live grid: the site's file/RTSP cameras if configured,
         otherwise fall back to demo clips in data/test_clips/."""
@@ -2231,6 +2275,7 @@ class ConsoleBackend:
         self._engine_log_file = None
 
     def _spawn_engine(self) -> "subprocess.Popen":
+        self._close_preview()
         out_dir = Path(self.db_path).parent
         out_dir.mkdir(parents=True, exist_ok=True)
         notify = (self.get_site().get("notify") or "console").strip()
@@ -2384,6 +2429,7 @@ class ConsoleBackend:
                 self._monitor.wait(timeout=8)
             except subprocess.TimeoutExpired:
                 self._monitor.kill()
+                self._monitor.wait(timeout=8)
         self._monitor = None
         self._close_engine_log()
         return {"running": False}
@@ -2532,6 +2578,7 @@ class ConsoleBackend:
         return dict(getattr(self, "_switch_state", {"busy": False, "done": True}))
 
     def _do_switch(self, src: dict, key: str) -> None:
+        self._close_preview()
         st = self._switch_state
         try:
             if src.get("kind") == "live":
