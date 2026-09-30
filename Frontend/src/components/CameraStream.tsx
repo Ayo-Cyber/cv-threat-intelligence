@@ -5,7 +5,7 @@ import {
   type MediaEvidence,
   type StreamTransport,
 } from "../lib/stream-state";
-import type { Camera, Transport } from "../lib/types";
+import type { Camera, StreamDescriptor, Transport } from "../lib/types";
 import { resolveCameraStream, type ResolvedCameraStream } from "../lib/whep";
 import { Empty, Spinner } from "./common";
 
@@ -77,11 +77,30 @@ export default function CameraStream({
         : "none";
   const presentation = cameraStreamPresentation({
     active,
-    cameraState: camera.state,
+    cameraState: state.kind === "mjpeg" && state.preview ? undefined : camera.state,
     transport,
     evidence,
     failed: state.kind === "offline" || imageFailed,
   });
+
+  // Refresh the descriptor when capture ownership changes. A stopped MJPEG
+  // publisher can leave its last image visible without firing an image error.
+  useEffect(() => {
+    if (!active || (state.kind !== "mjpeg" && state.kind !== "webrtc")) return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      void api.invoke<StreamDescriptor>("camera_stream", [camera.id, tracking])
+        .then((next) => {
+          const sameFallback = state.kind === "mjpeg" && state.degraded &&
+            next.kind === "webrtc" && next.mjpeg_fallback === state.url;
+          if (!cancelled && !sameFallback && (next.kind !== state.kind || next.url !== state.url))
+            setRetry((n) => n + 1);
+        }).catch(() => {
+          if (!cancelled) setImageFailed(true);
+        });
+    }, RETRY_OFFLINE_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [active, api, camera.id, tracking, state]);
 
   // A tile resolved its stream once and then sat on the result. Open the wall
   // before pressing Start monitoring and every tile stayed "offline" until
@@ -149,7 +168,8 @@ export default function CameraStream({
                 : ""
           }`}
         />
-        {presentation.label}
+        {state.kind === "mjpeg" && state.preview && presentation.phase === "live"
+          ? "LIVE PREVIEW" : presentation.label}
       </div>
       {onOpen && (
         <button

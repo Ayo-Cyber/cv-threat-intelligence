@@ -47,7 +47,19 @@ class LiveWall:
         return open_capture(source)
 
     def _decode(self, cam_id: str, source) -> None:
+        captures = []
+        try:
+            self._decode_frames(cam_id, source, captures)
+        except Exception:
+            self._set(cam_id, ok=False, error="camera preview failed")
+            log.debug("preview capture failed", exc_info=True)
+        finally:
+            for cap in captures:
+                cap.release()
+
+    def _decode_frames(self, cam_id: str, source, captures) -> None:
         cap = self._open(source)
+        captures.append(cap)
         src = str(source)
         is_net = "://" in src                     # RTSP/HTTP camera, not a clip
         is_file = not (isinstance(source, int) or src.isdigit() or is_net)
@@ -68,12 +80,13 @@ class LiveWall:
                     # Same disease the rules scanner had on 23 Aug.
                     self._set(cam_id, ok=False, error="stream dropped — reconnecting")
                     dead_since = dead_since or time.time()
-                    if is_net and time.time() - dead_since >= 3.0:
+                    if not is_file and time.time() - dead_since >= 3.0:
                         try:
                             cap.release()
                         except Exception:  # noqa: BLE001
                             log.debug("releasing the dead capture failed", exc_info=True)
                         cap = self._open(source)
+                        captures[:] = [cap]
                         dead_since = time.time()
                     self._stop.wait(0.3)
                     continue
@@ -110,13 +123,13 @@ class LiveWall:
     def jpeg(self, cam_id: str) -> bytes | None:
         with self._lock:
             rec = self._latest.get(cam_id)
-            return rec.get("jpeg") if rec else None
+            return rec.get("jpeg") if rec and rec.get("ok") else None
 
     def stop(self) -> None:
         self._stop.set()
         for t in self._threads:
             t.join(timeout=1.5)
-        self._threads = []
+        self._threads = [t for t in self._threads if t.is_alive()]
 
 
 class FrameServer:
@@ -132,6 +145,7 @@ class FrameServer:
         self.port = 0
         self._httpd = None
         self._thread = None
+        self._stopped = threading.Event()
 
     def start(self) -> int:
         import threading
@@ -155,8 +169,7 @@ class FrameServer:
                 supplied = self.headers.get("X-Argus-Token", "") or (
                     urllib.parse.parse_qs(parsed.query).get("token") or [""])[0]
                 if not hmac.compare_digest(supplied, token):
-                    self.send_response(401)
-                    self.end_headers()
+                    self.send_error(401)
                     return
                 cam = urllib.parse.unquote(parsed.path.rsplit("/", 1)[-1])
                 if parsed.path.startswith("/stream/"):
@@ -185,28 +198,48 @@ class FrameServer:
                 29 Aug — the moving part was the engine before it died; this
                 is the still part after). With a real stream here, Watch is
                 live even before monitoring starts."""
-                self.send_response(200)
-                self.send_header("Content-Type",
-                                 "multipart/x-mixed-replace; boundary=arguswall")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("Connection", "close")
-                self.end_headers()
+                acquire = getattr(wall, "acquire", None)
+                if acquire is not None and not acquire(cam):
+                    self.send_error(404)
+                    return
+                self.connection.settimeout(3)
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type",
+                                     "multipart/x-mixed-replace; boundary=arguswall")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                except OSError:
+                    release = getattr(wall, "release", None)
+                    if release is not None:
+                        release(cam)
+                    return
                 import time as _t
                 last = None
+                last_frame = _t.monotonic()
                 try:
-                    while True:
+                    while not stopped.is_set():
                         jpg = wall.jpeg(cam)
                         if jpg is not None and jpg is not last:
+                            last_frame = _t.monotonic()
                             last = jpg
                             self.wfile.write(b"--arguswall\r\n"
                                              b"Content-Type: image/jpeg\r\n"
                                              + f"Content-Length: {len(jpg)}\r\n\r\n".encode()
                                              + jpg + b"\r\n")
                             self.wfile.flush()
+                        if _t.monotonic() - last_frame > 5:
+                            break  # no stale frame masquerading as live video
                         _t.sleep(0.12)
-                except (BrokenPipeError, ConnectionResetError):
+                except (BrokenPipeError, ConnectionResetError, TimeoutError):
                     pass          # viewer navigated away — normal
+                finally:
+                    release = getattr(wall, "release", None)
+                    if release is not None:
+                        release(cam)
 
+        stopped = self._stopped
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)   # port 0 = OS picks
         self.port = self._httpd.server_address[1]
         self._thread = threading.Thread(target=self._httpd.serve_forever, name="frame-server", daemon=True)
@@ -214,6 +247,8 @@ class FrameServer:
         return self.port
 
     def stop(self) -> None:
+        self._stopped.set()
         if self._httpd is not None:
             self._httpd.shutdown()
+            self._httpd.server_close()
             self._httpd = None

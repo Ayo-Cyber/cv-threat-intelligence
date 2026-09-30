@@ -1,0 +1,130 @@
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from cvti.app.preview import CameraPreview
+
+
+@pytest.fixture
+def preview():
+    with patch("cvti.app.preview.FrameServer") as server:
+        server.return_value.port = 12345
+        server.return_value.token = "secret"
+        p = CameraPreview()
+        yield p
+        p.close()
+
+
+def test_descriptor_is_lazy_and_encoded(preview):
+    result = preview.descriptor("front / door", 0)
+    assert result["preview"]
+    assert "front%20%2F%20door?token=secret" in result["url"]
+    assert preview._walls == {}
+    assert not preview.acquire("unknown")
+
+
+def test_viewers_share_capture_and_last_viewer_releases(preview):
+    preview.descriptor("cam", 0)
+    with patch("cvti.app.preview.LiveWall") as factory:
+        wall = factory.return_value.start.return_value
+        wall._threads = []
+        assert preview.acquire("cam")
+        assert preview.acquire("cam")
+        factory.assert_called_once()
+        preview.release("cam")
+        wall.stop.assert_not_called()
+        preview.release("cam")
+        wall.stop.assert_called_once()
+        assert preview._walls == {}
+
+
+def test_snapshot_reuses_capture_and_dimensions(preview):
+    preview.descriptor("cam", 0)
+    with patch("cvti.app.preview.LiveWall") as factory:
+        wall = factory.return_value.start.return_value
+        wall._threads = []
+        wall.jpeg.return_value = b"jpg"
+        wall.frames.return_value = {"cam": {"w": 1920, "h": 1080}}
+        preview.acquire("cam")
+        snapshot = preview.snapshot("cam")
+        assert (snapshot["w"], snapshot["h"]) == (1920, 1080)
+        factory.assert_called_once()
+        preview.release("cam")
+
+
+def test_handover_refuses_to_overlap_blocked_capture(preview):
+    preview.descriptor("cam", 0)
+    with patch("cvti.app.preview.LiveWall") as factory:
+        wall = factory.return_value.start.return_value
+        thread = MagicMock()
+        thread.is_alive.return_value = True
+        wall._threads = [thread]
+        preview.acquire("cam")
+        with pytest.raises(RuntimeError, match="releasing"):
+            preview.close()
+        assert not preview.acquire("cam")
+        thread.is_alive.return_value = False
+
+
+def test_disconnected_capture_does_not_serve_old_jpeg():
+    from cvti.app.live_wall import LiveWall
+    wall = LiveWall([])
+    wall._set("cam", jpeg=b"old", ok=True)
+    assert wall.jpeg("cam") == b"old"
+    wall._set("cam", ok=False)
+    assert wall.jpeg("cam") is None
+
+
+def test_engine_does_not_start_until_preview_releases():
+    from cvti.app.console_backend import ConsoleBackend
+    backend = ConsoleBackend.__new__(ConsoleBackend)
+    backend._preview = MagicMock()
+    backend._preview.close.side_effect = RuntimeError("capture still releasing")
+    with patch("cvti.app.console_backend.subprocess.Popen") as spawn:
+        with pytest.raises(RuntimeError, match="releasing"):
+            backend._spawn_engine()
+        spawn.assert_not_called()
+
+
+def test_real_stream_moves_and_releases_capture(tmp_path):
+    import http.client
+    import time
+    import cv2
+    import numpy as np
+    from urllib.parse import urlsplit
+
+    clip = str(tmp_path / "preview.avi")
+    writer = cv2.VideoWriter(clip, cv2.VideoWriter_fourcc(*"MJPG"), 8, (64, 48))
+    assert writer.isOpened()
+    for value in range(0, 240, 20):
+        writer.write(np.full((48, 64, 3), value, dtype=np.uint8))
+    writer.release()
+    p = CameraPreview()
+    connection = None
+    try:
+        url = urlsplit(p.descriptor("test", clip)["url"])
+        assert not p._walls
+        connection = http.client.HTTPConnection(url.hostname, url.port, timeout=10)
+        connection.request("GET", url.path + "?" + url.query)
+        response = connection.getresponse()
+        assert response.status == 200
+        frames = []
+        for _ in range(3):
+            assert response.readline().strip() == b"--arguswall"
+            assert response.readline().strip() == b"Content-Type: image/jpeg"
+            size = int(response.readline().split(b":")[1])
+            response.readline()
+            frames.append(response.read(size))
+            response.readline()
+        assert len(set(frames)) > 1
+        assert p.snapshot("test")["w"] == 64
+        response.close()
+        connection.close()
+        deadline = time.monotonic() + 6
+        while p._walls and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not p._walls
+    finally:
+        if connection:
+            connection.close()
+        p.close()

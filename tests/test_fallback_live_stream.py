@@ -94,7 +94,7 @@ class NetworkStreamRecoversTest(unittest.TestCase):
     def test_the_decode_loop_reopens_dropped_network_streams(self):
         import inspect
         from cvti.app.live_wall import LiveWall
-        src = inspect.getsource(LiveWall._decode)
+        src = inspect.getsource(LiveWall._decode_frames)
         self.assertIn('is_net = "://" in src', src)
         self.assertIn("cap = self._open(source)", src.split("while not")[1],
                       "no reopen inside the decode loop — a blip is forever")

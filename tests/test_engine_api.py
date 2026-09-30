@@ -175,7 +175,8 @@ class RealApiTests(unittest.TestCase):
         # "monitoring". The backend that OWNS the engine process says nothing
         # is running: Stop must read as stopped at once, not up to 30s later
         # ("I pressed stop monitoring but it didn't stop", 12 Sep), and a tile
-        # must get a retryable 503, not a stale publisher URL.
+        # must get preview, not a stale publisher URL. Descriptor lookup alone
+        # must not open a camera or load inference models.
         host = self.app.state.backend_host
         host._backend = host._build()
         host._backend._engine_owned = True           # what Start/Stop leave behind
@@ -185,9 +186,14 @@ class RealApiTests(unittest.TestCase):
         self.assertFalse(mon["running"])
         self.assertEqual(mon["phase"], "stopped")
         (Path(self._tmp.name) / "frames.json").write_text('{"port": 1, "token": "t"}')
-        r = self.client.get(f"{PREFIX}/cameras/Dublin Street/stream", headers=headers)
-        self.assertEqual(r.status_code, 503)
-        self.assertEqual(r.json()["error"]["code"], "engine_unavailable")
+        from unittest.mock import patch
+        with patch("cvti.app.preview.FrameServer.start", return_value=12345):
+            r = self.client.get(f"{PREFIX}/cameras/Dublin Street/stream", headers=headers)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["preview"])
+        self.assertNotIn("127.0.0.1:1/", r.json()["url"])
+        self.assertEqual(host._backend._preview._walls, {})
+        host._backend.close()
 
     def test_tracking_stream_forces_authenticated_local_mjpeg(self):
         tmp = Path(self._tmp.name)
