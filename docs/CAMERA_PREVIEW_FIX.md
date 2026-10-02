@@ -1,11 +1,5 @@
 # Independent Camera Preview
 
-## Workspace
-
-Implementation: `fix/independent-camera-preview` in `argus-camera-preview`.
-This is a fresh checkout of Ayo-Cyber/cv-threat-intelligence, not the older,
-dirty `argus-latest` checkout. That checkout was left untouched. Not pushed.
-
 ## Problem and Changes
 
 The Electron API requested only engine-owned stream descriptors. Before
@@ -17,7 +11,9 @@ monitoring started there was no publisher, so reachable cameras appeared offline
   Multiple viewers share it; the last disconnect releases it. No inference starts.
 - Pre-monitoring zone snapshots borrow this capture and preserve source dimensions.
 - Starting the engine closes previews first. If a capture is still blocked,
-  startup fails visibly rather than opening a competing webcam handle.
+  startup is refused with a retryable 503 (`preview_releasing`) rather than
+  opening a competing webcam handle, and the next preview request opens a
+  fresh capture.
 - The frontend refreshes descriptors to switch between preview and engine streams.
   Preview media is not hidden by stale engine-health status; its label is LIVE PREVIEW.
 - Removed cameras, changed camera configuration, feed switches, sign-out and API
@@ -40,7 +36,3 @@ draw zones, start monitoring, stop monitoring, hide tiles, sign out and reconnec
 Check scene mapping separately; this change does not alter its queue or inference.
 Monitoring-time zone snapshots retain the existing snapshot implementation.
 Externally launched engine publisher-file validation retains its existing behavior.
-
-Frontend checks used installed dependencies from the older local checkout via
-a temporary node_modules symlink, removed after verification. This is not a
-bundled release; install frontend dependencies before running this checkout.

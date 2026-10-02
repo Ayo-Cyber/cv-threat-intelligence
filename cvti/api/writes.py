@@ -372,6 +372,7 @@ def register_writes(app, host: _ApiBackend, require_principal,
 
     `require_principal` is the app's bearer dependency; `error` its JSON error
     envelope. Handlers are generated, so each row stays one line of truth."""
+    from cvti.app.errors import PreviewBusy
     from cvti.security.permissions import PermissionDenied
     from cvti.serving.onboarding import HierarchyConflict
 
@@ -423,6 +424,12 @@ def register_writes(app, host: _ApiBackend, require_principal,
                 return error(404, "not_found", str(exc))
             except HierarchyConflict as exc:
                 return error(409, "conflict", str(exc))
+            except PreviewBusy as exc:
+                # Start monitoring while a preview's camera handle is still
+                # closing. Not a fault: a 503 the app shows as a sentence the
+                # operator can act on ("retry shortly"), where an uncaught
+                # RuntimeError was a bare 500 with no words (30 Sep, #198).
+                return error(503, "preview_releasing", str(exc))
             except ValueError as exc:
                 return error(400, "bad_request", str(exc))
             # Backends signal domain failure as {"ok": False, "error": ...}
