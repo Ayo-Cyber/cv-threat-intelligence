@@ -4,6 +4,7 @@ from __future__ import annotations
 import threading
 from urllib.parse import quote, urlencode
 
+from cvti.app.errors import PreviewBusy
 from cvti.app.live_wall import FrameServer, LiveWall
 
 
@@ -76,4 +77,4 @@ class CameraPreview:
                           for t in wall._threads)
         self._server.stop()
         if not stopped:
-            raise RuntimeError("Camera preview is still releasing its capture; retry monitoring shortly")
+            raise PreviewBusy("Camera preview is still releasing its capture; retry monitoring shortly")

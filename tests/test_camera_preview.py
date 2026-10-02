@@ -84,6 +84,20 @@ def test_engine_does_not_start_until_preview_releases():
         with pytest.raises(RuntimeError, match="releasing"):
             backend._spawn_engine()
         spawn.assert_not_called()
+    # The refused close must not leave the dead preview behind: Watch would
+    # read "preview unavailable" until somebody pressed Start again.
+    assert backend._preview is None
+
+
+def test_a_refused_handover_is_a_retryable_503_not_a_500():
+    from cvti.app.errors import PreviewBusy
+    from cvti.app.console_backend import ConsoleBackend
+    backend = ConsoleBackend.__new__(ConsoleBackend)
+    backend._preview = MagicMock()
+    backend._preview.close.side_effect = PreviewBusy("Camera preview is still releasing its capture; retry monitoring shortly")
+    with pytest.raises(PreviewBusy):
+        backend._close_preview()
+    assert backend._preview is None
 
 
 def test_real_stream_moves_and_releases_capture(tmp_path):
