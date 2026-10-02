@@ -64,7 +64,11 @@ class ReportTests(unittest.TestCase):
             self.assertLess(abs(doc["generated_at"] - time.time()), 10)
 
     def test_a_bad_directory_never_raises(self):
-        self.assertIsNone(write_report("/dev/null/not-a-dir"))
+        # Below a regular FILE: no OS can make that a directory. The old
+        # "/dev/null/not-a-dir" is just C:\dev\null\not-a-dir on Windows,
+        # and mkdir created it happily.
+        with tempfile.NamedTemporaryFile() as blocker:
+            self.assertIsNone(write_report(Path(blocker.name) / "not-a-dir"))
 
 
 class WiringTests(unittest.TestCase):

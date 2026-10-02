@@ -149,6 +149,7 @@ class DbErrorHonestyTest(unittest.TestCase):
             self.assertEqual(be.db_check.get("state"), "quarantined")
             self.assertTrue(list(root.glob("events.corrupt-*.db")),
                             "corrupt store not preserved for recovery")
+            be.close()
 
 
 class SceneContextPersistenceTest(unittest.TestCase):

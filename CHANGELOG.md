@@ -4,6 +4,30 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.8.25 — 2 Oct 2026
+
+**Cameras show a live picture before monitoring starts.** Until now a camera
+tile stayed "offline" until you pressed Start monitoring, because only the
+detection engine could produce a stream. Watch now opens the camera itself
+when monitoring is stopped and shows it labelled LIVE PREVIEW, and the zone
+editor takes its snapshot from that same picture at the camera's real
+resolution. The preview is handed over to the engine when you press Start
+and comes back when you press Stop. Nothing is analysed while previewing, and
+the picture never leaves this computer.
+
+**Start monitoring says what it is waiting for.** If a camera is still being
+let go of by the preview when you press Start (a network camera can take a
+few seconds to answer), the app now says *Camera preview is still releasing
+its capture; retry monitoring shortly* instead of failing with no words, and
+the Watch tiles keep working in the meantime.
+
+**A corrupt events database is quarantined on Windows too.** The start-up
+integrity check moved a broken database aside so a fresh one could start, but
+on Windows it still had the broken file open when it tried, so the move was
+refused and the site stayed down with "corrupt". The file is closed first
+now. Two configuration backups taken inside the same second no longer
+collide on Windows either.
+
 ## v1.8.24 — 28 Sep 2026
 
 **Vehicle entering and exiting is now something you draw.** Open a camera's

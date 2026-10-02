@@ -144,6 +144,7 @@ class ReceiverTest(unittest.TestCase):
             code, _ = r.handle_heartbeat("key-a", self._payload())
             self.assertEqual(code, 200)
             self.assertIn("site-a", r.store.latest())
+            r.close()                  # Windows will not delete an open database
 
     def test_a_wrong_or_unknown_key_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -152,10 +153,13 @@ class ReceiverTest(unittest.TestCase):
             self.assertEqual(
                 r.handle_heartbeat("key-a", self._payload(site="intruder"))[0], 401)
             self.assertEqual(r.store.latest(), {})
+            r.close()
 
     def test_garbage_is_a_400_not_a_crash(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(self._receiver(tmp).handle_heartbeat("key-a", b"\xff{")[0], 400)
+            r = self._receiver(tmp)
+            self.assertEqual(r.handle_heartbeat("key-a", b"\xff{")[0], 400)
+            r.close()
 
     def test_a_silent_site_is_missed_regardless_of_what_it_last_said(self):
         now = time.time()
@@ -176,8 +180,10 @@ class ReceiverTest(unittest.TestCase):
 
     def test_an_enrolled_site_that_never_reported_is_visible(self):
         with tempfile.TemporaryDirectory() as tmp:
-            views = {v["site_id"]: v for v in self._receiver(tmp).views()}
+            r = self._receiver(tmp)
+            views = {v["site_id"]: v for v in r.views()}
             self.assertEqual(views["site-a"]["state"], "never-reported")
+            r.close()
 
     def test_end_to_end_over_real_http(self):
         import threading
@@ -210,6 +216,7 @@ class ReceiverTest(unittest.TestCase):
                 body = resp.read().decode()
             self.assertIn("site-a", body)
             r._server.shutdown()
+            r.close()
 
 
 class AlerterTest(unittest.TestCase):

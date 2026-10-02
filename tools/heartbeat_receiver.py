@@ -65,6 +65,9 @@ class Store:
                  payload.get("status"), json.dumps(payload)))
             self._db.commit()
 
+    def close(self) -> None:
+        self._db.close()
+
     def latest(self) -> dict:
         """site_id -> its most recent heartbeat row (parsed)."""
         with self._lock:
@@ -202,6 +205,10 @@ class Receiver:
         self._server = None
 
     # --- request handling, separated from HTTP for tests -------------------
+
+    def close(self) -> None:
+        """Release the store — Windows cannot delete a database that is open."""
+        self.store.close()
     def handle_heartbeat(self, site_key: str, body: bytes) -> tuple:
         import hmac
         try:
