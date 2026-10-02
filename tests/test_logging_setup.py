@@ -100,6 +100,7 @@ class LoggingSetupTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             setup_logging(tmp, component="t", console=False)
             self.assertEqual(logging.getLogger().level, logging.INFO)
+            reset_for_tests()           # the handler holds t.log open until then
 
     def test_setup_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -107,6 +108,7 @@ class LoggingSetupTest(unittest.TestCase):
             before = len(logging.getLogger().handlers)
             setup_logging(tmp, component="t", console=False)
             self.assertEqual(len(logging.getLogger().handlers), before)
+            reset_for_tests()
 
     def test_the_two_processes_do_not_share_one_rotating_file(self):
         # App and engine are pointed at the same output dir. One shared handle
@@ -115,6 +117,7 @@ class LoggingSetupTest(unittest.TestCase):
             engine = setup_logging(tmp, component="argus-engine", console=False)
             app = setup_logging(tmp, component="argus-app", console=False)
             self.assertNotEqual(engine, app)
+            reset_for_tests()
 
     def test_frozen_build_logs_to_the_user_directory_not_the_cwd(self):
         # The case that matters: a bundle launched from a read-only mount would
@@ -186,7 +189,11 @@ class DiagnosticsBundleTest(unittest.TestCase):
         out = Path(tmp)
         setup_logging(out, component="argus-engine", console=False)
         get_logger("cvti.test").info("a log line worth shipping")
-        logging.shutdown()
+        # Remove the handler, don't just shut it: a closed FileHandler still
+        # on the root logger re-opens its file on the next record, and
+        # build_bundle logs one — leaving argus-engine.log open when the temp
+        # dir is deleted (Windows refuses).
+        reset_for_tests()
 
         evidence = out / "events" / "20260819_cam1_theft"
         evidence.mkdir(parents=True)
@@ -207,7 +214,8 @@ class DiagnosticsBundleTest(unittest.TestCase):
     def test_bundle_contains_logs_and_health(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = self._populated(tmp)
-            names = zipfile.ZipFile(diagnostics.build_bundle(out)).namelist()
+            with zipfile.ZipFile(diagnostics.build_bundle(out)) as zf:
+                names = zf.namelist()
             self.assertIn("health.json", names)
             self.assertIn("MANIFEST.txt", names)
             self.assertTrue(any(n.startswith("logs/") for n in names), names)
@@ -215,8 +223,9 @@ class DiagnosticsBundleTest(unittest.TestCase):
     def test_bundle_contains_no_images_video_or_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = self._populated(tmp)
-            zf = zipfile.ZipFile(diagnostics.build_bundle(out))
-            for name in zf.namelist():
+            with zipfile.ZipFile(diagnostics.build_bundle(out)) as zf:
+                names = zf.namelist()
+            for name in names:
                 self.assertFalse(name.lower().endswith((".jpg", ".jpeg", ".png", ".mp4",
                                                         ".avi", ".mov", ".db")),
                                  f"personal data leaked into the bundle: {name}")
@@ -225,15 +234,16 @@ class DiagnosticsBundleTest(unittest.TestCase):
         # Counts are fine. The reason field describes a person, and must not appear.
         with tempfile.TemporaryDirectory() as tmp:
             out = self._populated(tmp)
-            zf = zipfile.ZipFile(diagnostics.build_bundle(out))
-            blob = b"".join(zf.read(n) for n in zf.namelist())
+            with zipfile.ZipFile(diagnostics.build_bundle(out)) as zf:
+                blob = b"".join(zf.read(n) for n in zf.namelist())
             self.assertNotIn(b"red coat", blob)
             self.assertNotIn(b"aisle_1", blob)
 
     def test_health_snapshot_reports_counts_not_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = self._populated(tmp)
-            health = json.loads(zipfile.ZipFile(diagnostics.build_bundle(out)).read("health.json"))
+            with zipfile.ZipFile(diagnostics.build_bundle(out)) as zf:
+                health = json.loads(zf.read("health.json"))
             self.assertEqual(health["events"]["events_total"], 1)
             self.assertEqual(health["events"]["events_unreviewed"], 1)
             self.assertIn("platform", health)
@@ -242,7 +252,8 @@ class DiagnosticsBundleTest(unittest.TestCase):
     def test_manifest_states_what_is_excluded(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = self._populated(tmp)
-            manifest = zipfile.ZipFile(diagnostics.build_bundle(out)).read("MANIFEST.txt").decode()
+            with zipfile.ZipFile(diagnostics.build_bundle(out)) as zf:
+                manifest = zf.read("MANIFEST.txt").decode()
             self.assertIn("DOES NOT CONTAIN", manifest)
             self.assertIn("evidence frames", manifest)
 

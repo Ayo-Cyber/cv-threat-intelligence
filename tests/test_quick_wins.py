@@ -63,7 +63,7 @@ class PerFeedStoreTest(unittest.TestCase):
                                  "the home site must keep its original store")
                 self.assertNotEqual(demo, home, "demo alerts would pollute real triage")
                 self.assertNotEqual(demo, live)
-                self.assertIn("runs/feeds/demo", demo.replace("\\\\", "/"))
+                self.assertIn("runs/feeds/demo", demo.replace("\\", "/"))
             finally:
                 os.chdir(cwd)
 

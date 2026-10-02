@@ -132,9 +132,10 @@ class EveryDefaultModelShipsTest(unittest.TestCase):
 
     def test_missing_weights_resolve_to_a_writable_download_target(self):
         import os
+        import tempfile
         from cvti.detector.core import resolve_weights
         cwd = os.getcwd()
-        os.chdir("/tmp")                        # nowhere near the repo
+        os.chdir(tempfile.gettempdir())         # nowhere near the repo, on any OS
         try:
             target = resolve_weights("models/not-shipped-model.pt")
         finally:

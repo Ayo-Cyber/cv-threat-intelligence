@@ -355,6 +355,9 @@ class PublisherTests(unittest.TestCase):
             try:
                 info = json.loads((Path(tmp) / "frames.json").read_text(encoding="utf-8"))
                 self.assertEqual(info["token"], pub.token)
+                if os.name == "nt":
+                    self.skipTest("NTFS has no POSIX mode bits; the file lives in "
+                                  "the per-user output dir, where ACLs do the job")
                 mode = os.stat(Path(tmp) / "frames.json").st_mode & 0o777
                 self.assertEqual(mode, 0o600, "the frame token was world-readable")
             finally:

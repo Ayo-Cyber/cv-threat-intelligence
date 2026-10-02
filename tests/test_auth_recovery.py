@@ -59,6 +59,7 @@ class AuthRecoveryTest(unittest.TestCase):
             cb.create_first_owner("ayo", "correct-horse-9")
             self.assertTrue(cb.auth_state()["configured"])
             store = Path(cb.auth_recovery()["auth_db"])
+            cb.close()                 # Windows will not unlink an open database
             del cb
             store.unlink()
             cb2 = _backend(tmp)
@@ -71,6 +72,7 @@ class AuthRecoveryTest(unittest.TestCase):
             finally:
                 con.close()
             self.assertGreater(n, 0, "audit history was lost in the reset")
+            cb2.close()
 
     def test_the_signin_screen_offers_the_path(self):
         html = Path("cvti/app/web/index.html").read_text(encoding="utf-8")

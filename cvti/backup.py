@@ -91,7 +91,9 @@ def backup_config(site_path: str | Path, dest_dir: str | Path | None = None) -> 
             "entries": entries,
             "format": 1,
         }, indent=2))
-    tmp.rename(out)
+    # replace, not rename: two backups inside one second share a stamp, and
+    # Windows refuses to rename onto an existing file (POSIX overwrites).
+    tmp.replace(out)
     _prune(dest)
     log.info("config backup written: %s (%d entries)", out, len(entries))
     return {"ok": True, "path": str(out), "entries": len(entries)}
@@ -163,14 +165,22 @@ def check_events_db(db_path: str | Path) -> dict:
     db_path = Path(db_path)
     if not db_path.exists():
         return {"ok": True, "state": "fresh"}
+    con = None
     try:
         con = sqlite3.connect(db_path)
         result = con.execute("PRAGMA integrity_check").fetchone()[0]
-        con.close()
         if result == "ok":
             return {"ok": True, "state": "ok"}
     except sqlite3.DatabaseError as exc:
         result = str(exc)
+    finally:
+        # Close BEFORE the rename. When integrity_check raised, the old code
+        # left the connection open and went on to move the file — fine on
+        # POSIX, refused on Windows ("being used by another process"), so a
+        # corrupt store on the pilot's box was reported "corrupt" and left
+        # in place instead of being quarantined and replaced.
+        if con is not None:
+            con.close()
     quarantine = db_path.with_name(
         f"{db_path.stem}.corrupt-{time.strftime('%Y%m%d_%H%M%S')}{db_path.suffix}")
     try:
