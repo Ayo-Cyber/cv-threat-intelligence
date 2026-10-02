@@ -2138,9 +2138,16 @@ class ConsoleBackend:
     # --- live wall (multi-camera video grid) ---
     def _close_preview(self):
         preview = getattr(self, "_preview", None)
-        if preview is not None:
-            preview.close()
-            self._preview = None
+        if preview is None:
+            return
+        # Let go of the object BEFORE close() can refuse. A refused close has
+        # already stopped the frame server and set the decode thread's stop
+        # flag, so the capture is released the moment its blocked read
+        # returns. Holding on to that closed object left every Watch tile
+        # on "preview unavailable" until the operator pressed Start again;
+        # the next descriptor request now simply opens a fresh preview.
+        self._preview = None
+        preview.close()
 
     def camera_preview(self, camera_id: str) -> dict:
         self._require(perms.VIEW_LIVE)

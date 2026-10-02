@@ -276,6 +276,28 @@ class RealApiTests(unittest.TestCase):
         self.assertIs(b._monitor, second)          # new one running on the new feed
         b._monitor_should_run = False              # let the watchdog thread exit
 
+    def test_start_while_a_preview_is_still_releasing_is_a_retryable_503(self):
+        # Preview a webcam, press Start: the engine closes the preview first,
+        # and if the capture thread is still inside a blocked read the start is
+        # refused. That refusal used to escape the bridge as a bare 500 — the
+        # app showed nothing the operator could act on (#198, 30 Sep).
+        from unittest.mock import MagicMock
+        from cvti.app.errors import PreviewBusy
+        host = self.app.state.backend_host
+        host._backend = host._build()
+        b = host._backend
+        b._preview = MagicMock()
+        b._preview.close.side_effect = PreviewBusy(
+            "Camera preview is still releasing its capture; retry monitoring shortly")
+        b._bundled_engine = lambda: object()        # not the viewer-only demo branch
+        r = self.client.post(f"{PREFIX}/engine/start", headers=self._auth())
+        self.assertEqual(r.status_code, 503, r.text)
+        self.assertEqual(r.json()["error"]["code"], "preview_releasing")
+        self.assertIn("retry", r.json()["error"]["message"])
+        self.assertIsNone(b._preview)              # Watch gets a fresh preview next
+        self.assertIsNone(b._monitor)              # and no engine was spawned
+        b._monitor_should_run = False
+
     def test_monitor_trusts_the_heartbeat_when_nobody_owns_an_engine(self):
         # No Start/Stop has gone through this API (a headless engine from a
         # terminal, say): the heartbeat file still decides, as before.
