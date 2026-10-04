@@ -4,6 +4,27 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.9.0 — 4 Oct 2026
+
+**Alerts by email.** Settings → Alerts has a new Email channel beside
+Telegram and WhatsApp. Give it your mail server, a login and the addresses
+to send to, and every alert arrives as one message: a header coloured by
+priority, the alert in words, the reason the verifier gave, the camera, time
+and confidence, the evidence pictures inline and the short clip attached
+when it is small enough. Works with Gmail and Google Workspace (use an App
+Password), Microsoft 365, and an internal relay with no login. Press *Send
+test alert* after saving: if the password is wrong the app now says so,
+instead of reporting a test that never left.
+
+**One incident, one alert.** On a clip of an ATM being broken into, the
+verifier confirmed fire, panic running, violence *and* theft — four alerts
+for one event, three of them wrong. It had been asked whether something
+bad was happening, and something bad was. It is now asked whether the
+*specific* thing the detector claimed is in the picture, and a different
+incident is a no: the right detector raises its own alert. The verifier's
+wording changed, so its measured precision and recall are marked as owed
+until the golden set is replayed.
+
 ## v1.8.25 — 2 Oct 2026
 
 **Cameras show a live picture before monitoring starts.** Until now a camera
