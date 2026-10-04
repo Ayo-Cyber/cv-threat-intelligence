@@ -4,7 +4,7 @@
     "recall": 0.03
   },
   "measurement_status": "unmeasured",
-  "unmeasured_reason": "Frozen 96-case real-model golden corpus unavailable; mock evidence verifies object_watch prompt plumbing only, not quality",
+  "unmeasured_reason": "3 Oct 2026 live demo: the verifier confirmed a FIRE alert on an ATM break-in while writing 'there is no visible fire or smoke' (gate_0003), and PANIC RUNNING on the same clip. Prompts now state that a different incident is a rejection and the JSON gains 'observed'. Replay of the frozen 96-case golden corpus against gemma3:4b still to be run; the mock plumbing fixture is not quality evidence.",
   "cases": 0,
   "scored": 0,
   "errors": 0,
@@ -18,12 +18,12 @@
   "recall": null,
   "recall_ci": null,
   "recall_n": 0,
-  "fingerprint": "c28b1f0ab14b76afa30ce5fbb4373e9a6a2d1c75b277731d655509d1f8e70900",
+  "fingerprint": "0edf795e4066d6c50417d870bef45c7b2136d8e745c30e75d679e5ba76115c76",
   "prompts": {
     "SENSITIVITY_QUESTIONS": 3,
-    "_COT_PROMPT_TEMPLATE": 2055,
+    "_COT_PROMPT_TEMPLATE": 2532,
     "_DETECTOR_QUESTIONS": 9,
-    "_PROMPT_TEMPLATE": 2209,
+    "_PROMPT_TEMPLATE": 2677,
     "_QUESTIONS": 16
   },
   "sensitivity": "balanced",
@@ -59,48 +59,5 @@
     "gate_model_digest": "a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a",
     "measured_at": "2026-09-09T18:39:16",
     "golden_cases": 96
-  },
-  "prompt_change_evidence": {
-    "cases": 2,
-    "scored": 2,
-    "errors": 0,
-    "tp": 1,
-    "fn": 0,
-    "fp": 1,
-    "tn": 0,
-    "precision": 0.5,
-    "precision_ci": [
-      0.0945,
-      0.9055
-    ],
-    "precision_n": 2,
-    "recall": 1.0,
-    "recall_ci": [
-      0.2065,
-      1.0
-    ],
-    "recall_n": 1,
-    "measurement_status": "measured",
-    "measurement_mode": "mock_plumbing",
-    "quality_metrics": false,
-    "fingerprint": "c28b1f0ab14b76afa30ce5fbb4373e9a6a2d1c75b277731d655509d1f8e70900",
-    "prompts": {
-      "SENSITIVITY_QUESTIONS": 3,
-      "_COT_PROMPT_TEMPLATE": 2055,
-      "_DETECTOR_QUESTIONS": 9,
-      "_PROMPT_TEMPLATE": 2209,
-      "_QUESTIONS": 16
-    },
-    "sensitivity": "balanced",
-    "gate_provider": "mock",
-    "gate_model": "mock",
-    "gate_model_digest": null,
-    "measured_at": "2026-09-16T23:03:23",
-    "golden_cases": 2,
-    "corpus_cases": 2,
-    "corpus_meta": {
-      "dataset": "deterministic object-watch prompt plumbing fixture",
-      "measurement_mode": "mock"
-    }
   }
 }
