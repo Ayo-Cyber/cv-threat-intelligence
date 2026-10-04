@@ -24,6 +24,22 @@ export type Channels = {
   whatsappFrom: string;
   whatsappTo: string;
   webhook: string;
+  email: boolean;
+  smtpHost: string;
+  smtpPort: string;
+  smtpSecurity: SmtpSecurity;
+  smtpUser: string;
+  smtpPassword: string;
+  emailFrom: string;
+  /** Recipients, separated by commas, semicolons or newlines. */
+  emailTo: string;
+};
+
+export type SmtpSecurity = "starttls" | "ssl" | "none";
+export const SMTP_DEFAULT_PORT: Record<SmtpSecurity, string> = {
+  starttls: "587",
+  ssl: "465",
+  none: "25",
 };
 
 /** Twilio's shared sandbox number, which is what a trial account sends from. */
@@ -40,7 +56,23 @@ export const EMPTY: Channels = {
   whatsappFrom: TWILIO_SANDBOX,
   whatsappTo: "",
   webhook: "",
+  email: false,
+  smtpHost: "",
+  smtpPort: "587",
+  smtpSecurity: "starttls",
+  smtpUser: "",
+  smtpPassword: "",
+  emailFrom: "",
+  emailTo: "",
 };
+
+/** Recipients as a clean list, whatever separator the operator typed. */
+export function emailRecipients(text: string): string[] {
+  return text
+    .split(/[,;\s]+/)
+    .map((r) => r.trim())
+    .filter(Boolean);
+}
 
 /** Parse the stored spec back into fields the form can show. */
 export function parseNotify(spec: string): Channels {
@@ -66,9 +98,26 @@ export function parseNotify(spec: string): Channels {
       }
     } else if (part.startsWith("webhook:")) {
       out.webhook = part.slice("webhook:".length);
+    } else if (part.startsWith("email:")) {
+      // URL-encoded key=value pairs: a password's colon or a recipient's
+      // comma never collides with this colon- and comma-delimited string.
+      const q = new URLSearchParams(part.slice("email:".length));
+      const host = (q.get("host") || "").trim();
+      const to = emailRecipients(q.get("to") || "");
+      if (host && to.length) {
+        const security = (q.get("security") || "starttls") as SmtpSecurity;
+        out.email = true;
+        out.smtpHost = host;
+        out.smtpSecurity = security in SMTP_DEFAULT_PORT ? security : "starttls";
+        out.smtpPort = (q.get("port") || SMTP_DEFAULT_PORT[out.smtpSecurity]).trim();
+        out.smtpUser = (q.get("user") || "").trim();
+        out.smtpPassword = q.get("password") || "";
+        out.emailFrom = (q.get("from") || "").trim();
+        out.emailTo = to.join(", ");
+      }
     }
   }
-  if (!out.console && !out.telegram && !out.whatsapp && !out.webhook)
+  if (!out.console && !out.telegram && !out.whatsapp && !out.webhook && !out.email)
     out.console = true;
   return out;
 }
@@ -91,6 +140,20 @@ export function buildNotify(c: Channels): string {
         `${c.whatsappFrom.trim()}:${c.whatsappTo.trim()}`,
     );
   if (c.webhook.trim()) parts.push(`webhook:${c.webhook.trim()}`);
+  if (c.email && c.smtpHost.trim() && emailRecipients(c.emailTo).length) {
+    const q = new URLSearchParams({
+      host: c.smtpHost.trim(),
+      port: c.smtpPort.trim() || SMTP_DEFAULT_PORT[c.smtpSecurity],
+      security: c.smtpSecurity,
+      user: c.smtpUser.trim(),
+      password: c.smtpPassword,
+      from: c.emailFrom.trim() || c.smtpUser.trim(),
+      to: emailRecipients(c.emailTo).join(";"),
+    });
+    // URLSearchParams encodes "," ";" ":" and "&" — nothing here can split
+    // the outer spec. (It writes spaces as "+", which the engine decodes.)
+    parts.push(`email:${q.toString()}`);
+  }
   return parts.length ? parts.join(",") : "console";
 }
 
@@ -114,6 +177,22 @@ export function notifyProblem(c: Channels): string {
     return "Enter the WhatsApp number to alert, in full international form like +234...";
   if (c.webhook.trim() && !/^https?:\/\//.test(c.webhook.trim()))
     return "A webhook must start with http:// or https://";
+  if (c.email) {
+    const addr = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!c.smtpHost.trim())
+      return "Enter your mail server's address, like smtp.gmail.com.";
+    if (c.smtpPort.trim() && !/^\d{1,5}$/.test(c.smtpPort.trim()))
+      return "The SMTP port is a number — 587 for STARTTLS, 465 for SSL.";
+    const to = emailRecipients(c.emailTo);
+    if (!to.length) return "Enter at least one address to send alerts to.";
+    const bad = to.find((r) => !addr.test(r));
+    if (bad) return `"${bad}" does not look like an email address.`;
+    const from = c.emailFrom.trim() || c.smtpUser.trim();
+    if (!from) return "Enter the address the alerts should come from.";
+    if (!addr.test(from)) return "The from address does not look like an email address.";
+    if (c.smtpUser.trim() && !c.smtpPassword)
+      return "Enter the password for that mail account (for Gmail, an App Password).";
+  }
   return "";
 }
 
