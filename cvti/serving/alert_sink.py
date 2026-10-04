@@ -393,6 +393,16 @@ def _build_one(spec: str) -> Any:
             return WhatsAppNotifier(sid, token, from_number, to_number)
         log.warning("[alert-sink] whatsapp spec needs sid:token:from:to; using console")
         return ConsoleNotifier()
+    if spec.startswith("email:"):
+        # email:<url-encoded key=value pairs> — see cvti/serving/notify_email.py.
+        # URL-encoding keeps a password's colon or a recipient's comma out of
+        # this colon- and comma-delimited string.
+        from cvti.serving.notify_email import EmailNotifier
+        notifier = EmailNotifier.from_spec(spec[len("email:"):], background=True)
+        if notifier is not None:
+            return notifier
+        log.warning("[alert-sink] email spec needs host, from and at least one to; using console")
+        return ConsoleNotifier()
     if spec == "whatsapp":
         try:
             return WhatsAppNotifier.from_env()
@@ -406,7 +416,7 @@ def _build_one(spec: str) -> Any:
 def build_notifier(spec: str) -> Any:
     """spec: one channel, or several comma-separated (e.g. 'console,whatsapp').
     Each channel: 'console' | 'webhook:<url>' | 'telegram:<token>:<chat_id>' |
-    'whatsapp' (Twilio creds from env)."""
+    'whatsapp' (Twilio creds from env) | 'email:<url-encoded smtp settings>'."""
     parts = [s for s in (spec or "console").split(",") if s.strip()]
     if len(parts) <= 1:
         return _build_one(parts[0] if parts else "console")

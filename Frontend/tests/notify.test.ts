@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY,
   buildNotify,
+  emailRecipients,
   maskToken,
   notifyProblem,
   parseNotify,
@@ -156,5 +157,61 @@ describe("whatsapp", () => {
   it("a bare 'whatsapp' spec is not configured", () => {
     // That is what the old UI would have written, and it fell back to console.
     expect(parseNotify("console,whatsapp").whatsapp).toBe(false);
+  });
+});
+
+describe("email over SMTP", () => {
+  const email = {
+    ...EMPTY,
+    email: true,
+    smtpHost: "smtp.gmail.com",
+    smtpPort: "587",
+    smtpSecurity: "starttls" as const,
+    smtpUser: "ops@site.com",
+    smtpPassword: "p:ss,w@rd&x",
+    emailFrom: "argus@site.com",
+    emailTo: "a@x.com, b@y.com",
+  };
+
+  it("writes one url-encoded channel the engine can split safely", () => {
+    const spec = buildNotify(email);
+    const [, part] = spec.split(",");
+    expect(spec.startsWith("console,email:")).toBe(true);
+    expect(spec.split(",").length).toBe(2);          // the password's comma did not split it
+    const q = new URLSearchParams(part.slice("email:".length));
+    expect(q.get("password")).toBe("p:ss,w@rd&x");
+    expect(q.get("to")).toBe("a@x.com;b@y.com");
+    expect(q.get("from")).toBe("argus@site.com");
+  });
+
+  it("round-trips", () => {
+    const back = parseNotify(buildNotify(email));
+    expect(back.email).toBe(true);
+    expect(back.smtpHost).toBe("smtp.gmail.com");
+    expect(back.smtpPassword).toBe("p:ss,w@rd&x");
+    expect(back.emailTo).toBe("a@x.com, b@y.com");
+    expect(buildNotify(back)).toBe(buildNotify(email));
+  });
+
+  it("refuses to write a half-configured email channel", () => {
+    expect(buildNotify({ ...email, smtpHost: "" })).toBe("console");
+    expect(buildNotify({ ...email, emailTo: "" })).toBe("console");
+  });
+
+  it("from falls back to the username", () => {
+    const q = new URLSearchParams(buildNotify({ ...email, emailFrom: "" }).split("email:")[1]);
+    expect(q.get("from")).toBe("ops@site.com");
+  });
+
+  it("names the problem in words the operator can act on", () => {
+    expect(notifyProblem({ ...email, smtpHost: "" })).toMatch(/mail server/);
+    expect(notifyProblem({ ...email, emailTo: "nobody" })).toMatch(/does not look like an email/);
+    expect(notifyProblem({ ...email, smtpPassword: "" })).toMatch(/password/i);
+    expect(notifyProblem({ ...email, smtpPort: "abc" })).toMatch(/port/);
+    expect(notifyProblem(email)).toBe("");
+  });
+
+  it("recipients accept commas, semicolons and newlines", () => {
+    expect(emailRecipients("a@x.com; b@y.com\nc@z.com,")).toEqual(["a@x.com", "b@y.com", "c@z.com"]);
   });
 });

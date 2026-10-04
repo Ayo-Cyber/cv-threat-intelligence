@@ -2926,6 +2926,8 @@ fieldset:disabled {
 .verifier-progress { width: 100%; height: 8px; }
 
 .notify-setup { display: flex; flex-direction: column; gap: 14px; }
+.notify-grid { display: grid; grid-template-columns: 2fr 1.4fr 0.8fr; gap: 10px; }
+@media (max-width: 640px) { .notify-grid { grid-template-columns: 1fr; } }
 .notify-channel { display: flex; gap: 11px; align-items: flex-start; cursor: pointer; }
 .notify-channel input { margin-top: 3px; }
 .notify-channel small { display: block; opacity: 0.72; font-size: 12px; margin-top: 2px; }
