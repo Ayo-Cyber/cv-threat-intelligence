@@ -203,8 +203,9 @@ class SmokeModuleTest(unittest.TestCase):
         self.assertIn("model directory is missing", out["error"])
 
     def test_the_dev_smoke_command_runs_the_module(self):
-        cmd = mi.smoke_command(Path("/x/siglip"))
-        self.assertEqual(cmd[1:], ["-m", "cvti.object_watch.smoke", "/x/siglip"])
+        target = Path("/x/siglip")
+        cmd = mi.smoke_command(target)
+        self.assertEqual(cmd[1:], ["-m", "cvti.object_watch.smoke", str(target)])  # str(): Windows spells it \x\siglip
 
 
 class BackendAdoptionTest(unittest.TestCase):
