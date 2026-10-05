@@ -4,11 +4,14 @@ import type { Json, Mode, Transport } from "../lib/types";
 import {
   EMPTY,
   buildNotify,
+  emailRecipients,
   maskToken,
   notifyProblem,
   parseNotify,
+  SMTP_DEFAULT_PORT,
   TWILIO_SANDBOX,
   type Channels,
+  type SmtpSecurity,
 } from "../lib/notify";
 import { Notice, Spinner } from "./common";
 
@@ -37,6 +40,7 @@ export default function NotificationSetup({
   );
   const [reveal, setReveal] = useState(false);
   const [revealTwilio, setRevealTwilio] = useState(false);
+  const [revealSmtp, setRevealSmtp] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -230,6 +234,142 @@ export default function NotificationSetup({
                 autoComplete="off"
               />
             </label>
+          </div>
+        )}
+
+        <label className="notify-channel">
+          <input
+            type="checkbox"
+            checked={channels.email}
+            onChange={(e) => set({ email: e.target.checked })}
+          />
+          <div>
+            <strong>Email</strong>
+            <small>
+              One message per alert with the evidence pictures inline, through
+              your own mail server (SMTP).
+            </small>
+          </div>
+        </label>
+
+        {channels.email && (
+          <div className="notify-telegram">
+            <ol className="notify-steps">
+              <li>
+                <strong>Gmail / Google Workspace:</strong> server{" "}
+                <code>smtp.gmail.com</code>, STARTTLS on 587. Turn on 2-step
+                verification, then create an <strong>App Password</strong> and
+                use it here instead of your normal password.
+              </li>
+              <li>
+                <strong>Outlook / Microsoft 365:</strong>{" "}
+                <code>smtp.office365.com</code>, STARTTLS on 587, your full
+                email address as the username.
+              </li>
+              <li>
+                An internal relay with no login: leave username and password
+                empty and pick <em>None</em> for security.
+              </li>
+            </ol>
+            <div className="notify-grid">
+              <label>
+                Mail server (SMTP host)
+                <input
+                  value={channels.smtpHost}
+                  onChange={(e) => set({ smtpHost: e.target.value })}
+                  placeholder="smtp.gmail.com"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                Security
+                <select
+                  value={channels.smtpSecurity}
+                  onChange={(e) => {
+                    const security = e.target.value as SmtpSecurity;
+                    const wasDefault =
+                      channels.smtpPort === SMTP_DEFAULT_PORT[channels.smtpSecurity];
+                    set({
+                      smtpSecurity: security,
+                      ...(wasDefault || !channels.smtpPort
+                        ? { smtpPort: SMTP_DEFAULT_PORT[security] }
+                        : {}),
+                    });
+                  }}
+                >
+                  <option value="starttls">STARTTLS (port 587)</option>
+                  <option value="ssl">SSL/TLS (port 465)</option>
+                  <option value="none">None (port 25)</option>
+                </select>
+              </label>
+              <label>
+                Port
+                <input
+                  value={channels.smtpPort}
+                  onChange={(e) => set({ smtpPort: e.target.value })}
+                  placeholder={SMTP_DEFAULT_PORT[channels.smtpSecurity]}
+                  inputMode="numeric"
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+            <label>
+              Username
+              <input
+                value={channels.smtpUser}
+                onChange={(e) => set({ smtpUser: e.target.value })}
+                placeholder="ops@yourcompany.com"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label>
+              Password
+              <div className="reveal-field">
+                <input
+                  type={revealSmtp ? "text" : "password"}
+                  value={channels.smtpPassword}
+                  onChange={(e) => set({ smtpPassword: e.target.value })}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={revealSmtp ? "Hide the password" : "Show the password"}
+                  onClick={() => setRevealSmtp(!revealSmtp)}
+                >
+                  {revealSmtp ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </label>
+            <label>
+              Send alerts to
+              <textarea
+                rows={2}
+                value={channels.emailTo}
+                onChange={(e) => set({ emailTo: e.target.value })}
+                placeholder="security@yourcompany.com, manager@yourcompany.com"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label>
+              From address (optional — defaults to the username)
+              <input
+                value={channels.emailFrom}
+                onChange={(e) => set({ emailFrom: e.target.value })}
+                placeholder="argus@yourcompany.com"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            {emailRecipients(channels.emailTo).length > 1 && (
+              <p className="field-note">
+                {emailRecipients(channels.emailTo).length} recipients
+              </p>
+            )}
           </div>
         )}
 

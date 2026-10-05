@@ -2014,7 +2014,19 @@ class ConsoleBackend:
             "evidence_dir": None,
         }
         try:
-            build_notifier(notify).notify(event)
+            notifier = build_notifier(notify)
+            notifier.notify(event)
+            # Background channels (Telegram, email) queue the send. Wait for
+            # it here — this is the one place the operator is watching — and
+            # surface a channel's own failure, so a wrong SMTP password reads
+            # "authentication failed" in the app rather than "Test alert sent".
+            closer = getattr(notifier, "close", None)
+            if callable(closer):
+                closer()
+            parts = getattr(notifier, "notifiers", [notifier])
+            errors = [e for e in (getattr(n, "last_error", "") for n in parts) if e]
+            if errors:
+                return {"ok": False, "via": notify, "error": "; ".join(errors)[:300]}
             return {"ok": True, "via": notify}
         except Exception as exc:  # noqa: BLE001
             log.warning("test notification failed", exc_info=True)

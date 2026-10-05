@@ -63,11 +63,17 @@ Respond with a single JSON object only. No markdown. No text before or after the
   "confirmed": true or false,
   "confidence": 0.0 to 1.0,
   "reason": "one sentence explaining your decision based ONLY on what you see",
+  "observed": "claimed" or "other_threat" or "ordinary" or "nobody",
   "alert_priority": "{priority}"
 }}
 
 You are TRIAGING for a human reviewer, not making a courtroom judgement.
 Rules:
+- A DIFFERENT threat is NOT a confirmation of THIS one. If the frames show a real incident
+  but not the one claimed — the claim is fire and you see a break-in, the claim is running
+  and you see someone attacking a machine — set "confirmed" false and "observed"
+  "other_threat". The right detector raises its own alert; confirming the wrong label
+  sends the operator to a fire that is not there.
 - Do NOT rubber-stamp the detector's label, and do NOT invent innocent excuses for
   everything either. Judge the frames as they are.
 - REJECT when the frames show plainly ordinary behaviour with no sign of the threat
@@ -111,12 +117,18 @@ Reason briefly FIRST (plain text, no JSON yet):
    what they are holding or touching). Do not describe what the detector claims.
 3. Does what you see match the SPECIFIC threat in the question, or is it ordinary activity
    (standing, walking, queueing, browsing, working a counter, an empty street)?
+4. If it is a real incident but NOT the one claimed — the claim is fire and you see a
+   break-in, the claim is running and you see someone attacking a machine — then for THIS
+   alert the answer is false. The right detector raises its own alert; confirming the
+   wrong label sends the operator to a fire that is not there.
 
 Then on the FINAL line, output ONLY this JSON object (no markdown, nothing after it):
 {{"confirmed": true or false, "confidence": 0.0 to 1.0, "reason": "one sentence naming the
-visible evidence, or why there is none", "alert_priority": "{priority}"}}
+visible evidence, or why there is none", "observed": "claimed" or "other_threat" or
+"ordinary" or "nobody", "alert_priority": "{priority}"}}
 
-Confirm ONLY when you can name a concrete visible cue of that specific threat. Ordinary
+Confirm ONLY when you can name a concrete visible cue of that specific threat. A different
+threat is not that threat: "confirmed" false, "observed" "other_threat". Ordinary
 activity and empty scenes are false — rejecting them is the job. Do not confirm merely
 because the detector flagged it, and do not invent detail you cannot see. Set confidence to
 how sure you are of YOUR OWN verdict: high when the evidence is unmistakable, low when you
@@ -997,10 +1009,23 @@ def _parse_response(raw: str, fallback_priority: str) -> VerificationResult:
     timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     try:
         data = _extract_json(raw)
+        confirmed = bool(data.get("confirmed", False))
+        reason = str(data.get("reason", "")).strip() or "No reason provided."
+        observed = str(data.get("observed", "")).strip().lower()
+        if confirmed and observed == "other_threat":
+            # The model saw a real incident, but not the one this alert claims.
+            # On 3 Oct a fire alert on an ATM break-in came back "confirmed"
+            # with the words "there is no visible fire or smoke" in the same
+            # answer: the old prompt rewarded "something bad is happening".
+            # One incident then reached the operator four times under four
+            # labels, three of them wrong. The matching detector's own alert
+            # is the one that should get through.
+            confirmed = False
+            reason = f"different incident than claimed: {reason}"
         return VerificationResult(
-            confirmed=bool(data.get("confirmed", False)),
+            confirmed=confirmed,
             confidence=max(0.0, min(1.0, float(data.get("confidence", 0.0)))),
-            reason=str(data.get("reason", "")).strip() or "No reason provided.",
+            reason=reason,
             alert_priority=str(data.get("alert_priority", fallback_priority)),
             timestamp=timestamp,
             raw_response=raw,
