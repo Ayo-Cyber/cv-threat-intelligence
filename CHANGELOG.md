@@ -4,6 +4,27 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.9.1 — 5 Oct 2026
+
+**Download AI installs the object-recognition model too.** Recognising a
+customer's own products from reference photos needs a second model on the
+machine, and until now a fresh install had the feature without its files, so
+Object watchlists simply read "unavailable". The one Download AI click now
+fetches both: the verification model as before, and the recognition model
+(0.8 GB) beside it, resumed if the connection drops, checked file by file,
+and loaded once to make sure it works before it is called ready. The AI
+model step shows its progress on its own line. Finishing setup does not wait
+for it: a site that never enrols a product loses nothing, and if it fails
+only object recognition is off — cameras and monitoring are untouched.
+
+**Pilot work from the CHI handoff.** Person tracking boxes can be shown per
+camera or on every camera, and hiding them never stops detection. Possible
+concealment alerts carry clearer evidence and wording, and repeat alerts for
+the same person are held back. Registered objects can be drawn on a live
+camera picture. A webcam preview waits for the camera's exposure to settle
+before showing a picture, and a stopped engine hands its tiles back to the
+preview instead of a stale frame.
+
 ## v1.9.0 — 4 Oct 2026
 
 **Alerts by email.** Settings → Alerts has a new Email channel beside
