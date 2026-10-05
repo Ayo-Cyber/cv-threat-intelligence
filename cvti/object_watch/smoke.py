@@ -31,7 +31,8 @@ def check(model_dir: Path) -> dict:
             return {"ok": False, "error": "empty embedding"}
         return {"ok": True, "fingerprint": getattr(backend, "fingerprint", None),
                 "dimensions": dims, "seconds": round(time.time() - started, 2)}
-    except Exception as exc:  # noqa: BLE001 - the caller wants the reason, not a traceback
+    except Exception as exc:  # noqa: BLE001 - SILENT-OK: the reason IS the output; the
+        # installer logs it and shows it to the operator as the install failure.
         return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
 
 

@@ -259,7 +259,7 @@ export default function VerifierDownload({
         <div className="actions">
           <button className="button primary" disabled={busy} onClick={() => void download()}>
             {busy ? <Spinner /> : <Download size={16} />}
-            Download AI models ({MODEL_SIZE} + {RECOGNITION_SIZE})
+            Download model ({MODEL_SIZE} + {RECOGNITION_SIZE} recognition)
           </button>
           <button className="button" disabled={busy} onClick={() => void poll()}>
             <RefreshCw size={16} />
