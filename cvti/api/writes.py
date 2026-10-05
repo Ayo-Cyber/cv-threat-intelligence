@@ -279,6 +279,8 @@ ROUTES: list[R] = [
     R("gate_status", "GET", "/engine/gate",
       query={"model": ("model", str)}),
     R("pull_model", "POST", "/engine/models/pull", body={"model": "model"}),
+    R("pull_recognition_model", "POST", "/engine/models/recognition/pull"),
+    R("recognition_model_status", "GET", "/engine/models/recognition"),
     R("pull_progress", "GET", "/engine/models/pull",
       query={"model": ("model", str)}),
     R("feed_sources", "GET", "/engine/feeds"),

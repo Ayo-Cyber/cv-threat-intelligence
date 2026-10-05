@@ -219,6 +219,8 @@ permissions above remain authoritative.
 | `gate_status` | `GET /engine/gate` | any | shipped |
 | `pull_model` | `POST /engine/models/pull` | configure_site | shipped |
 | `pull_progress` | `GET /engine/models/pull` | configure_site | shipped |
+| `pull_recognition_model` | `POST /engine/models/recognition/pull` | any | shipped |
+| `recognition_model_status` | `GET /engine/models/recognition` | any | shipped |
 | `feed_sources` | `GET /engine/feeds` | view_live | shipped |
 | `switch_feed` | `POST /engine/feeds/switch` | control_engine | shipped |
 | `feed_switch_status` | `GET /engine/feeds/switch` | view_live | shipped |

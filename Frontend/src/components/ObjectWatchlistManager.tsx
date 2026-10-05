@@ -45,6 +45,8 @@ type DraftImage = {
 const reasonText: Record<string, string> = {
   missing_local_model: "Choose the local semantic model files below.",
   model_unavailable: "The configured local semantic model is not available.",
+  local_siglip_model_directory_is_missing:
+    "The object-recognition model is not installed. Download AI models (Settings → AI verification) installs it alongside the verification model.",
   no_reviewed_positive_examples: "Review at least one positive example.",
   no_embeddings: "Run re-embed after reviewing examples.",
   target_not_active: "Activate this target when it is ready.",

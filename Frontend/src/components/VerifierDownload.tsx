@@ -31,6 +31,53 @@ export type PullProgress = {
   detail?: string;
 };
 
+/** The object-recognition model (SigLIP), installed by the same Download AI
+ * click. It matches camera crops against a customer's reference photos; the
+ * verification model does not do that job, and downloading one never
+ * installs the other (Demi's handoff, 5 Oct). Finish does NOT wait for it:
+ * a site that never enrols a product loses nothing, and a failure here
+ * disables object recognition only. */
+export const RECOGNITION_SIZE = "0.8 GB";
+
+export type RecognitionStatus = {
+  state?: string;
+  percent?: number;
+  detail?: string;
+  display_size?: string;
+};
+
+export function recognitionMessage(
+  status: RecognitionStatus | null,
+): { tone: "ready" | "working" | "action"; text: string } | null {
+  if (!status) return null;
+  const size = status.display_size || RECOGNITION_SIZE;
+  const percent = Math.max(0, Math.min(100, Math.round(status.percent ?? 0)));
+  switch (status.state) {
+    case "ready":
+      return { tone: "ready", text: "Object-recognition model ready." };
+    case "downloading":
+      return {
+        tone: "working",
+        text: `Downloading the object-recognition model (${size}) — ${percent}%.`,
+      };
+    case "verifying":
+      return {
+        tone: "working",
+        text: "Checking the object-recognition model: loading it once and asking for an embedding.",
+      };
+    case "error":
+      return {
+        tone: "action",
+        text: `The object-recognition model did not install: ${status.detail || "unknown error"}. Object recognition stays off until it does; everything else works.`,
+      };
+    default:
+      return {
+        tone: "action",
+        text: `The object-recognition model (${size}) has not been installed yet. Object recognition stays off until it is.`,
+      };
+  }
+}
+
 /** What the operator should be told, given gate status and pull progress. */
 export function verifierMessage(
   gate: GateStatus | null,
@@ -79,6 +126,7 @@ export default function VerifierDownload({
 }) {
   const [gate, setGate] = useState<GateStatus | null>(null);
   const [pull, setPull] = useState<PullProgress | null>(null);
+  const [recognition, setRecognition] = useState<RecognitionStatus | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const started = useRef(false);
@@ -90,6 +138,13 @@ export default function VerifierDownload({
       const progress = await api.invoke<Json>("pull_progress");
       setPull(progress as PullProgress);
       onStatus?.(status as GateStatus, progress as PullProgress);
+      try {
+        setRecognition((await api.invoke<Json>("recognition_model_status")) as RecognitionStatus);
+      } catch {
+        // An older engine without the route: the verification model's status
+        // still shows; the recognition line simply stays absent.
+        setRecognition(null);
+      }
       return { status, progress } as {
         status: GateStatus;
         progress: PullProgress;
@@ -105,6 +160,19 @@ export default function VerifierDownload({
     setError("");
     try {
       await api.invoke("pull_model");
+      await poll();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [api, poll]);
+
+  const retryRecognition = useCallback(async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api.invoke("pull_recognition_model");
       await poll();
     } catch (e) {
       setError((e as Error).message);
@@ -146,13 +214,39 @@ export default function VerifierDownload({
   const percent = Math.max(0, Math.min(100, Math.round(pull?.percent ?? 0)));
   const offline =
     typeof navigator !== "undefined" && navigator.onLine === false;
-  if (compact && message.tone === "ready") return null;
+  const recognitionLine = recognitionMessage(recognition);
+  if (compact && message.tone === "ready" && (!recognitionLine || recognitionLine.tone === "ready"))
+    return null;
   return (
     <div className="verifier-download">
       {error && <Notice error>{error}</Notice>}
-      <Notice error={message.tone === "action"}>{message.text}</Notice>
+      {!(compact && message.tone === "ready") && (
+        <Notice error={message.tone === "action"}>{message.text}</Notice>
+      )}
       {pulling && (
         <progress className="verifier-progress" max={100} value={percent} />
+      )}
+      {recognitionLine && !(compact && recognitionLine.tone === "ready") && (
+        <div className="recognition-download">
+          <Notice error={recognitionLine.tone === "action" && recognition?.state === "error"}>
+            {recognitionLine.text}
+          </Notice>
+          {recognition?.state === "downloading" && (
+            <progress
+              className="verifier-progress"
+              max={100}
+              value={Math.max(0, Math.min(100, Math.round(recognition.percent ?? 0)))}
+            />
+          )}
+          {!compact && recognitionLine.tone === "action" && (
+            <div className="actions">
+              <button className="button" disabled={busy} onClick={() => void retryRecognition()}>
+                {busy ? <Spinner /> : <Download size={16} />}
+                {recognition?.state === "error" ? "Retry" : "Install"} object-recognition model ({RECOGNITION_SIZE})
+              </button>
+            </div>
+          )}
+        </div>
       )}
       {offline && message.tone !== "ready" && (
         <Notice error>
@@ -165,7 +259,7 @@ export default function VerifierDownload({
         <div className="actions">
           <button className="button primary" disabled={busy} onClick={() => void download()}>
             {busy ? <Spinner /> : <Download size={16} />}
-            Download model ({MODEL_SIZE})
+            Download AI models ({MODEL_SIZE} + {RECOGNITION_SIZE})
           </button>
           <button className="button" disabled={busy} onClick={() => void poll()}>
             <RefreshCw size={16} />

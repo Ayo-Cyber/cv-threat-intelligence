@@ -203,6 +203,9 @@ engine_a = Analysis(
         # transformers alone doesn't guarantee its model modules travel;
         # name the VideoMAE ones the video-action loader actually touches.
         "transformers.models.videomae", "safetensors",
+        # SigLIP (object recognition): loaded by the smoke test and object watch.
+        "transformers.models.siglip", "cvti.object_watch", "cvti.object_watch.smoke",
+        "cvti.object_watch.embeddings", "cvti.object_watch.runtime_config",
     ],
     # polars rides in via an optional pandas/arrow path nothing here uses:
     # 156 MB of a customer's download for a dependency the product never calls.

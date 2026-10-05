@@ -3673,6 +3673,94 @@
         }
       }
     },
+    "/api/v1/engine/models/recognition/pull": {
+      "post": {
+        "summary": "Post /Engine/Models/Recognition/Pull (Pull Recognition Model)",
+        "operationId": "POST__engine_models_recognition_pull__pull_recognition_model__api_v1_engine_models_recognition_pull_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/engine/models/recognition": {
+      "get": {
+        "summary": "Get /Engine/Models/Recognition (Recognition Model Status)",
+        "operationId": "GET__engine_models_recognition__recognition_model_status__api_v1_engine_models_recognition_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/engine/feeds": {
       "get": {
         "summary": "Get /Engine/Feeds (Feed Sources)",

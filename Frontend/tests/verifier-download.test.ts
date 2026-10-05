@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_SIZE, verifierMessage } from "../src/components/VerifierDownload";
+import {
+  MODEL_SIZE,
+  RECOGNITION_SIZE,
+  recognitionMessage,
+  verifierMessage,
+} from "../src/components/VerifierDownload";
 
 describe("what the operator is told about the on-device AI", () => {
   it("says nothing before the status is known", () => {
@@ -69,5 +74,32 @@ describe("what the operator is told about the on-device AI", () => {
       { state: "pulling", percent: 10 },
     );
     expect(message?.tone).toBe("working");
+  });
+});
+
+describe("what the operator is told about the object-recognition model", () => {
+  it("says nothing before the status is known (older engines have no route)", () => {
+    expect(recognitionMessage(null)).toBeNull();
+  });
+  it("names the size when nothing is installed, and that recognition stays off", () => {
+    const m = recognitionMessage({ state: "idle" });
+    expect(m?.tone).toBe("action");
+    expect(m?.text).toContain(RECOGNITION_SIZE);
+    expect(m?.text).toMatch(/recognition stays off/);
+  });
+  it("shows download progress", () => {
+    expect(recognitionMessage({ state: "downloading", percent: 57.4 })?.text).toContain("57%");
+  });
+  it("explains the load check", () => {
+    expect(recognitionMessage({ state: "verifying" })?.text).toMatch(/embedding/);
+  });
+  it("a failure names the reason and says the rest of Argus still works", () => {
+    const m = recognitionMessage({ state: "error", detail: "checksum mismatch" });
+    expect(m?.tone).toBe("action");
+    expect(m?.text).toContain("checksum mismatch");
+    expect(m?.text).toMatch(/everything else works/);
+  });
+  it("confirms readiness", () => {
+    expect(recognitionMessage({ state: "ready", percent: 100 })?.tone).toBe("ready");
   });
 });

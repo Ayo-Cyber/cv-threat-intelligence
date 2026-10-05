@@ -2241,10 +2241,68 @@ class ConsoleBackend:
             _ollama.ensure_server()
         except Exception:  # noqa: BLE001
             log.warning("could not start the local VLM server", exc_info=True)
+        # One click, both models. The recognition install runs on its own
+        # thread and reports through recognition_model_status(); a failure
+        # there never blocks the verification model.
+        try:
+            self.pull_recognition_model()
+        except Exception:  # noqa: BLE001
+            log.warning("could not start the recognition model install", exc_info=True)
         return vlm.start_pull(model)
 
     def pull_progress(self, model: str = vlm.DEFAULT_MODEL) -> dict:
         return vlm.pull_progress(model)
+
+    # --- object-recognition model (SigLIP) -----------------------------------
+    # Download AI installs two components: Gemma through Ollama for alert
+    # verification, and SigLIP for matching camera crops against a customer's
+    # reference photos. Object watch loads SigLIP from a local directory with
+    # downloads disabled, so until this existed a fresh install had the
+    # recognition code and none of its files (Demi's handoff, 5 Oct 2026).
+    def pull_recognition_model(self) -> dict:
+        from cvti.object_watch import model_install
+        out = model_install.start_install()
+        self._adopt_recognition_model()
+        return out
+
+    def recognition_model_status(self) -> dict:
+        from cvti.object_watch import model_install
+        out = model_install.status()
+        if out.get("state") == "ready":
+            self._adopt_recognition_model()
+        out["object_watch"] = self._recognition_readiness()
+        return out
+
+    def _recognition_readiness(self) -> dict:
+        """Object watch's own view, so a SigLIP failure is reported as an
+        object-recognition dependency and nothing else."""
+        try:
+            from cvti.object_watch.runtime_config import preflight, resolve_config
+            readiness = preflight(resolve_config(self._object_library_root()))
+            return {"status": readiness.status, "reasons": list(readiness.reasons),
+                    "model_path": str(resolve_config(self._object_library_root()).model_path or "")}
+        except Exception as exc:  # noqa: BLE001 - a broken runtime.json is itself the status
+            return {"status": "unavailable", "reasons": [str(exc)[:160]], "model_path": ""}
+
+    def _adopt_recognition_model(self) -> None:
+        """Point this site's object watch at the installed model when it has no
+        usable model of its own. Never overrides a model directory that exists:
+        a site that placed its own checkpoint keeps it."""
+        from dataclasses import replace
+        from cvti.object_watch import model_install
+        from cvti.object_watch.runtime_config import preflight, resolve_config, write_config
+        installed = model_install.default_install_dir()
+        if not model_install.is_installed(installed):
+            return
+        try:
+            current = resolve_config(self._object_library_root())
+        except ValueError:
+            log.warning("object watch runtime.json is invalid; not adopting the installed model")
+            return
+        if current.model_path and current.model_path.is_dir() and preflight(current).structurally_available:
+            return
+        write_config(self._object_library_root(), replace(current, model_path=installed.resolve()))
+        log.info("object watch now uses the installed recognition model at %s", installed)
 
     # --- live wall (multi-camera video grid) ---
     def _close_preview(self):
