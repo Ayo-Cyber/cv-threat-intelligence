@@ -322,4 +322,21 @@ existed for these. See `tests/test_ui_feature_parity.py`.
 | `add_custom_threat` | `POST /cameras/{camera_id}/threats` | configure_cameras | shipped |
 | `remove_custom_threat` | `DELETE /cameras/{camera_id}/threats/{index}` | configure_cameras | shipped |
 | `update_site_context` | `PUT /site/context` | configure_site | shipped |
+# Registered Object Regions
+
+| Method | Endpoint | Backend operation | Permission |
+| --- | --- | --- | --- |
+| GET | `/cameras/{camera_id}/registered-objects` | `registered_objects` | view_live |
+| POST | `/cameras/{camera_id}/registered-objects` | `register_object_region` | configure_detectors |
+| POST | `/cameras/{camera_id}/registered-objects/{object_id}/recapture` | `recapture_registered_object` | configure_detectors |
+| DELETE | `/cameras/{camera_id}/registered-objects/{object_id}` | `remove_registered_object` | configure_detectors |
+
+Registration body: name (1-80 characters), region (pixel x1,y1,x2,y2),
+frame_hw ([height,width]), confirm_seconds (2-300, default 8). Maximum 16 per
+camera. Captures three stable unobstructed shared-inference frames during
+monitoring; no class detector is required for the registered object. Listing
+returns status, not internal reference paths. Recapture requires operator
+confirmation that the object is visible. Engine restart requires recapture;
+references are never silently reactivated. Change incidents are subject to
+the existing VLM verification; they do not establish removal or theft.
 

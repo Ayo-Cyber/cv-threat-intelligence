@@ -83,6 +83,16 @@ class PublisherTests(unittest.TestCase):
         self.assertNotEqual(self.pub.frame("a", tracking=True), self.pub.frame("a"))
         self.assertTrue(np.array_equal(self.frame, original))
 
+    def test_unassociated_person_box_renders_without_publishing_a_track_id(self):
+        overlay = frame_publisher.FrameOverlay(
+            -1, (10, 10, 100, 200), "PERSON", (200, 180, 100), "person_detection")
+        self.pub._viewer_started("a", tracking=True)
+        self.addCleanup(self.pub._viewer_stopped, "a", True)
+        self.assertEqual(self.pub._person_overlays([overlay]), [overlay])
+        self.pub.publish("a", self.frame, [overlay])
+        self.assertNotEqual(self.pub.frame("a", tracking=True), self.pub.frame("a"))
+        self.assertEqual(self.pub._tracks["a"], [])
+
     def test_raw_and_tracking_frames_are_built_from_the_same_source_on_demand(self):
         self.assertTrue(hasattr(frame_publisher, "FrameOverlay"))
         overlay = frame_publisher.FrameOverlay(

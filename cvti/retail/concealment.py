@@ -64,7 +64,7 @@ BAG_CLASSES = ("backpack", "handbag", "suitcase")
 COCO_BAG_IDS = frozenset({24, 26, 28})  # backpack, handbag, suitcase in COCO
 
 # ---- Tunables (all overridable via ConcealmentDetector.__init__) -------------
-WINDOW_SECONDS = 1.2      # how much recent history each decision looks at
+WINDOW_SECONDS = 2.4      # retain reach-to-destination context at sparse pose cadence
 WAIST_NEAR = 0.60         # normalised hand<->hip distance considered "at the waist"
 BAG_NEAR = 0.60           # normalised hand<->bag distance considered "reaching the bag"
 BAG_AT = 0.20             # normalised hand<->bag distance considered "in the bag"
@@ -111,6 +111,7 @@ class ConcealmentAssessment:
     components: dict[str, float] = field(default_factory=dict)
     limited: bool = False          # True when hips were never seen (occluded) -> degraded
     associated_bag: tuple[float, float, float, float] | None = None
+    subject_bbox: tuple[float, float, float, float] | None = None
 
 
 @dataclass
@@ -359,6 +360,9 @@ class ConcealmentDetector:
         self._last_seen: dict[int, float] = {}
         self._bag_owners: dict[int, _BagOwnership] = {}
         self._next_bag_id = 1
+        self._last_timestamp: float | None = None
+        self._above_since: dict[int, float] = {}
+        self._last_candidate: dict[int, float] = {}
 
     def _match_bag_owner(
         self,
@@ -433,6 +437,7 @@ class ConcealmentDetector:
         timestamp: float,
         bag_bboxes: list[tuple[float, float, float, float]] | None,
     ) -> list[ConcealmentAssessment]:
+        self.expire(timestamp)
         bags = bag_bboxes or []
         return self.update(
             pose_frames,
@@ -457,6 +462,8 @@ class ConcealmentDetector:
         results: list[ConcealmentAssessment] = []
 
         for frame in pose_frames:
+            if self._last_seen.get(frame.track_id) == timestamp:
+                continue  # Repeated frames cannot add persistence or dwell.
             self._last_seen[frame.track_id] = timestamp
             buf = self._buffers.setdefault(frame.track_id, deque())
             track_bags = _bags_for_track(
@@ -473,14 +480,23 @@ class ConcealmentDetector:
             score, reasons, components, limited, destination = self.score_window(window)
             bag_source = _bag_score_source(window)
 
-            if score >= self.score_threshold:
+            # A stationary hand at the waist/bag is not a reach-and-conceal motion.
+            if score >= self.score_threshold and components.get("f_retract", 0) >= 0.25:
                 self._over_threshold[frame.track_id] = self._over_threshold.get(frame.track_id, 0) + 1
+                self._above_since.setdefault(frame.track_id, timestamp)
             else:
                 self._over_threshold[frame.track_id] = 0
-            candidate = self._over_threshold[frame.track_id] >= self.min_candidate_frames
+                self._above_since.pop(frame.track_id, None)
+            duration = timestamp - self._above_since.get(frame.track_id, timestamp)
+            candidate = (self._over_threshold[frame.track_id] >= 2
+                         and duration + 1e-6 >= (self.min_candidate_frames - 1) / 10.0
+                         and timestamp - self._last_candidate.get(frame.track_id, float("-inf")) >= 4.0)
+            if candidate:
+                self._last_candidate[frame.track_id] = timestamp
 
             results.append(ConcealmentAssessment(
                 track_id=frame.track_id, score=score, candidate=candidate, destination=destination,
+                subject_bbox=frame.bbox,
                 reasons=reasons, components=components, limited=limited,
                 associated_bag=(
                     bag_source.associated_bag
@@ -492,6 +508,15 @@ class ConcealmentDetector:
         return results
 
     def expire(self, timestamp: float) -> None:
+        if self._last_timestamp is not None and timestamp < self._last_timestamp:
+            # A file loop/seek is a new sequence, not more evidence of the old act.
+            self._buffers.clear()
+            self._over_threshold.clear()
+            self._last_seen.clear()
+            self._above_since.clear()
+            self._last_candidate.clear()
+            self._bag_owners.clear()
+        self._last_timestamp = timestamp
         stale = [
             track_id
             for track_id, seen_at in self._last_seen.items()
@@ -501,6 +526,8 @@ class ConcealmentDetector:
             self._buffers.pop(track_id, None)
             self._over_threshold.pop(track_id, None)
             self._last_seen.pop(track_id, None)
+            self._above_since.pop(track_id, None)
+            self._last_candidate.pop(track_id, None)
 
     def score_window(
         self, window: list[_FrameFeatures]
@@ -546,7 +573,16 @@ class ConcealmentDetector:
             f_retract = _clamp01(retract / self.retract_scale) * ended_low
 
         # f_dwell: a hand lingered at a concealment destination (pocket/waistband/bag).
-        f_dwell = _clamp01(dwell_count / float(self.dwell_frames))
+        # Original dwell_frames was calibrated at 10Hz. Count observed time,
+        # not frames; do not bridge missing observations over half a second.
+        dwell_seconds = sum(
+            right.timestamp - left.timestamp
+            for left, right in zip(window, window[1:])
+            if 0 < right.timestamp - left.timestamp <= 0.55
+            and (left.hand_at_waist or left.hand_at_bag)
+            and (right.hand_at_waist or right.hand_at_bag)
+        )
+        f_dwell = _clamp01(dwell_seconds / max(self.dwell_frames / 10.0, 0.001))
 
         w_dest, w_retract, w_dwell = self.weights
         score = w_dest * f_dest + w_retract * f_retract + w_dwell * f_dwell
@@ -560,7 +596,7 @@ class ConcealmentDetector:
             reasons.append(f"arm reached out then retracted to body (f_retract={f_retract:.2f})")
         if f_dwell >= 0.5:
             dest_word = destination or "concealment point"
-            reasons.append(f"hand lingered at the {dest_word} ({dwell_count} frames)")
+            reasons.append(f"hand lingered at the {dest_word} ({dwell_seconds:.2f}s observed)")
 
         limited = not hips_ever and not hand_to_bag_vals
         if limited:

@@ -17,6 +17,32 @@ async function render(page: Page, options: Record<string, unknown>) {
   );
 }
 
+test("concealment warning is camera scoped, expires and works without tracking", async ({ page }) => {
+  await page.route("**/camera.mjpeg", (route) => route.fulfill({ contentType: "image/jpeg", body: jpeg }));
+  await openHarness(page);
+  await render(page, { state: "connected", descriptor: { kind: "mjpeg", url: "/camera.mjpeg" } });
+  await expect(page.locator(".media-label")).toHaveText("MJPEG FEED");
+  await page.clock.install();
+  const push = (camera: string, phase: string) => page.evaluate(({ camera, phase }) => {
+    const now = Date.now() / 1000;
+    (window as any).cameraHarness.push({ type: "health", data: { cameras: [{
+      camera_id: camera, concealment_notice: { id: "a", phase, created_at: now, expires_at: now + 8 },
+    }] } });
+  }, { camera, phase });
+  await push("Other camera", "verifying");
+  await expect(page.locator(".concealment-notice")).toHaveCount(0);
+  await push("Front Door", "verifying");
+  await expect(page.locator(".concealment-notice")).toContainText("Unverified gesture");
+  await page.clock.fastForward(8100);
+  await expect(page.locator(".concealment-notice")).toHaveCount(0);
+  await push("Front Door", "review");
+  await expect(page.locator(".concealment-notice")).toContainText("Earlier activity");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "test-results/concealment-notice-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({ path: "test-results/concealment-notice-desktop.png" });
+});
+
 test("actual MJPEG onLoad gates live status and health rerenders override it", async ({
   page,
 }) => {

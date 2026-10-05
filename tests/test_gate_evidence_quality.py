@@ -99,6 +99,7 @@ class ConcealmentCueFlowTest(unittest.TestCase):
             "reasons": assessment.reasons,
             "limited": False,
             "associated_bag": assessment.associated_bag,
+            "subject_bbox": None,
         })
 
         engine = CustomizationEngine()
@@ -150,7 +151,7 @@ class ConcealmentVerificationIntegrationTest(unittest.TestCase):
     def test_true_sight_receives_three_chronological_full_frames_then_subject_crop(self):
         from cvti.detector.core import PosePersonState
         from cvti.retail.concealment import ConcealmentAssessment
-        from cvti.serving.camera import PerCameraState
+        from cvti.serving.camera import PerCameraState, encode_clip_frame
 
         engine = CustomizationEngine()
         engine.rules = [{
@@ -165,6 +166,10 @@ class ConcealmentVerificationIntegrationTest(unittest.TestCase):
         state._frame_buffer.extend(
             np.full((480, 640, 3), value, dtype=np.uint8)
             for value in (10, 20, 30, 40)
+        )
+        state._clip_buffer.extend(
+            (i * .1, encode_clip_frame(np.full((480, 640, 3), value, dtype=np.uint8)))
+            for i, value in enumerate((10, 20, 30, 40))
         )
         moment = np.full((480, 640, 3), 50, dtype=np.uint8)
         detections = sv.Detections(
@@ -183,6 +188,7 @@ class ConcealmentVerificationIntegrationTest(unittest.TestCase):
         )
         assessment = ConcealmentAssessment(
             track_id=7, score=0.8, candidate=True, destination="waist",
+            subject_bbox=pose.bbox,
             reasons=["hand reached the waist line"],
             components={"f_waist": 0.9, "f_bag": 0.0,
                         "f_retract": 0.8, "f_dwell": 0.7},

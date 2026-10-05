@@ -40,6 +40,23 @@ MONITOR_LOG_CAP_BYTES = 5 * 1024 * 1024
 OBJECT_EXAMPLE_MAX_BYTES = 8 * 1024 * 1024
 
 
+def _desktop_inference_args(site: dict) -> list[str]:
+    """Allow a site to trade detector throughput for small-person coverage."""
+    settings = site.get("inference", {})
+    if not isinstance(settings, dict):
+        raise ValueError("inference must be an object")
+    size = settings.get("imgsz", 512)
+    fps = settings.get("target_fps", 4)
+    confidence = settings.get("confidence", 0.4)
+    if type(size) is not int or not 320 <= size <= 1280 or size % 32:
+        raise ValueError("inference.imgsz must be a multiple of 32 between 320 and 1280")
+    for name, value, low, high in (("target_fps", fps, 1, 30),
+                                   ("confidence", confidence, 0.1, 0.9)):
+        if type(value) not in (int, float) or not low <= value <= high:
+            raise ValueError(f"inference.{name} must be between {low} and {high}")
+    return ["--target-fps", str(fps), "--imgsz", str(size), "--conf", str(confidence)]
+
+
 def _rotate_monitor_log(path: Path, cap_bytes: int = MONITOR_LOG_CAP_BYTES) -> None:
     """Rotate monitor.log at spawn time when it has outgrown the cap.
 
@@ -1061,6 +1078,88 @@ class ConsoleBackend:
         return {"ok": True, "camera_id": camera_id, "object_id": object_id,
                 "zone_id": zone_id, "enabled": bool(enabled), "rules": rules}
 
+    def registered_objects(self, camera_id: str) -> list:
+        self._require(perms.VIEW_LIVE)
+        cam = self._cam(onboarding.list_cameras(self.site_path), camera_id)
+        if cam is None:
+            raise ValueError("camera not found")
+        result = []
+        for entry in cam.get("registered_objects", []):
+            state = "pending_monitoring"
+            reason = None
+            status_path = Path(entry["reference_path"]).with_suffix(".status.json")
+            if status_path.exists():
+                try:
+                    status = json.loads(status_path.read_text())
+                    state = status["state"]
+                    reason = status.get("reason")
+                except (OSError, ValueError, KeyError):
+                    state = "status_unavailable"
+            result.append({k: v for k, v in entry.items() if k not in {"reference_path", "source_fingerprint"}} | {"state": state, "reason": reason})
+        return result
+
+    def register_object_region(self, camera_id: str, name: str, region: list,
+                               frame_hw: list, confirm_seconds: float = 8) -> dict:
+        self._require(perms.CONFIGURE_DETECTORS)
+        import math
+        import uuid
+        from cvti.serving.registered_objects import source_key
+        cam = self._cam(onboarding.list_cameras(self.site_path), camera_id)
+        if cam is None:
+            raise ValueError("camera not found")
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
+            raise ValueError("object name must be 1-80 characters")
+        if (not isinstance(frame_hw, list) or len(frame_hw) != 2 or
+                any(type(v) is not int or not 1 <= v <= 16384 for v in frame_hw)):
+            raise ValueError("invalid frame dimensions")
+        if (not isinstance(region, list) or len(region) != 4 or
+                any(type(v) is not int for v in region)):
+            raise ValueError("region requires four integer coordinates")
+        x1, y1, x2, y2 = region
+        h, w = frame_hw
+        if not (0 <= x1 < x2 <= w and 0 <= y1 < y2 <= h and x2-x1 >= 12 and y2-y1 >= 12):
+            raise ValueError("region must be at least 12 pixels across and inside the frame")
+        if isinstance(confirm_seconds, bool) or not isinstance(confirm_seconds, (int, float)) or not math.isfinite(confirm_seconds) or not 2 <= confirm_seconds <= 300:
+            raise ValueError("confirmation time must be 2-300 seconds")
+        entries = cam.get("registered_objects", [])
+        if len(entries) >= 16:
+            raise ValueError("maximum 16 registered objects per camera")
+        key = uuid.uuid4().hex
+        root = Path(self.site_path).resolve().parent / "registered_objects"
+        entry = {"id": key, "name": name.strip(), "region": region,
+                 "frame_hw": frame_hw, "confirm_seconds": confirm_seconds,
+                 "source_fingerprint": source_key(cam["source"]),
+                 "reference_path": str(root / (key + ".npz"))}
+        cam["registered_objects"] = [*entries, entry]
+        onboarding.add_camera(self.site_path, cam)
+        self.audit.record(self._actor(), "config_change", f"camera:{camera_id}", {"registered_object": key})
+        return {"ok": True, "id": key}
+
+    def remove_registered_object(self, camera_id: str, object_id: str) -> dict:
+        self._require(perms.CONFIGURE_DETECTORS)
+        cam = self._cam(onboarding.list_cameras(self.site_path), camera_id)
+        if cam is None:
+            raise ValueError("camera not found")
+        cam["registered_objects"] = [e for e in cam.get("registered_objects", []) if e["id"] != object_id]
+        onboarding.add_camera(self.site_path, cam)
+        self.audit.record(self._actor(), "config_change", f"camera:{camera_id}", {"removed_registered_object": object_id})
+        return {"ok": True}
+
+    def recapture_registered_object(self, camera_id: str, object_id: str) -> dict:
+        self._require(perms.CONFIGURE_DETECTORS)
+        import uuid
+        from cvti.serving.registered_objects import source_key
+        cam = self._cam(onboarding.list_cameras(self.site_path), camera_id)
+        entry = next((e for e in (cam or {}).get("registered_objects", []) if e["id"] == object_id), None)
+        if entry is None:
+            raise ValueError("registered object not found")
+        if entry["source_fingerprint"] != source_key(cam["source"]):
+            raise ValueError("camera source changed; draw a new object region")
+        entry["reference_path"] = str(Path(self.site_path).resolve().parent / "registered_objects" / (uuid.uuid4().hex + ".npz"))
+        onboarding.add_camera(self.site_path, cam)
+        self.audit.record(self._actor(), "config_change", f"camera:{camera_id}", {"recapture_registered_object": object_id})
+        return {"ok": True}
+
     # --- zones (draw in-app -> geometry + a loitering rule the engine runs) ---
     def camera_snapshot(self, camera_id: str) -> dict:
         """A still from the camera to draw zones on — plus its ORIGINAL pixel
@@ -1075,7 +1174,7 @@ class ConsoleBackend:
             if not preview.acquire(camera_id):
                 return {"error": "preview is closing; retry shortly"}
             try:
-                for _ in range(30):
+                for _ in range(60):
                     snapshot = preview.snapshot(camera_id)
                     if snapshot and "uri" in snapshot:
                         return snapshot
@@ -2294,6 +2393,7 @@ class ConsoleBackend:
         self._engine_log_file = None
 
     def _spawn_engine(self) -> "subprocess.Popen":
+        inference_args = _desktop_inference_args(onboarding.load_site(self.site_path))
         self._close_preview()
         out_dir = Path(self.db_path).parent
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -2305,8 +2405,8 @@ class ConsoleBackend:
         self._close_engine_log()
         _rotate_monitor_log(out_dir / "monitor.log")
         log_file = self._engine_log_file = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
-        # Lean defaults keep the box cool: lower fps + image size cut compute a lot
-        # with negligible quality loss at demo scale.
+        # Lean defaults conserve compute; distant people can require a larger
+        # site-specific inference size at the cost of throughput.
         # The gate needs the local Ollama server; in the bundled app nobody has
         # run `ollama serve` in a terminal — that is the point — so bring up the
         # bundled runtime if nothing is answering. Best-effort: if it still is
@@ -2324,8 +2424,7 @@ class ConsoleBackend:
                "--security-dir", str(Path(self._home_db).parent),
                "--gate-provider", "ollama", "--gate-model", LOCAL_VLM_MODEL,
                "--notify", notify, "--output-dir", str(out_dir),
-               "--target-fps", "4", "--imgsz", "512",
-               "--seconds", "100000", "--gate-drain", "60"]
+               "--seconds", "100000", "--gate-drain", "60"] + inference_args
         if sys.platform == "darwin":
             # Apple silicon shares ONE pool of memory between CPU and GPU, and
             # Ollama runs the gate model on Metal. A torch-MPS detector in the

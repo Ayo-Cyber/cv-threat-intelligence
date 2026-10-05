@@ -268,7 +268,7 @@ class FramePublisher:
     def _person_overlays(overlays: Sequence[FrameOverlay | tuple]) -> list:
         return [overlay for overlay in overlays
                 if not isinstance(overlay, FrameOverlay)
-                or overlay.namespace == "person"]
+                or overlay.namespace in ("person", "person_detection")]
 
     @staticmethod
     def _object_overlays(overlays: Sequence[FrameOverlay | tuple]) -> list:
@@ -456,6 +456,10 @@ class FramePublisher:
                     self._tracking_person_frames.pop(camera_id, None)
                     self._tracking_seq.pop(camera_id, None)
             self._viewer_last[camera_id] = time.time()
+
+    def has_tracking_viewers(self, camera_id: str) -> bool:
+        with self._lock:
+            return self._tracking_viewers.get(camera_id, 0) > 0
 
     def has_viewers(self, camera_id: str) -> bool:
         """True while someone holds this camera's stream open (or did within

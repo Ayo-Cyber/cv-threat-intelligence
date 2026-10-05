@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "tests",
-  testMatch: "camera-stream.e2e.spec.ts",
+  testMatch: ["camera-stream.e2e.spec.ts", "registered-objects.e2e.spec.ts"],
   workers: 1,
   timeout: 30_000,
   use: { baseURL: "http://127.0.0.1:5173", channel: "chrome", headless: true },

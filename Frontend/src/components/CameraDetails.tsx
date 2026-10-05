@@ -19,6 +19,7 @@ import {
 import { Badge, CameraMedia, Notice, Spinner, Toggle } from "./common";
 import CameraStream from "./CameraStream";
 import ZoneEditor from "./ZoneEditor";
+import RegisteredObjects from "./RegisteredObjects";
 export default function CameraDetails({
   camera,
   api,
@@ -141,6 +142,7 @@ export default function CameraDetails({
           ["detectors", "Detectors"],
           ["rules", "English rules"],
           ["zones", "Zones"],
+          ["objects", "Registered objects"],
         ].map(([key, label]) => (
           <button
             key={key}
@@ -590,6 +592,7 @@ export default function CameraDetails({
                 }}
               />
             )}
+            {tab === "objects" && <RegisteredObjects camera={camera} api={api}/>}
           </>
         )}
       </fieldset>

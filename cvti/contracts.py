@@ -84,6 +84,8 @@ class VerificationResult:
     # points; an event that cannot say which wording judged it cannot be
     # compared honestly with one judged by another.
     prompt_version: str = ""
+    # A disputed visual assessment needs operator review, not a confirmed verdict.
+    review_required: bool = False
 
     @property
     def errored(self) -> bool:
@@ -98,4 +100,5 @@ class VerificationResult:
             "alert_priority": self.alert_priority,
             "timestamp": self.timestamp,
             "error": self.error,
+            "review_required": self.review_required,
         }

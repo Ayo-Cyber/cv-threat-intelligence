@@ -41,6 +41,7 @@ class PersonMotionTracker:
         min_track_seconds: float = 0.4,
         ema_alpha: float = 0.20,
         track_expiry_seconds: float = 1.0,
+        perspective_compensation: bool = False,
     ) -> None:
         values = {
             "enter_speed_ratio": enter_speed_ratio,
@@ -69,6 +70,7 @@ class PersonMotionTracker:
         self.min_track_seconds = min_track_seconds
         self.ema_alpha = ema_alpha
         self.track_expiry_seconds = track_expiry_seconds
+        self.perspective_compensation = perspective_compensation
         self._tracks: dict[int, _TrackState] = {}
 
     def update(
@@ -111,6 +113,12 @@ class PersonMotionTracker:
                 if elapsed > 0.0:
                     displacement = hypot(center[0] - state.center[0], center[1] - state.center[1])
                     measured_speed = displacement / elapsed / frame_diagonal
+                    if self.perspective_compensation:
+                        # A distant walker covers fewer pixels. Preserve the
+                        # existing near-person threshold, with bounded gain so
+                        # tiny detections cannot amplify noise without limit.
+                        height = max((bbox[3] - bbox[1] + state.bbox[3] - state.bbox[1]) / 2, 1.0)
+                        measured_speed *= max(1.0, min(6.0, frame_height * 0.25 / height))
                     state.speed_ratio = (
                         self.ema_alpha * measured_speed
                         + (1.0 - self.ema_alpha) * state.speed_ratio

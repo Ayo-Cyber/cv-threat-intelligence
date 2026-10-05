@@ -227,6 +227,8 @@ def _verdict_from_row(row: dict) -> str:
         return "confirmed"
     if review == "false":
         return "rejected"
+    if str(row.get("reason") or "").startswith("NEEDS REVIEW:"):
+        return "review_required"
     # An engine-confirmed alert with no operator label is still 'confirmed' by
     # TrueSight; unverified alerts are written with a marker in reason/priority.
     return "confirmed"

@@ -12,6 +12,26 @@ from cvti.detector.person_motion import (
 FRAME = (100, 100)
 
 
+def test_perspective_compensation_detects_distant_walking():
+    plain = PersonMotionTracker()
+    compensated = PersonMotionTracker(perspective_compensation=True)
+    for i in range(20):
+        x = 100 + i * 3
+        people = [(1, x, 20, x + 10, 40)]
+        old = plain.update(people, i * .25, (360, 640))[0]
+        new = compensated.update(people, i * .25, (360, 640))[0]
+    assert not old.moving
+    assert new.moving
+
+
+def test_perspective_compensation_does_not_turn_small_jitter_into_walking():
+    tracker = PersonMotionTracker(perspective_compensation=True)
+    for i in range(30):
+        x = 100 + (i % 2)
+        state = tracker.update([(1, x, 20, x + 10, 40)], i * .25, (360, 640))[0]
+        assert not state.moving
+
+
 def person(track_id: int, x: float) -> tuple[int, float, float, float, float]:
     return (track_id, x, 20.0, x + 20.0, 80.0)
 

@@ -195,6 +195,19 @@ class RealApiTests(unittest.TestCase):
         self.assertEqual(host._backend._preview._walls, {})
         host._backend.close()
 
+    def test_unowned_stale_engine_uses_preview_not_old_stream_address(self):
+        tmp = Path(self._tmp.name)
+        (tmp / "gate_health.json").write_text(json.dumps({"generated_at": 1}))
+        (tmp / "frames.json").write_text('{"port": 1, "token": "t"}')
+        from unittest.mock import patch
+        with patch("cvti.app.preview.FrameServer.start", return_value=12345):
+            response = self.client.get(
+                f"{PREFIX}/cameras/Dublin%20Street/stream", headers=self._auth())
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["preview"])
+        self.assertNotIn("127.0.0.1:1/", response.json()["url"])
+        self.app.state.backend_host._backend.close()
+
     def test_tracking_stream_forces_authenticated_local_mjpeg(self):
         tmp = Path(self._tmp.name)
         (tmp / "frames.json").write_text(json.dumps({

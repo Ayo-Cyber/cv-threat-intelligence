@@ -478,8 +478,8 @@ test("tracking overlay controls persist globally and keep camera overrides sessi
 }) => {
   await mountEngine(page, ["view_live"], false, false, 2, true);
 
-  const globalToggle = page.getByRole("button", { name: "Show tracking" });
-  const frontOverride = page.getByLabel("Tracking overlay for camera-001");
+  const globalToggle = page.getByRole("switch", { name: "Person boxes: all cameras" });
+  const frontOverride = page.getByLabel("Person boxes: camera-001");
   const clearStreamLedger = () =>
     page.evaluate(() => {
       (window as any).__argusTest.invocations = [];
@@ -490,8 +490,8 @@ test("tracking overlay controls persist globally and keep camera overrides sessi
         .filter((entry: { method: string }) => entry.method === "camera_stream")
         .map((entry: { args: unknown[] }) => entry.args),
     );
-  await expect(globalToggle).toHaveAttribute("aria-pressed", "false");
-  await expect(frontOverride).toHaveValue("global");
+  await expect(globalToggle).not.toBeChecked();
+  await expect(frontOverride).not.toBeChecked();
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -515,12 +515,12 @@ test("tracking overlay controls persist globally and keep camera overrides sessi
     .toEqual({ cameraIds: ["camera-001", "camera-002"], allHidden: true });
   await clearStreamLedger();
 
-  await frontOverride.selectOption("show");
+  await frontOverride.check();
   await expect.poll(streamLedger).toEqual([["camera-001", true]]);
 
   await clearStreamLedger();
   await globalToggle.click();
-  await expect(globalToggle).toHaveAttribute("aria-pressed", "true");
+  await expect(globalToggle).toBeChecked();
   await expect.poll(streamLedger).toEqual([["camera-002", true]]);
   await expect(
     page.locator(".metrics").getByText("Running", { exact: true }),
@@ -532,35 +532,31 @@ test("tracking overlay controls persist globally and keep camera overrides sessi
   ).toBe(false);
 
   await clearStreamLedger();
-  await frontOverride.selectOption("hide");
+  await frontOverride.uncheck();
   await expect.poll(streamLedger).toEqual([["camera-001", false]]);
 
   await clearStreamLedger();
-  await frontOverride.selectOption("global");
+  await frontOverride.check();
   await expect.poll(streamLedger).toEqual([["camera-001", true]]);
 
-  const secondOverride = page.getByLabel("Tracking overlay for camera-002");
+  const secondOverride = page.getByLabel("Person boxes: camera-002");
   await clearStreamLedger();
-  await secondOverride.selectOption("hide");
+  await secondOverride.uncheck();
   await expect.poll(streamLedger).toEqual([["camera-002", false]]);
 
   await page.getByRole("button", { name: "Open streams wall" }).click();
   const wall = page.getByRole("region", { name: "Streams-only camera wall" });
   await expect(
-    wall.getByRole("button", { name: "Show tracking" }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(wall.getByLabel("Tracking overlay for camera-002")).toHaveValue(
-    "hide",
-  );
+    wall.getByRole("switch", { name: "Person boxes: all cameras" }),
+  ).toBeChecked();
+  await expect(wall.getByLabel("Person boxes: camera-002")).not.toBeChecked();
 
   await page.reload();
   await page.getByRole("button", { name: "Local engine", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Show tracking" }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByLabel("Tracking overlay for camera-002")).toHaveValue(
-    "global",
-  );
+    page.getByRole("switch", { name: "Person boxes: all cameras" }),
+  ).toBeChecked();
+  await expect(page.getByLabel("Person boxes: camera-002")).toBeChecked();
   await expect
     .poll(() =>
       page.evaluate(
@@ -582,11 +578,11 @@ test("an operator transport switch never reuses the previous operator tracking p
   });
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "Show tracking" }),
-  ).toHaveAttribute("aria-pressed", "true");
+    page.getByRole("switch", { name: "Person boxes: all cameras" }),
+  ).toBeChecked();
   await page
-    .getByLabel("Tracking overlay for Loading Bay")
-    .selectOption("show");
+    .getByLabel("Person boxes: Loading Bay")
+    .check();
 
   await page.evaluate(() => {
     const camera = {
@@ -671,8 +667,8 @@ test("an operator transport switch never reuses the previous operator tracking p
     )
     .toBeGreaterThan(0);
   await expect(
-    page.getByRole("button", { name: "Show tracking" }),
-  ).toHaveAttribute("aria-pressed", "false");
+    page.getByRole("switch", { name: "Person boxes: all cameras" }),
+  ).not.toBeChecked();
   expect(
     await page.evaluate(() =>
       (window as any).__argusTest.invocations

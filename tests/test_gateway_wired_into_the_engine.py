@@ -219,6 +219,11 @@ class StreamDescriptorTests(unittest.TestCase):
     def _client(self, tmp):
         from fastapi.testclient import TestClient
         from cvti.api.app import create_app
+        # These cases exercise active-engine descriptors, not stale files left
+        # behind after shutdown (which must use the independent preview).
+        (Path(tmp) / "gate_health.json").write_text(json.dumps({
+            "generated_at": time.time(), "engine": {"phase": "running"}
+        }))
         app = create_app(db_path=str(Path(tmp) / "events.db"),
                          site_path="configs/site_live.json")
         token, _ = app.state.tokens.mint("t", "owner")

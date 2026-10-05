@@ -592,6 +592,45 @@ main {
   gap: 3px;
   flex: 0 0 auto;
 }
+label.person-boxes-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.person-boxes-control input {
+  appearance: none;
+  width: 30px;
+  height: 18px;
+  min-width: 30px;
+  border-radius: 12px;
+  border: 1px solid var(--muted);
+  background: var(--muted);
+  padding: 2px;
+  margin: 0;
+  cursor: pointer;
+}
+.person-boxes-control input::before {
+  content: "";
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: white;
+}
+.person-boxes-control input:checked { background: var(--accent); border-color: var(--accent); }
+.person-boxes-control input:checked::before { transform: translateX(12px); }
+.person-boxes-control input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.camera-caption, .streams-caption { flex-wrap: wrap; gap: 8px; }
+@media (max-width: 1000px) {
+  .camera-grid { grid-template-columns: minmax(0, 1fr); }
+  .section-tools { flex-wrap: wrap; min-width: 0; }
+  .section-tools .wall-search { min-width: 0; width: 100%; }
+}
 .tracking-toggle[aria-pressed="true"],
 .tracking-menu[data-preference="show"] {
   background: var(--accent-soft);
@@ -2976,3 +3015,38 @@ fieldset:disabled {
 .zone-properties .button + .button {
   margin-top: 8px;
 }
+.concealment-notice {
+  position: absolute;
+  z-index: 3;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff4da;
+  color: #684600;
+  border: 1px solid #c18c2c;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.concealment-notice.review { background: #fff0ec; color: #8e3020; border-color: #bd6353; }
+.concealment-notice svg { flex-shrink: 0; }
+.concealment-notice strong, .concealment-notice span { display: block; overflow-wrap: anywhere; }
+.concealment-notice strong { font-size: 14px; line-height: 1.3; }
+.concealment-notice span { font-size: 12px; margin-top: 3px; }
+.registered-objects-editor { min-height: 0; overflow-y: auto; flex: 1; padding-bottom: 24px; }
+.registered-region {
+  user-select: none;
+  position: relative;
+  width: 100%;
+  margin: 12px auto;
+  touch-action: none;
+  cursor: crosshair;
+  overflow: hidden;
+}
+.registered-region img { display: block; width: 100%; height: 100%; pointer-events: none; }
+.registered-region .camera-media { width: 100%; height: 100%; aspect-ratio: auto; pointer-events: none; }
+.registered-region .camera-media video, .registered-region .camera-media > img { object-fit: contain; }
+.registered-region-box { position: absolute; border: 2px solid #d68c16; background: #d68c1622; pointer-events: none; }

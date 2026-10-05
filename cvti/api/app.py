@@ -301,7 +301,10 @@ def create_app(*, db_path: str = "runs/site/events.db",
                 return _error(503, "preview_unavailable", result["error"])
             return result
 
-        if _engine_alive() is False:
+        engine_alive = _engine_alive()
+        if engine_alive is False or (
+            engine_alive is None and not sources.monitor_state(_db())["running"]
+        ):
             # A publisher file can outlive the engine that wrote it, and every
             # run listens on a fresh port: a stale URL is a tile stuck on
             # "fallback stream could not be loaded". A 503 is retryable.

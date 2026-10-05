@@ -53,6 +53,16 @@ def _assert_one_owner(assessments) -> None:
     assert by_track[2].components["f_bag"] == 0.0
 
 
+def test_concealment_preserves_pose_subject_box_in_event() -> None:
+    from cvti.event_adapters import concealment_to_events
+
+    frame = _pose_frame(7, 90.0, 150.0)
+    assessment = ConcealmentDetector().update([frame], 0.0)[0]
+    assert assessment.subject_bbox == frame.bbox
+    event = concealment_to_events([assessment])[0]
+    assert event.extra["subject_bbox"] == frame.bbox
+
+
 def test_retail_pipeline_scores_each_bag_for_only_one_track() -> None:
     from cvti.pipelines import retail_pipeline
 

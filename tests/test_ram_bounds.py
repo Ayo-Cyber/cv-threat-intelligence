@@ -59,8 +59,10 @@ class AlertQueueBoundsTest(unittest.TestCase):
 
     def test_dedup_signatures_are_pruned_past_cooldown(self):
         from cvti.serving.alert_queue import AlertQueue
-        q = AlertQueue(cooldown_seconds=60)
+        now = [0.0]
+        q = AlertQueue(cooldown_seconds=60, clock=lambda: now[0])
         for tid in range(5000):
+            now[0] = float(tid * 61)
             q.add(self._alert(tid, ts=float(tid * 61)))
             q.drain(4)                                # keep pending small
         self.assertLess(len(q._last_seen), 4 * q.max_pending + 100,
