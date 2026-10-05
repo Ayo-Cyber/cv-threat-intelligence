@@ -30,8 +30,10 @@ class AlertQueueTests(unittest.TestCase):
         self.assertEqual(q.pending_count, 1)
 
     def test_refires_after_cooldown(self):
-        q = AlertQueue(cooldown_seconds=8.0)
+        now = [0.0]
+        q = AlertQueue(cooldown_seconds=8.0, clock=lambda: now[0])
         q.add(_alert(ts=0.0))
+        now[0] = 9.0
         self.assertTrue(q.add(_alert(ts=9.0)))         # cooldown elapsed
         self.assertEqual(q.pending_count, 2)
 
@@ -278,6 +280,33 @@ class MovementPipelineTests(unittest.TestCase):
         state.process(self._detections((60.0, 70.0)), frame, 0.5)
 
         self.assertEqual([item["track_id"] for item in state._motion_overlays], [1, 2])
+
+    def test_new_tracks_visible_without_claiming_movement(self):
+        state = self._state(None)
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        alerts = state.process(self._detections((0.0, 10.0)), frame, 0.0)
+        self.assertEqual([item["label"] for item in state._motion_overlays],
+                         ["#1 TRACKED", "#2 TRACKED"])
+        self.assertEqual(alerts, [])
+        state.process(self._detections(()), frame, 0.25)
+        self.assertEqual(state._motion_overlays, [])
+
+    def test_unassociated_detection_visible_but_not_counted_as_moving(self):
+        state = self._state(None)
+        state._tracker.update_with_detections = lambda detections: self._detections(())
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        alerts = state.process(self._detections((0.0, 40.0)), frame, 0.0)
+        self.assertEqual([o["label"] for o in state._motion_overlays], ["PERSON", "PERSON"])
+        self.assertEqual(state._box_by_track, {})
+        self.assertEqual(alerts, [])
+        state.process(self._detections(()), frame, 0.5)
+        self.assertEqual(state._motion_overlays, [])
+
+    def test_unassociated_detection_cannot_bypass_permitted_zones(self):
+        state = self._state(("gate",))
+        state._tracker.update_with_detections = lambda detections: self._detections(())
+        state.process(self._detections((0.0,)), np.zeros((100, 100, 3), dtype=np.uint8), 0.0)
+        self.assertEqual(state._motion_overlays, [])
 
     def test_two_spread_out_movers_emit_one_latched_group_candidate(self):
         from cvti.rules.customization import CustomizationEngine

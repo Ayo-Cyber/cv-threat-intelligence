@@ -60,7 +60,8 @@ function normalizeStreamDescriptor(value: any) {
   if (!value || typeof value !== "object")
     throw new Error("unsafe stream descriptor shape");
   if (value.kind === "mjpeg")
-    return { kind: "mjpeg", url: loopbackUrl(value.url, ["http:"]) };
+    return { kind: "mjpeg", url: loopbackUrl(value.url, ["http:"]),
+      ...(value.preview === true ? { preview: true } : {}) };
   if (value.kind !== "webrtc") throw new Error("unsafe stream descriptor kind");
   const normalized: {
     kind: "webrtc";
@@ -256,6 +257,17 @@ const operations: Record<string, Operation> = {
     body: ([, , dwell_seconds]) => ({ dwell_seconds }),
   },
   camera_snapshot: { method: "GET", path: item("/cameras", "/snapshot") },
+  registered_objects: { method: "GET", path: item("/cameras", "/registered-objects") },
+  recapture_registered_object: {
+    method: "POST", path: ([camera, object]) => `/cameras/${encodeURIComponent(String(camera))}/registered-objects/${encodeURIComponent(String(object))}/recapture`,
+  },
+  register_object_region: {
+    method: "POST", path: item("/cameras", "/registered-objects"),
+    body: ([, name, region, frame_hw, confirm_seconds]) => ({ name, region, frame_hw, confirm_seconds }),
+  },
+  remove_registered_object: {
+    method: "DELETE", path: ([camera, object]) => `/cameras/${encodeURIComponent(String(camera))}/registered-objects/${encodeURIComponent(String(object))}`,
+  },
   camera_stream: {
     method: "GET",
     path: item("/cameras", "/stream"),

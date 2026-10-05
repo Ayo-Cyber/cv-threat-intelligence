@@ -1,6 +1,8 @@
 import { createRoot } from "react-dom/client";
+import "../../src/styles.css";
 import CameraStream from "../../src/components/CameraStream";
-import type { StreamDescriptor, Transport } from "../../src/lib/types";
+import type { PushEvent, StreamDescriptor, Transport } from "../../src/lib/types";
+const listeners = new Set<(event: PushEvent) => void>();
 
 let descriptor: StreamDescriptor;
 let failOffer = false;
@@ -26,6 +28,10 @@ class FakePeer {
 
 window.RTCPeerConnection = FakePeer as any;
 const transport: Transport = {
+  subscribe(listener) {
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+  },
   async invoke<T>() {
     return descriptor as T;
   },
@@ -33,6 +39,7 @@ const transport: Transport = {
 const root = createRoot(document.getElementById("root")!);
 
 (window as any).cameraHarness = {
+  push(event: PushEvent) { listeners.forEach((listener) => listener(event)); },
   render(options: {
     state: string;
     descriptor: StreamDescriptor;

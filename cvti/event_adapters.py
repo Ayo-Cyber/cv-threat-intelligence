@@ -165,6 +165,7 @@ def concealment_to_events(assessments: list[Any], timestamp: float = 0.0) -> lis
                     "reasons": deepcopy(getattr(assessment, "reasons", []) or []),
                     "limited": bool(getattr(assessment, "limited", False)),
                     "associated_bag": getattr(assessment, "associated_bag", None),
+                    "subject_bbox": getattr(assessment, "subject_bbox", None),
                 },
             )
         )

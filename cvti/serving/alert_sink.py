@@ -1117,6 +1117,8 @@ class AlertSink:
         )
         if result is None or getattr(result, "errored", False):
             verdict = "unverified"
+        elif getattr(result, "review_required", False):
+            verdict = "review_required"
         elif result.confirmed:
             verdict = "confirmed"
         else:
@@ -1224,6 +1226,8 @@ class AlertSink:
         # REJECTED would claim a judgement nobody made.
         if getattr(result, "errored", False):
             tag, level = "UNVERIFIED", log.warning
+        elif getattr(result, "review_required", False):
+            tag, level = "NEEDS REVIEW", log.info
         elif result.confirmed:
             tag, level = "CONFIRMED", log.info
         else:
@@ -1234,7 +1238,7 @@ class AlertSink:
         if getattr(result, "errored", False) and result.error:
             log.warning("[gate unavailable] %s :: %s — %s",
                         alert.camera_id, alert.rule_name, result.error)
-        if not result.confirmed:
+        if not result.confirmed and not getattr(result, "review_required", False):
             return None
         try:
             event_id = self._persist(alert, result)
@@ -1416,7 +1420,8 @@ class AlertSink:
             "object_label": alert.object_label, "evidence_dir": str(ev_dir.resolve()),
             "latency_s": latency_s,
             "bbox": ",".join(str(int(v)) for v in payload["bbox"]) if payload.get("bbox") else None,
-            "unverified": 1 if getattr(result, "errored", False) else 0,
+            "unverified": 1 if (getattr(result, "errored", False)
+                                 or getattr(result, "review_required", False)) else 0,
             "gate_error": getattr(result, "error", "") or None,
             # The capture rate of the evidence frames. Without it the viewer
             # guessed — a hard-coded 140ms/frame that replayed 4fps loitering
@@ -1447,6 +1452,9 @@ class AlertSink:
             self._db.commit()
         self.persisted += 1
         event["id"] = event_id
+        if getattr(result, "review_required", False):
+            # Disputed evidence stays in the local review inbox, not paging or escalation.
+            return event_id
         if self.mobile_base:
             event["link"] = f"{self.mobile_base}/alert/{event_id}"
         # Feedback loop: chronically-wrong (camera, rule) pairs are stored but not paged.

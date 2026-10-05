@@ -257,6 +257,11 @@ class PerCameraState:
     # pilot's night camera ('anytime the software starts i get this alert of
     # fire', 30 Aug). Situational detectors sit out the settle window.
     settle_seconds: float = 8.0
+    object_state_zones: list = field(default_factory=list)
+    registered_objects: list = field(default_factory=list)
+    registered_source: str = ""
+    _registered_monitor: Any = field(default=None, init=False, repr=False)
+    _object_state_monitor: Any = field(default=None, init=False, repr=False)
     _running_det: Any = field(default=None, init=False, repr=False)
     _crowd_det: Any = field(default=None, init=False, repr=False)
     _motion_tracker: Any = field(default=None, init=False, repr=False)
@@ -330,6 +335,7 @@ class PerCameraState:
                 SimultaneousMovementDetector,
             )
             self._motion_tracker = PersonMotionTracker(
+                perspective_compensation=True,
                 enter_speed_ratio=self.movement_enter_speed_ratio,
                 exit_speed_ratio=self.movement_exit_speed_ratio,
                 min_track_seconds=self.movement_min_track_seconds,
@@ -363,6 +369,10 @@ class PerCameraState:
         )
 
     def update_general_object_tracks(self, detections: Any, timestamp: float) -> None:
+        if detections is None and self._registered_monitor is not None:
+            self._registered_monitor.invalidate("person_detection_unavailable")
+        if detections is None and self._object_state_monitor is not None:
+            self._object_state_monitor.reset()
         if self._general_object_tracker is not None:
             self._general_object_tracker.update(detections, timestamp)
 
@@ -595,6 +605,10 @@ class PerCameraState:
         self._object_watch_runtime = runtime
 
     def reset_object_watch(self, source_generation: int) -> None:
+        if self._registered_monitor is not None:
+            self._registered_monitor.invalidate()
+        if self._object_state_monitor is not None:
+            self._object_state_monitor.reset()
         self._object_watch_generation = int(source_generation)
         self._object_watch_sequence = 0
         self._next_object_watch_sample_ts = -1.0
@@ -685,6 +699,13 @@ class PerCameraState:
 
         bag_boxes = personal_bag_boxes(detections) if self._conceal is not None else []
         frame_hw = image.shape[:2]
+        if self._clip_buffer and timestamp < self._clip_buffer[-1][0]:
+            self._frame_buffer.clear()
+            self._clip_buffer.clear()
+            self._prev_pose.clear()
+            self._pose_history.clear()
+            if self._conceal is not None:
+                self._conceal.expire(timestamp)
         self._frame_buffer.append(image)
         # Continuous replay buffer: a rolling JPEG window with timestamps so a
         # confirmed alert replays as real video of the lead-up.
@@ -695,6 +716,35 @@ class PerCameraState:
         # Camera tamper/block runs on the raw frame — independent of any person,
         # since a covered camera shows nothing. Cheap CV, every frame.
         raw_events: list = []
+        object_state_evidence = {}
+        registered_candidates = []
+        if self.registered_objects:
+            from cvti.serving.registered_objects import RegisteredObjects
+            if self._registered_monitor is None:
+                self._registered_monitor = RegisteredObjects(self.camera_id, self.registered_source, self.registered_objects)
+            try:
+                for candidate, panel in self._registered_monitor.update(image, object_detections, timestamp):
+                    registered_candidates.append(candidate)
+                    object_state_evidence[(candidate.metadata["zone"], candidate.metadata["state"])] = panel
+            except Exception as exc:
+                self._registered_monitor.invalidate("monitor_error")
+                self._health.failed(exc, log, "registered object monitoring")
+        if self.object_state_zones:
+            from cvti.detector.object_state import ObjectZoneMonitor
+            if self._object_state_monitor is None:
+                self._object_state_monitor = ObjectZoneMonitor(self.object_state_zones)
+            try:
+                state_events = self._object_state_monitor.update(
+                    image, object_detections, timestamp,
+                    self._object_watch_zone_snapshot(frame_hw),
+                )
+            except Exception as exc:  # a failed optional detector must not stop camera processing
+                self._object_state_monitor.reset()
+                self._health.failed(exc, log, "processing object state")
+                state_events = []
+            for event, panel in state_events:
+                raw_events.append(event)
+                object_state_evidence[(event.extra["zone"], event.state)] = panel
         if self.tamper:
             if self._tamper_det is None:
                 from cvti.detector.tamper import TamperDetector
@@ -846,16 +896,30 @@ class PerCameraState:
                 {
                     "track_id": motion.track_id,
                     "bbox": tuple(int(v) for v in motion.bbox),
-                    "label": f"#{motion.track_id} MOVING",
+                    "label": f"#{motion.track_id} {'MOVING' if motion.moving else 'TRACKED'}",
                     "zone_names": list(motion.zone_names),
                     "speed_ratio": motion.speed_ratio,
                     "colour": ((0, 200, 255) if motion.track_id in active_track_ids
-                               else (0, 200, 0)),
+                               else (0, 200, 0) if motion.moving else (200, 180, 100)),
                 }
                 for motion in permitted_motions
-                if motion.observed and motion.moving
-                and (self.normal_movement or motion.track_id in active_track_ids)
+                if motion.observed
+                and (self.normal_movement or (motion.moving and motion.track_id in active_track_ids))
             ]
+            # Tracking association can take several samples or fail at low FPS.
+            # Show current detections without inventing identities or motion.
+            # Explicit permitted-zone views still require tracked zone membership.
+            if self.normal_movement and self.permitted_movement_zones is None:
+                tracked_boxes = list(self._box_by_track.values())
+                for index, (box, class_id) in enumerate(zip(
+                        detections.xyxy, detections.class_id if detections.class_id is not None else [])):
+                    if class_id != 0 or any(_box_iou(box, other) >= 0.5 for other in tracked_boxes):
+                        continue
+                    self._motion_overlays.append({
+                        "track_id": -(index + 1), "namespace": "person_detection",
+                        "bbox": tuple(int(v) for v in box), "label": "PERSON",
+                        "colour": (200, 180, 100), "zone_names": [], "speed_ratio": 0.0,
+                    })
 
         try:
             if self._conceal is not None:
@@ -979,7 +1043,7 @@ class PerCameraState:
             except Exception as exc:  # noqa: BLE001 - object watch is optional
                 self._health.failed(exc, log, "processing object watch")
 
-        if not raw_events:
+        if not raw_events and not registered_candidates:
             return []
 
         alerts = self.engine.evaluate(
@@ -1005,6 +1069,7 @@ class PerCameraState:
             decision.get("decision") == "context_incompatible"
             for decision in self.context_decisions
         )
+        alerts.extend(registered_candidates)
         if not alerts:
             return []
         from cvti.verification.frame_select import select_evidence_frames
@@ -1026,14 +1091,24 @@ class PerCameraState:
                 continue
             token = None
             watch_result = None
-            # Zone is only meaningful for presence (zone) alerts; for other
-            # detectors leave it None so the dedup key isn't polluted.
+            # Preserve zones for spatial rules so separate positions deduplicate independently.
             zone = (
                 a.metadata.get("zone")
-                if a.detector == "object_watch"
+                if a.detector in {"object_watch", "object_state"}
                 else zone_by_pid.get(a.person_id) if a.detector == "presence" else None
             )
             frames, _ = select_evidence_frames(recent, a.rule_name)
+            if a.detector == "concealment":
+                # Preserve a time-based lead-up, regardless of sampled FPS.
+                import cv2
+                import numpy as np
+                history = [(ts, jpeg) for ts, jpeg in clip_snap
+                           if timestamp - 4.0 <= ts <= timestamp]
+                if history:
+                    indices = sorted({0, len(history) // 2, len(history) - 1})
+                    decoded = [cv2.imdecode(np.frombuffer(history[i][1], dtype=np.uint8),
+                                            cv2.IMREAD_COLOR) for i in indices]
+                    frames = [f for f in decoded if f is not None] or frames
             # Whole-frame detectors (video-action, fire) carry no person_id, so an
             # alert would arrive with nothing to point at. If exactly one person is
             # tracked, that's who it's about; with several, box the most prominent
@@ -1044,11 +1119,14 @@ class PerCameraState:
             boxes = getattr(self, "_box_by_track", {}) or {}
             bbox = (a.metadata.get("group_bbox")
                     if a.detector == "multiple_people_moving" else None)
-            if bbox is None and a.detector == "object_watch":
+            # Pose IDs and ByteTrack IDs are independent, even when numbers match.
+            if a.detector == "concealment":
+                bbox = a.metadata.get("subject_bbox")
+            if bbox is None and a.detector in {"object_watch", "object_state"}:
                 bbox = a.metadata.get("bbox")
-            if bbox is None and a.detector != "object_watch":
+            if bbox is None and a.detector not in {"object_watch", "object_state", "concealment"}:
                 bbox = boxes.get(a.person_id)
-            if bbox is None and boxes and a.detector != "object_watch":
+            if bbox is None and boxes and a.detector not in {"object_watch", "object_state", "concealment"}:
                 bbox = max(boxes.values(),
                            key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
             # Evidence upgrade: full frames give the gate context; a zoomed
@@ -1066,6 +1144,11 @@ class PerCameraState:
                 evidence = list(getattr(watch_result, "evidence", ()) or ())
                 if token is None or not evidence:
                     continue
+            elif a.detector == "object_state":
+                panel = object_state_evidence.get((a.metadata.get("zone"), a.metadata.get("state")))
+                if panel is None:
+                    continue
+                evidence = [panel]
             elif a.detector == "multiple_people_moving":
                 evidence = frames or [image]
             else:
@@ -1119,6 +1202,9 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
     out: dict[str, dict] = {}
     for cam in site_config["cameras"]:
         cam_id = cam["id"]
+        from cvti.detector.object_state import ObjectZoneMonitor
+        object_state_zones = cam.get("object_state_zones", [])
+        ObjectZoneMonitor(object_state_zones)  # validate policies at startup
         detector_flags = (
             "concealment", "violence", "weapons", "theft", "tamper", "fall",
             "fire_smoke", "running", "crowd_formation", "normal_movement",
@@ -1236,6 +1322,10 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
                     )
             zone_monitor = RetailZoneMonitor(zone_specs)
         vehicle_zone_monitor = None
+        if object_state_zones:
+            names = {str(z.name) for z in zone_monitor.zones} if zone_monitor is not None else set()
+            if any(policy["zone"] not in names for policy in object_state_zones):
+                raise ValueError(f"camera {cam_id}: object-state policy refers to a missing zone")
         if cam.get("vehicle_zones"):
             vehicle_zone_monitor = RetailZoneMonitor(load_zone_config(cam["vehicle_zones"]))
         vehicle_line = cam.get("vehicle_line")   # directional entry/exit tripwire
@@ -1267,6 +1357,9 @@ def build_camera_states(site_config: dict, *, pose_model: Any = None, weapon_mod
             "source": cam["source"],
             "state": PerCameraState(
                 cam_id, engine, zone_monitor=zone_monitor,
+                object_state_zones=object_state_zones,
+                registered_objects=cam.get("registered_objects", []),
+                registered_source=str(cam["source"]),
                 vehicle_zone_monitor=vehicle_zone_monitor, vehicle_line=vehicle_line,
                 scene_context=scene,
                 monitoring_scope=(monitoring_scopes or {}).get(cam_id, "full"),
@@ -1334,7 +1427,29 @@ def refresh_camera_rules(state: "PerCameraState", cam: dict,
     the old engine or the new one, never a half-built one.
     """
     from cvti.retail.zones import RetailZoneMonitor, load_zone_config
+    from cvti.detector.object_state import ObjectZoneMonitor
+    policies = cam.get("object_state_zones", [])
+    monitor = ObjectZoneMonitor(policies)
     state.engine = CustomizationEngine(rules_config_for(cam), baseline_path=baseline_config)
+    state.object_state_zones = policies
+    if state.registered_objects != cam.get("registered_objects", []) or state.registered_source != str(cam["source"]):
+        from cvti.serving.registered_objects import RegisteredObjects
+        previous = state._registered_monitor
+        state.registered_objects = cam.get("registered_objects", [])
+        state.registered_source = str(cam["source"])
+        updated = RegisteredObjects(state.camera_id, state.registered_source, state.registered_objects)
+        if previous is not None and previous.source == updated.source:
+            for entry in updated.entries:
+                if entry in previous.entries:
+                    key = entry["id"]
+                    if key in previous.monitors:
+                        updated.monitors[key] = previous.monitors[key]
+                    if key in previous.samples:
+                        updated.samples[key] = previous.samples[key]
+                    if key in previous.last_sample:
+                        updated.last_sample[key] = previous.last_sample[key]
+        state._registered_monitor = updated
+    state._object_state_monitor = monitor
     state._object_watch_rule_path = rules_config_for(cam)
     if cam.get("zones"):
         state.zone_monitor = RetailZoneMonitor(load_zone_config(cam["zones"]))

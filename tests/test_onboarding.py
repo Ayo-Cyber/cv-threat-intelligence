@@ -54,6 +54,58 @@ class OnboardingTests(unittest.TestCase):
                 "area_id": "warehouse",
             })
 
+    def test_add_camera_to_derived_area_from_hierarchy(self):
+        onboarding.add_camera(self.site, {"id": "kpi9_webcam", "source": "0"})
+        area = onboarding.normalized_hierarchy(self.site)["branches"][0]["areas"][0]
+        self.assertEqual(area["id"], "camera--kpi9_webcam")
+        self.assertTrue(area["implicit"])
+        onboarding.add_camera(self.site, {
+            "id": "Test kpi9", "source": "0", "area_id": area["id"],
+        })
+        saved = onboarding.load_site(self.site)
+        self.assertEqual(saved["areas"], [{
+            "id": area["id"], "name": "kpi9_webcam",
+            "branch_id": onboarding.DEFAULT_BRANCH_ID,
+        }])
+        group = onboarding.normalized_hierarchy(self.site)["branches"][0]["areas"][0]
+        self.assertEqual({c["id"] for c in group["cameras"]}, {"kpi9_webcam", "Test kpi9"})
+        onboarding.add_camera(self.site, saved["cameras"][-1])
+        self.assertEqual(len(onboarding.load_site(self.site)["areas"]), 1)
+
+    def test_assign_existing_camera_to_derived_area(self):
+        onboarding.add_camera(self.site, {"id": "one", "source": "0"})
+        onboarding.add_camera(self.site, {"id": "two", "source": "1"})
+        camera = onboarding.assign_camera_area(self.site, "two", "camera--one")
+        self.assertEqual(camera["area_id"], "camera--one")
+
+    def test_deleted_derived_area_is_rejected_without_writing(self):
+        onboarding.add_camera(self.site, {"id": "one", "source": "0"})
+        onboarding.remove_camera(self.site, "one")
+        before = Path(self.site).read_bytes()
+        with self.assertRaisesRegex(ValueError, "unknown area"):
+            onboarding.add_camera(self.site, {
+                "id": "two", "source": "1", "area_id": "camera--one",
+            })
+        self.assertEqual(Path(self.site).read_bytes(), before)
+
+    def test_dangling_explicit_area_is_not_materialized(self):
+        Path(self.site).write_text(json.dumps({"cameras": [{
+            "id": "one", "source": "0", "area_id": "missing",
+        }]}))
+        with self.assertRaisesRegex(ValueError, "unknown area"):
+            onboarding.add_camera(self.site, {
+                "id": "two", "source": "1", "area_id": "missing",
+            })
+
+    def test_derived_area_stays_unassigned_in_explicit_hierarchy(self):
+        Path(self.site).write_text(json.dumps({"branches": [], "cameras": [
+            {"id": "one", "source": "0"},
+        ]}))
+        onboarding.add_camera(self.site, {
+            "id": "two", "source": "1", "area_id": "camera--one",
+        })
+        self.assertNotIn("branch_id", onboarding.load_site(self.site)["areas"][0])
+
     def test_complete_first_run_never_stamps_a_strict_scene_policy(self):
         """Repinned 1 Sep: stamping fresh sites 'require_reviewed' turned a
         pilot's first run into a two-day watchdog loop — mapping timed out on

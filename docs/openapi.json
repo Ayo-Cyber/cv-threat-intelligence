@@ -1753,6 +1753,180 @@
         }
       }
     },
+    "/api/v1/cameras/{camera_id}/registered-objects": {
+      "get": {
+        "summary": "Get /Cameras/{Camera Id}/Registered-Objects (Registered Objects)",
+        "operationId": "GET__cameras__camera_id__registered_objects__registered_objects__api_v1_cameras__camera_id__registered_objects_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Post /Cameras/{Camera Id}/Registered-Objects (Register Object Region)",
+        "operationId": "POST__cameras__camera_id__registered_objects__register_object_region__api_v1_cameras__camera_id__registered_objects_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/registered-objects/{object_id}/recapture": {
+      "post": {
+        "summary": "Post /Cameras/{Camera Id}/Registered-Objects/{Object Id}/Recapture (Recapture Registered Object)",
+        "operationId": "POST__cameras__camera_id__registered_objects__object_id__recapture__recapture_registered_object__api_v1_cameras__camera_id__registered_objects__object_id__recapture_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cameras/{camera_id}/registered-objects/{object_id}": {
+      "delete": {
+        "summary": "Delete /Cameras/{Camera Id}/Registered-Objects/{Object Id} (Remove Registered Object)",
+        "operationId": "DELETE__cameras__camera_id__registered_objects__object_id___remove_registered_object__api_v1_cameras__camera_id__registered_objects__object_id__delete",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cameras/{camera_id}/links": {
       "get": {
         "summary": "Get /Cameras/{Camera Id}/Links (Camera Links)",

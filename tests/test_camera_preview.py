@@ -75,9 +75,35 @@ def test_disconnected_capture_does_not_serve_old_jpeg():
     assert wall.jpeg("cam") is None
 
 
-def test_engine_does_not_start_until_preview_releases():
+@pytest.mark.parametrize("source", [0, "0", "clip.mp4", "rtsp://camera/live"])
+def test_webcam_warmup_discards_initial_frames_only(source):
+    import numpy as np
+    from cvti.app.live_wall import LiveWall
+
+    wall = LiveWall([])
+    cap = MagicMock()
+    frames = [np.full((16, 16, 3), value, dtype=np.uint8)
+              for value in (2, 90, 130)]
+    cap.read.side_effect = [(True, frame) for frame in frames]
+    published = []
+
+    def publish(frame):
+        published.append(int(frame.mean()))
+        wall._stop.set()
+        return frame
+
+    with patch.object(wall, "_open", return_value=cap), \
+         patch.object(wall, "_downscale", side_effect=publish), \
+         patch("cvti.app.live_wall.time.monotonic", side_effect=[10, 11, 12]):
+        wall._decode("cam", source)
+    assert published == ([130] if source in (0, "0") else [2])
+    cap.release.assert_called()
+
+
+def test_engine_does_not_start_until_preview_releases(tmp_path):
     from cvti.app.console_backend import ConsoleBackend
     backend = ConsoleBackend.__new__(ConsoleBackend)
+    backend.site_path = tmp_path / "site.json"
     backend._preview = MagicMock()
     backend._preview.close.side_effect = RuntimeError("capture still releasing")
     with patch("cvti.app.console_backend.subprocess.Popen") as spawn:

@@ -310,15 +310,11 @@ export default function StreamsWall({
           </span>
         </div>
         <div className="streams-actions">
-          <button
-            className="icon-button tracking-toggle"
-            aria-label="Show tracking"
-            aria-pressed={trackingGlobal}
-            title={trackingGlobal ? "Hide tracking" : "Show tracking"}
-            onClick={() => onTrackingGlobalChange(!trackingGlobal)}
-          >
-            <ScanLine size={18} />
-          </button>
+          <label className="person-boxes-control">
+            <input type="checkbox" role="switch" aria-label="Person boxes: all cameras"
+              checked={trackingGlobal} onChange={e => onTrackingGlobalChange(e.target.checked)} />
+            Person boxes: all cameras
+          </label>
           <button
             className="icon-button"
             aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
@@ -369,7 +365,7 @@ export default function StreamsWall({
                 </span>
                 <div className="camera-actions">
                   <label
-                    className="tracking-menu"
+                    className="person-boxes-control"
                     data-preference={cameraTrackingPreference(
                       trackingOverrides,
                       camera.id,
@@ -379,24 +375,11 @@ export default function StreamsWall({
                       camera.id,
                     )}`}
                   >
-                    <ScanLine size={15} />
-                    <select
-                      aria-label={`Tracking overlay for ${camera.id}`}
-                      value={cameraTrackingPreference(
-                        trackingOverrides,
-                        camera.id,
-                      )}
-                      onChange={(event) =>
-                        onTrackingOverrideChange(
-                          camera.id,
-                          event.target.value as TrackingPreference,
-                        )
-                      }
-                    >
-                      <option value="global">Use global</option>
-                      <option value="show">Show</option>
-                      <option value="hide">Hide</option>
-                    </select>
+                    <input type="checkbox" role="switch"
+                      aria-label={`Person boxes: ${camera.id}`}
+                      checked={trackingVisible(trackingGlobal, cameraTrackingPreference(trackingOverrides, camera.id))}
+                      onChange={e => onTrackingOverrideChange(camera.id, e.target.checked ? "show" : "hide")} />
+                    Person boxes
                   </label>
                   <button
                     className="icon-button"

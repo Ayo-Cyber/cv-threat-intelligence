@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import threading
 import time
 from collections import Counter
@@ -367,7 +368,12 @@ class MultiStreamPipeline:
                  view_only: set[str] | None = None,
                  fallback_sources: dict | None = None,
                  detector_backend: str = "torch",
-                 object_watch_runtime: Any = None) -> None:
+                 object_watch_runtime: Any = None,
+                 camera_inference: dict | None = None,
+                 synchronized_box_cameras: set[str] | None = None) -> None:
+        self.synchronized_box_cameras = set(synchronized_box_cameras or ())
+        from cvti.serving.camera_inference import CameraInference
+        self._camera_inference = CameraInference(camera_inference)
         self.sources = sources
         # W1.3: camera_id -> the camera's OWN url, for cameras whose `source`
         # is the go2rtc restream. A dead gateway costs a reconnect, not
@@ -450,6 +456,11 @@ class MultiStreamPipeline:
         from cvti.detector.accel import load_detector
         self._model, self.detector_info = load_detector(
             self.weights, backend=self.detector_backend, device=self.device)
+        self._camera_inference.load(self._model)
+        for camera_id, profile in self._camera_inference.profiles.items():
+            log.info("[detect] camera=%s calibrated rotation=%s confidence=%s model=%s",
+                     camera_id, profile.get("rotation_degrees", 0),
+                     profile.get("confidence", self.conf), profile.get("weights", self.weights))
         if self.detector_info["backend"] == "onnx":
             # The ONNX session owns acceleration; handing torch's device to
             # ultralytics here would re-trigger its own provider ideas (CoreML
@@ -560,12 +571,19 @@ class MultiStreamPipeline:
                     runtime.stop()
                     self._object_watch_runtime = None
 
+    def _synchronized_boxes(self, camera_id: str) -> bool:
+        return (camera_id not in self.view_only
+                and camera_id in getattr(self, "synchronized_box_cameras", ())
+                and self.publisher.has_tracking_viewers(camera_id))
+
     def _smooth_publish_loop(self) -> None:
         """Ship the newest decoded frame per camera at publish_fps, overlaying
         the LAST detection's boxes — the live wall stops being chained to the
         model's cadence (user ask, 24 Aug: 'live stream smooth and fast, the
         detection on the other end'). Peek never consumes, so detection loses
-        nothing; boxes lag the video by at most one detection interval."""
+        nothing. Legacy smooth boxes lag by sampling AND processing latency;
+        opted-in exact-frame cameras instead publish from the inference path
+        while any annotated viewer is connected."""
         last_seq: dict = {}
         period = 1.0 / self.publish_fps
         while True:
@@ -575,6 +593,10 @@ class MultiStreamPipeline:
                     # Boost decode only while this camera is actually watched.
                     d.display_fps = (self.publish_fps
                                      if self.publisher.has_viewers(cam_id) else 0.0)
+                    if self._synchronized_boxes(cam_id):
+                        # Do not paint stale coordinates onto newer video.
+                        # Frames with boxes are published by _route_to_queue.
+                        continue
                     if d.playout is not None:
                         # Live URL source: paced playout — content plays at its
                         # own rate a bounded lag behind live, instead of
@@ -747,6 +769,14 @@ class MultiStreamPipeline:
         except Exception as exc:  # noqa: BLE001 - one camera must not stop the rest
             state._health.failed(exc, log, "processing a frame")
             return
+        if os.environ.get("ARGUS_TRACKING_DIAGNOSTICS") == "1":
+            count = getattr(state, "_diagnostic_frame_count", 0) + 1
+            state._diagnostic_frame_count = count
+            if count % 20 == 0:
+                log.info("[tracking-diagnostic] camera=%s raw_people=%d tracked=%d overlays=%d normal_movement=%s",
+                         frame.camera_id, sum(d.label == "person" for d in object_detections),
+                         len(getattr(state, "_box_by_track", {})),
+                         len(getattr(state, "_motion_overlays", [])), state.normal_movement)
         for alert in alerts:
             runtime = None
             candidate = (getattr(alert, "payload", None) or {}).get("candidate")
@@ -770,8 +800,8 @@ class MultiStreamPipeline:
                         log.error("on_queued callback failed", exc_info=True)
         # The live wall is DECOUPLED from detection (user ask, 24 Aug): the
         # smooth-publish thread ships frames at stream cadence; detection only
-        # refreshes the box overlay it draws. Boxes therefore lag the video by
-        # at most one detection interval (~200ms) — standard for CCTV overlays.
+        # refreshes its boxes. Exact-frame mode instead publishes this very
+        # inference frame, trading display cadence for spatial alignment.
         # Per-track zone membership for the off-path scanners (PPE policy is
         # per zone). Cheap: the camera state already computed it this frame.
         self.latest_zones[frame.camera_id] = dict(getattr(state, "_zones_by_track", None) or {})
@@ -782,7 +812,7 @@ class MultiStreamPipeline:
             if alerts:
                 self.publisher.mark_alerting(
                     frame.camera_id, _alert_track_ids(alerts))
-            if not self.smooth_publish:
+            if not self.smooth_publish or self._synchronized_boxes(frame.camera_id):
                 _publish_frame(self.publisher, frame.camera_id, frame.image, state)
 
     def _all_ended(self) -> bool:
@@ -808,11 +838,10 @@ class MultiStreamPipeline:
                             self._inference_context[id(frame)] = (
                                 self._source_generation.get(frame.camera_id, 0), observed_at
                             )
-                images = [f.image for f in batch]
                 t0 = time.perf_counter()
                 try:
-                    results = self._model.predict(
-                        images, imgsz=self.imgsz, conf=self.conf,
+                    results = self._camera_inference.predict(
+                        self._model, batch, imgsz=self.imgsz, conf=self.conf,
                         device=self.device, half=self.half, verbose=False,
                     )
                 except Exception:  # noqa: BLE001 - mark unavailable, keep engine alive
@@ -1215,6 +1244,12 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         return ex
 
     def _object_watch_candidate_current(candidate) -> bool:
+        if (getattr(candidate, "metadata", {}) or {}).get("state") == "registered_object_changed":
+            from cvti.serving.registered_objects import candidate_current
+            try:
+                return candidate_current(candidate, load_site_config(site_config_path))
+            except (OSError, ValueError, TypeError):
+                return False
         if getattr(candidate, "detector", "") != "object_watch":
             return True
         from types import SimpleNamespace
@@ -1235,15 +1270,22 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
         return bool(enabled and library is not None
                     and object_watch_alert_current(alert, state, library))
 
+    from cvti.serving.concealment_notices import ConcealmentNotices
+    concealment_notices = ConcealmentNotices()
+
     def _deliver_current(alert, result):
         candidate = (getattr(alert, "payload", None) or {}).get("candidate")
         if not _object_watch_candidate_current(candidate):
+            if (getattr(candidate, "metadata", {}) or {}).get("state") == "registered_object_changed":
+                return None
             if getattr(candidate, "detector", "") == "object_watch":
                 log.info("[object-watch] suppressed stale/disabled queued verdict for %s",
                          alert.camera_id)
                 return None
 
-        return sink.handle(alert, result)
+        delivered = sink.handle(alert, result)
+        concealment_notices.verdict(alert, result)
+        return delivered
 
     class _FreshnessGuardedGate:
         def __init__(self):
@@ -1313,11 +1355,19 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                                view_only=view_only_ids,
                                fallback_sources=_gw_fallbacks,
                                detector_backend=_detector_backend,
-                               object_watch_runtime=object_watch_runtime)
+                               object_watch_runtime=object_watch_runtime,
+                               camera_inference={str(c["id"]): c["detection_inference"]
+                                                 for c in site.get("cameras", [])
+                                                 if "detection_inference" in c},
+                               synchronized_box_cameras={str(c["id"]) for c in site.get("cameras", [])
+                                                         if c.get("box_display") == "synchronized"})
 
     def _fast_path(alert) -> None:
         """Two-tier alerting (EP-06-T4): criticals are shown provisionally the
         moment the detector fires; the verdict updates the same row in place."""
+        concealment_notices.candidate(alert)
+        if getattr((alert.payload or {}).get("candidate"), "detector", "") == "concealment":
+            return  # transient warning first; persist only a verdict or disputed review
         if alert.priority != "critical":
             return
         candidate = (alert.payload or {}).get("candidate")
@@ -1648,6 +1698,8 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
                     "detector": _detector_health(),
                     "heartbeat": heartbeat.status() if heartbeat else {"enabled": False}})
         for camera in doc.get("cameras", []):
+            camera["concealment_notice"] = concealment_notices.snapshot(
+                str(camera.get("camera_id")))
             state = states.get(str(camera.get("camera_id")))
             if state is not None and getattr(state, "object_watch", False):
                 camera["object_watch"] = state.object_watch_status()

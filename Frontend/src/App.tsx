@@ -27,6 +27,7 @@ import {
   Maximize2,
 } from "lucide-react";
 import { client } from "./lib/client";
+import { incidentAssessment } from "./lib/incident-assessment";
 import {
   DETECTORS,
   type Camera,
@@ -111,7 +112,9 @@ const names: Record<View, string> = {
 };
 const resolved = (e: Incident) =>
   e.triage_state === "resolved" || ["true", "false"].includes(e.review);
-const title = (e: Incident) => e.title || e.rule.replaceAll("_", " ");
+const title = (e: Incident) => e.rule === "product_concealment"
+  ? "Possible product concealment"
+  : e.title || e.rule.replaceAll("_", " ");
 
 type TrackingPreferenceState = {
   operatorId: string;
@@ -393,7 +396,7 @@ export default function App() {
   const setTrackingGlobal = (visible: boolean) => {
     setTrackingPreferences((current) =>
       current.operatorId === ws.auth.username
-        ? { ...current, globalVisible: visible }
+        ? { ...current, globalVisible: visible, overrides: {} }
         : current,
     );
   };
@@ -825,17 +828,11 @@ export default function App() {
                           </button>
                         </div>
                         <div className="section-tools">
-                          <button
-                            className="icon-button tracking-toggle"
-                            aria-label="Show tracking"
-                            aria-pressed={trackingGlobal}
-                            title={
-                              trackingGlobal ? "Hide tracking" : "Show tracking"
-                            }
-                            onClick={() => setTrackingGlobal(!trackingGlobal)}
-                          >
-                            <ScanLine size={16} />
-                          </button>
+                          <label className="person-boxes-control">
+                            <input type="checkbox" role="switch" aria-label="Person boxes: all cameras"
+                              checked={trackingGlobal} onChange={e => setTrackingGlobal(e.target.checked)} />
+                            Person boxes: all cameras
+                          </label>
                           <div className="search-field wall-search">
                             <Search size={14} />
                             <input
@@ -935,7 +932,7 @@ export default function App() {
                               </div>
                               <div className="camera-actions">
                                 <label
-                                  className="tracking-menu"
+                                  className="person-boxes-control"
                                   data-preference={cameraTrackingPreference(
                                     trackingOverrides,
                                     c.id,
@@ -945,25 +942,11 @@ export default function App() {
                                     c.id,
                                   )}`}
                                 >
-                                  <ScanLine size={15} />
-                                  <select
-                                    aria-label={`Tracking overlay for ${c.id}`}
-                                    value={cameraTrackingPreference(
-                                      trackingOverrides,
-                                      c.id,
-                                    )}
-                                    onChange={(event) =>
-                                      setCameraTracking(
-                                        c.id,
-                                        event.target
-                                          .value as TrackingPreference,
-                                      )
-                                    }
-                                  >
-                                    <option value="global">Use global</option>
-                                    <option value="show">Show</option>
-                                    <option value="hide">Hide</option>
-                                  </select>
+                                  <input type="checkbox" role="switch"
+                                    aria-label={`Person boxes: ${c.id}`}
+                                    checked={trackingVisible(trackingGlobal, cameraTrackingPreference(trackingOverrides, c.id))}
+                                    onChange={e => setCameraTracking(c.id, e.target.checked ? "show" : "hide")} />
+                                  Person boxes
                                 </label>
                                 <button
                                   className="icon-button"
@@ -1058,7 +1041,7 @@ export default function App() {
                             </div>
                             <strong>{title(e)}</strong>
                             <span>{e.camera_id}</span>
-                            <p>{e.reason}</p>
+                            <p>{incidentAssessment(e).summary}</p>
                             <span className="activity-link">
                               Review incident
                               <ArrowUpRight size={15} />
@@ -1342,7 +1325,7 @@ export default function App() {
       )}
       {currentCamera && selected && (
         <Drawer
-          expanded={selected.tab === "zones"}
+          expanded={selected.tab === "zones" || selected.tab === "objects"}
           title={currentCamera.id}
           subtitle="CAMERA INTELLIGENCE"
           onClose={() => {

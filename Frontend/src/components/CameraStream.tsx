@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, TriangleAlert } from "lucide-react";
+import { activeConcealmentNotice, type ConcealmentNotice } from "../lib/concealment-notice";
 import {
   cameraStreamPresentation,
   type MediaEvidence,
@@ -22,12 +23,14 @@ export default function CameraStream({
   active,
   tracking = false,
   onOpen,
+  onLiveChange,
 }: {
   camera: Camera;
   api: Transport;
   active: boolean;
   tracking?: boolean;
   onOpen?: () => void;
+  onLiveChange?: (live: boolean) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [state, setState] = useState<PlayerState>({
@@ -36,6 +39,24 @@ export default function CameraStream({
   const [imageFailed, setImageFailed] = useState(false);
   const [evidence, setEvidence] = useState<MediaEvidence>("none");
   const [retry, setRetry] = useState(0);
+  const [notice, setNotice] = useState<ConcealmentNotice | null>(null);
+
+  useEffect(() => {
+    setNotice(null);
+    if (!active || !api.subscribe) return;
+    return api.subscribe((event) => {
+      if (event.type !== "health") return;
+      const health = event.data as { cameras?: { camera_id: string; concealment_notice?: unknown }[] };
+      const row = health.cameras?.find((item) => item.camera_id === camera.id);
+      setNotice(activeConcealmentNotice(row?.concealment_notice));
+    });
+  }, [active, api, camera.id]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), Math.max(0, notice.expires_at * 1000 - Date.now()));
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -82,6 +103,11 @@ export default function CameraStream({
     evidence,
     failed: state.kind === "offline" || imageFailed,
   });
+
+  useEffect(() => {
+    onLiveChange?.(presentation.phase === "live");
+    return () => onLiveChange?.(false);
+  }, [onLiveChange, presentation.phase]);
 
   // Refresh the descriptor when capture ownership changes. A stopped MJPEG
   // publisher can leave its last image visible without firing an image error.
@@ -171,6 +197,16 @@ export default function CameraStream({
         {state.kind === "mjpeg" && state.preview && presentation.phase === "live"
           ? "LIVE PREVIEW" : presentation.label}
       </div>
+      {notice && active && presentation.phase !== "offline" && (
+        <div className={`concealment-notice ${notice.phase}`} role="status">
+          <TriangleAlert size={18} aria-hidden="true" />
+          <div><strong>Possible product concealment</strong>
+            <span>{notice.phase === "verifying" ? "Unverified gesture · Verifying"
+              : notice.phase === "inconclusive" ? "Earlier activity · AI inconclusive · Needs review"
+              : "Earlier activity · Review required"}</span>
+          </div>
+        </div>
+      )}
       {onOpen && (
         <button
           className="media-open"

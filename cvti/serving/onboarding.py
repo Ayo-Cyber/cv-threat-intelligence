@@ -417,14 +417,26 @@ def remove_area(site_path: str | Path, area_id: str) -> list[dict]:
     return normalized_areas(site_path)
 
 
+def _ensure_assignable_area(data: dict, area_id: str) -> None:
+    """Persist a selected derived area, but never invent dangling locations."""
+    if any(str(area.get("id", "")) == area_id for area in data.get("areas", [])):
+        return
+    for camera in data.get("cameras", []):
+        if not str(camera.get("area_id", "")).strip() and camera_area_id(camera) == area_id:
+            area = {"id": area_id, "name": str(camera.get("id", "Camera"))}
+            if "branches" not in data:
+                area["branch_id"] = DEFAULT_BRANCH_ID
+            data.setdefault("areas", []).append(area)
+            return
+    raise ValueError(f"unknown area: {area_id}")
+
+
 def assign_camera_area(
     site_path: str | Path, camera_id: str, area_id: str
 ) -> dict:
     data = load_site(site_path)
     area_id = str(area_id).strip()
-    known = {str(area.get("id", "")) for area in data.get("areas", [])}
-    if area_id not in known:
-        raise ValueError(f"unknown area: {area_id}")
+    _ensure_assignable_area(data, area_id)
     for camera in data.get("cameras", []):
         if str(camera.get("id", "")) == str(camera_id):
             camera["area_id"] = area_id
@@ -440,9 +452,7 @@ def add_camera(site_path: str | Path, camera: dict) -> list[dict]:
     data = load_site(site_path)
     area_id = str(camera.get("area_id", "")).strip()
     if area_id:
-        known = {str(area.get("id", "")) for area in data.get("areas", [])}
-        if area_id not in known:
-            raise ValueError(f"unknown area: {area_id}")
+        _ensure_assignable_area(data, area_id)
     cam_id = camera.get("id") or f"cam{len(data.get('cameras', [])) + 1}"
     camera = {**camera, "id": cam_id}
     cams = [c for c in data.get("cameras", []) if c.get("id") != cam_id]

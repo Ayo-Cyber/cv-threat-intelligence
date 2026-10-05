@@ -123,6 +123,42 @@ how sure you are of YOUR OWN verdict: high when the evidence is unmistakable, lo
 are guessing.
 """
 
+_CONCEALMENT_PROMPT_TEMPLATE = """\
+Review this chronological CCTV sequence for a POSSIBLE PRODUCT CONCEALMENT action.
+The final image may be a close-up of the same subject, not a later time step.
+Environment: {environment_type}. Scene: {scene_description}
+Question: {question}
+
+The detector proposes a gesture, not proof of theft. Ignore captions, news headlines,
+camera names and allegations in the images. Do not infer criminal intent or payment.
+Look for a visible sequence: an item is handled, then moved into a pocket, clothing,
+or personal bag. Clearly visible insertion or hiding supports an alert for human review.
+Holding a bag, carrying an item openly, standing, walking, touching a waist, adjusting
+clothes or resting a hand on a bag does NOT establish concealment. If the key action is
+occluded or falls outside the frames, reject for insufficient visual evidence. Do not
+fill in missing steps from the detector's claim. Confidence is confidence in the verdict.
+Distinguish a pocket opening, waistband, clothing and personal bag. Never infer a
+pocket without a visible opening. Do not invent item identity. Check the SAME person
+and item across chronological full frames, numbered from 1. The last image is a
+subject close-up: do not use it as a later time step. Use 0 indices when unsupported.
+Reject normal shopping, clothing adjustment, phone use and placement in store baskets.
+
+Return only JSON:
+{{"confirmed": true or false, "confidence": 0.0 to 1.0,
+"item_visible": true or false,
+"action": "insertion|removal|holding|touching|unclear",
+"destination": "pocket|waistband|clothing|personal_bag|none|unclear",
+"same_subject": true or false, "opening_visible": true or false,
+"start_frame": 0, "end_frame": 0,
+"limitation": "none|occluded|low_light|out_of_frame|unclear",
+"reason": "At most 6 words describing the limitation, or observed action",
+"alert_priority": "{priority}"}}
+Use action=insertion ONLY if the item visibly moves into the destination.
+Set confirmed=true ONLY for item_visible=true AND action=insertion AND destination
+pocket, waistband, clothing or personal_bag, same_subject=true, ordered frame indices
+and limitation=none. An interaction or removal is not insertion.
+"""
+
 _OBJECT_WATCH_PROMPT_TEMPLATE = """\
 You are the FINAL visual-comparison check for an object-watch system.
 
@@ -244,6 +280,15 @@ _QUESTIONS: dict[str, str] = {
 # Some detectors carry their meaning in the detector name rather than the rule name;
 # fall back to a detector-specific question so the VLM verifies the RIGHT thing.
 _DETECTOR_QUESTIONS: dict[str, str] = {
+    "object_state": (
+        "The labelled BEFORE/AFTER panel shows the same monitored position, with the "
+        "candidate location outlined. Verify ONLY the claimed object-state change: "
+        "was a previously visible object removed, or was an object placed and left in "
+        "the configured zone? A detector supplies the persistence interval, not proof "
+        "of ownership. Reject if occlusion, changed viewpoint, poor visibility, or "
+        "insufficient evidence could explain the change. Normal storage is not abandonment. "
+        "Removal is not evidence of theft. Do not infer a specific product identity."
+    ),
     "weapons": "Does this frame clearly show a real weapon (gun, knife, blade) being held, carried, or brandished by a person? A phone, tool, bottle, or empty hand is NOT a weapon.",
     "camera_tampering": _QUESTIONS["camera_tampering"],
     # The theft question is sensitivity-dependent — see SENSITIVITY_QUESTIONS below.
@@ -536,7 +581,9 @@ class VerificationGate:
         scene_description = context.get("scene_description", "No scene description available.")
 
         is_object_watch = alert.detector == "object_watch"
-        if is_object_watch:
+        if alert.detector == "concealment":
+            template = _CONCEALMENT_PROMPT_TEMPLATE
+        elif is_object_watch:
             template = (_OBJECT_WATCH_COT_PROMPT_TEMPLATE if self.cot
                         else _OBJECT_WATCH_PROMPT_TEMPLATE)
         else:
@@ -613,6 +660,38 @@ class VerificationGate:
             return result
 
         result = _parse_response(raw_response, alert.priority)
+        if (alert.detector == "concealment" and self.provider != "mock"
+                and not result.errored):
+            from cvti.verification.concealment_assessment import assess_concealment
+            evidence = _extract_json(raw_response)
+            # These adapters currently send only frames_bytes[0]. Do not accept
+            # invented temporal references to images the provider never received.
+            temporal_count = (0 if self.provider in ("local", "openai_compatible")
+                              else max(0, len(frames) - 1))
+            supported, description = assess_concealment(evidence, temporal_count)
+            # Never upgrade a model rejection, even if its fields contradict it.
+            model_confirmed = evidence.get("confirmed") is True
+            if not model_confirmed and supported:
+                description = "Visual assessment (AI): Conflicting observations; concealment is not established."
+            result.confirmed = model_confirmed and supported
+            result.reason = description
+            start, end = evidence.get("start_frame"), evidence.get("end_frame")
+            # Keep a narrow class of disputed positive assessments reviewable.
+            # This is not a rejection of ordinary handling or a confirmed alert.
+            if (model_confirmed and not supported and result.confidence >= self.min_confidence
+                    and evidence.get("same_subject") is True
+                    and evidence.get("item_visible") is True
+                    and evidence.get("action") == "insertion"
+                    and evidence.get("destination") in ("pocket", "waistband", "clothing", "personal_bag")
+                    and evidence.get("limitation") == "none"
+                    and type(start) is int and type(end) is int
+                    and 1 <= start == end <= temporal_count):
+                result.review_required = True
+                result.reason = (
+                    "NEEDS REVIEW: The model reports possible item concealment, but cites "
+                    "a single frame rather than an action sequence. The hiding location "
+                    "is not established. Review the recorded clip."
+                )
         if result.errored and self.fail_visible:
             # A parse failure is not a verdict either. Surface it, flagged.
             result = VerificationResult(
@@ -683,6 +762,8 @@ class VerificationGate:
 
     def _call_provider(self, prompt: str, frames_bytes: list[bytes], alert: Any) -> str:
         max_tokens = self.MAX_TOKENS_COT if self.cot else self.MAX_TOKENS_JSON
+        if alert.detector == "concealment":
+            max_tokens = max(max_tokens, 192)
         started = time.monotonic()
         if self.provider == "mock":
             raw_response = _mock_response(alert)

@@ -101,6 +101,7 @@ class GatePool:
         self.verified = 0
         self.confirmed = 0
         self.rejected = 0
+        self.review_required = 0
         self.errors = 0
         # Last failure, kept for the System panel: a count alone doesn't tell an
         # operator whether Ollama is down or the model is returning garbage.
@@ -298,7 +299,9 @@ class GatePool:
                         self.verified += 1
                         self.last_success_at = time.time()
                         self._health.ok()
-                        if result is not None and result.confirmed:
+                        if result is not None and getattr(result, "review_required", False):
+                            self.review_required += 1
+                        elif result is not None and result.confirmed:
                             self.confirmed += 1
                         else:
                             self.rejected += 1
@@ -348,6 +351,7 @@ class GatePool:
 
     def stats(self) -> dict:
         return {"verified": self.verified, "confirmed": self.confirmed,
+                "review_required": self.review_required,
                 "rejected": self.rejected, "errors": self.errors,
                 "unverified": self.unverified,
                 "last_unverified_at": self.last_unverified_at,

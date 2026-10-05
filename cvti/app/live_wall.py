@@ -63,6 +63,8 @@ class LiveWall:
         src = str(source)
         is_net = "://" in src                     # RTSP/HTTP camera, not a clip
         is_file = not (isinstance(source, int) or src.isdigit() or is_net)
+        is_webcam = isinstance(source, int) or src.isdigit()
+        first_frame_at = None
         n = 0
         dead_since = 0.0
         while not self._stop.is_set():
@@ -87,10 +89,20 @@ class LiveWall:
                             log.debug("releasing the dead capture failed", exc_info=True)
                         cap = self._open(source)
                         captures[:] = [cap]
+                        first_frame_at = None
                         dead_since = time.time()
                     self._stop.wait(0.3)
                     continue
             dead_since = 0.0
+            if is_webcam:
+                # First USB/AVFoundation frames can be almost black while auto
+                # exposure settles. Drain at capture speed before publishing.
+                now = time.monotonic()
+                if first_frame_at is None:
+                    first_frame_at = now
+                if now - first_frame_at < 2.0:
+                    self._stop.wait(0.005)
+                    continue
             n += 1
             frame = self._downscale(frame)
             ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])

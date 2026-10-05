@@ -63,7 +63,10 @@ def test_concealment_motion_fires() -> None:
         frames.append(frame(t, (200.0, 110.0))); t += 0.1
     for _ in range(9):                       # pull hand IN to the waist and hold
         frames.append(frame(t, (105.0, 245.0))); t += 0.1
-    result = _run(det, frames)
+    results = [det.update([f], f.timestamp)[0] for f in frames]
+    candidates = [r for r in results if r.candidate]
+    assert len(candidates) == 1, "one proposal per gesture, not one per frame"
+    result = candidates[0]
     assert result.score >= 0.6, result.score
     assert result.candidate, "a reach-then-conceal-to-waist motion should become a candidate"
     assert any("waist" in r for r in result.reasons), result.reasons
@@ -155,7 +158,10 @@ def test_bag_concealment_fires_with_destination_bag() -> None:
         frames.append(frame(t, (280.0, 150.0))); t += 0.1
     for _ in range(9):                                   # bring hand INTO the bag and hold
         frames.append(frame(t, _DROP_IN_BAG)); t += 0.1
-    result = _run_with_bags(det, frames, [_BAG_BBOX])
+    results = [det.update([f], f.timestamp, bag_bboxes=[_BAG_BBOX])[0] for f in frames]
+    candidates = [r for r in results if r.candidate]
+    assert len(candidates) == 1
+    result = candidates[0]
     assert result.candidate, "reach-then-put-in-personal-bag should fire"
     assert result.destination == "bag", result.destination
     assert any("bag" in r for r in result.reasons), result.reasons

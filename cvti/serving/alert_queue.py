@@ -14,6 +14,7 @@ Pure Python and side-effect free so it is fully unit-testable without models.
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -58,12 +59,15 @@ class AlertQueue:
     def __init__(self, *, cooldown_seconds: float = 60.0, bucket_seconds: float = 2.0,
                  max_pending: int = 256,
                  on_generated: Callable[[QueuedAlert], Any] | None = None,
-                 on_admission: Callable[[QueuedAlert, str], None] | None = None) -> None:
+                 on_admission: Callable[[QueuedAlert, str], None] | None = None,
+                 clock: Callable[[], float] = time.monotonic) -> None:
         self.cooldown_seconds = cooldown_seconds
         self.bucket_seconds = bucket_seconds
         self.max_pending = max_pending
         self._pending: list[QueuedAlert] = []
+        self._admission_sequence = 0
         self._last_seen: dict[tuple, float] = {}  # dedup signature -> last accept ts
+        self._clock = clock
         self.dropped_duplicates = 0
         self.on_generated = on_generated
         self.on_admission = on_admission
@@ -102,17 +106,23 @@ class AlertQueue:
         status = "admitted"
         evicted: list[QueuedAlert] = []
         with self._lock:
+            now = self._clock()
             last = self._last_seen.get(dedup_key)
-            if last is not None and (alert.timestamp - last) < self.cooldown_seconds:
+            if last is not None and (now - last) < self.cooldown_seconds:
                 self.dropped_duplicates += 1
                 status = "deduplicated"
             else:
-                self._last_seen[dedup_key] = alert.timestamp
+                # Media clocks rewind on replay and differ across cameras.
+                self._last_seen[dedup_key] = now
+                # Source timestamps are not comparable across cameras, and file
+                # loops rewind them. Tie-break by arrival, not media position.
+                alert.sort_index = (-_PRIORITY_RANK.get(alert.priority, 0), self._admission_sequence)
+                self._admission_sequence += 1
                 # A signature past its cooldown is dead weight (track ids never
                 # recur), yet this dict grew one entry per alert forever — the
                 # only unbounded structure in the queue. (RAM audit 24 Aug, #2.)
                 if len(self._last_seen) > 4 * self.max_pending:
-                    cutoff = alert.timestamp - self.cooldown_seconds
+                    cutoff = now - self.cooldown_seconds
                     for key in [key for key, ts in self._last_seen.items() if ts < cutoff]:
                         self._last_seen.pop(key, None)
                 self._pending.append(alert)

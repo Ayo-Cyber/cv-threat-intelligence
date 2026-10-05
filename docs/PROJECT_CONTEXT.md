@@ -1,5 +1,823 @@
 # Project Context
 
+## Handoff to Ayo (2026-10-05)
+
+- User requested PR and merge to transfer the current work to Ayo.
+- KPI 3 Electron test was closed cleanly before enrollment; real model loading
+  passed, but recognition and incident delivery remain unvalidated.
+- KPI 9 live removal remains unresolved, not accepted. See
+  [Ayo handoff](AYO_CHI_HANDOFF_2026_10_05.md) for priorities and limitations.
+- Local datasets, credentials, databases, evidence and model weights are not
+  part of the source handoff.
+
+## KPI 3 real SigLIP installed and executed (2026-10-05)
+
+- User chose bottle for initial recognition workflow, not CHI accuracy validation.
+- Downloaded official google/siglip-base-patch16-224 revision
+  7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed (config.json,
+  preprocessor_config.json, model.safetensors) into
+  runs/chi_validation/desktop/object_library/models/siglip. No global config
+  changes, no product enrollment yet, no camera monitoring launched this turn.
+- Added scripts/check_kpi3_model.py. Real Argus load_configured_backend and
+  embed_image succeeded with HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1.
+  Fingerprint siglip-94e242717dd26c6705b75aae, 768 dimensions, norm ~1,
+  load 4.14s, one CPU embedding 0.131s. This is not a throughput benchmark.
+- Report runs/chi_validation/scenarios/03_object_identification/model-check.json.
+  Existing local image used only for encoder smoke check; no user images uploaded.
+- Next: actual Electron object-watchlist enrollment of bottle photos/negatives,
+  reviewed activation and camera rule, live positive/negative tests. Recognition
+  accuracy, candidate proposal coverage and alert workflow still unvalidated.
+
+## KPI 3 readiness checkpoint (2026-10-05)
+
+- User explicitly deferred unresolved KPI 9 and requested KPI 3 next.
+- Existing path: ObjectWatchlistManager enrollment/review/activation UI,
+  local SigLIP embeddings, candidate matching, temporal runtime, camera rules,
+  verification gate and reference evidence. Hash backend is test-only.
+- 44 tests passed across embeddings, matcher, runtime, integration, serving,
+  backend and API writes. These include injected semantics; not real accuracy.
+- Actual test DB root runs/chi_validation/desktop: resolve_config/preflight
+  returns unavailable: local SigLIP model directory missing at
+  object_library/models/siglip. Zero enrolled targets. No runtime.json found
+  under runs/models; proposal_provider defaults to none (YOLO-World not enabled).
+- Next: install/configure real compatible SigLIP artifacts, execute embedding
+  readiness probe, enroll reviewed real product photos and negative examples,
+  enable camera watch rule, test matching/nonmatching items in Electron.
+- Do not claim model inference or KPI 3 accuracy was validated yet.
+
+## Three-second recovery live retest failed (2026-10-05)
+
+- Run runs/chi_validation/scenarios/09_object_state/live/2026-10-05T04-24-48.485Z.
+  Object 98fca21a3fc84f35a050fff8f4dc67de, region [679,353,1112,1041].
+- Present across two polls before removal; after user removed bottle, status
+  revalidation_required / scene_or_lighting_changed. No camera incidents.
+- Saved after-removal.jpg and UI screenshot; reference retained. Stopped test.
+  Three-second transient recovery did NOT resolve attended removal. Do not mark
+  fixed or ask for another identical test without better diagnostics.
+- Next work needs exact invalidating-frame evidence/metrics, not only a later
+  snapshot. Diagnose duration and spatial residual/motion; do not keep extending
+  grace or raising thresholds to force a pass. KPI 9 remains incomplete.
+
+## Offline comparison and transient-scene fix (2026-10-05)
+
+- Last saved empty frame vs bottle reference: outside-region median brightness
+  shift -6; residual changed fraction 0.144 (below .25 rejection threshold).
+  Actual empty frame is suspect, not scene-invalid. Repeating that still with
+  synthetic timestamps yields one candidate at 8 seconds, not a live/VLM pass.
+- Suggests earlier transient invalidated before the clear frame, but exact
+  trigger image was not retained. Scene mismatches now pause confirmation and
+  require 3 continuous seconds before permanent revalidation. Baseline remains
+  frozen; pixel thresholds unchanged; clear recovery restarts confirmation.
+- 23 detector/runtime tests passed including transient recovery/removal and
+  sustained scene-change rejection. Electron retest launched; result pending.
+
+## Latest bottle removal retest (2026-10-05)
+
+- Run runs/chi_validation/scenarios/09_object_state/live/2026-10-05T04-14-02.222Z.
+  Bottle c98cc40f3cfa4b0ab00b8923b7e8bbd4, region [582,334,1016,995],
+  native 1920x1080, confirmation 8 seconds.
+- Reference reached present and remained present across two checks without
+  recapture. User then removed bottle and reported clear view. Status became
+  revalidation_required, reason scene_or_lighting_changed. ZERO camera incidents.
+- Saved after-removal.jpg plus matching UI screenshot and original NPZ reference
+  for direct offline comparison. Snapshot obtained after failure, not the exact
+  triggering frame. No baseline recapture. Monitoring stopped, Electron closed.
+- Next: compare these images and measure background residuals; do not claim
+  exposure was the cause or weaken safeguards without evidence. KPI 9 not passed.
+
+## Reference/background stability correction (2026-10-05)
+
+- Registration previously checked crop stability only, despite subsequently
+  validating the full background. Added outside-region stability validation
+  across registration samples (mean absolute deviation <=10 grayscale levels).
+- Runtime background difference now compensates a bounded uniform median
+  brightness offset estimated outside the object; offsets >30 levels and
+  residual changes >35 over >25% of background still invalidate. No baseline
+  adaptation or additional inference. These remain pilot heuristics, not a
+  general camera-motion/exposure classifier.
+- 23 focused detector/runtime/API tests passed, including exposure+removal,
+  unstable registration background, large exposure, and nonuniform scene change.
+- Saved UI screenshots are insufficient to attribute the previous failure to
+  exposure versus motion. Physical bottle retest still needed; KPI 9 not passed.
+
+## Attended retest: background validation blocker (2026-10-05)
+
+- Run runs/chi_validation/scenarios/09_object_state/live/2026-10-05T04-05-50.981Z.
+  User registered bottle c85194ca3c6c4f4293e9372abd30ee8c, region
+  [623,408,1141,1062], 1920x1080, 8 seconds; reported bottle alone in view.
+- Started engine. Status revalidation_required, reason scene_or_lighting_changed.
+  Explicit recapture after startup reached present, then returned to the same
+  reason on the next poll, BEFORE any removal instruction. No removal was tested.
+- Zero events for kpi9_webcam in events.db. Stopped monitoring and closed test.
+- This identifies the immediate failing safeguard, not the physical root cause:
+  background raw-pixel difference can reflect exposure, moving surroundings,
+  or actual camera movement. Inspect reference/current frames and distinguish
+  illumination from geometry before changing thresholds. Do not mark KPI 9 passed.
+
+## Bottle-test diagnosis and next checkpoint (2026-10-05)
+
+- Concrete defect: global appearance validation ran before person occlusion,
+  allowing a person handling the object to invalidate the frozen reference
+  before the occlusion pause. Reordered these checks; clear-view scene changes,
+  prolonged occlusion, and timing discontinuities still require revalidation.
+- Cannot prove this was the historical bottle failure: old status lacked reasons.
+  Added persistent detector reasons and runtime status/API reason fields for
+  timing gaps, dimensions/source, missing person inference, low-detail image,
+  scene/lighting change, prolonged occlusion, restart, capture reset and errors.
+- Added regressions for person handling followed by removal, scene change after
+  occlusion, and persistent timing-gap diagnostics. No new model calls.
+- KPI 9 still requires a real removal retest; do not mark passed. User requests
+  moving quickly to next assigned KPI, which is KPI 3 product identification.
+
+## Attended bottle test: incomplete detection (2026-10-05)
+
+- User registered bottle in live Electron test. Fixed expanded drawer clipping
+  registration controls with an independently scrollable registered-object
+  section; two short desktop/mobile drawer regression tests passed, build passed.
+- Run: runs/chi_validation/scenarios/09_object_state/live/2026-10-05T03-45-07.267Z.
+  Camera kpi9_webcam, object f7ac39b3ab254fb998200164700a0792, region
+  [592,503,1048,1080], native 1920x1080, confirmation 8 seconds.
+- First reference occluded, then revalidation_required. User moved clear;
+  explicit recapture succeeded and status reached present. User then removed
+  bottle and reported clear view; status returned revalidation_required.
+- Database query found ZERO incidents for kpi9_webcam. This is NOT a detection
+  pass. Empty scene was not recaptured. Test stopped and Electron closed.
+- Current generic invalidation status cannot identify the trigger after the
+  fact: frame gap/shape/inference availability, global change, or >30s overlap.
+  Next: add reason-specific diagnostics and resolve actual trigger before retry.
+
+## Live registered-object drawing (2026-10-05)
+
+- Registered objects now offers Open live view, rendering the shared
+  CameraStream beneath its rectangle instead of a frozen snapshot. The initial
+  snapshot request obtains native coordinate dimensions only. Reset selection
+  clears the rectangle; registration still uses backend stable-frame capture.
+- Drawing/registration require live media status. Preview releases on unmount
+  through the existing player. Native aspect ratio is retained, with no added
+  model inference. Prevented browser selection while dragging.
+- Fixed Electron descriptor normalization discarding preview:true. Fixed API
+  stream selection using stale frames.json when engine ownership is unknown
+  and its heartbeat is stopped; it now returns a preview descriptor.
+- Verification: production build passed, six browser player/editor tests
+  passed (desktop/mobile coordinates), 29 engine API tests passed including
+  stale unowned engine regression. Actual Electron webcam drawing passed;
+  before/after screenshots differ (mean pixel difference 6.00) with rectangle
+  retained: runs/chi_validation/scenarios/09_object_state/live/
+  2026-10-05T02-40-54.343Z/live-selection-{before,after}.png.
+- Diagnostic Electron run closed; no object registered or removal detection
+  claimed. Physical object registration/removal remains the next checkpoint.
+
+## Add-camera derived-area fix (2026-10-05)
+
+- User could test webcam source 0, but Add camera rejected the selected
+  camera--kpi9_webcam area. Hierarchy reads expose derived camera areas while
+  onboarding writes previously accepted only persisted areas.
+- Added _ensure_assignable_area to add_camera and assign_camera_area. A selected
+  derived area is persisted only when backed by an existing camera without an
+  explicit area assignment. Legacy Main branch placement is preserved; explicit
+  unassigned hierarchy remains unassigned. Stale/dangling IDs still fail.
+- Regression covers the exact reported ID, repeated saves, assignment, deleted
+  areas, dangling references, and explicit unassigned hierarchy. Onboarding and
+  scene-hierarchy suites: 24 passed. Restart backend to load the fix.
+- No customer configuration modified, no commit or push performed.
+
+## Webcam editor dark-frame fix (2026-10-05)
+
+- User demonstrated Photo Booth was clear while Zones and Registered objects
+  snapshots were dark. This was capture startup, not inadequate room lighting.
+- Direct webcam probe measured grayscale mean 1.96 at the first frame, 114.37
+  after 0.5 seconds, and about 134 after exposure settled.
+- LiveWall now drains numeric webcam sources for two seconds after the first
+  successful frame (also after reopen) before publishing. File/network sources
+  are unchanged. Non-monitoring camera_snapshot waits up to six seconds.
+- No image brightening or detection-engine changes. Cold webcam preview gains
+  a two-second startup delay, not a per-frame inference cost.
+- Tests: tests/test_camera_preview.py, 12 passed. Updated older engine-handover
+  fixture with site_path. Actual Electron Registered objects snapshot verified
+  clear at runs/chi_validation/scenarios/09_object_state/live/
+  2026-10-05T02-24-18.793Z/initial-ui.png. Zones uses the same snapshot endpoint;
+  its screen was not separately captured during this check.
+- Automated Electron check closed afterward; no objects registered, no live
+  removal test performed yet. Monitoring-time direct-capture fallback is a
+  separate path and was not changed or validated in this check.
+
+## Pipeline A integrated for Electron acceptance (2026-10-04)
+
+User requested autonomous completion until it is time to test in Electron.
+Registered-object pilot now connects React UI -> Electron API client ->
+authenticated ConsoleBackend endpoints -> site config hot reload -> camera-owned
+RegisteredObjects runtime -> existing VLM gate -> AlertSink evidence/incidents.
+No second object/person model or camera reader is introduced by the runtime.
+
+Camera details has a Registered objects tab with snapshot rectangle drawing,
+name, confirmation interval, state polling, recapture and removal. Expanded
+dialog; snapshot is limited to 60vh with correct aspect ratio. Registration
+captures three stable unobstructed shared-inference frames spaced >=0.5s.
+References are stored beside the site config, camera/source bound. Existing
+reference files are not silently resumed after engine restart: recapture needs
+operator confirmation. Removing or recapturing invalidates queued candidates
+before verification/delivery. Frame gaps/source resets/inference failure invalidate
+monitoring. Other cameras and unrelated detector settings are unchanged.
+
+Authenticated API routes are documented in docs/api-v1.md and generated OpenAPI.
+Configure-detectors permission is required for writes; view-live for listing.
+No user-supplied file path accepted. Source mismatch requires a new registration.
+Generated candidates say registered_object_change, not confirmed removal/theft.
+They carry a labelled reference/current panel and the existing replay buffer.
+
+Verification: 86 focused Python tests passed; runtime test subsequently extended
+through controlled verifier response and real AlertSink persistence (4 runtime
+tests passed again). Two Playwright desktop/mobile tests passed; production and
+Electron builds passed. Actual Electron/API registration/removal smoke passed at
+`runs/chi_validation/scenarios/09_object_state/electron/2026-10-04T21-26-55.767Z/`.
+Screenshot inspected; no renderer errors. Smoke command from Frontend:
+`node scripts/chi-kpi9-ui.mjs` (isolated site copy; closes when complete).
+
+NEXT: user-attended live Electron test on a fixed webcam with a clearly visible
+textured object: register, wait for present, remove and move clear of region,
+inspect actual VLM verdict and saved evidence. Test walking past without removal,
+lighting changes and recapture. No live real-object accuracy pass yet. Automatic
+unregistered left-behind discovery (Pipeline B), explicit moved/restored states,
+camera-jitter alignment and site accuracy/latency benchmarks remain future work.
+The initial registered change pilot is not the full cofounder design or a claim
+of production readiness. No commits/pushes made.
+
+## Registered-object persistence and evidence (2026-10-04)
+
+RegisteredObjectMonitor now saves a compressed, non-pickle NPZ reference with
+camera ID, source fingerprint, object name, rectangle and median reference image.
+Writes use a sibling temporary file and atomic replacement. Loading rejects
+camera/source mismatches and requires explicit approved=True; caller must enforce
+operator authorization and safe paths. This is not an exposed API or UI yet.
+
+First confirmed appearance-change transition includes immutable PNG bytes showing
+REGISTERED REFERENCE and CURRENT - CHANGE REQUIRES REVIEW with marked regions.
+Subsequent checks do not repeat evidence emission. Tests cover persistence,
+camera binding, frozen evidence and long occlusion; 38 focused tests pass.
+No new model inference, no live application changes, no real-footage accuracy
+claim. Next: runtime integration, authenticated registration UI and safe reference
+storage ownership, jitter alignment, then visible live acceptance testing.
+
+## Registered-object foundation, Pipeline A (2026-10-04)
+
+Approved direction: reference-based registered regions first, automatic static
+object discovery later. Added cvti/detector/registered_object.py and focused
+tests. This is an isolated backend primitive, NOT integrated into CameraState,
+API, registration UI, persistence or incident pipeline yet.
+
+Explicit registration accepts 3-5 stable unobstructed BGR frames plus a rectangle.
+Stores a median reference and edge map. Checks region-relative person coverage,
+brightness-normalized appearance difference and edge retention; both must fall
+before a consecutive visible confirmation timer emits one change transition.
+No YOLO object label, embedding or new model call is required. It does not claim
+removal, movement classification, ownership or theft. No automatic reference
+adaptation/rearming; operator review and registration are required.
+
+Frame gaps, timestamp rollback, missing person inference, geometry changes,
+broad appearance changes and >30-second occlusion require explicit revalidation.
+Brief occlusion restarts confirmation (conservative departure from paused timers).
+35 focused tests passed including existing object-state tests. These are synthetic
+logic tests, not real-footage accuracy validation. Still pending: alignment/jitter
+handling, evidence/incident integration, reference persistence, registration UI,
+real footage tests and performance measurement. No live app behaviour changed.
+
+## KPI 9 model comparison (2026-10-04)
+
+Extended scripts/check_kpi9_detection.py with source/model/image-size/output
+arguments and inference timing. Ran the same 55 one-Hz samples at confidence
+0.4: YOLOv8n/512 had zero bag detections (24.8 ms mean inference), n/1280
+zero (81.6 ms), s/1280 one (156.3 ms). Visually inspected s/1280 at 31 seconds:
+the suitcase box is on the right-side bench, not the target bag near the top.
+Thus the sole positive is a false detection, not an improvement. Timings are
+isolated CPU runs, not a concurrent-stream benchmark or guaranteed throughput.
+
+Downloaded test-only YOLOv8s from the official asset URL:
+https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt
+Stored under runs/chi_validation/scenarios/09_object_state/yolov8s.pt; no
+production model/config was changed. Comparison evidence lives in sibling
+detection_probe_512_timed, detection_probe_1280, detection_probe_s1280 folders.
+Next: clearer supported-object footage or a validated object proposal approach.
+No end-to-end desktop KPI 9 pass; original bag remains undetected in this sample.
+
+## KPI 9 detection prerequisite checkpoint (2026-10-04)
+
+Moved to object-left/removed validation while retaining KPI 10 limitations.
+Inspected the CAVIAR LeftBag_PickedUp contact sheet and ran the actual local
+YOLOv8n model at confidence 0.4, image size 512, CPU, sampling once per second.
+Result: zero bag-class detections (suitcase/backpack/handbag) in 55 samples.
+This is NOT a negative-event pass: the object-state monitor lacks observed bag
+presence on this footage at these settings. One-Hz sampling does not establish
+that every frame would miss. No desktop/VLM validation was run for KPI 9 yet.
+
+Reproduce: `MPLCONFIGDIR=/private/tmp <venv-python> scripts/check_kpi9_detection.py`.
+Evidence: `runs/chi_validation/scenarios/09_object_state/detection_probe/`
+contains results.json and timestamp-indexed sample images. Script is reusable.
+Next: evaluate bag detection on clearer footage or a stronger detector with
+visual false-positive checks, then configure the monitored position and run the
+actual desktop placement/removal test. Do not lower confidence merely to force
+an alert, and do not claim generic CHI carton support from COCO bag classes.
+
+## Visible three-camera rerun (2026-10-04, 20:26 Lagos)
+
+Ran `node scripts/chi-kpi10.mjs --three` from Frontend in the actual Electron
+app with the local engine. Evidence is under
+`runs/chi_validation/scenarios/10_concealment/evidence/2026-10-04T19-26-28.217Z/`.
+The harness stopped monitoring and closed the app after the run.
+
+Final snapshot: seven assessments completed, zero confirmed, three requiring
+review, four rejected, zero errors, five pending; median verification latency
+21.8 seconds (not end-to-end queue latency). retail_1 generated incidents 34-36,
+all review-required; four duplicates suppressed. retail_2 had four rejections
+and five admitted candidates without a final result, no fresh incidents. The
+quiet-shop control had no candidates or incidents, but is a weak negative.
+
+Inspected monitoring-8.png: three fresh retail_1 cards use the requested Argus
+review wording. Older retail_2 cards remain visible below them; the queue total
+36 is historical, not this run's alert count. checkpoint-summary.json isolates
+fresh results. No accuracy pass: repeated playback incidents remain, retail_2
+misses/backlog remain, and none of the completed assessments confirmed concealment.
+
+## Repeat-alert cooldown correction (2026-10-04)
+
+AlertQueue now measures cooldown and cache expiry using an injectable monotonic
+runtime clock, not the video's source timestamp. Replayed media cannot suppress
+the same track forever after a rewind, or bypass cooldown by jumping forward.
+The existing camera/rule/track/zone/object identity key remains intact, so other
+people and cameras are not suppressed together. Duplicate arrivals do not extend
+the cooldown. Source timestamps remain available for evidence.
+
+Verified 52 focused Python tests (serving, queue arrival/cooldown, concealment
+review). No additional model calls or image processing; no live desktop rerun
+for this change. This is a clock-correctness fix, NOT cross-track incident
+consolidation: changed IDs and separate replays can still create more incidents.
+Do not claim the retail_2 four-versus-one imbalance is fully resolved.
+
+## Customer assessment cleanup (2026-10-04)
+
+Removed the expandable technical assessment from IncidentDetails. Concealment
+review incidents show the concise Argus review message and "Review required"
+("Reviewed" after resolution). Original assessment reasons remain in backend
+records and evidence for diagnostics; no detector, inference or streaming changes.
+Verification: five focused frontend tests passed, including rendered incident
+markup that excludes technical reasons; production/Electron compilation passed.
+No live model rerun was performed for this presentation-only change.
+
+Repeat-alert consolidation remains pending. Current dedup uses tracking IDs;
+looping clips or changed IDs can yield repeated incidents. Do not replace this
+with camera-wide suppression that could hide another person's activity.
+
+## Client-facing copy and queue-order fix (2026-10-04)
+
+User requested concise product copy instead of internal VLM diagnostics. Incident
+cards/details now show: "Argus has flagged possible product concealment. Please
+review the recorded clip." Technical/structured observations remain expandable
+under Assessment details; inconclusive badge and backend review state are retained.
+Applies to existing review entries as well; historical DB rows are not rewritten.
+
+Diagnosed retail_1 starvation: AlertQueue sorted equal-priority alerts by source
+timestamp. Short looping retail_2 clip continually submitted low timestamps before
+retail_1's18s candidates. Accepted alerts now use priority then lock-protected
+monotonic admission sequence. Critical priority still preempts; equal-priority
+capacity retention and draining are FIFO. No extra inference or stream changes.
+Dedup policy is unchanged; queue capacity/throughput remains limited by VLM speed.
+48 focused Python tests and4 frontend tests passed; desktop build succeeded.
+
+Actual3-camera rerun: `runs/chi_validation/scenarios/10_concealment/evidence/2026-10-04T14-06-17.464Z/`.
+New retail_1 review incident29 persisted15:07:45 Lagos, retail_2 incident30 at
+15:08:31. This verifies retail_1 now reaches the verifier, not successful theft
+classification. See saved health/report for final counters. No commit/push.
+
+## Three-camera KPI10 checkpoint; moving to KPI9 (2026-10-04)
+
+User requested a bounded3-camera run then moving on. Completed180s real Electron
+YOLO/Ollama test on existing theft_shop_01/02 and newly downloaded official CAVIAR
+WalkByShop1front20s quiet-shop excerpt. Full download timed out; partial source
+decoded to a standalone MP4, with provenance/contact sheet under
+`runs/chi_validation/caviar/WalkByShop1front_excerpt.*`. No redistribution approval.
+
+Evidence: `runs/chi_validation/scenarios/10_concealment/evidence/2026-10-04T10-45-49.825Z/`.
+8 gate outcomes:0 confirmed,1 review_required,7 rejected,0 errors,9 pending;
+median19.46s. All completed outcomes belonged to retail_2. retail_1 generated
+candidates but had no completed verdict by cutoff. Quiet-shop control:0 candidates,
+0 incidents. All3 feeds connected, ingest24fps,1734 processed frames. No accuracy
+claim: user-labelled concealment remains unresolved and queue backlog/fairness is
+an additional scalability gap. Do not count historical sidebar alerts as new.
+Reproduce: prepare_kpi10_test.py then Frontend `node scripts/chi-kpi10.mjs --three`.
+Per-run scoring: scripts/summarize_kpi10_checkpoint.py <evidence-dir>.
+
+Move to KPI9 object left/removed; do not continue tuning KPI10 without a new
+request. Existing CAVIAR LeftBag_PickedUp.mpg54.48s has a prepared/inspected
+source review sheet under scenarios/09_object_state. Next: zone setup and real
+detector/VLM tests for placement/removal, plus occlusion negative. Read
+docs/CHI_KPI10_THREE_CAMERA_CHECKPOINT.md and docs/CHI_KPI9_OBJECT_STATE_HANDOFF.md.
+
+## Disputed concealment assessments remain reviewable (2026-10-04)
+
+User could not see any incident because structured validation rejected same-frame
+start/end references. Added a narrow third outcome, review_required, for a confident
+model-positive insertion assessment with same person/item, allowed destination,
+no stated visibility limitation, but identical valid full-frame start/end indices.
+It is NOT confirmed, NOT a transport error, and NOT an ordinary negative. Other
+rejections still do not persist. No lowered threshold or new inference call.
+
+The sink saves evidence and a NEEDS REVIEW explanation with unverified=1, but does
+not page external channels or escalate. API verdict is review_required; UI shows
+AI assessment inconclusive; camera notice is amber/inconclusive. Gate counters
+separate review_required from confirmed/rejected, and concealment audit records
+the new state. No DB migration: existing unverified and reason fields encode it.
+Critical concealment candidates use the transient notice, not critical provisional
+incident persistence. Review cases require actual operator review; they do not
+demonstrate successful concealment classification. Broader field validation remains.
+
+Actual desktop rerun evidence:
+`runs/chi_validation/scenarios/10_concealment/evidence/2026-10-04T10-29-36.364Z/`.
+See saved health for final counts. During run: 2 review_required, 0 confirmed,
+0 errors, median20.83s. Build passed; 63 focused Python and 5 frontend tests passed.
+The runner allows manual incident inspection without blocking cleanup. No push.
+
+## Structured concealment descriptions (2026-10-04, latest)
+
+Replaced the fixed disclaimer for NEW non-mock concealment verdicts with validated
+structured observations: action, destination (including waistband), same person/item,
+visible pocket opening, ordered full-frame indices and visibility limitation.
+`cvti/verification/concealment_assessment.py` renders bounded AI-qualified prose.
+Missing/malformed/contradictory observations reject; a crop cannot stand in for a
+later time step; false/string confirmed values cannot be upgraded. Single-image
+local/OpenAI-compatible adapters cannot establish a temporal sequence and reject.
+Raw observations remain in gate artifacts. New "Visual assessment (AI):" summaries
+are preserved by the frontend; historical records retain their prior fallback.
+This is consistency checking, NOT independent proof of the VLM's visual claims.
+
+No extra inference, frames, retries, token allowance, detector work or stream changes.
+Output limit remains existing max(192, configured COT/JSON budget), normally256
+with COT. No fabricated image timestamps: only supplied-frame indices are used;
+actual per-image timestamp plumbing and broader field validation remain future work.
+
+Real Electron/Ollama run:
+`runs/chi_validation/scenarios/10_concealment/evidence/2026-10-04T10-13-44.097Z/`.
+2 verified, 0 confirmed, 2 rejected, 0 errors, 0 pending at saved snapshot.
+Both model responses claimed insertion but cited start_frame=3/end_frame=3;
+correctly rejected as lacking temporal support. This remains a suspected miss
+on the user-labelled clip, NOT successful concealment recall. Median19.9s versus
+previous24.12s, 359 processed frames, ingest24fps, 0 stale drops/reconnects. Small
+uncontrolled run shows no slowdown, not a latency or fleet-scale guarantee.
+Frontend build passed. Existing checkpoint/training and held-out evaluation gaps
+remain. No commit or push.
+
+## Concealment assessment wording (2026-10-04)
+
+Prompt-only changes did not stop pocket hallucinations. Supported non-mock
+concealment verdicts now persist a cautious summary: possible concealment, exact
+item and hiding location unconfirmed, human review required. Original structured
+model claims remain in raw_response/gate artifacts, not silently rewritten.
+Frontend legacy concealment pocket claims use the cautious summary in incident
+details and attention cards, retaining original text in an expandable
+"Original AI assessment - may contain errors" section. Stored historical rows
+are unchanged. This is reporting hardening, NOT improved visual localization or
+evidence that waistband concealment was independently verified. Fail-visible and
+insufficient-evidence messages remain intact. 24 focused Python tests and 2 TS
+tests passed; production Electron/frontend build succeeded. Restart the desktop
+app to load the rebuilt renderer. No commit/push.
+
+## Timed concealment camera warnings (2026-10-04)
+
+Implemented camera-scoped transient notices separate from persisted incidents.
+Queued concealment candidates publish an amber "Possible product concealment /
+Unverified gesture - Verifying" warning. Successful non-error gate verdicts publish
+"Earlier activity - Review required"; rejection/error clears the matching notice.
+Notices expire eight seconds after creation, travel in cameras[].concealment_notice
+in existing health pushes (heartbeat adds delivery delay), and are independent of
+person-box visibility. Repeated health messages do not extend expiration. Existing
+sink retains verified incidents; UI product_concealment titles now say "Possible
+product concealment". No new confirmed incident is created by the notice itself.
+
+Prompt now explicitly distinguishes waistband/clothing from visible pocket openings
+and prohibits inventing product identity. IMPORTANT: actual rerun still said pocket;
+this prompt change is NOT a validated fix for destination hallucination. Existing
+incident assessments have not been rewritten.
+
+Build passed; 48 focused Python tests, 2 TS tests and 4 Playwright camera-stream
+checks passed. Actual Electron + Ollama run produced 2 confirmations, no errors,
+0 pending at saved snapshot, median24.12s. Captured both overlay stages alongside
+persisted incidents in:
+`runs/chi_validation/scenarios/10_concealment/evidence/2026-10-04T08-53-47.219Z/`.
+`notice-31.png` is verifying; `notice-55.png` is review-required. These are model
+verdicts, not independently validated true positives. Reproduce from Frontend with
+`node scripts/chi-kpi10.mjs --wig`; runner now captures notice transitions too.
+No commit/push performed.
+
+## KPI10 temporal fixes and final live checkpoint (2026-10-03)
+
+Latest work supersedes the earlier dense-sampling experiment below. Implemented
+elapsed-time dwell/persistence, 2.4s gesture history, a retraction requirement,
+four-second proposal cooldown, timestamp-rewind resets, chronological evidence
+from up to four seconds of replay history, and a concealment-specific prompt
+with structured insertion checks. Pose subject-box association is retained.
+111 focused tests passed; this is not a full CI or field-accuracy evaluation.
+
+Final actual Electron/local Ollama gemma3:4b single-wig-camera run:
+`runs/chi_validation/scenarios/10_concealment/evidence/2026-10-03T21-38-27.341Z/`.
+Saved health: 3 verified, 2 confirmed, 1 rejected, 0 errors, 0 pending,
+2 deduped, median gate latency 22.37s. These are model verdicts, NOT two validated
+true positives. One explanation incorrectly describes placing a mannequin into
+a pocket. The second retail clip also retains multi-actor confusion risk.
+Do not mark KPI10 production-ready. Structured fields cannot prevent a model
+from hallucinating the fields themselves. News captions are not ground truth.
+
+Reproduce after input preparation with `node scripts/chi-kpi10.mjs --wig` from
+Frontend; `--timed` runs both retail clips at test-only 4fps/heavy_stride=1.
+The runner stops monitoring and closes Electron after capturing evidence.
+Full diagnosis, commands, limitations and research:
+`docs/CONCEALMENT_RELIABILITY_HANDOFF.md`.
+Existing VideoMAE integration is present, but expected checkpoint
+`runs/video_finetune/videomae` is absent. Next milestone is a licensed,
+retail-trained temporal model plus held-out camera/store evaluation including
+normal shopping, clothing adjustment and bag-carrying negatives. No push made.
+
+## KPI10 corrected-crop live rerun (2026-10-03)
+
+Completed 120s visible Electron run with --dense (test-only target8fps,
+heavy_stride1, thresholds unchanged). Evidence:
+`runs/chi_validation/scenarios/10_concealment/evidence/2026-10-03T21-14-38.415Z/`.
+Gate snapshot: 5 verified, 3 confirmed, 2 rejected, 0 errors, 211 deduped,
+12 pending, median18.65s. All new confirmations retail_2. Reasons only describe
+touching waist/holding bag/object, not visible product insertion. DO NOT count
+these confirmations as true-positive concealment. retail_1 still no confirmed
+alert. Memory guard reduced target8fps to4. Dense sampling is not a validated fix.
+Actual gate JSON now includes pose subject_bbox. Two added serving regression
+tests pass for colliding ByteTrack IDs and absent pose boxes (full frame only).
+Runner archives gate files; monitor.log is cumulative, so old entries are NOT
+new results. No production cadence/threshold changes. Next work must address
+temporal scoring/candidate volume AND VLM acceptance of insufficient evidence.
+
+
+## KPI10 miss investigation (2026-10-03, latest)
+
+User confirms concealment in BOTH retail clips. Treat missing alerts as
+suspected misses, not clean negatives. Original gate inputs preserved in
+`runs/chi_validation/scenarios/10_concealment/trace/original-gate/`.
+Inspected gate frames show early walking; gate_0001 candidate timestamp 3.0697s.
+Review sheets cover retail_1 8-20s and retail_2 4-10s. Exact ground truth still
+needs event-level review; captions are not labels.
+Controlled offline 8fps/heavy_stride=1 (unchanged .63 threshold) recovered
+retail_1 candidates at 18.13-19.2s and later 26.27-28.8s/30.4s, max score .865.
+Retail_2 candidates remain early at 3.60/3.74s, max .713. More sampling alone
+does not solve both. Frame-count dwell/persistence makes score cadence-sensitive.
+Production cadence unchanged; comparison saved as pose-probe-8fps.json.
+Fixed independent evidence association defect: ConcealmentAssessment now carries
+subject_bbox through event metadata; serving uses that pose bbox, not a possibly
+colliding ByteTrack ID or largest unrelated person. Missing pose box leaves full
+frame evidence rather than guessing a subject. 61 related tests passed.
+Not yet rerun end-to-end after this fix. KPI10 remains open, no positive VLM
+verification claimed. Next: review actual action intervals, test cadence-aware
+scoring against benign gestures, rerun evidence verification with correct subject.
+
+
+## KPI10 first visible test (2026-10-03)
+
+Ran Electron with two existing retail videos, real YOLO/YOLO-pose and Ollama
+gemma3:4b for 120 seconds. Evidence under
+`runs/chi_validation/scenarios/10_concealment/evidence/2026-10-03T21-01-44.331Z/`.
+Two candidates verified, both rejected as walking/hand at waist, zero confirmed,
+zero gate errors, median gate latency 18.69s. Not a KPI10 acceptance pass.
+No production thresholds changed. Separate test rule asks for product
+pocketing/bagging evidence, not criminal intent. Old KPI5 events remain in DB.
+Offline probe: retail_1 max score .588 (<.63 threshold), retail_2 .763 but no
+sustained candidate; pose coverage exists. Live and offline sampling differ.
+Replay: run scripts/prepare_kpi10_test.py with the project Python, then from
+Frontend run `node scripts/chi-kpi10.mjs`. It stops after 120s and saves evidence.
+23 concealment/entrypoint tests passed. Next: label clear event intervals and
+normal-handling controls; assess temporal sampling before changing thresholds.
+
+
+## KPI5 real CAVIAR checkpoint (2026-10-03, latest)
+
+Downloaded Meet_Crowd.mpg + mc1gt.xml into runs/chi_validation/caviar.
+Real Electron/local-engine/Ollama run confirmed simultaneous movement at 0.95;
+evidence: scenarios/05_multiple_people_moving/evidence/real-crowd/2026-10-03T20-31-18.768Z
+under runs/chi_validation. monitoring-2.png captures the new alert.
+Offline sequential probe saw max four movers and candidate at 9.12s; single
+walker control had none. Memory guard lowered live inference 960 -> 320 and
+VLM took 43.92s. No production tuning. See validation document for replay.
+IMPORTANT: annotations show walking, not sustained stationary groups. This is
+an additional positive check; requested real stationary-group negative remains
+unfinished. Do not call the earlier frozen control a real stationary test.
+
+## KPI5 negative-control checkpoint (2026-10-03, latest)
+
+Real Electron/local-engine negative run finished with 436 frames processed,
+zero queued alerts, zero context suppressions. No VLM verdict needed because
+no candidates were generated. Existing sidebar event is the earlier positive
+crowd_walk event, NOT a negative-test false alarm; same isolated validation DB.
+
+Independent sequential real-model probes:
+- Walk1.mpg: 51 samples, 21 with tracks, 15 with movers, max1 track/mover,
+  zero candidates. 24.48s source; sampled coverage is not recall.
+- Frozen first frame of normal_street_01.mp4 encoded for30s: 63 samples,
+  all with tracks, max38 tracks, zero movers/candidates. SYNTHETIC frozen-frame
+  control, not natural stationary people (no sway/camera jitter/occlusion).
+
+Evidence: runs/chi_validation/scenarios/05_multiple_people_moving/evidence/
+negative-controls/2026-10-03T20-14-23.679Z/ with screenshots, config and health.
+Counts: runs/chi_validation/scenarios/05_multiple_people_moving/negative-probe.json.
+Runner reuses IDs: street_two=single walker, retail_walk=frozen group in this
+negative config ONLY. Other two feeds are observation-only for KPI5.
+Reproduce from Frontend: `node scripts/chi-three-videos.mjs --four --kpi5 --negative`.
+Remaining: natural stationary-group footage, partial movement within a group,
+occlusion/camera-motion negatives and permitted-zone tests. No full KPI5 or
+cross-client acceptance claim; no detector tuning was needed in this checkpoint.
+
+## Deployment generalization backlog and next KPI (2026-10-03)
+
+First KPI5 desktop checkpoint completed: real four-camera run with the
+simultaneous-movement rule enabled only on crowd_walk. Ollama gemma3:4b
+confirmed chi_multiple_people_moving at confidence0.90. Evidence directory:
+runs/chi_validation/desktop/events/20261003_210459_crowd_walk_chi_multiple_people_moving.
+Screenshots/log/config: runs/chi_validation/scenarios/05_multiple_people_moving/
+evidence/four-videos/2026-10-03T20-03-38.303Z/. 31 motion tests pass, including
+single-person and stationary-group negatives. Video negative cases not yet run;
+this is one positive checkpoint, not overall acceptance. Reproduce with
+`node scripts/chi-three-videos.mjs --four --kpi5` from Frontend.
+
+User agreed to record broad deployment concerns for future work and proceed
+to KPI 5 (simultaneous movement). This is permission to continue testing, NOT
+acceptance of perfect KPI 4 coverage or readiness across client sites.
+
+Reusable: global/per-camera overlay controls, detection-only overlays,
+exact-frame display mode and configurable inference. Camera-specific: CAVIAR
+YOLOv8s/-60 degree/confidence0.5 calibration; never apply globally by default.
+No furniture/person-location masks were hardcoded. Increased box coverage can
+expose false detections; exact-frame display reduces smoothness, not model error.
+
+Future production work (not implemented/validated yet):
+- Camera-quality checks during onboarding: darkness, small people and oblique views.
+- Conservative defaults with explicit, optional camera calibration.
+- Operator choice of smooth video versus exact-frame annotated video.
+- Unseen multi-environment footage and varied-hardware validation measuring
+  misses, false detections, identity stability, latency and sustained throughput.
+- Acceptance criteria agreed with clients before claiming broad reliability.
+
+Next checkpoint: KPI 5 requires at least two persistent, independently tracked
+movers, not merely several visible people. Verify positive and negative cases;
+ordinary simultaneous movement is operational telemetry, not inherently a threat.
+Existing chi_pilot_v1.json high-priority rule is a test rule, not a blanket
+production safety policy. Do not conflate this KPI with crowding or panic.
+
+## Crowd box alignment and repeatable demo (2026-10-03, latest)
+
+User reported boxes no longer pinpoint on crowd_walk. Found smooth publishing
+was drawing last-inference boxes on newer decoded images. Delay includes both
+the 2fps sampling interval AND inference latency; earlier ~200ms comment was
+incorrect. Added optional camera `box_display: "synchronized"`, enabled only
+on crowd_walk in the isolated four-camera configuration. With a tracking viewer,
+smooth publication skips that camera and inference publishes its exact source
+frame with its matching overlays. With boxes off, smooth publishing resumes.
+View-only cameras and other cameras retain their existing behavior.
+
+Tradeoff: annotated video updates at detector cadence (~2fps or less), with
+processing latency, rather than smooth 24fps. Raw viewers of that same camera
+also receive sampled cadence while ANY tracking viewer is connected. This
+fixes temporal drift, not every YOLO localization/miss. No FPS/model/threshold
+changes in this step; CAVIAR correction and nighttime setup retained.
+
+Evidence: runs/chi_validation/scenarios/04_normal_movement/evidence/four-videos/
+2026-10-03T19-45-34.601Z/. monitoring-1.png visually checked for crowd alignment.
+70 existing serving/publisher tests and 3 new synchronization tests passed.
+Top-level DEMO_FOUR_CAMERAS.md contains the coworker demo command:
+from Frontend run `node scripts/chi-three-videos.mjs --four --demo`.
+Demo mode starts the real engine and remains open until the window closes;
+operator should Stop monitoring first. Without --demo, automated testing closes
+after screenshots and toggle checks. Existing isolated credentials used, never
+printed. See the guide for local prerequisites; ignored clips/models not bundled.
+
+## CAVIAR camera-specific correction (2026-10-03, latest)
+
+User correctly identified wide-angle/oblique CAVIAR view and false boxes on
+furniture. Official data is 384x288 wide-angle imagery. Compared original and
+rotated views with YOLOv8n and official pretrained YOLOv8s. Simple rotation
+alone is insufficient; the selected setting combines YOLOv8s, -60 degrees and
+confidence 0.5 ONLY on caviar_pair. Nighttime/retail/crowd settings unchanged.
+No retraining and no replacement of default model. Small weights downloaded
+to ignored `runs/chi_validation/yolov8s.pt` (not bundled or committed).
+
+New `cvti/serving/camera_inference.py` accepts optional per-camera
+`detection_inference` with weights, rotation_degrees, confidence. Models cached
+once, local files required, detection class maps must match shared model.
+Only inference is rotated; inverse mapping restores original image dimensions
+and box coordinates before tracking, zones, evidence and rendering. This is
+orientation compensation, NOT calibrated lens undistortion. Restart required.
+
+Evaluation against published mwt1gt.xml at lenient IoU >=0.3, greedy one-to-one
+matching, every 50th frame: before 3 TP /3 FP /16 FN, after 13 TP /0 FP /6 FN.
+Interleaved samples offset25: before 1 TP /4 FP /16 FN; after 11 TP /0 FP /6 FN.
+Small same-video diagnostic samples, not full accuracy certification. CAVIAR
+annotation does not cover every stationary person; unmatched is not necessarily
+false. Inspect screenshots as well. Frame 0 calibration set includes prior
+parameter selection; offset25 is a same-video check, not independent footage.
+
+Actual four-camera Electron run: evidence/four-videos/2026-10-03T19-24-57.664Z
+under runs/chi_validation/scenarios/04_normal_movement/. monitoring-0.png
+shows both CAVIAR people boxed; monitoring-1.png has no furniture boxes in the
+empty scene. Both switch scopes passed. Final focused regression suite: 123
+passed, including numpy and tensor result coverage. KPI4 still partial due to
+remaining misses and sampled-frame limitations. Do not declare all KPIs passed.
+
+## Four-camera coverage investigation (2026-10-03, latest)
+
+Real Electron/local-engine tests ran normal_street_02, theft_shop_01,
+CAVIAR Meet_WalkTogether1 and the earlier normal_street_01 crowd clip together.
+Missing boxes had two causes: weak raw YOLO detections at desktop 512px/0.4,
+and detections excluded from the display while ByteTrack had no stable ID.
+Added validated optional site `inference` settings (imgsz, confidence,
+target_fps), leaving desktop defaults unchanged. Test uses 960px/0.25/2fps.
+Normal-movement display now includes unmatched current detections as neutral
+PERSON boxes, without treating them as tracks/movement/events. Publisher keeps
+these out of track-ID metadata. Explicit permitted-zone views retain tracked
+membership filtering. 112 focused regression tests passed.
+
+Final evidence: `runs/chi_validation/scenarios/04_normal_movement/evidence/`
+`four-videos/2026-10-03T18-57-56.508Z/` (screenshots, site config, monitor log).
+Global and individual switches passed the actual desktop test. Crowd coverage
+improved markedly (one log sample: raw=40, tracked=32, overlays=40); retail
+boxes appear. These counts are NOT recall. Nighttime and CAVIAR recall remain
+poor; the final CAVIAR screenshot includes a likely false detection. Smooth
+preview vs sampled inference also needs temporal alignment review for moving
+subjects. KPI 4 remains PARTIAL; do not advance to KPI 5 acceptance yet.
+No production defaults or models were replaced; nothing committed/pushed.
+
+## Discoverable person-box controls (2026-10-03)
+
+Replaced hidden tracking dropdowns with labelled Person boxes switches in
+Overview and streams-only wall. All-camera switch updates the saved global
+preference and clears camera overrides; individual switches remain session-only.
+No monitoring calls are made by these display controls. Build, 16 focused unit
+tests and two browser interaction regressions passed. Actual Electron run
+verified individual isolation and global reset using normal_street_02,
+theft_shop_01 and CAVIAR Meet_WalkTogether1. Evidence:
+`runs/chi_validation/scenarios/04_normal_movement/evidence/three-videos/`.
+Streams played and controls passed, but sampled screenshots do not prove
+consistent detection coverage. Memory guard reduced sampling 4 -> 2 FPS.
+Do not mark these clips as detection acceptance passes. KPI 5 remains next,
+with single-video testing preferred under this machine's memory pressure.
+
+## KPI 4 perspective and overlay correction (2026-10-03)
+
+User's screenshot corrected the earlier blanket claim of no boxes: foreground
+boxes did appear. Diagnosed frame-diagonal speed normalization suppressing
+distant movement, plus overlays excluding observed tracks not yet moving.
+Serving now enables bounded person-height compensation in PersonMotionTracker;
+default standalone tracker semantics remain unchanged. Normal-movement overlay
+shows observed permitted tracks as TRACKED (neutral) or MOVING (green). Missing
+tracks stay hidden; simultaneous-movement alerts still require moving state.
+Panic/running detector unchanged.
+
+Same detections/tracks across first 500 source frames: upper-half moving
+track-observations 54 -> 209; lower-half 85 -> 241. These are not accuracy/recall
+metrics. 66 focused tests passed including distant movement, small jitter and
+neutral-track visibility. Real desktop screenshot:
+`runs/chi_validation/scenarios/04_normal_movement/evidence/2026-10-03T18-18-02.476Z/02-monitoring-1.png`.
+Shows multiple middle/upper-middle boxes; smallest far-top people remain a
+detector-resolution limitation. Do not claim all people detected or full KPI 4
+acceptance (permitted-zone test still pending). Changes are local/unpushed.
+
+## Visible KPI 4 desktop checkpoint (2026-10-03)
+
+User requires scenario-by-scenario testing in the actual app with screenshots.
+Ran normal_street_01 in Electron with local monitoring using isolated chi_test
+profile. Preview and monitoring startup worked; explicit Show tracking setting
+still yielded no visible boxes. Do not mark KPI 4 passed. Scene remained
+ready_unreviewed; permitted-area polygon not yet configured. Evidence and result
+are in `runs/chi_validation/scenarios/04_normal_movement/` (ignored test artifacts).
+Next task is diagnose missing boxes, not move straight to KPI 5.
+
+## CHI validation checkpoints (2026-10-03)
+
+See `docs/CHI_VALIDATION_2026_10_03.md` for real-video diagnostics and limits.
+CAVIAR clips downloaded; local Ollama pipeline executed; Electron startup and
+frontend build exercised in an isolated profile. Weak raw detection on the
+small CAVIAR subjects, unsupported mapper environment classification and zero
+concealment candidates on the two retail probes prevent a pilot-ready claim.
+No real SigLIP matching or KPI 9 video acceptance has been established.
+
+## CHI KPI 9 implementation (2026-10-03)
+
+Local branch `feat/chi-object-state-events`, based on Ayo's `adf0e6b`:
+added opt-in `object_state_zones` monitoring for generic objects left in an
+initially empty zone or removed from a stable observed position. Serving routes
+candidates through customization rules and the existing verification gate with
+labelled before/after evidence. Source/inference resets, occlusion, frame gaps
+and ambiguous detections suspend or reset decisions. Existing SigLIP
+reference-identification remains separate and unchanged.
+
+See `docs/CHI_KPI9_OBJECT_STATE_HANDOFF.md` for configuration, scope and manual
+acceptance. Policies currently require JSON; no new frontend editor. Synthetic
+tests do not establish real-world accuracy. CHI cartons require actual detector
+support; this does not implement specific-product disappearance tracking.
+This entry records local implementation, not a merged or deployed release.
+Verification: 66 focused tests passed across object-state zones, serving,
+object-watch serving and verification artifacts; `git diff --check` passed.
+No live-camera or real-VLM acceptance run has been performed for this change.
+
 ## Object identification: product clarification and readiness
 
 ### Current corrected implementation and local pretrained smoke (2026-09-16)

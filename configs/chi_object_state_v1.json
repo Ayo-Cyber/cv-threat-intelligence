@@ -1,0 +1,15 @@
+{
+  "use_case_id": "chi_object_state_v1",
+  "rules": [
+    {
+      "name": "chi_object_left_in_walkway",
+      "trigger": {"detector": "object_state", "state": "object_left_behind", "zone": "walkway"},
+      "priority": "medium"
+    },
+    {
+      "name": "chi_object_removed_from_position",
+      "trigger": {"detector": "object_state", "state": "object_removed", "zone": "storage_position"},
+      "priority": "high"
+    }
+  ]
+}

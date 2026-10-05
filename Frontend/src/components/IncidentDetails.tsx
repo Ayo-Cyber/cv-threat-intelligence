@@ -9,6 +9,7 @@ import {
   type ClipReply,
 } from "../lib/evidence";
 import { Badge, Notice, Spinner } from "./common";
+import { incidentAssessment } from "../lib/incident-assessment";
 export default function IncidentDetails({
   event,
   api,
@@ -70,10 +71,12 @@ export default function IncidentDetails({
     }
   }
   const problem = playbackProblem(clip, videoFailed);
+  const assessment = incidentAssessment(event);
   return (
     <>
       {error && <Notice error>{error}</Notice>}
       <div className="context-status">
+        {event.reason?.startsWith("NEEDS REVIEW:") && <Badge tone="amber">{done ? "Reviewed" : "Review required"}</Badge>}
         <Badge
           tone={event.priority.toLowerCase() === "critical" ? "red" : "amber"}
         >
@@ -114,7 +117,7 @@ export default function IncidentDetails({
       </div>
       <h3>Verification assessment</h3>
       <p className="assessment">
-        {event.reason || "No assessment supplied by the engine."}
+        {assessment.summary}
       </p>
       <dl className="facts">
         <dt>Camera</dt>
