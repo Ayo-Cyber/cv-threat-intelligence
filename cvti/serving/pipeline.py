@@ -805,10 +805,15 @@ class MultiStreamPipeline:
         # Per-track zone membership for the off-path scanners (PPE policy is
         # per zone). Cheap: the camera state already computed it this frame.
         self.latest_zones[frame.camera_id] = dict(getattr(state, "_zones_by_track", None) or {})
+        # The PPE scanner reads these boxes too. They used to be recorded only
+        # when a frame publisher existed, so an engine started with
+        # --no-publish-frames (the CI KPI harness, any headless run) fed the
+        # scanner frames with no people in them: "people_seen: 0" on a clip
+        # full of workers, and never a violation (5 Oct, KPI 12 run).
+        boxes = [(tid, *box) for tid, box in
+                 (getattr(state, "_box_by_track", None) or {}).items()]
+        self.latest_boxes[frame.camera_id] = boxes
         if self.publisher is not None:
-            boxes = [(tid, *box) for tid, box in
-                     (getattr(state, "_box_by_track", None) or {}).items()]
-            self.latest_boxes[frame.camera_id] = boxes
             if alerts:
                 self.publisher.mark_alerting(
                     frame.camera_id, _alert_track_ids(alerts))
