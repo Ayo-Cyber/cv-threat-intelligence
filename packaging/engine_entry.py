@@ -47,5 +47,10 @@ if __name__ == "__main__":
                 shutil.copyfile(_src, _dst)
         except Exception:  # noqa: BLE001 - seeding is best-effort; the rule
             pass           # falls back to the VLM path, visibly, if it fails
+    # The app process ships without torch/transformers (they ride in this
+    # bundle), so the recognition-model load test runs here on request.
+    if len(sys.argv) > 1 and sys.argv[1] == "object-watch-smoke":
+        from cvti.object_watch.smoke import main as smoke_main
+        sys.exit(smoke_main(sys.argv[2:]))
     from cvti.serving.pipeline import main
     main()

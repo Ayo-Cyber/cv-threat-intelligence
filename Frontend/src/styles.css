@@ -2962,6 +2962,7 @@ fieldset:disabled {
 
 .verifier-download { display: flex; flex-direction: column; gap: 10px; }
 .verifier-download .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.recognition-download { margin-top: 10px; display: grid; gap: 8px; }
 .verifier-progress { width: 100%; height: 8px; }
 
 .notify-setup { display: flex; flex-direction: column; gap: 14px; }
