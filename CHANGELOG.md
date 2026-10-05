@@ -4,6 +4,16 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.9.2 — 5 Oct 2026
+
+**PPE checks run whether or not anyone is watching the cameras.** The PPE
+scanner only received the people in frame while the live picture was being
+published. Headless runs, including the automated checks, handed it empty
+frames: a yard full of workers with no hard hats and never a violation. The
+people now reach the scanner in every mode. Found running the pilot's KPI set
+end to end, where the same clip then produced the missing-hard-hat alerts it
+should. This is the build for the pilot: every change from today's work is in it.
+
 ## v1.9.1 — 5 Oct 2026
 
 **Download AI installs the object-recognition model too.** Recognising a
