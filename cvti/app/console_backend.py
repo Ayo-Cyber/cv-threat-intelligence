@@ -457,7 +457,7 @@ class ConsoleBackend:
             from cvti.serving import discovery
             probe = discovery.probe_rtsp(url)
             if not probe["ok"]:
-                return {"error": probe["message"], "kind": probe["kind"]}
+                return {"ok": False, "error": probe["message"], "kind": probe["kind"]}
             out = onboarding.test_url(url)
             if out.get("error"):
                 out.setdefault("kind", "open-failed")
@@ -2151,7 +2151,7 @@ class ConsoleBackend:
         from cvti.diagnostics import build_bundle
         out_dir = Path(self.db_path).parent
         try:
-            path = build_bundle(out_dir)
+            path = build_bundle(out_dir, site_path=self.site_path)
         except Exception as exc:  # noqa: BLE001 - support tooling must not crash the app
             log.exception("diagnostics bundle failed", exc_info=True)
             return {"ok": False, "error": str(exc)[:200]}

@@ -51,6 +51,26 @@ class FakeWebSocket {
 }
 
 describe("ArgusApiClient", () => {
+  it("addresses slash-containing camera IDs through query aliases", async () => {
+    const net = fetchSequence([
+      response({ token: "t", user: { username: "a", role: "owner" } }),
+      response({ kind: "mjpeg", url: "http://127.0.0.1:9000/stream/camera" }),
+      response([]),
+      response({}),
+    ]);
+    const client = new ArgusApiClient("http://127.0.0.1:8787/api/v1", { fetch: net.fetch });
+    await client.invoke("sign_in", ["a", "password"]);
+    await client.invoke("camera_stream", ["SMB BAY 3/4", true]);
+    await client.invoke("remove_camera", ["SMB BAY 3/4"]);
+    await client.invoke("scene_context", ["SMB BAY 3/4"]);
+    for (const [i, suffix] of [[1, "/stream"], [2, ""], [3, "/scene"]] as const) {
+      const url = new URL(net.calls[i].url);
+      expect(url.pathname).toBe(`/api/v1/camera-by-id${suffix}`);
+      expect(url.searchParams.get("camera_id")).toBe("SMB BAY 3/4");
+    }
+    expect(new URL(net.calls[1].url).searchParams.get("tracking")).toBe("true");
+    expect(net.calls[2].init.method).toBe("DELETE");
+  });
   afterEach(() => {
     FakeWebSocket.instances = [];
     vi.useRealTimers();

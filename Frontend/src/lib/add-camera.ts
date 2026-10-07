@@ -8,6 +8,14 @@
  * value. This is the same shape as the pilot's "Finish setup wasn't
  * clicking" (#172): a control that refuses without saying why.
  */
+export function cameraTestMessage(result: Record<string, any> | null): string {
+  if (!result || result.error || result.ok !== true)
+    throw new Error(result?.error || result?.message || "Camera connection failed");
+  if (!(result.w > 0 && result.h > 0))
+    throw new Error("No video frame received. Check the stream address and camera credentials.");
+  return `Video received (${result.w} x ${result.h})`;
+}
+
 export function missingToAddCamera(fields: {
   id: string;
   source: string;

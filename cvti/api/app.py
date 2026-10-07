@@ -198,7 +198,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
     # ---- system -------------------------------------------------------------
     @app.get(f"{API_PREFIX}/system/health")
     async def health(principal=Depends(require_principal)):
-        return sources.read_health(_db())
+        return _health_snapshot()
 
     @app.get(f"{API_PREFIX}/system/info")
     async def info(principal=Depends(require_principal)):
@@ -210,6 +210,9 @@ def create_app(*, db_path: str = "runs/site/events.db",
 
     @app.get(f"{API_PREFIX}/monitor")
     async def monitor(principal=Depends(require_principal)):
+        return _monitor_state()
+
+    def _monitor_state():
         state = sources.monitor_state(_db())
         # The heartbeat file stays fresh for up to 30s after Stop, so the
         # header kept saying "monitoring" while the operator watched a Stop
@@ -229,6 +232,20 @@ def create_app(*, db_path: str = "runs/site/events.db",
                          phase=phase if phase.startswith("starting") else "starting")
         return state
 
+    def _health_snapshot():
+        doc = sources.read_health(_db())
+        state = _monitor_state()
+        # Polling and push must agree even before the child's first heartbeat
+        # or after it exits. A stale file must not undo the process owner's state.
+        doc["engine"] = {**(doc.get("engine") or {}),
+                         **{key: state[key] for key in ("running", "starting", "phase")}}
+        return doc
+
+    def _health_key(doc):
+        engine = doc.get("engine") or {}
+        return (doc.get("generated_at"), engine.get("running"),
+                engine.get("starting"), engine.get("phase"))
+
     # ---- cameras ------------------------------------------------------------
     @app.get(f"{API_PREFIX}/cameras")
     async def cameras(principal=Depends(require_principal)):
@@ -243,6 +260,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
     async def camera_presets(principal=Depends(require_principal)):
         return {}
 
+    @app.get(f"{API_PREFIX}/camera-by-id")
     @app.get(f"{API_PREFIX}/cameras/{{camera_id}}")
     async def camera(camera_id: str, principal=Depends(require_principal)):
         for c in sources.read_cameras(_site(), _db()):
@@ -283,6 +301,7 @@ def create_app(*, db_path: str = "runs/site/events.db",
         return sources.read_triage(_db())
 
     # ---- live video (transport descriptor) ----------------------------------
+    @app.get(f"{API_PREFIX}/camera-by-id/stream")
     @app.get(f"{API_PREFIX}/cameras/{{camera_id}}/stream")
     async def stream(camera_id: str, tracking: bool = False,
                      principal=Depends(require_principal)):
@@ -369,10 +388,11 @@ def create_app(*, db_path: str = "runs/site/events.db",
         db = _db()
         # Hydrate on connect (§16): one health + triage snapshot so the UI
         # paints without a separate poll.
-        await _send(ws, "health", sources.read_health(db))
+        initial_health = _health_snapshot()
+        await _send(ws, "health", initial_health)
         await _send(ws, "triage", sources.read_triage(db))
         last_id = sources.max_event_id(db)
-        last_health_gen = (sources.read_health(db).get("generated_at"))
+        last_health_gen = _health_key(initial_health)
         last_reviews = sources.review_states(db)
         try:
             while True:
@@ -386,9 +406,10 @@ def create_app(*, db_path: str = "runs/site/events.db",
                     db = _db()
                     last_id = sources.max_event_id(db)
                     last_reviews = sources.review_states(db)
-                    await _send(ws, "health", sources.read_health(db))
+                    switched_health = _health_snapshot()
+                    await _send(ws, "health", switched_health)
                     await _send(ws, "triage", sources.read_triage(db))
-                    last_health_gen = sources.read_health(db).get("generated_at")
+                    last_health_gen = _health_key(switched_health)
                 current = app.state.tokens.resolve(token)
                 user = accounts.user(principal.username)
                 if current is None or user is None or user.role != principal.role:
@@ -416,9 +437,9 @@ def create_app(*, db_path: str = "runs/site/events.db",
                             await _send(ws, "alert.update", got)
                 last_reviews = reviews
                 # health refresh
-                doc = sources.read_health(db)
-                if doc.get("generated_at") != last_health_gen:
-                    last_health_gen = doc.get("generated_at")
+                doc = _health_snapshot()
+                if _health_key(doc) != last_health_gen:
+                    last_health_gen = _health_key(doc)
                     await _send(ws, "health", doc)
         except WebSocketDisconnect:
             return

@@ -53,7 +53,9 @@ class BackendSelectionTest(unittest.TestCase):
             cv2.VideoCapture.assert_called_with(
                 "rtsp://cam/1", cv2.CAP_FFMPEG,
                 [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY,
-                 cv2.CAP_PROP_N_THREADS, 1])
+                 cv2.CAP_PROP_N_THREADS, 1,
+                 cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 8000,
+                 cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000])
 
     def test_live_decode_is_single_threaded(self):
         """OpenCV defaults the decoder to thread_count = CPU count, and H.264
@@ -89,7 +91,23 @@ class BackendSelectionTest(unittest.TestCase):
             capture.open_capture("rtsp://cam/1")
         fake_cv2.VideoCapture.assert_called_with(
             "rtsp://cam/1", fake_cv2.CAP_FFMPEG,
-            [fake_cv2.CAP_PROP_HW_ACCELERATION, fake_cv2.VIDEO_ACCELERATION_ANY])
+            [fake_cv2.CAP_PROP_HW_ACCELERATION, fake_cv2.VIDEO_ACCELERATION_ANY,
+             fake_cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 8000,
+             fake_cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000])
+
+    def test_software_retry_keeps_timeouts_and_releases_failed_capture(self):
+        fake_cv2 = mock.MagicMock()
+        failed, working = mock.MagicMock(), mock.MagicMock()
+        failed.isOpened.return_value = False
+        working.isOpened.return_value = True
+        fake_cv2.VideoCapture.side_effect = [failed, working]
+        with mock.patch.dict(sys.modules, {"cv2": fake_cv2}):
+            self.assertIs(capture.open_capture("rtsp://camera/stream"), working)
+        failed.release.assert_called_once()
+        params = fake_cv2.VideoCapture.call_args.args[2]
+        self.assertNotIn(fake_cv2.CAP_PROP_HW_ACCELERATION, params)
+        self.assertEqual(params[params.index(fake_cv2.CAP_PROP_OPEN_TIMEOUT_MSEC) + 1], 8000)
+        self.assertEqual(params[params.index(fake_cv2.CAP_PROP_READ_TIMEOUT_MSEC) + 1], 5000)
 
     def test_live_sources_request_a_one_frame_buffer(self):
         # The queue IS the latency: deeper on Windows, which is why the same

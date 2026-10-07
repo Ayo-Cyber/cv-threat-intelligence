@@ -98,9 +98,11 @@ class TestConnectionWebcam(unittest.TestCase):
 
     def test_urls_are_untouched(self):
         cv2 = _Cv2([_Cap()])
-        out = self._run("rtsp://user:pw@10.0.0.5:554/stream1", cv2, platform="win32")
+        with mock.patch("cvti.serving.capture.open_capture", return_value=_Cap()) as opened:
+            out = self._run("rtsp://user:pw@10.0.0.5:554/stream1", cv2, platform="win32")
         self.assertTrue(out.get("ok"), out)
-        self.assertEqual(cv2.calls, [("rtsp://user:pw@10.0.0.5:554/stream1",)])
+        opened.assert_called_once_with("rtsp://user:pw@10.0.0.5:554/stream1")
+        self.assertEqual(cv2.calls, [])
 
 
 if __name__ == "__main__":

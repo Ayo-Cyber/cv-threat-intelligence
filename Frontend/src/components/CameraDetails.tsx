@@ -418,7 +418,7 @@ export default function CameraDetails({
                   <h3>What should this camera watch for?</h3>
                   <p>Detector changes apply on the next monitoring start.</p>
                 </div>
-                {["Security", "Safety / HSE"].map((group) => (
+                {[...new Set(DETECTORS.map((detector) => detector.group))].map((group) => (
                   <section key={group}>
                     <h4>{group}</h4>
                     {DETECTORS.filter((d) => d.group === group).map((d) => (

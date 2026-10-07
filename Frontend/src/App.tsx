@@ -502,9 +502,11 @@ export default function App() {
             <p>
               {mode === "demo"
                 ? "Sample footage. No AI inference."
-                : ws.monitor.running
-                  ? "Monitoring process running."
-                  : "Monitoring is stopped."}
+                : ws.monitor.starting
+                  ? "Monitoring is starting."
+                  : ws.monitor.running
+                    ? "Monitoring process running."
+                    : "Monitoring is stopped."}
             </p>
             <span className="engine-line">
               <span
@@ -784,9 +786,11 @@ export default function App() {
                       <strong className="metric-word">
                         {mode === "demo"
                           ? "Demo"
-                          : ws.monitor.running
-                            ? "Running"
-                            : "Stopped"}
+                          : ws.monitor.starting
+                            ? "Starting"
+                            : ws.monitor.running
+                              ? "Running"
+                              : "Stopped"}
                         <Radio size={20} />
                       </strong>
                       <small>

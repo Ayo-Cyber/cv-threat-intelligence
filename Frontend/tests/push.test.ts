@@ -29,6 +29,20 @@ const workspace: Workspace = {
 };
 
 describe("push state reduction", () => {
+  it("retains authoritative stopped state and clears starting after warmup", () => {
+    const starting = applyPushEvent(workspace, {
+      type: "health", data: { engine: { phase: "starting", running: true, starting: true } },
+    });
+    expect(starting.monitor).toMatchObject({ running: true, starting: true });
+    const ready = applyPushEvent(starting, {
+      type: "health", data: { engine: { phase: "monitoring", running: true, starting: false } },
+    });
+    expect(ready.monitor).toMatchObject({ running: true, starting: false });
+    const stopped = applyPushEvent(ready, {
+      type: "health", data: { engine: { phase: "monitoring", running: false, starting: false } },
+    });
+    expect(stopped.monitor.running).toBe(false);
+  });
   it("merges new alerts by ID without duplicating replayed events", () => {
     const event = {
       type: "alert.new" as const,
