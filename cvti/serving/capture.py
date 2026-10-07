@@ -110,15 +110,24 @@ def open_capture(source: Any, *, low_latency: bool = True):
         if low_latency:
             # setdefault so an operator's explicit env var always wins.
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", _FFMPEG_LIVE_OPTS)
-        params = hw + live_params
+        # FFmpeg applies these at open time, not through cap.set(). Bound
+        # failed opens and reads so reconnect/preview shutdown can progress.
+        timeouts = []
+        for name, milliseconds in (("CAP_PROP_OPEN_TIMEOUT_MSEC", 8000),
+                                   ("CAP_PROP_READ_TIMEOUT_MSEC", 5000)):
+            if hasattr(cv2, name):
+                timeouts.extend([getattr(cv2, name), milliseconds])
+        params = hw + live_params + timeouts
         cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG, params) if params \
             else cv2.VideoCapture(src, cv2.CAP_FFMPEG)
-        if params and not cap.isOpened():
+        if hw and not cap.isOpened():
             # ANY should fall back internally; if a broken driver still
             # refuses the open, software decode beats no camera. Retry keeps
             # the single-thread ask — it is a latency fix, not an accelerator.
-            log.warning("hw-accelerated open failed for %s; retrying software", src)
-            cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG, live_params) if live_params \
+            log.warning("network capture open failed; retrying software decode")
+            cap.release()
+            software_params = live_params + timeouts
+            cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG, software_params) if software_params \
                 else cv2.VideoCapture(src, cv2.CAP_FFMPEG)
     else:
         # A file: same free decode upgrade (demo clips are video too).

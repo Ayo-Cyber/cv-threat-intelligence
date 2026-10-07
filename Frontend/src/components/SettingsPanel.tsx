@@ -14,6 +14,7 @@ import LocationManager from "./LocationManager";
 import NotificationSetup from "./NotificationSetup";
 import ObjectWatchlistManager from "./ObjectWatchlistManager";
 import SystemPanel from "./SystemPanel";
+import SupportDiagnostics from "./SupportDiagnostics";
 export default function SettingsPanel({
   api,
   mode,
@@ -69,6 +70,7 @@ export default function SettingsPanel({
   }
   return (
     <div className="settings-layout">
+      {mode === "engine" && auth.permissions.includes("view_diagnostics") && <SupportDiagnostics api={api} />}
       {mode === "engine" && <UsersPanel api={api} auth={auth} />}
       {mode === "engine" && <SystemPanel api={api} notify={notify} />}
       {error && <Notice error>{error}</Notice>}
@@ -134,7 +136,7 @@ export default function SettingsPanel({
               <strong>
                 {mode === "demo"
                   ? "No verifier connected"
-                  : gate.model || "Local verifier"}
+                  : "Argus AI verification"}
               </strong>
               <small>
                 {mode === "demo"

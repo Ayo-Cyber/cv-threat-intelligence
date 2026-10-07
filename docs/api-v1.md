@@ -326,6 +326,41 @@ existed for these. See `tests/test_ui_feature_parity.py`.
 | `update_site_context` | `PUT /site/context` | configure_site | shipped |
 # Registered Object Regions
 
+## Camera IDs Containing Slashes
+
+ASGI decodes percent-encoded slashes before route matching. Clients must use
+the query-addressed aliases below for IDs such as `SMB BAY 3/4`:
+`GET /camera-by-id/stream?camera_id=SMB%20BAY%203%2F4`.
+All aliases require a `camera_id` query parameter. Permissions, request bodies,
+responses and verbs are identical to the corresponding `/cameras/{camera_id}`
+route. Existing IDs and saved site files are not renamed. Other path parameters
+remain unchanged; these aliases solve camera-ID routing specifically.
+
+- `/camera-by-id` (GET, DELETE)
+- `/camera-by-id/stream`
+- `/camera-by-id/snapshot`
+- `/camera-by-id/registered-objects`
+- `/camera-by-id/registered-objects/{object_id}`
+- `/camera-by-id/registered-objects/{object_id}/recapture`
+- `/camera-by-id/links`
+- `/camera-by-id/area`
+- `/camera-by-id/zones`
+- `/camera-by-id/zones/{name}`
+- `/camera-by-id/zones/suggestions/{name}/accept`
+- `/camera-by-id/vehicle-line`
+- `/camera-by-id/rules`
+- `/camera-by-id/rules/custom`
+- `/camera-by-id/rules/custom/{name}`
+- `/camera-by-id/rules/question`
+- `/camera-by-id/object-watch/{object_id}`
+- `/camera-by-id/scene`
+- `/camera-by-id/scene/approve`
+- `/camera-by-id/scene/remap`
+- `/camera-by-id/threats`
+- `/camera-by-id/threats/{index}`
+
+## Region Operations
+
 | Method | Endpoint | Backend operation | Permission |
 | --- | --- | --- | --- |
 | GET | `/cameras/{camera_id}/registered-objects` | `registered_objects` | view_live |
@@ -341,4 +376,3 @@ returns status, not internal reference paths. Recapture requires operator
 confirmation that the object is visible. Engine restart requires recapture;
 references are never silently reactivated. Change incidents are subject to
 the existing VLM verification; they do not establish removal or theft.
-

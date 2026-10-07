@@ -83,6 +83,79 @@ class RealApiTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"{PREFIX}/events").status_code, 401)
         self.assertEqual(self.client.get(f"{PREFIX}/system/health").status_code, 401)
 
+    def test_slash_camera_can_be_read_previewed_and_deleted(self):
+        from unittest.mock import PropertyMock, patch
+        camera_id = "SMB BAY 3/4"
+        site = Path(self.app.state.site_path)
+        site.write_text(json.dumps({"cameras": [
+            {"id": camera_id, "source": "rtsp://example/stream"},
+            {"id": "KC Production 2", "source": "rtsp://example/other"},
+        ]}))
+        headers = self._auth()
+        params = {"camera_id": camera_id}
+        self.assertEqual(self.client.get(f"{PREFIX}/camera-by-id", params=params).status_code, 401)
+        read = self.client.get(f"{PREFIX}/camera-by-id", params=params, headers=headers)
+        self.assertEqual(read.status_code, 200, read.text)
+        self.assertEqual(read.json()["id"], camera_id)
+        host = self.app.state.backend_host
+        with patch.object(type(host), "engine_alive", new_callable=PropertyMock, return_value=False), \
+             patch.object(host, "call", return_value={"kind": "mjpeg", "url": "http://127.0.0.1:9000/stream/test"}) as call:
+            preview = self.client.get(f"{PREFIX}/camera-by-id/stream", params=params, headers=headers)
+            self.assertEqual(preview.status_code, 200, preview.text)
+            self.assertEqual(call.call_args.kwargs["camera_id"], camera_id)
+        deleted = self.client.delete(f"{PREFIX}/camera-by-id", params=params, headers=headers)
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual([c["id"] for c in json.loads(site.read_text())["cameras"]], ["KC Production 2"])
+
+    def test_query_camera_operations_require_an_id(self):
+        response = self.client.delete(f"{PREFIX}/camera-by-id", headers=self._auth())
+        self.assertEqual(response.status_code, 400)
+
+    def test_failed_rtsp_probe_is_an_api_error_not_success(self):
+        from unittest.mock import patch
+        headers = self._auth()
+        with patch("cvti.serving.discovery.probe_rtsp", return_value={
+            "ok": False, "kind": "auth", "message": "Wrong camera credentials",
+        }), patch("cvti.serving.onboarding.test_url") as decode:
+            response = self.client.post(f"{PREFIX}/cameras/probe", headers=headers,
+                                        json={"url": "rtsp://example/stream"})
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertEqual(response.json()["error"]["message"], "Wrong camera credentials")
+        decode.assert_not_called()
+
+    def test_all_camera_query_aliases_preserve_id_and_authorization(self):
+        from unittest.mock import patch
+        from cvti.api.writes import ROUTES
+        headers = self._auth()
+        for route in ROUTES:
+            if not route.path.startswith("/cameras/{camera_id}"):
+                continue
+            alias = route.path.replace("/cameras/{camera_id}", "/camera-by-id", 1)
+            for name in route.path_map:
+                alias = alias.replace("{" + name + "}", "example")
+            with self.subTest(route=route.path, method=route.verb), \
+                 patch.object(self.app.state.backend_host, "call", return_value={"ok": True}) as call:
+                denied = self.client.request(route.verb, PREFIX + alias, params={"camera_id": "SMB BAY 3/4"})
+                self.assertEqual(denied.status_code, 401)
+                call.assert_not_called()
+                response = self.client.request(route.verb, PREFIX + alias, params={"camera_id": "SMB BAY 3/4"}, headers=headers)
+                self.assertEqual(response.status_code, route.status, response.text)
+                if route.path_map.get("camera_id") is not None:
+                    self.assertEqual(call.call_args.kwargs["camera_id"], "SMB BAY 3/4")
+
+    def test_health_and_monitor_agree_before_first_heartbeat_and_after_stop(self):
+        from unittest.mock import PropertyMock, patch
+        headers = self._auth()
+        Path(self._tmp.name, "gate_health.json").unlink()
+        host = self.app.state.backend_host
+        for alive, phase in ((True, "starting"), (False, "stopped")):
+            with patch.object(type(host), "engine_alive", new_callable=PropertyMock, return_value=alive):
+                health = self.client.get(f"{PREFIX}/system/health", headers=headers).json()
+                monitor = self.client.get(f"{PREFIX}/monitor", headers=headers).json()
+            self.assertEqual(health["engine"]["running"], alive)
+            self.assertEqual(health["engine"]["phase"], phase)
+            self.assertEqual(health["engine"]["starting"], monitor["starting"])
+
     def test_index_is_self_describing_and_needs_no_auth(self):
         for path in ("/", PREFIX):
             r = self.client.get(path)

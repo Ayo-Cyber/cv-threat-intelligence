@@ -32,7 +32,10 @@ export function applyPushEvent(
       ...engine,
       status: health.status,
       generated_at: health.generated_at,
-      running: phase !== "stopped" && phase !== "",
+      running: typeof engine.running === "boolean"
+        ? engine.running : phase !== "stopped" && phase !== "",
+      starting: typeof engine.starting === "boolean"
+        ? engine.starting : phase.startsWith("starting"),
     },
     cameras: workspace.cameras.map((camera) => ({
       ...camera,

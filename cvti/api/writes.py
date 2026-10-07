@@ -387,12 +387,18 @@ def register_writes(app, host: _ApiBackend, require_principal,
     from cvti.security.permissions import PermissionDenied
     from cvti.serving.onboarding import HierarchyConflict
 
-    def _make(route: R):
+    def _make(route: R, *, camera_query: bool = False):
         async def handler(request: Request, principal=None):
             kwargs: dict[str, Any] = {}
+            camera_id = request.query_params.get("camera_id") if camera_query else None
+            if camera_query and not camera_id:
+                return error(400, "bad_request", "camera_id is required")
             for url_param, kwarg in route.path_map.items():
                 if kwarg is not None:
-                    kwargs[kwarg] = request.path_params[url_param]
+                    if camera_query and url_param == "camera_id":
+                        kwargs[kwarg] = camera_id
+                    else:
+                        kwargs[kwarg] = request.path_params[url_param]
             if route.body:
                 try:
                     body = await request.json()
@@ -467,3 +473,13 @@ def register_writes(app, host: _ApiBackend, require_principal,
         app.add_api_route(api_prefix + route.path, _make(route),
                           methods=[route.verb], status_code=route.status,
                           name=f"{route.verb} {route.path} ({route.bridge})")
+        # ASGI decodes %2F before routing. Query-addressed aliases preserve
+        # existing camera IDs containing slashes without changing saved sites.
+        if route.path.startswith("/cameras/{camera_id}"):
+            alias = route.path.replace("/cameras/{camera_id}", "/camera-by-id", 1)
+            app.add_api_route(api_prefix + alias, _make(route, camera_query=True),
+                              methods=[route.verb], status_code=route.status,
+                              name=f"{route.verb} {alias} ({route.bridge})",
+                              openapi_extra={"parameters": [{"name": "camera_id",
+                                  "in": "query", "required": True,
+                                  "schema": {"type": "string", "minLength": 1}}]})

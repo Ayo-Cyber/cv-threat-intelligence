@@ -679,7 +679,16 @@ export class ArgusApiClient {
     args: unknown[],
     authenticated: boolean,
   ) {
-    const url = new URL(this.baseUrl + operation.path(args));
+    let path = operation.path(args);
+    const cameraSegment = /^\/cameras\/([^/]+)(.*)$/.exec(path);
+    let cameraId: string | undefined;
+    if (cameraSegment && /%2f/i.test(cameraSegment[1])) {
+      // Encoded slashes are decoded by ASGI before matching path parameters.
+      cameraId = decodeURIComponent(cameraSegment[1]);
+      path = `/camera-by-id${cameraSegment[2]}`;
+    }
+    const url = new URL(this.baseUrl + path);
+    if (cameraId !== undefined) url.searchParams.set("camera_id", cameraId);
     for (const [key, value] of Object.entries(operation.query?.(args) ?? {}))
       if (value !== undefined && value !== null && value !== "")
         url.searchParams.set(key, String(value));

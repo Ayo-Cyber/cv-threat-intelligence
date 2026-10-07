@@ -9,7 +9,7 @@ import {
   type LocationSelection,
 } from "../lib/hierarchy";
 import { Notice, Spinner } from "./common";
-import { addCameraBlockedReason } from "../lib/add-camera";
+import { addCameraBlockedReason, cameraTestMessage } from "../lib/add-camera";
 import CameraConnection from "./CameraConnection";
 
 export default function AddCamera({
@@ -62,9 +62,7 @@ export default function AddCamera({
         setResult(`${r.count || 0} cameras discovered`);
       } else if (kind === "test") {
         const r = await api.invoke("test", [source]);
-        if (r.ok === false)
-          throw new Error(r.message || "Camera connection failed");
-        setResult("Camera source is reachable");
+        setResult(cameraTestMessage(r));
       } else {
         await api.invoke("add_camera", [
           {

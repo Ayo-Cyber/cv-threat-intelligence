@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { addCameraBlockedReason, missingToAddCamera } from "../src/lib/add-camera";
+import { addCameraBlockedReason, missingToAddCamera, cameraTestMessage } from "../src/lib/add-camera";
+
+describe("camera video test result", () => {
+  it("rejects legacy RTSP errors even without ok:false", () => {
+    expect(() => cameraTestMessage({ error: "Wrong credentials", kind: "auth" })).toThrow("Wrong credentials");
+  });
+  it("does not mistake a successful port probe for video", () => {
+    expect(() => cameraTestMessage({ ok: true })).toThrow("No video frame received");
+    expect(() => cameraTestMessage({})).toThrow("Camera connection failed");
+  });
+  it("reports decoded dimensions on success", () => {
+    expect(cameraTestMessage({ ok: true, w: 1280, h: 720 })).toBe("Video received (1280 x 720)");
+  });
+});
 
 /**
  * 26 Sep: a reachable webcam, a branch and an area selected, and "Add camera"

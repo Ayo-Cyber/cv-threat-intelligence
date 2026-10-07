@@ -1,5 +1,47 @@
 # Project Context
 
+## Missing Movement Controls and Support Export (2026-10-07)
+
+- Corrected the earlier advice: Normal movement was defined but actually
+  hidden by CameraDetails' hard-coded Security/Safety group list. Groups now
+  derive from DETECTORS, exposing Operations and both movement toggles.
+- Settings now has a permission-gated Support diagnostics export with the
+  ZIP path and Copy path. It uses the existing authenticated backend export;
+  no automatic upload or new network service.
+- Export now redacts known credentials in text/JSON, restricts files to logs
+  and known status documents, omits symlinks/media/database files, bounds log
+  tails and status file sizes, and includes a source-free detector configuration
+  summary. Build/platform, health, timing and recent engine logs aid triage.
+- Redaction is not a guarantee about arbitrary free text. Camera names,
+  internal addresses and operational messages may remain; inspect before sharing.
+- Validation: 15 diagnostics/support tests, 248 frontend tests, seven browser
+  checks and production build passed. Browser test clicks Normal movement and
+  checks the actual API arguments; diagnostics export is tested with a fixture.
+- Changes remain local; Windows must receive a rebuilt package before these
+  controls and export hardening appear. No server upgrade performed here.
+
+## Chivita Windows Camera Pilot Fixes (2026-10-07)
+
+- Confirmed RTSP probe failure returned `error` without `ok: false`; AddCamera
+  treated it as success. Backend now fails explicitly, and frontend requires
+  successful decoded-frame dimensions before showing "Video received".
+- Existing camera IDs containing `/` broke FastAPI path matching despite URL
+  encoding. Added authenticated query-addressed camera aliases and Electron
+  routing, preserving existing site IDs; real deletion and preview regressions pass.
+- Network capture now uses 8-second open / 5-second read timeouts (including
+  software fallback). Network Test connection uses the same capture helper.
+- REST and WebSocket health share process-aware state. UI names startup as
+  Starting, not Running. This does NOT prove the reported seven-minute cold
+  start is solved; Windows monitor.log and actual server timing are still needed.
+- Screenshot showed zero detectors enabled. Person-box visibility is not
+  detector activation. Enable Normal movement; raw circular fisheye accuracy
+  remains unvalidated and may require a camera-provided dewarped stream.
+- Validation: 150 backend tests, 248 frontend tests, six Playwright browser
+  checks; frontend production build and Electron TypeScript compile passed.
+- Local source changes only: no Windows installer built/deployed, no push or
+  merge this turn. Previous customer-facing verifier-label edit preserved.
+- See [pilot fix and retest notes](CHIVITA_CAMERA_PILOT_FIXES_2026_10_07.md).
+
 ## Handoff to Ayo (2026-10-05)
 
 - User requested PR and merge to transfer the current work to Ayo.

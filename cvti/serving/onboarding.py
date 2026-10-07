@@ -66,6 +66,9 @@ def _open_for_test(source, cv2):
     default MSMF backend is slow to open and often refuses a busy device.
     """
     src = int(source) if str(source).strip().isdigit() else source
+    from cvti.serving.capture import is_live_source, open_capture
+    if is_live_source(src):
+        return open_capture(src), src
     if isinstance(src, int) and sys.platform == "win32":
         cap = cv2.VideoCapture(src, cv2.CAP_DSHOW)
         if cap.isOpened():
@@ -81,6 +84,7 @@ def test_url(url: str, snapshot_size: int = 320) -> dict:
     import cv2
     cap, src = _open_for_test(url, cv2)
     if not cap.isOpened():
+        cap.release()
         if isinstance(src, int):
             return {"ok": False, "error": webcam_advice(src)}
         return {"ok": False, "error": "Could not open — check the IP, credentials, path, and that the PC is on the same network."}
