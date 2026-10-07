@@ -4,6 +4,33 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.9.3 — 7 Oct 2026
+
+Fixes found on the first day on the pilot's own server.
+
+**Test connection tells the truth.** A camera whose stream could not be
+opened was reported as reachable, so cameras were saved that had never
+produced a picture. The test now succeeds only when a video frame has
+actually been decoded, and says so with the frame size: *Video received
+1920 x 1080*. Anything less is reported as the failure it is.
+
+**Camera names with a slash work.** A camera called *SMB BAY 3/4* could be
+added but then nothing else worked for it: no preview, no delete. The slash
+in its name broke the address the app used behind the scenes. Fixed without
+renaming anything already saved.
+
+**Starting is shown as starting.** While the engine loads its models the
+header no longer flips between "running" and "stopped"; it says Starting
+until the first frames arrive. Network cameras that do not answer now time
+out in eight seconds instead of hanging the start.
+
+**Normal movement and Multiple people moving are back** in each camera's
+Detectors list; the group had gone missing from the screen.
+
+**Settings has a Diagnostics export** for support: logs and health with
+passwords, camera addresses and tokens blanked out. Nothing is sent anywhere
+on its own.
+
 ## v1.9.2 — 5 Oct 2026
 
 **PPE checks run whether or not anyone is watching the cameras.** The PPE
