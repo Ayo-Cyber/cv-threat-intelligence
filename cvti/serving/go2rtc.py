@@ -56,6 +56,51 @@ def bundled_binary() -> str | None:
     return str(candidate) if candidate.exists() else None
 
 
+PIDFILE = "go2rtc.pid"
+
+
+def reap_stale(output_dir: str | Path) -> int:
+    """Stop a go2rtc left behind by an engine that was killed, not stopped.
+
+    Stop monitoring ends the engine with a hard terminate; on Windows that is
+    TerminateProcess, so the engine's own clean-up never runs and the gateway
+    it launched lives on. Each Stop/Start leaked one relay: the pilot server
+    showed three go2rtc processes from three restarts (8 Oct 2026), each
+    holding its camera connections. The gateway records its PID beside its
+    config; this ends that process only if it is still go2rtc and still the
+    one using this output directory's config, so a recycled PID is never
+    touched. Returns how many it stopped. Best-effort, never raises."""
+    pidfile = Path(output_dir) / PIDFILE
+    try:
+        pid = int(pidfile.read_text().strip())
+    except (OSError, ValueError):
+        return 0
+    stopped = 0
+    try:
+        import psutil
+        proc = psutil.Process(pid)
+        name = (proc.name() or "").lower()
+        args = proc.cmdline()
+        ours = os.path.normcase(os.path.abspath(str(Path(output_dir) / "go2rtc.yaml")))
+        theirs = [os.path.normcase(os.path.abspath(a)) for a in args[args.index("-config") + 1:][:1]] \
+            if "-config" in args else []
+        if "go2rtc" in name and ours in theirs:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3.0)
+            except psutil.TimeoutExpired:
+                proc.kill()
+            stopped = 1
+            log.info("[go2rtc] stopped a gateway left over from a killed engine (pid %d)", pid)
+    except Exception:  # noqa: BLE001 - gone already, access denied, or no psutil
+        log.debug("stale go2rtc check skipped", exc_info=True)
+    try:
+        pidfile.unlink()
+    except OSError:
+        pass
+    return stopped
+
+
 def go2rtc_binary() -> str | None:
     """Bundled binary first, then PATH, else None (gateway disabled)."""
     import shutil
@@ -177,6 +222,9 @@ class Go2rtcGateway:
                      | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         except OSError:
             pass
+        # A previous engine that was killed rather than stopped leaves its
+        # gateway running; end it before starting this one.
+        reap_stale(self.output_dir)
         self.api_port = self.api_port or _free_port()
         self.rtsp_port = self.rtsp_port or _free_port()
         self.webrtc_port = self.webrtc_port or _free_port()
@@ -199,6 +247,10 @@ class Go2rtcGateway:
                         self.disabled_reason)
             self.stop()
             return False
+        try:
+            (self.output_dir / PIDFILE).write_text(str(self._proc.pid))
+        except OSError:
+            log.debug("could not record the go2rtc pid", exc_info=True)
         self.started_at = time.time()
         self.disabled_reason = ""
         log.info("[go2rtc] gateway up: %d stream(s), rtsp restream :%d, "
@@ -334,4 +386,8 @@ class Go2rtcGateway:
                 proc.wait(timeout=3.0)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        try:
+            (self.output_dir / PIDFILE).unlink()
+        except OSError:
+            pass
         self._close_log()
