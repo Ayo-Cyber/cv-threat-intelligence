@@ -4,6 +4,16 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.9.4 — 8 Oct 2026
+
+**Stopping monitoring no longer leaves a video relay running.** On Windows,
+each Stop monitoring left behind the relay that carries the camera streams,
+still connected to the cameras. After a few restarts the pilot server had
+three of them, each holding connections that cameras which allow only a
+couple of viewers needed for the next start. The relay is now shut down when
+monitoring stops, and any left over from an earlier version is cleaned up
+before a new one starts.
+
 ## v1.9.3 — 7 Oct 2026
 
 Fixes found on the first day on the pilot's own server.
