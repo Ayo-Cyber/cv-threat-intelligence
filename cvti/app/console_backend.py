@@ -2619,6 +2619,13 @@ class ConsoleBackend:
                 self._monitor.wait(timeout=8)
         self._monitor = None
         self._close_engine_log()
+        # The terminate above skips the engine's own shutdown on Windows, so
+        # the video gateway it launched would outlive it. End it here.
+        try:
+            from cvti.serving.go2rtc import reap_stale
+            reap_stale(Path(self.db_path).parent)
+        except Exception:  # noqa: BLE001 - stopping must not fail over a helper
+            log.debug("go2rtc clean-up after stop failed", exc_info=True)
         return {"running": False}
 
     @property
