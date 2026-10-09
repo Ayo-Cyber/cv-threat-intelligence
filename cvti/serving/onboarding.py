@@ -459,8 +459,13 @@ def add_camera(site_path: str | Path, camera: dict) -> list[dict]:
         _ensure_assignable_area(data, area_id)
     cam_id = camera.get("id") or f"cam{len(data.get('cameras', [])) + 1}"
     camera = {**camera, "id": cam_id}
-    cams = [c for c in data.get("cameras", []) if c.get("id") != cam_id]
-    cams.append(camera)
+    cams = list(data.get("cameras", []))
+    for index, existing in enumerate(cams):
+        if existing.get("id") == cam_id:
+            cams[index] = camera
+            break
+    else:
+        cams.append(camera)
     data["cameras"] = cams
     _write_site(site_path, data)
     return cams

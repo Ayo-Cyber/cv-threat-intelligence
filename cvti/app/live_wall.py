@@ -65,6 +65,7 @@ class LiveWall:
         is_file = not (isinstance(source, int) or src.isdigit() or is_net)
         is_webcam = isinstance(source, int) or src.isdigit()
         first_frame_at = None
+        next_publish_at = 0.0
         n = 0
         dead_since = 0.0
         while not self._stop.is_set():
@@ -94,16 +95,21 @@ class LiveWall:
                     self._stop.wait(0.3)
                     continue
             dead_since = 0.0
+            now = time.monotonic()
             if is_webcam:
                 # First USB/AVFoundation frames can be almost black while auto
                 # exposure settles. Drain at capture speed before publishing.
-                now = time.monotonic()
                 if first_frame_at is None:
                     first_frame_at = now
                 if now - first_frame_at < 2.0:
                     self._stop.wait(0.005)
                     continue
             n += 1
+            # Live captures must be drained at source cadence. Sleeping after
+            # each read queues old video; limit JPEG encoding, not camera reads.
+            if not is_file and now < next_publish_at:
+                continue
+            next_publish_at = now + self.interval
             frame = self._downscale(frame)
             ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
             if ok2:
@@ -112,7 +118,8 @@ class LiveWall:
                 # QWebChannel (that was the FPS ceiling).
                 self._set(cam_id, jpeg=buf.tobytes(), w=int(frame.shape[1]),
                           h=int(frame.shape[0]), frame=n, ok=True)
-            self._stop.wait(self.interval)
+            if is_file:
+                self._stop.wait(self.interval)
         cap.release()
 
     def _downscale(self, frame):

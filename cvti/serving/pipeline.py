@@ -39,10 +39,17 @@ log = get_logger(__name__)
 ResultHandler = Callable[[Frame, Any], None]
 
 
-def _frame_overlays(state: Any, timestamp: float | None = None) -> list[FrameOverlay]:
+def _frame_overlays(state: Any, timestamp: float | None = None, *,
+                    exact_frame: bool = False) -> list[FrameOverlay]:
     if state is None:
         return []
     records = list(getattr(state, "_motion_overlays", ()) or ())
+    observed_at = getattr(state, "_motion_overlay_observed_at", None)
+    now = time.monotonic() if timestamp is None else timestamp
+    # Smooth publication must not paint seconds-old coordinates onto live video.
+    # Exact-frame publication deliberately displays the inference frame itself.
+    if not exact_frame and observed_at is not None and now - observed_at > 1.0:
+        records = []
     object_overlay_provider = getattr(state, "general_object_overlays", None)
     if object_overlay_provider is not None:
         try:
@@ -74,10 +81,11 @@ def _object_track_snapshot(state: Any, timestamp: float | None = None) -> dict |
         return None
 
 
-def _publish_frame(publisher: Any, camera_id: str, frame: Any, state: Any) -> None:
+def _publish_frame(publisher: Any, camera_id: str, frame: Any, state: Any, *,
+                   exact_frame: bool = False) -> None:
     generation_provider = getattr(publisher, "object_generation", None)
     object_generation = generation_provider(camera_id) if generation_provider else None
-    overlays = _frame_overlays(state)
+    overlays = _frame_overlays(state, exact_frame=exact_frame)
     snapshot = _object_track_snapshot(state)
     if generation_provider is None:
         publisher.publish(camera_id, frame, overlays)
@@ -750,6 +758,10 @@ class MultiStreamPipeline:
                 frame.camera_id, source_generation, tracker_timestamp
             )
         object_detections = extract_detections(result, self._names, self._threat_classes)  # weapons/violence/theft
+        # Invalidate the previous coordinates before processing. The timestamp
+        # is inference admission time, not completion of a slow model call.
+        state._motion_overlays = []
+        state._motion_overlay_observed_at = tracker_timestamp
         # `process` guards its detector section, but everything around it —
         # tracking, zones, rule evaluation, evidence selection — was unguarded,
         # so a failure there propagated out through run() and stopped EVERY
@@ -818,7 +830,8 @@ class MultiStreamPipeline:
                 self.publisher.mark_alerting(
                     frame.camera_id, _alert_track_ids(alerts))
             if not self.smooth_publish or self._synchronized_boxes(frame.camera_id):
-                _publish_frame(self.publisher, frame.camera_id, frame.image, state)
+                _publish_frame(self.publisher, frame.camera_id, frame.image, state,
+                               exact_frame=True)
 
     def _all_ended(self) -> bool:
         return all(d.ended and not d.read_latest() for d in self._decoders.values())
