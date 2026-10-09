@@ -141,13 +141,19 @@ class BackendSelectionTest(unittest.TestCase):
 
 class EveryCallSiteUsesItTest(unittest.TestCase):
     def test_no_module_opens_its_own_capture_any_more(self):
+        import ast
         import inspect
         from cvti.app import live_wall
         from cvti.serving import custom_rules, streams
         for mod in (streams, custom_rules, live_wall):
             src = inspect.getsource(mod)
-            body = src.split("def _open")[1].split("\n    def ")[0]
-            self.assertIn("open_capture", body,
+            functions = [node for node in ast.walk(ast.parse(src))
+                         if isinstance(node, ast.FunctionDef) and node.name == "_open"]
+            self.assertTrue(functions, f"{mod.__name__} has no _open helper")
+            self.assertTrue(all(any(isinstance(node, ast.Call)
+                                   and isinstance(node.func, ast.Name)
+                                   and node.func.id == "open_capture"
+                                   for node in ast.walk(function)) for function in functions),
                           f"{mod.__name__} still opens captures its own way")
 
 
