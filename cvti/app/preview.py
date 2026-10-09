@@ -14,6 +14,7 @@ class CameraPreview:
         self._sources = {}
         self._walls = {}
         self._viewers = {}
+        self._history = {}
         self._closed = False
         self._server = FrameServer(self)
         self._server.start()
@@ -48,7 +49,22 @@ class CameraPreview:
                 wall = self._walls[camera_id]
                 wall.stop()
                 if not any(t.is_alive() for t in wall._threads):
+                    self._history[camera_id] = wall.diagnostics().get(camera_id, {})
+                    while len(self._history) > 128:
+                        del self._history[next(iter(self._history))]
                     del self._walls[camera_id]
+
+    def diagnostics(self):
+        import time
+        with self._lock:
+            records = {key: dict(value, active=False) for key, value in self._history.items()}
+            for key, wall in self._walls.items():
+                records[key] = dict(wall.diagnostics().get(key, {}),
+                                    active=not self._closed, viewers=self._viewers.get(key, 0))
+            for record in records.values():
+                last = record.get("last_decoded_at")
+                record["last_decoded_age_s"] = round(time.time() - last, 2) if last else None
+            return {"captured_at": time.time(), "mode": "preview", "cameras": records}
 
     def jpeg(self, camera_id):
         with self._lock:

@@ -178,7 +178,7 @@ export default function CameraStream({
           Connecting feed...
         </div>
       ) : presentation.phase === "offline" ? (
-        <Empty title="Camera offline">
+        <Empty title="Preview unavailable">
           {state.kind === "offline"
             ? state.message
             : imageFailed

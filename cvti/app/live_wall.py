@@ -32,6 +32,38 @@ class LiveWall:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        self._diagnostics = {}
+
+    def _record(self, cam_id, state=None, **values):
+        with self._lock:
+            rec = self._diagnostics.setdefault(cam_id, {"started_at": time.time(),
+                "open_attempts": 0, "decoded_count": 0, "published_count": 0,
+                "read_failures": 0, "events": []})
+            if state is not None and state != rec.get("state"):
+                rec["events"] = (rec["events"] + [{"at": time.time(), "state": state}])[-20:]
+                rec["state"] = state
+            rec.update(values)
+
+    def diagnostics(self):
+        from copy import deepcopy
+        with self._lock:
+            records = deepcopy(self._diagnostics)
+        now = time.time()
+        for rec in records.values():
+            last = rec.get("last_decoded_at")
+            rec["last_decoded_age_s"] = round(now - last, 2) if last else None
+            rec["average_published_fps"] = round(rec["published_count"] / max(.001, now - rec["started_at"]), 2)
+            rec["protocol_error_detail"] = "unavailable from OpenCV capture API"
+        return records
+
+    def _open_observed(self, cam_id, source):
+        self._record(cam_id, "opening")
+        with self._lock:
+            self._diagnostics[cam_id]["open_attempts"] += 1
+        started = time.perf_counter()
+        cap = self._open(source)
+        self._record(cam_id, "waiting_for_frame", last_open_ms=round((time.perf_counter() - started) * 1000, 1))
+        return cap
 
     def start(self) -> "LiveWall":
         self._stop.clear()
@@ -51,6 +83,7 @@ class LiveWall:
         try:
             self._decode_frames(cam_id, source, captures)
         except Exception:
+            self._record(cam_id, "failed", failure="capture_exception")
             self._set(cam_id, ok=False, error="camera preview failed")
             log.debug("preview capture failed", exc_info=True)
         finally:
@@ -58,7 +91,7 @@ class LiveWall:
                 cap.release()
 
     def _decode_frames(self, cam_id: str, source, captures) -> None:
-        cap = self._open(source)
+        cap = self._open_observed(cam_id, source)
         captures.append(cap)
         src = str(source)
         is_net = "://" in src                     # RTSP/HTTP camera, not a clip
@@ -75,6 +108,9 @@ class LiveWall:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     ok, frame = cap.read()
                 if not ok:
+                    self._record(cam_id, "retrying", failure="no_decoded_frame")
+                    with self._lock:
+                        self._diagnostics[cam_id]["read_failures"] += 1
                     # A dropped network stream must be REOPENED — a VideoCapture
                     # never revives on its own, so this loop used to hold a dead
                     # handle forever and the pre-monitoring view stayed frozen
@@ -88,13 +124,21 @@ class LiveWall:
                             cap.release()
                         except Exception:  # noqa: BLE001
                             log.debug("releasing the dead capture failed", exc_info=True)
-                        cap = self._open(source)
+                        cap = self._open_observed(cam_id, source)
                         captures[:] = [cap]
                         first_frame_at = None
                         dead_since = time.time()
                     self._stop.wait(0.3)
                     continue
             dead_since = 0.0
+            observed = time.time()
+            self._record(cam_id, "receiving", last_decoded_at=observed, failure=None)
+            with self._lock:
+                rec = self._diagnostics[cam_id]
+                rec["decoded_count"] += 1
+                if "first_decoded_at" not in rec:
+                    rec["first_decoded_at"] = observed
+                    rec["first_decode_delay_s"] = round(observed - rec["started_at"], 3)
             now = time.monotonic()
             if is_webcam:
                 # First USB/AVFoundation frames can be almost black while auto
@@ -113,11 +157,16 @@ class LiveWall:
             frame = self._downscale(frame)
             ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
             if ok2:
+                with self._lock:
+                    self._diagnostics[cam_id]["published_count"] += 1
+                    self._diagnostics[cam_id]["last_published_at"] = time.time()
                 # Store RAW jpeg bytes — the frame server streams these natively
                 # over localhost so the browser never marshals base64 through
                 # QWebChannel (that was the FPS ceiling).
                 self._set(cam_id, jpeg=buf.tobytes(), w=int(frame.shape[1]),
                           h=int(frame.shape[0]), frame=n, ok=True)
+            else:
+                self._record(cam_id, "encode_failed", failure="jpeg_encode_failed")
             if is_file:
                 self._stop.wait(self.interval)
         cap.release()

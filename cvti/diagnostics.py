@@ -148,7 +148,7 @@ def health_snapshot(output_dir: str | Path) -> dict:
 
 
 def build_bundle(output_dir: str | Path, dest: str | Path | None = None,
-                 *, site_path: str | Path | None = None) -> Path:
+                 *, site_path: str | Path | None = None, preview: dict | None = None) -> Path:
     """Zip logs + a health snapshot. Returns the archive path.
 
     Never includes evidence frames, clips, or the events database — see EXCLUDED.
@@ -163,6 +163,10 @@ def build_bundle(output_dir: str | Path, dest: str | Path | None = None,
     included: list[str] = []
 
     with zipfile.ZipFile(dest_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        if preview is not None:
+            zf.writestr("preview_diagnostics.json", json.dumps(redact_value(preview), indent=2))
+            included.append("preview_diagnostics.json")
+        freshness = {}
         if log_dir.exists():
             for entry in sorted(log_dir.iterdir()):
                 if len(included) >= MAX_LOG_FILES:
@@ -203,6 +207,11 @@ def build_bundle(output_dir: str | Path, dest: str | Path | None = None,
             if candidate.is_file() and not candidate.is_symlink() and candidate.stat().st_size <= MAX_FILE_BYTES:
                 try:
                     value = json.loads(candidate.read_text(encoding="utf-8"))
+                    generated = value.get("generated_at") if isinstance(value, dict) else None
+                    age = time.time() - generated if isinstance(generated, (int, float)) else None
+                    freshness[name] = {"generated_at": generated, "age_s": age,
+                                       "status": "unknown" if age is None else
+                                       ("stale" if age > 30 or age < 0 else "recent")}
                     zf.writestr(name, json.dumps(redact_value(value), indent=2))
                     included.append(name)
                 except (OSError, ValueError):
@@ -222,6 +231,7 @@ def build_bundle(output_dir: str | Path, dest: str | Path | None = None,
             except (OSError, ValueError, TypeError, AttributeError):
                 log.warning("camera configuration summary unavailable", exc_info=True)
 
+        snapshot["saved_report_freshness"] = freshness
         zf.writestr("health.json", json.dumps(snapshot, indent=2, default=str))
         included.append("health.json")
         zf.writestr("MANIFEST.txt",
