@@ -40,6 +40,8 @@ export function finishBlockedReason(input: {
   if (input.cameras === 0) return "Add at least one camera first.";
   if (input.mode === "demo") return null;
   if (modelReady(input.gate)) return null;
+  if (input.gate?.cloud)
+    return `${input.gate.label || "The cloud verifier"} needs its API key. Enter it on the AI model step; Finish unlocks once it is saved.`;
   if (input.pull?.state === "pulling") {
     const percent = Math.max(0, Math.min(100, Math.round(input.pull.percent ?? 0)));
     return `Finish unlocks when the on-device AI finishes downloading (${percent}%). Keep this window open; you can carry on configuring.`;

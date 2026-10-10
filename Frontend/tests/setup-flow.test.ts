@@ -52,6 +52,18 @@ describe("setup flow", () => {
       }),
     ).toMatch(/connection reset/);
   });
+  it("a cloud verifier is ready once its key is saved, and says so when it is not", () => {
+    const base = { mode: "engine" as const, cameras: 1, pull: null };
+    expect(modelReady({ mode: "live", cloud: true, label: "Groq" })).toBe(true);
+    expect(finishBlockedReason({ ...base, gate: { mode: "live", cloud: true } })).toBeNull();
+    const reason = finishBlockedReason({
+      ...base,
+      gate: { mode: "no-key", cloud: true, label: "Groq" },
+    });
+    expect(reason).toMatch(/Groq/);
+    expect(reason).toMatch(/API key/);
+    expect(reason).not.toMatch(/download/i);
+  });
   it("demo mode has no model to wait for, but still needs a camera", () => {
     expect(finishBlockedReason({ mode: "demo", cameras: 0, gate: null, pull: null })).toMatch(
       /camera/,

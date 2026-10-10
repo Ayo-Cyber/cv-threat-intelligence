@@ -265,10 +265,15 @@ def _rules_for(cam: dict) -> list[dict]:
 class CustomRuleScanner:
     def __init__(self, cameras: list[dict], sink, *, model: str,
                  base_url: str = "http://localhost:11434/v1",
+                 api_key_env: str = "OLLAMA_API_KEY",
                  interval: float = 12.0, cooldown: float = 90.0,
                  site_config_path: str | None = None,
                  frame_source=None, context_provider=None,
                  boxes_source=None, openvocab=None) -> None:
+        # Which environment variable carries the key for base_url. The local
+        # runtime needs none (OLLAMA_API_KEY is a placeholder); a cloud
+        # verifier's scans ride on the same key the gate uses.
+        self.api_key_env = api_key_env
         # W3 router: object/attribute rules are answered by a grounded
         # open-vocab detector (real boxes, ms) instead of the VLM;
         # scene/behaviour rules keep the VLM path unchanged. None = build
@@ -782,7 +787,7 @@ class CustomRuleScanner:
         # holds the local VLM this cycle simply yields instead of piling a
         # third request onto a saturated CPU (11 Sep pilot collapse).
         raw = call_openai_compatible(prompt=prompt, frame_bytes=buf.tobytes(), model=self.model,
-                                     api_key_env="OLLAMA_API_KEY", api_base_url=self.base_url,
+                                     api_key_env=self.api_key_env, api_base_url=self.base_url,
                                      require_key=False, max_tokens=320,
                                      max_retries=0, timeout=120.0, slot_mode="skip")
         m = re.search(r"\{.*\}", raw or "", re.S)

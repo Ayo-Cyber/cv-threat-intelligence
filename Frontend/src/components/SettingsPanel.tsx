@@ -15,6 +15,7 @@ import NotificationSetup from "./NotificationSetup";
 import ObjectWatchlistManager from "./ObjectWatchlistManager";
 import SystemPanel from "./SystemPanel";
 import SupportDiagnostics from "./SupportDiagnostics";
+import VerifierProvider from "./VerifierProvider";
 export default function SettingsPanel({
   api,
   mode,
@@ -127,7 +128,10 @@ export default function SettingsPanel({
       <section className="settings-section">
         <div>
           <h2>AI verification</h2>
-          <p>Local vision model and runtime availability.</p>
+          <p>
+            Which AI checks alerts: the model on this computer, or a cloud
+            provider with a key. Changes apply on the next Start monitoring.
+          </p>
         </div>
         <div>
           <div className="gate-status">
@@ -136,18 +140,32 @@ export default function SettingsPanel({
               <strong>
                 {mode === "demo"
                   ? "No verifier connected"
-                  : "Argus AI verification"}
+                  : gate.cloud
+                    ? `Cloud: ${gate.label || gate.provider}`
+                    : "Argus AI verification"}
               </strong>
               <small>
                 {mode === "demo"
                   ? "Demo mode does not perform inference"
-                  : gate.mode || "Status unavailable"}
+                  : gate.cloud
+                    ? gate.mode === "live"
+                      ? "API key saved; alerts are checked in the cloud"
+                      : "No API key saved yet"
+                    : gate.mode || "Status unavailable"}
               </small>
             </div>
             <Badge tone={gate.mode === "live" ? "green" : "amber"}>
               {gate.mode === "live" ? "Available" : "Not verified"}
             </Badge>
           </div>
+          {mode === "engine" && (
+            <VerifierProvider
+              api={api}
+              mode={mode}
+              notify={notify}
+              onSaved={() => void run("gate_status")}
+            />
+          )}
           {mode === "engine" && (
             <div className="actions">
               <button

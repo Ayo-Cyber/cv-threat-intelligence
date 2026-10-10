@@ -221,6 +221,10 @@ permissions above remain authoritative.
 | `pull_progress` | `GET /engine/models/pull` | configure_site | shipped |
 | `pull_recognition_model` | `POST /engine/models/recognition/pull` | any | shipped |
 | `recognition_model_status` | `GET /engine/models/recognition` | any | shipped |
+| `verifier_settings` | `GET /engine/verifier` (provider, model, base_url, key_set, the provider catalogue; never the key) | any | shipped |
+| `set_verifier` | `PUT /engine/verifier` (body: `{provider?, model?, base_url?, api_key?}`; an empty or absent `api_key` keeps the stored one) | configure_site | shipped |
+| `clear_verifier_key` | `DELETE /engine/verifier/key` | configure_site | shipped |
+| `test_verifier` | `POST /engine/verifier/test` (one small request to the configured provider; `{ok, detail, latency_ms}`) | configure_site | shipped |
 | `feed_sources` | `GET /engine/feeds` | view_live | shipped |
 | `switch_feed` | `POST /engine/feeds/switch` | control_engine | shipped |
 | `feed_switch_status` | `GET /engine/feeds/switch` | view_live | shipped |

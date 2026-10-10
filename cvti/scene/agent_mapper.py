@@ -634,6 +634,8 @@ def call_openai_compatible(
         # OpenRouter uses these for routing/attribution; ignored by other backends.
         "http-referer": "https://github.com/DEMILADE07/cv-threat-intelligence",
         "x-title": "CV Threat Intelligence Agent Mapper",
+        # urllib's default agent is refused by some CDN-fronted clouds.
+        "user-agent": "argus-engine/1",
     }
 
     # Every local VLM caller in the process funnels through here, which makes

@@ -27,6 +27,7 @@ log = get_logger(__name__)
 class WatchRunner:
     def __init__(self, cameras: list[dict], states: dict, sink: Any, *, model: str,
                  base_url: str = "http://localhost:11434/v1",
+                 api_key_env: str = "OLLAMA_API_KEY",
                  interval: float = 10.0, stale_after: float = 60.0,
                  frame_source: Any = None) -> None:
         # only cameras that actually define watches
@@ -35,6 +36,7 @@ class WatchRunner:
         self.sink = sink
         self.model = model
         self.base_url = base_url
+        self.api_key_env = api_key_env
         self.interval = interval
         self.book = CaseBook(stale_after=stale_after)
         # how to get a frame for a camera; injectable so tests need no video
@@ -61,7 +63,7 @@ class WatchRunner:
         # No retries, 120s budget — same slot courtesy as the scanner: watches
         # rerun on their own interval, verifies must never queue behind them.
         return call_openai_compatible(prompt=prompt, frame_bytes=frame_bytes,
-                                      model=self.model, api_key_env="OLLAMA_API_KEY",
+                                      model=self.model, api_key_env=self.api_key_env,
                                       api_base_url=self.base_url, require_key=False,
                                       max_tokens=256, max_retries=0, timeout=120.0)
 

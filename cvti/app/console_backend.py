@@ -21,6 +21,7 @@ import sys
 import time
 from pathlib import Path
 
+from cvti.app.secrets import VERIFIER_KEY, SecretStore
 from cvti.contracts import LOCAL_VLM_MODEL
 from cvti.logging_setup import get_logger
 from cvti.security import permissions as perms
@@ -28,6 +29,7 @@ from cvti.security.accounts import AccountStore, AuthError
 from cvti.security.audit import AuditLog
 from cvti.serving import onboarding, vlm
 from cvti.utils import resource_path
+from cvti.verification import providers as verifier_providers
 
 log = get_logger(__name__)
 
@@ -38,6 +40,39 @@ _REVIEW_VALUES = {"ack", "true", "false", "new"}
 # loops that make it valuable are exactly what makes it grow fastest.
 MONITOR_LOG_CAP_BYTES = 5 * 1024 * 1024
 OBJECT_EXAMPLE_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _probe_cloud_verifier(spec, settings: dict, api_key: str) -> str:
+    """One text-only request to a cloud verifier, returning its reply.
+
+    Runs in the API process, so the key is handed to the HTTP helpers through
+    a scoped environment and removed again: the engine subprocess is the only
+    place the key is meant to live for long."""
+    import os
+
+    from cvti.scene.agent_mapper import call_openai_compatible
+    from cvti.verification.gate import _call_anthropic
+
+    prompt = "Reply with the single word OK."
+    env_names = spec.key_envs or (spec.key_env,)
+    saved = {name: os.environ.get(name) for name in env_names}
+    try:
+        for name in env_names:
+            os.environ[name] = api_key
+        if spec.engine_provider == "anthropic":
+            return _call_anthropic(prompt, [], settings["model"], spec.key_env)
+        base_url = settings.get("base_url") or spec.base_url or verifier_providers.OPENROUTER_BASE_URL
+        if spec.engine_provider == "openrouter":
+            base_url = verifier_providers.OPENROUTER_BASE_URL
+        return call_openai_compatible(prompt=prompt, frame_bytes=[], model=settings["model"],
+                                      api_key_env=spec.key_env, api_base_url=base_url,
+                                      max_retries=0, max_tokens=8, timeout=30.0)
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def _desktop_inference_args(site: dict) -> list[str]:
@@ -643,7 +678,18 @@ class ConsoleBackend:
                            "cable and IP address, then use Test on the Cameras step."})
 
         g = self.gate_status()
-        if g.get("mode") == "live":
+        if g.get("cloud"):
+            label = g.get("label") or "cloud verifier"
+            if g.get("mode") == "live":
+                checks.append({"id": "verifier", "ok": True, "label": "AI verifier (TrueSight)",
+                               "detail": f"cloud: {label}, model {g.get('model')}, key saved",
+                               "fix": None})
+            else:
+                checks.append({"id": "verifier", "ok": False, "label": "AI verifier (TrueSight)",
+                               "detail": f"cloud: {label} is selected but no API key is saved",
+                               "fix": "Enter the API key under Settings → AI verification, "
+                                      "then press Test."})
+        elif g.get("mode") == "live":
             checks.append({"id": "verifier", "ok": True, "label": "AI verifier (TrueSight)",
                            "detail": "running, model installed", "fix": None})
         elif g.get("mode") == "no-model":
@@ -2211,15 +2257,109 @@ class ConsoleBackend:
         meta = onboarding.get_site_meta(self.site_path)
         return weekly_summary(db, meta, Path(self.db_path).parent)
 
-    def gate_status(self, model: str = vlm.DEFAULT_MODEL) -> dict:
-        """Ollama reachability + the running engine's own view of the gate.
+    # --- verifier provider (Settings → AI verification) ----------------------
+    def _secret_store(self) -> SecretStore:
+        return SecretStore(Path(self._home_db).parent)
 
-        Two different failures look identical from the operator's chair: Ollama
-        being down, and the gate erroring on every alert while Ollama is up. The
-        first comes from probing localhost, the second only the engine knows —
-        it publishes it to gate_health.json.
+    def _verifier_settings(self) -> dict:
+        """The site's `gate` block, normalised: provider id, model, base_url."""
+        try:
+            raw = onboarding.load_site(self.site_path).get("gate")
+        except (OSError, ValueError):
+            raw = None
+        return verifier_providers.normalize_settings(raw)
+
+    def verifier_settings(self) -> dict:
+        """What the UI needs to show the verifier form. Never the key itself."""
+        settings = self._verifier_settings()
+        spec = verifier_providers.get_provider(settings["provider"])
+        return {**settings, "label": spec.label, "needs_key": spec.needs_key,
+                "key_set": bool(spec.needs_key and self._secret_store().has(VERIFIER_KEY)),
+                "local": spec.local,
+                "providers": [p.public() for p in verifier_providers.PROVIDERS.values()]}
+
+    def set_verifier(self, provider: str | None = None, model: str | None = None,
+                     base_url: str | None = None, api_key: str | None = None) -> dict:
+        """Choose the verifier. An empty api_key leaves the stored key alone;
+        a non-empty one replaces it. Takes effect on the next Start monitoring."""
+        self._require(perms.CONFIGURE_SITE)
+        current = self._verifier_settings()
+        switching = provider is not None and provider != current["provider"]
+        if switching and model is None:
+            model = ""   # a new provider starts on its own default model, not the old one's
+        wanted = verifier_providers.normalize_settings({
+            "provider": provider if provider is not None else current["provider"],
+            "model": model if model is not None else current["model"],
+            "base_url": base_url if base_url is not None else current["base_url"]})
+        spec = verifier_providers.get_provider(wanted["provider"])
+        if spec.id == "custom" and not wanted["base_url"]:
+            raise ValueError("A custom endpoint needs its base URL, e.g. https://host/v1")
+        if spec.id == "custom" and not wanted["model"]:
+            raise ValueError("A custom endpoint needs a model name")
+        onboarding.set_site_meta(self.site_path, gate=wanted)
+        if api_key:
+            self._secret_store().set(VERIFIER_KEY, api_key.strip())
+        self.audit.record(self._actor(), "config_change", "verifier",
+                          {"provider": spec.id, "model": wanted["model"],
+                           "key_changed": bool(api_key)})
+        return self.verifier_settings()
+
+    def clear_verifier_key(self) -> dict:
+        self._require(perms.CONFIGURE_SITE)
+        self._secret_store().delete(VERIFIER_KEY)
+        self.audit.record(self._actor(), "config_change", "verifier", {"key_cleared": True})
+        return self.verifier_settings()
+
+    def test_verifier(self) -> dict:
+        """One tiny, text-only request to the configured provider with the
+        stored key, so an operator learns in seconds whether the key, the
+        model name and the endpoint are right — not on the first real alert."""
+        self._require(perms.CONFIGURE_SITE)
+        settings = self._verifier_settings()
+        spec = verifier_providers.get_provider(settings["provider"])
+        if spec.local:
+            status = vlm.gate_status(settings["model"])
+            return {"ok": status.get("mode") == "live", "provider": spec.id,
+                    "detail": {"live": "The on-device model is installed and answering.",
+                               "no-model": "The runtime is up but the model is not downloaded.",
+                               "offline": "The on-device runtime is not running."
+                               }.get(status.get("mode"), status.get("mode", ""))}
+        key = self._secret_store().get(VERIFIER_KEY)
+        if spec.needs_key and not key:
+            return {"ok": False, "provider": spec.id, "detail": "No API key saved yet."}
+        started = time.monotonic()
+        try:
+            reply = _probe_cloud_verifier(spec, settings, key)
+        except Exception as exc:  # noqa: BLE001 - the whole point is to report it
+            log.info("verifier test against %s failed: %s", spec.id, str(exc)[:200])
+            return {"ok": False, "provider": spec.id, "detail": str(exc)[:400],
+                    "latency_ms": int((time.monotonic() - started) * 1000)}
+        return {"ok": True, "provider": spec.id, "model": settings["model"],
+                "latency_ms": int((time.monotonic() - started) * 1000),
+                "detail": f"{spec.label} answered with {settings['model']}: {reply[:80]}"}
+
+    def gate_status(self, model: str = vlm.DEFAULT_MODEL) -> dict:
+        """Verifier readiness + the running engine's own view of the gate.
+
+        Two different failures look identical from the operator's chair: the
+        verifier being unreachable, and the gate erroring on every alert while
+        it is up. The first comes from probing it, the second only the engine
+        knows — it publishes it to gate_health.json.
+
+        A cloud provider is "live" once its key is saved: there is nothing to
+        download and nothing local to probe. `cloud`, `provider` and `label`
+        let the UI say which one.
         """
-        status = vlm.gate_status(model)
+        settings = self._verifier_settings()
+        spec = verifier_providers.get_provider(settings["provider"])
+        if spec.cloud:
+            key_set = bool(self._secret_store().has(VERIFIER_KEY)) if spec.needs_key else True
+            status = {"ollama": False, "model_present": True, "model": settings["model"],
+                      "models": [], "mode": "live" if key_set else "no-key",
+                      "cloud": True, "provider": spec.id, "label": spec.label}
+        else:
+            status = vlm.gate_status(model if model != vlm.DEFAULT_MODEL else settings["model"])
+            status.update({"cloud": False, "provider": spec.id, "label": spec.label})
         status["engine"] = self._gate_health()
         # Whether an Ollama binary ships inside this app: the UI's "offline"
         # advice differs — "click Download" beats "go install ollama.com".
@@ -2479,33 +2619,48 @@ class ConsoleBackend:
         log_file = self._engine_log_file = open(out_dir / "monitor.log", "a")  # noqa: SIM115 - lives with the subprocess
         # Lean defaults conserve compute; distant people can require a larger
         # site-specific inference size at the cost of throughput.
-        # The gate needs the local Ollama server; in the bundled app nobody has
-        # run `ollama serve` in a terminal — that is the point — so bring up the
-        # bundled runtime if nothing is answering. Best-effort: if it still is
-        # not up, the gate stays fail-visible and alerts arrive UNVERIFIED.
-        try:
-            from cvti.verification import ollama as _ollama
-            _ollama.ensure_server()
-        except Exception:  # noqa: BLE001 - engine start must not die on this
-            log.warning("could not ensure the local VLM server", exc_info=True)
+        # Which verifier: the site's choice (Settings → AI verification), the
+        # bundled Ollama runtime by default. The app used to hardcode Ollama,
+        # which on a five-vCPU server with no GPU meant 30 to 90 s per verdict
+        # and a breaker open most of the day (CHI pilot, 8 Oct 2026).
+        verifier = self._verifier_settings()
+        spec = verifier_providers.get_provider(verifier["provider"])
+        if spec.local:
+            # The gate needs the local Ollama server; in the bundled app nobody
+            # has run `ollama serve` in a terminal — that is the point — so bring
+            # up the bundled runtime if nothing is answering. Best-effort: if it
+            # still is not up, the gate stays fail-visible and alerts arrive
+            # UNVERIFIED.
+            try:
+                from cvti.verification import ollama as _ollama
+                _ollama.ensure_server()
+            except Exception:  # noqa: BLE001 - engine start must not die on this
+                log.warning("could not ensure the local VLM server", exc_info=True)
         cmd = self._engine_command() + [
                "--site-config", self.site_path,
                # Identity is global: with per-feed event stores the engine's
                # mobile view would otherwise build an EMPTY account store and
                # nobody could sign in from a phone.
-               "--security-dir", str(Path(self._home_db).parent),
-               "--gate-provider", "ollama", "--gate-model", LOCAL_VLM_MODEL,
+               "--security-dir", str(Path(self._home_db).parent)] + \
+              verifier_providers.engine_args(verifier) + [
                "--notify", notify, "--output-dir", str(out_dir),
                "--seconds", "100000", "--gate-drain", "60"] + inference_args
-        if sys.platform == "darwin":
+        if sys.platform == "darwin" and spec.local:
             # Apple silicon shares ONE pool of memory between CPU and GPU, and
             # Ollama runs the gate model on Metal. A torch-MPS detector in the
             # same pool wedged the whole engine mid-graph under memory pressure
             # (12 Sep, main thread sampled inside MPSGraph mutex waits; log and
             # heartbeat silent while the process spun at 96% CPU). Detection at
             # 4fps/512px costs ~40ms on the CPU — give the GPU to the VLM.
+            # A cloud verifier leaves the GPU to the detector.
             cmd += ["--device", "cpu"]
         kwargs = {}
+        # The key reaches the engine through its environment and nowhere else:
+        # not in site.json, not on the command line a process list would show.
+        key_env = verifier_providers.key_environment(verifier, self._secret_store().get(VERIFIER_KEY))
+        if key_env:
+            import os
+            kwargs["env"] = {**os.environ, **key_env}
         if sys.platform == "win32":
             # The engine is a console-mode exe; from the windowed app that would
             # flash a terminal at the user. Same flag is a no-op run from a shell.
