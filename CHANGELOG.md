@@ -4,6 +4,33 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.9.5 — 10 Oct 2026
+
+Pilot wall fixes from the server logs, by Demi.
+
+**Saving a camera keeps its place.** Changing a camera's detector settings
+used to move it to the end of the list, which reshuffled the wall and
+re-subscribed tiles that were playing fine. Cameras now stay in order.
+
+**The pre-monitoring preview no longer runs behind.** The preview used to
+sleep after every frame it read, so a camera sending 30 frames a second
+built up a backlog and the picture drifted seconds behind live. The preview
+now drains the camera at its own pace and only throttles how many pictures
+it encodes.
+
+**A stream that never shows its first picture gives up and retries.** A tile
+could sit on "Connecting" indefinitely. It now times out after 20 seconds and
+goes through the normal retry path.
+
+**Person boxes are never seconds old.** On a slow box the smooth preview
+could paint boxes from an earlier frame onto newer video. Boxes now expire
+one second after the frame they belong to; a slow detector means fewer boxes,
+not wrong ones.
+
+**Support bundles carry preview diagnostics.** The bundle now records how
+each preview stream was opened, how long the first picture took, and whether
+the saved health files were fresh when the bundle was made.
+
 ## v1.9.4 — 8 Oct 2026
 
 **Stopping monitoring no longer leaves a video relay running.** On Windows,
