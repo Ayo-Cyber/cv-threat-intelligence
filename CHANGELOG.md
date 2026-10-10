@@ -4,6 +4,34 @@ What changed in each release, written for the person who has to decide whether
 to update. Dates are release dates. Every version is built by CI from a tag on
 `main` and published with SHA-256 sums — verify your download against them.
 
+## v1.10.0 — 10 Oct 2026
+
+**Choose where alerts are checked.** Until now the AI that double-checks
+every alert ran on the computer Argus is installed on. On a server without
+a graphics card that took a minute or more per alert, and the check often
+gave up. Settings → AI verification (and the AI model step of setup) now
+offers a choice: on this computer, or a cloud provider — OpenRouter, Groq,
+Google Gemini, Anthropic Claude, or your own OpenAI-compatible endpoint.
+Paste the provider's API key, press Test, and the next Start monitoring
+sends alert frames there over HTTPS and gets a verdict in seconds. Live
+video never leaves the site; only the few still images behind a candidate
+alert do, and nothing at all for alerts the rules confirm on their own.
+
+**The key is kept privately.** It is stored in a file only your account can
+read, beside the login database, and handed to the engine through its
+environment. It is never written into the site configuration, never shown
+in a process list, and never included in a support bundle.
+
+**Cloud models now see the whole alert.** The generic cloud path used to
+send only the first frame, so the model never saw the zoomed-in subject
+crop that decides most verdicts. Every frame goes now, with retries when a
+provider is busy.
+
+**Scene mapping, English rules and watches follow the choice.** Choosing a
+cloud verifier used to send scene mapping back to the on-device model and
+switched English rules and watches off entirely. All three now run on the
+same provider as alert verification.
+
 ## v1.9.5 — 10 Oct 2026
 
 Pilot wall fixes from the server logs, by Demi.
