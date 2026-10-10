@@ -2331,6 +2331,7 @@ class ConsoleBackend:
         try:
             reply = _probe_cloud_verifier(spec, settings, key)
         except Exception as exc:  # noqa: BLE001 - the whole point is to report it
+            log.info("verifier test against %s failed: %s", spec.id, str(exc)[:200])
             return {"ok": False, "provider": spec.id, "detail": str(exc)[:400],
                     "latency_ms": int((time.monotonic() - started) * 1000)}
         return {"ok": True, "provider": spec.id, "model": settings["model"],

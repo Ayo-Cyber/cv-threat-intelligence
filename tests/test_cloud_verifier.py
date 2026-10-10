@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -32,13 +33,21 @@ from cvti.verification import providers  # noqa: E402
 from _backend_helper import signed_in  # noqa: E402
 
 
-def _backend(tmp):
+def _backend(case):
+    """A signed-in backend in its own temp dir. Cleanups run last-in first-out:
+    the backend's databases and log are closed BEFORE the directory goes,
+    which is what Windows needs to delete it."""
+    tmp = tempfile.mkdtemp()
+    case.addCleanup(shutil.rmtree, tmp, True)
     site = Path(tmp) / "site"
     site.mkdir(exist_ok=True)
     (site / "site.json").write_text(json.dumps({"name": "Test", "cameras": [
         {"id": "cam1", "name": "Gate", "source": "rtsp://127.0.0.1:1/x"}]}))
-    return signed_in(site_path=str(site / "site.json"), db_path=str(site / "events.db"),
-                     enable_demo=False)
+    cb = signed_in(site_path=str(site / "site.json"), db_path=str(site / "events.db"),
+                   enable_demo=False)
+    case.addCleanup(cb.close)
+    case.addCleanup(cb._close_engine_log)
+    return cb
 
 
 class ProviderCatalogue(unittest.TestCase):
@@ -91,16 +100,17 @@ class ProviderCatalogue(unittest.TestCase):
 
 class SecretsFile(unittest.TestCase):
     def test_private_file_round_trip_and_delete(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = SecretStore(tmp)
-            self.assertEqual(store.get("k"), "")
-            store.set("k", "sk-secret")
-            self.assertEqual(store.get("k"), "sk-secret")
-            if os.name != "nt":
-                mode = stat.S_IMODE(os.stat(store.path).st_mode)
-                self.assertEqual(mode, stat.S_IRUSR | stat.S_IWUSR, oct(mode))
-            store.delete("k")
-            self.assertFalse(store.has("k"))
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        store = SecretStore(tmp)
+        self.assertEqual(store.get("k"), "")
+        store.set("k", "sk-secret")
+        self.assertEqual(store.get("k"), "sk-secret")
+        if os.name != "nt":
+            mode = stat.S_IMODE(os.stat(store.path).st_mode)
+            self.assertEqual(mode, stat.S_IRUSR | stat.S_IWUSR, oct(mode))
+        store.delete("k")
+        self.assertFalse(store.has("k"))
 
 
 class LaunchingTheEngine(unittest.TestCase):
@@ -114,109 +124,106 @@ class LaunchingTheEngine(unittest.TestCase):
         with mock.patch("cvti.verification.ollama.ensure_server", ensure), \
              mock.patch("subprocess.Popen") as popen:
             popen.return_value = mock.Mock(poll=lambda: None)
-            cb._spawn_engine()
+            try:
+                cb._spawn_engine()
+            finally:
+                # The spawn opens monitor.log for the (mocked) subprocess; on
+                # Windows an open handle blocks the temp directory's removal.
+                cb._close_engine_log()
         argv = popen.call_args.args[0]
         return argv, popen.call_args.kwargs, calls["ensure"]
 
     def test_default_is_the_local_runtime_and_it_is_started(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cb = _backend(tmp)
-            argv, kwargs, ensure = self._launch(cb)
-            self.assertEqual(argv[argv.index("--gate-provider") + 1], "ollama")
-            self.assertEqual(ensure, 1)
-            self.assertNotIn("env", kwargs)
+        cb = _backend(self)
+        argv, kwargs, ensure = self._launch(cb)
+        self.assertEqual(argv[argv.index("--gate-provider") + 1], "ollama")
+        self.assertEqual(ensure, 1)
+        self.assertNotIn("env", kwargs)
 
     def test_cloud_provider_skips_ollama_and_passes_the_key_in_env_only(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cb = _backend(tmp)
-            cb.set_verifier(provider="openrouter", model="google/gemini-2.5-flash-lite", api_key="sk-or-123")
-            argv, kwargs, ensure = self._launch(cb)
-            self.assertEqual(ensure, 0, "a cloud verifier must not start the local runtime")
-            self.assertEqual(argv[argv.index("--gate-provider") + 1], "openrouter")
-            self.assertEqual(argv[argv.index("--gate-model") + 1], "google/gemini-2.5-flash-lite")
-            self.assertNotIn("sk-or-123", " ".join(argv), "the key must never be on the command line")
-            self.assertEqual(kwargs["env"]["OPENROUTER_API_KEY"], "sk-or-123")
-            self.assertEqual(kwargs["env"]["OPENAI_API_KEY"], "sk-or-123")
-            site = json.loads(Path(cb.site_path).read_text())
-            self.assertNotIn("sk-or-123", json.dumps(site), "the key must never be in site.json")
-            self.assertEqual(site["gate"]["provider"], "openrouter")
+        cb = _backend(self)
+        cb.set_verifier(provider="openrouter", model="google/gemini-2.5-flash-lite", api_key="sk-or-123")
+        argv, kwargs, ensure = self._launch(cb)
+        self.assertEqual(ensure, 0, "a cloud verifier must not start the local runtime")
+        self.assertEqual(argv[argv.index("--gate-provider") + 1], "openrouter")
+        self.assertEqual(argv[argv.index("--gate-model") + 1], "google/gemini-2.5-flash-lite")
+        self.assertNotIn("sk-or-123", " ".join(argv), "the key must never be on the command line")
+        self.assertEqual(kwargs["env"]["OPENROUTER_API_KEY"], "sk-or-123")
+        self.assertEqual(kwargs["env"]["OPENAI_API_KEY"], "sk-or-123")
+        site = json.loads(Path(cb.site_path).read_text())
+        self.assertNotIn("sk-or-123", json.dumps(site), "the key must never be in site.json")
+        self.assertEqual(site["gate"]["provider"], "openrouter")
 
     def test_custom_endpoint_needs_url_and_model(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cb = _backend(tmp)
-            with self.assertRaises(ValueError):
-                cb.set_verifier(provider="custom", model="m")
-            with self.assertRaises(ValueError):
-                cb.set_verifier(provider="custom", base_url="https://h/v1")
-            cb.set_verifier(provider="custom", model="m", base_url="https://h/v1", api_key="k")
-            argv, kwargs, _ = self._launch(cb)
-            self.assertEqual(argv[argv.index("--gate-base-url") + 1], "https://h/v1")
-            self.assertEqual(kwargs["env"]["OPENAI_API_KEY"], "k")
+        cb = _backend(self)
+        with self.assertRaises(ValueError):
+            cb.set_verifier(provider="custom", model="m")
+        with self.assertRaises(ValueError):
+            cb.set_verifier(provider="custom", base_url="https://h/v1")
+        cb.set_verifier(provider="custom", model="m", base_url="https://h/v1", api_key="k")
+        argv, kwargs, _ = self._launch(cb)
+        self.assertEqual(argv[argv.index("--gate-base-url") + 1], "https://h/v1")
+        self.assertEqual(kwargs["env"]["OPENAI_API_KEY"], "k")
 
     def test_saving_without_a_key_keeps_the_stored_one(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cb = _backend(tmp)
-            cb.set_verifier(provider="groq", api_key="first")
-            cb.set_verifier(provider="groq", model="other-model", api_key="")
-            self.assertEqual(cb._secret_store().get(VERIFIER_KEY), "first")
-            self.assertTrue(cb.verifier_settings()["key_set"])
-            cb.clear_verifier_key()
-            self.assertFalse(cb.verifier_settings()["key_set"])
-            self.assertNotIn("first", json.dumps(cb.verifier_settings()))
+        cb = _backend(self)
+        cb.set_verifier(provider="groq", api_key="first")
+        cb.set_verifier(provider="groq", model="other-model", api_key="")
+        self.assertEqual(cb._secret_store().get(VERIFIER_KEY), "first")
+        self.assertTrue(cb.verifier_settings()["key_set"])
+        cb.clear_verifier_key()
+        self.assertFalse(cb.verifier_settings()["key_set"])
+        self.assertNotIn("first", json.dumps(cb.verifier_settings()))
 
 
 class StatusAndChecks(unittest.TestCase):
     def test_gate_status_for_a_cloud_provider_is_live_once_the_key_is_saved(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cb = _backend(tmp)
-            cb.set_verifier(provider="gemini")
-            s = cb.gate_status()
-            self.assertTrue(s["cloud"])
-            self.assertEqual(s["mode"], "no-key")
-            cb.set_verifier(provider="gemini", api_key="AIza")
-            s = cb.gate_status()
-            self.assertEqual(s["mode"], "live")
-            self.assertEqual(s["provider"], "gemini")
-            self.assertFalse(s["ollama"])
+        cb = _backend(self)
+        cb.set_verifier(provider="gemini")
+        s = cb.gate_status()
+        self.assertTrue(s["cloud"])
+        self.assertEqual(s["mode"], "no-key")
+        cb.set_verifier(provider="gemini", api_key="AIza")
+        s = cb.gate_status()
+        self.assertEqual(s["mode"], "live")
+        self.assertEqual(s["provider"], "gemini")
+        self.assertFalse(s["ollama"])
 
     def test_gate_status_for_the_local_runtime_still_probes_ollama(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cb = _backend(tmp)
-            with mock.patch("cvti.serving.vlm.gate_status",
-                            return_value={"ollama": True, "model_present": True, "mode": "live",
-                                          "model": "gemma3:4b", "models": []}) as probe:
-                s = cb.gate_status()
-            self.assertTrue(probe.called)
-            self.assertFalse(s["cloud"])
-            self.assertEqual(s["mode"], "live")
+        cb = _backend(self)
+        with mock.patch("cvti.serving.vlm.gate_status",
+                        return_value={"ollama": True, "model_present": True, "mode": "live",
+                                      "model": "gemma3:4b", "models": []}) as probe:
+            s = cb.gate_status()
+        self.assertTrue(probe.called)
+        self.assertFalse(s["cloud"])
+        self.assertEqual(s["mode"], "live")
 
     def test_setup_check_names_the_missing_key(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cb = _backend(tmp)
-            cb.set_verifier(provider="groq")
-            with mock.patch.object(cb, "_probe_stream", return_value=(True, "ok")):
-                rows = {c["id"]: c for c in cb.setup_check()}
-            self.assertFalse(rows["verifier"]["ok"])
-            self.assertIn("API key", rows["verifier"]["fix"])
-            cb.set_verifier(provider="groq", api_key="gsk")
-            with mock.patch.object(cb, "_probe_stream", return_value=(True, "ok")):
-                rows = {c["id"]: c for c in cb.setup_check()}
-            self.assertTrue(rows["verifier"]["ok"])
-            self.assertIn("Groq", rows["verifier"]["detail"])
+        cb = _backend(self)
+        cb.set_verifier(provider="groq")
+        with mock.patch.object(cb, "_probe_stream", return_value=(True, "ok")):
+            rows = {c["id"]: c for c in cb.setup_check()}
+        self.assertFalse(rows["verifier"]["ok"])
+        self.assertIn("API key", rows["verifier"]["fix"])
+        cb.set_verifier(provider="groq", api_key="gsk")
+        with mock.patch.object(cb, "_probe_stream", return_value=(True, "ok")):
+            rows = {c["id"]: c for c in cb.setup_check()}
+        self.assertTrue(rows["verifier"]["ok"])
+        self.assertIn("Groq", rows["verifier"]["detail"])
 
     def test_test_verifier_reports_a_bad_key_without_raising(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cb = _backend(tmp)
-            cb.set_verifier(provider="groq", api_key="bad")
-            with mock.patch("cvti.app.console_backend._probe_cloud_verifier",
-                            side_effect=RuntimeError("HTTP 401: invalid api key")):
-                r = cb.test_verifier()
-            self.assertFalse(r["ok"])
-            self.assertIn("401", r["detail"])
-            with mock.patch("cvti.app.console_backend._probe_cloud_verifier", return_value="OK"):
-                r = cb.test_verifier()
-            self.assertTrue(r["ok"])
-            self.assertIn("Groq", r["detail"])
+        cb = _backend(self)
+        cb.set_verifier(provider="groq", api_key="bad")
+        with mock.patch("cvti.app.console_backend._probe_cloud_verifier",
+                        side_effect=RuntimeError("HTTP 401: invalid api key")):
+            r = cb.test_verifier()
+        self.assertFalse(r["ok"])
+        self.assertIn("401", r["detail"])
+        with mock.patch("cvti.app.console_backend._probe_cloud_verifier", return_value="OK"):
+            r = cb.test_verifier()
+        self.assertTrue(r["ok"])
+        self.assertIn("Groq", r["detail"])
 
     def test_probe_restores_the_environment(self):
         spec = providers.PROVIDERS["groq"]
