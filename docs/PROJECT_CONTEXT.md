@@ -1,5 +1,17 @@
 # Project Context
 
+## Pilot stream stability (2026-10-09)
+
+- Work starts from Ayo's v1.9.4 relay cleanup in an isolated worktree; the
+  onboarding documentation edits in the original checkout are preserved.
+- Latest diagnostics confirm only Normal movement enabled on three cameras,
+  continued CPU saturation, 11/12 connected cameras and no movement detector
+  enabled on Caprisone. Do not assume the latter is a fisheye-model failure.
+- Fix camera reorder on detector saves, artificial live-preview read pacing,
+  first-frame connection timeout/retry and stale smooth person overlays.
+- See PILOT_STREAM_STABILITY_2026_10_09.md for evidence, tradeoffs and remaining
+  HEVC/source/compute validation. No Windows deployment performed here.
+
 ## Missing Movement Controls and Support Export (2026-10-07)
 
 - Corrected the earlier advice: Normal movement was defined but actually

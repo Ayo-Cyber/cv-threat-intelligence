@@ -755,7 +755,9 @@ export default function App() {
                     ws.monitor.crash_looping ||
                     (!ws.monitor.running && ws.monitor.last_error)) && (
                     <Notice error>
-                      Monitoring needs attention.{" "}
+                      {ws.monitor.stalled || ws.monitor.crash_looping
+                        ? "Monitoring needs attention."
+                        : "Monitoring is stopped. Last recorded log message (may be historical):"}{" "}
                       {ws.monitor.last_error ||
                         "The engine is not reporting a healthy heartbeat."}
                     </Notice>

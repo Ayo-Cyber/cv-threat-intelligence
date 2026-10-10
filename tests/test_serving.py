@@ -655,6 +655,16 @@ class SmoothPublishTest(unittest.TestCase):
             [FrameOverlay(4, (1, 2, 30, 40), "#4 MOVING", (0, 200, 0))],
         )
 
+    def test_smooth_person_boxes_expire_from_observation_not_completion(self):
+        from cvti.serving.pipeline import _frame_overlays
+        state = SimpleNamespace(
+            _motion_overlay_observed_at=10.0,
+            _motion_overlays=[{"track_id": 1, "bbox": (1, 2, 30, 40), "label": "PERSON"}],
+        )
+        self.assertEqual(len(_frame_overlays(state, 10.5)), 1)
+        self.assertEqual(_frame_overlays(state, 12.0), [])
+        self.assertEqual(len(_frame_overlays(state, 12.0, exact_frame=True)), 1)
+
     def test_aggregate_track_ids_reach_publisher_alert_state(self):
         from cvti.contracts import CandidateAlert
         from cvti.serving.pipeline import _alert_track_ids

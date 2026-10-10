@@ -11,6 +11,7 @@ import { resolveCameraStream, type ResolvedCameraStream } from "../lib/whep";
 import { Empty, Spinner } from "./common";
 
 const RETRY_OFFLINE_MS = 5_000;
+const FIRST_FRAME_TIMEOUT_MS = 20_000;
 
 type PlayerState =
   | { kind: "loading" }
@@ -109,6 +110,15 @@ export default function CameraStream({
     return () => onLiveChange?.(false);
   }, [onLiveChange, presentation.phase]);
 
+  // A multipart connection can stay open without delivering any image or
+  // firing onError. Give it a deadline so the existing retry path can recover.
+  useEffect(() => {
+    if (!active || evidence !== "none" || imageFailed ||
+        state.kind === "inactive" || state.kind === "offline") return;
+    const timer = setTimeout(() => setImageFailed(true), FIRST_FRAME_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [active, evidence, imageFailed, state, retry]);
+
   // Refresh the descriptor when capture ownership changes. A stopped MJPEG
   // publisher can leave its last image visible without firing an image error.
   useEffect(() => {
@@ -168,11 +178,11 @@ export default function CameraStream({
           Connecting feed...
         </div>
       ) : presentation.phase === "offline" ? (
-        <Empty title="Camera offline">
+        <Empty title="Preview unavailable">
           {state.kind === "offline"
             ? state.message
             : imageFailed
-              ? "The fallback stream could not be loaded."
+              ? "No camera image received. Retrying the connection."
               : "Camera health reports that this feed is offline."}
         </Empty>
       ) : presentation.phase === "inactive" ? (

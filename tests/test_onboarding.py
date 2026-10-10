@@ -29,6 +29,7 @@ class OnboardingTests(unittest.TestCase):
         onboarding.add_camera(self.site, {"id": "front", "source": "rtsp://a/CHANGED"})
         cams = onboarding.list_cameras(self.site)
         self.assertEqual(len(cams), 2)
+        self.assertEqual([c["id"] for c in cams], ["front", "back"])
         self.assertEqual(next(c for c in cams if c["id"] == "front")["source"], "rtsp://a/CHANGED")
         # remove
         onboarding.remove_camera(self.site, "front")

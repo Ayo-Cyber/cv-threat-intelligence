@@ -17,6 +17,21 @@ async function render(page: Page, options: Record<string, unknown>) {
   );
 }
 
+test("a stream with no first image times out and retries without a remount", async ({ page }) => {
+  await page.route("**/stalled.mjpeg", () => {});
+  await page.route("**/recovered.mjpeg", (route) => route.fulfill({ contentType: "image/jpeg", body: jpeg }));
+  await openHarness(page);
+  await page.clock.install();
+  await render(page, { state: "connected", descriptor: { kind: "mjpeg", url: "/stalled.mjpeg" } });
+  await expect(page.locator(".media-label")).toHaveText("CONNECTING");
+  await page.clock.runFor(20_100);
+  await expect(page.locator(".media-label")).toHaveText("OFFLINE");
+  await expect(page.getByText("No camera image received. Retrying the connection.")).toBeVisible();
+  await render(page, { state: "connected", descriptor: { kind: "mjpeg", url: "/recovered.mjpeg" } });
+  await page.clock.runFor(5_100);
+  await expect(page.locator(".media-label")).toHaveText("MJPEG FEED");
+});
+
 test("concealment warning is camera scoped, expires and works without tracking", async ({ page }) => {
   await page.route("**/camera.mjpeg", (route) => route.fulfill({ contentType: "image/jpeg", body: jpeg }));
   await openHarness(page);

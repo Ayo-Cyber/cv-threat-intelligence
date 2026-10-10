@@ -4,6 +4,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from _backend_helper import signed_in
 
@@ -11,6 +12,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIPS = sorted((ROOT / "data" / "test_clips").glob("*.mp4"))
+
+
+class PreviewPacingTests(unittest.TestCase):
+    def test_network_reads_are_not_throttled_but_jpeg_encoding_is(self):
+        import numpy as np
+        from cvti.app.live_wall import LiveWall
+        wall = LiveWall([], fps=8)
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+        capture = Mock()
+        reads = []
+
+        def read():
+            reads.append(1)
+            if len(reads) == 4:
+                wall._stop.set()
+            return True, image
+
+        capture.read.side_effect = read
+        with patch.object(wall, "_open", return_value=capture), \
+                patch("cvti.app.live_wall.time.monotonic", side_effect=[0, .04, .08, .16]), \
+                patch("cvti.app.live_wall.cv2.imencode", return_value=(True, np.array([1]))) as encode, \
+                patch.object(wall._stop, "wait") as wait:
+            wall._decode("camera", "rtsp://example/live")
+        self.assertEqual(len(reads), 4)
+        self.assertEqual(encode.call_count, 2)
+        wait.assert_not_called()
+        capture.release.assert_called()
+
+    def test_local_files_keep_playback_pacing(self):
+        import numpy as np
+        from cvti.app.live_wall import LiveWall
+        wall = LiveWall([], fps=8)
+        capture = Mock()
+        capture.read.return_value = (True, np.zeros((8, 8, 3), dtype=np.uint8))
+        with patch.object(wall, "_open", return_value=capture), \
+                patch.object(wall._stop, "wait", side_effect=lambda _: wall._stop.set()) as wait:
+            wall._decode("camera", "example.mp4")
+        wait.assert_called_once_with(.125)
 
 
 @unittest.skipUnless(CLIPS, "no test clips present")

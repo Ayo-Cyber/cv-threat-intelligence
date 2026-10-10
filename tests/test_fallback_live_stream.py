@@ -87,14 +87,41 @@ class NetworkStreamRecoversTest(unittest.TestCase):
     """A camera blip must not freeze the fallback forever. Proven live against
     mediamtx (29 Aug): kill the publisher, bring it back — the frame counter
     stayed identical, because a dead VideoCapture never revives on its own and
-    nothing reopened it. Same disease the rules scanner had on 23 Aug. Pinned
-    at source level here; the live-RTSP proof ran against a real server
+    nothing reopened it. Same disease the rules scanner had on 23 Aug. Tested
+    with a dropped capture here; the live-RTSP proof ran against a real server
     (frame counter 17 -> 58 after recovery)."""
 
     def test_the_decode_loop_reopens_dropped_network_streams(self):
-        import inspect
-        from cvti.app.live_wall import LiveWall
-        src = inspect.getsource(LiveWall._decode_frames)
-        self.assertIn('is_net = "://" in src', src)
-        self.assertIn("cap = self._open(source)", src.split("while not")[1],
-                      "no reopen inside the decode loop — a blip is forever")
+        from unittest.mock import Mock, patch
+        import numpy as np
+
+        wall = LiveWall([])
+        failed, recovered = Mock(), Mock()
+        failed.read.return_value = (False, None)
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+        def read_recovered():
+            wall._stop.set()
+            return True, image
+
+        recovered.read.side_effect = read_recovered
+        clock = [100.0]
+
+        def advance(_delay):
+            clock[0] += 4
+            if clock[0] > 112:
+                wall._stop.set()  # bound the test even if reconnect regresses
+
+        with patch("cvti.serving.capture.open_capture", side_effect=[failed, recovered]) as opener, \
+                patch("cvti.app.live_wall.time.time", side_effect=lambda: clock[0]), \
+                patch.object(wall._stop, "wait", side_effect=advance):
+            wall._decode("cam", "rtsp://camera/live")
+
+        self.assertEqual(opener.call_count, 2)
+        opener.assert_called_with("rtsp://camera/live")
+        failed.release.assert_called_once()
+        self.assertIsNotNone(wall.jpeg("cam"), "no image published after recovery")
+        report = wall.diagnostics()["cam"]
+        self.assertEqual(report["open_attempts"], 2)
+        self.assertGreater(report["read_failures"], 0)
+        self.assertEqual(report["state"], "receiving")

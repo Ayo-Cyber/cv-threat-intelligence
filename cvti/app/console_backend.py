@@ -2151,7 +2151,10 @@ class ConsoleBackend:
         from cvti.diagnostics import build_bundle
         out_dir = Path(self.db_path).parent
         try:
-            path = build_bundle(out_dir, site_path=self.site_path)
+            preview = getattr(self, "_preview", None)
+            path = build_bundle(out_dir, site_path=self.site_path,
+                                preview=preview.diagnostics() if preview else
+                                {"mode": "preview", "cameras": {}, "status": "not_started"})
         except Exception as exc:  # noqa: BLE001 - support tooling must not crash the app
             log.exception("diagnostics bundle failed", exc_info=True)
             return {"ok": False, "error": str(exc)[:200]}
