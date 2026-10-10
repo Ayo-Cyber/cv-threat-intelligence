@@ -23,6 +23,10 @@ export type GateStatus = {
   mode?: string;
   model?: string;
   runtime_bundled?: boolean;
+  /** True when alerts are checked by a cloud provider: nothing to download. */
+  cloud?: boolean;
+  provider?: string;
+  label?: string;
 };
 
 export type PullProgress = {
@@ -84,6 +88,16 @@ export function verifierMessage(
   pull: PullProgress | null,
 ): { tone: "ready" | "working" | "action"; text: string } | null {
   if (!gate) return null;
+  if (gate.cloud) {
+    // A cloud verifier has nothing to download. Live means its key is saved.
+    const where = gate.label || gate.provider || "the cloud provider";
+    if (gate.mode === "live")
+      return { tone: "ready", text: `Alerts are checked by ${where}${gate.model ? ` (${gate.model})` : ""}.` };
+    return {
+      tone: "action",
+      text: `${where} is selected but no API key is saved. Enter it under AI verification; alerts stay unverified until then.`,
+    };
+  }
   if (gate.mode === "live")
     return { tone: "ready", text: "On-device AI ready." };
   if (pull?.state === "pulling") {
@@ -255,7 +269,7 @@ export default function VerifierDownload({
           online.
         </Notice>
       )}
-      {!compact && message.tone === "action" && (
+      {!compact && message.tone === "action" && !gate?.cloud && (
         <div className="actions">
           <button className="button primary" disabled={busy} onClick={() => void download()}>
             {busy ? <Spinner /> : <Download size={16} />}

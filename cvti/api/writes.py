@@ -281,6 +281,13 @@ ROUTES: list[R] = [
     R("pull_model", "POST", "/engine/models/pull", body={"model": "model"}),
     R("pull_recognition_model", "POST", "/engine/models/recognition/pull"),
     R("recognition_model_status", "GET", "/engine/models/recognition"),
+    # --- verifier provider: which AI checks alerts, and its key ---
+    R("verifier_settings", "GET", "/engine/verifier"),
+    R("set_verifier", "PUT", "/engine/verifier",
+      body={"provider": "provider", "model": "model", "base_url": "base_url",
+            "api_key": "api_key"}),
+    R("clear_verifier_key", "DELETE", "/engine/verifier/key"),
+    R("test_verifier", "POST", "/engine/verifier/test"),
     R("pull_progress", "GET", "/engine/models/pull",
       query={"model": ("model", str)}),
     R("feed_sources", "GET", "/engine/feeds"),

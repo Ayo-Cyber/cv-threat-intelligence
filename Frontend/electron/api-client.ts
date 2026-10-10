@@ -452,6 +452,14 @@ const operations: Record<string, Operation> = {
     path: fixed("/engine/models/pull"),
     body: ([model]) => ({ model }),
   },
+  verifier_settings: { method: "GET", path: fixed("/engine/verifier") },
+  set_verifier: {
+    method: "PUT",
+    path: fixed("/engine/verifier"),
+    body: ([provider, model, base_url, api_key]) => ({ provider, model, base_url, api_key }),
+  },
+  clear_verifier_key: { method: "DELETE", path: fixed("/engine/verifier/key") },
+  test_verifier: { method: "POST", path: fixed("/engine/verifier/test") },
   pull_progress: {
     method: "GET",
     path: fixed("/engine/models/pull"),

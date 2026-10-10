@@ -13,6 +13,7 @@ import VerifierDownload, {
   type GateStatus,
   type PullProgress,
 } from "./VerifierDownload";
+import VerifierProvider from "./VerifierProvider";
 import LocationManager from "./LocationManager";
 import NotificationSetup from "./NotificationSetup";
 import {
@@ -72,6 +73,9 @@ export default function Setup({
   // The model's state, reported by whichever VerifierDownload is mounted.
   const [gate, setGate] = useState<GateStatus | null>(null);
   const [pull, setPull] = useState<PullProgress | null>(null);
+  // Bumped when the verifier choice is saved, so the status poller remounts
+  // and re-reads gate status at once instead of on its next 4 s tick.
+  const [statusTick, setStatusTick] = useState(0);
   const [online, setOnline] = useState(
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
   );
@@ -153,17 +157,27 @@ export default function Setup({
         {step === STEP_AI && (
           <>
             <p>
-              Argus runs its AI on this computer. The model ({MODEL_SIZE}) is
-              downloaded once and reads what each camera sees and checks every
-              alert before it reaches you. The download starts now and carries
-              on while you set up your cameras; Finish waits for it.
+              An AI reads what each camera sees and checks every alert before it
+              reaches you. It can run on this computer, where the model (
+              {MODEL_SIZE}) is downloaded once, or at a cloud provider with an
+              API key, which suits a server without a GPU. Finish waits until the
+              choice is ready.
             </p>
             {mode === "demo" ? (
               <Notice>
                 Demo mode has no AI model to download. Sample footage only.
               </Notice>
             ) : (
-              <VerifierDownload api={api} mode={mode} autoStart onStatus={onStatus} />
+              <>
+                <VerifierProvider api={api} mode={mode} onSaved={() => setStatusTick((n) => n + 1)} />
+                <VerifierDownload
+                  key={statusTick}
+                  api={api}
+                  mode={mode}
+                  autoStart={!gate?.cloud}
+                  onStatus={onStatus}
+                />
+              </>
             )}
             {mode === "engine" && ready && (
               <Notice>On-device AI ready. Continue to set up your site.</Notice>

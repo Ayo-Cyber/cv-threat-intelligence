@@ -16,6 +16,22 @@ describe("what the operator is told about the on-device AI", () => {
     expect(message?.tone).toBe("ready");
   });
 
+  it("a cloud verifier is described by name, never as a download", () => {
+    const live = verifierMessage(
+      { mode: "live", cloud: true, label: "OpenRouter", model: "google/gemini-2.5-flash-lite" },
+      null,
+    );
+    expect(live?.tone).toBe("ready");
+    expect(live?.text).toContain("OpenRouter");
+    expect(live?.text).toContain("gemini-2.5-flash-lite");
+    expect(live?.text).not.toContain(MODEL_SIZE);
+    const noKey = verifierMessage({ mode: "no-key", cloud: true, label: "Groq" }, null);
+    expect(noKey?.tone).toBe("action");
+    expect(noKey?.text).toContain("Groq");
+    expect(noKey?.text).toContain("API key");
+    expect(noKey?.text).not.toContain(MODEL_SIZE);
+  });
+
   it("names the size when nothing has been downloaded", () => {
     const message = verifierMessage({ mode: "no-model" }, { state: "idle" });
     expect(message?.tone).toBe("action");

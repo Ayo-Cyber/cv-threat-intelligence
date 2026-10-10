@@ -521,7 +521,12 @@ class VerificationGate:
     LOCAL_MOVEMENT_MAX_FRAMES = 3
     # Conventional API-key env var per provider.
     DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY",
-                       "ollama": "OLLAMA_API_KEY"}
+                       "ollama": "OLLAMA_API_KEY", "openai_compatible": "OPENAI_API_KEY"}
+    # A cloud verdict that has not answered in a minute is not coming: the
+    # scene is gone and fail-visible UNVERIFIED beats a long wait. The local
+    # path keeps its latency-derived budget (a cold CPU model load is slow).
+    CLOUD_TIMEOUT_S = 60.0
+    CLOUD_MAX_RETRIES = 3
 
     def __init__(
         self,
@@ -779,17 +784,27 @@ class VerificationGate:
         started = time.monotonic()
         if self.provider == "mock":
             raw_response = _mock_response(alert)
-        elif self.provider in ("local", "openai_compatible"):
+        elif self.provider == "local":
             raw_response = _call_openai_compatible(
                 prompt=prompt,
                 frame_bytes=frames_bytes[0],
                 model=self.model,
-                base_url=self.base_url or "https://api.openai.com/v1",
-                # Local Ollama needs no key; OpenAI-compatible clouds do.
-                api_key_env="" if self.provider == "local" else self.api_key_env,
+                base_url=self.base_url or "http://localhost:11434/v1",
+                api_key_env="",          # local Ollama needs no key
                 max_tokens=max_tokens,
                 timeout=self.transport_timeout(),
             )
+        elif self.provider == "openai_compatible":
+            # Every evidence frame goes, the subject crop included (it is the
+            # LAST image and decides appearance verdicts) — this path used to
+            # send frames_bytes[0] only, so a cloud model never saw the crop.
+            # Same retry helper as OpenRouter: 429/5xx are retried with the
+            # server's retry-after, which free tiers hand out freely.
+            raw_response = _call_openai_compatible_cloud(
+                prompt, frames_bytes, self.model, self.api_key_env,
+                base_url=self.base_url or "https://api.openai.com/v1",
+                max_tokens=max_tokens, max_retries=self.CLOUD_MAX_RETRIES,
+                timeout=self.CLOUD_TIMEOUT_S)
         elif self.provider == "anthropic":
             raw_response = _call_anthropic(prompt, frames_bytes, self.model, self.api_key_env)
         elif self.provider == "openrouter":
@@ -873,6 +888,25 @@ def _call_openrouter(prompt: str, frames_bytes: list[bytes], model: str, api_key
         api_key_env=api_key_env,
         api_base_url="https://openrouter.ai/api/v1",
         max_tokens=max_tokens,
+    )
+
+
+def _call_openai_compatible_cloud(prompt: str, frames_bytes: list[bytes], model: str,
+                                  api_key_env: str, *, base_url: str,
+                                  max_tokens: int | None = None, max_retries: int = 3,
+                                  timeout: float = 60.0) -> str:
+    """Verify at any OpenAI-compatible cloud (Groq, Gemini, a custom endpoint,
+    Argus's own service), all frames, with the shared retry policy."""
+    from cvti.scene.agent_mapper import call_openai_compatible  # local import: only when used
+    return call_openai_compatible(
+        prompt=prompt,
+        frame_bytes=frames_bytes,
+        model=model,
+        api_key_env=api_key_env,
+        api_base_url=base_url,
+        max_retries=max_retries,
+        max_tokens=max_tokens,
+        timeout=timeout,
     )
 
 

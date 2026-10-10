@@ -166,6 +166,22 @@ def _auto_device() -> str:
     return "cpu"
 
 
+def scanner_endpoint_for(gate_provider: str, gate_base_url: str) -> tuple[str, str] | None:
+    """Where the English-rules scanner and the watch runner send their frames,
+    as (base_url, api_key_env), or None when the gate's provider has no
+    OpenAI-compatible endpoint for them (mock, anthropic).
+
+    They used to start only for the local runtime, so choosing a cloud
+    verifier silently switched off every English rule and every watch."""
+    if gate_provider in ("ollama", "local"):
+        return (gate_base_url or "http://localhost:11434/v1", "OLLAMA_API_KEY")
+    if gate_provider == "openrouter":
+        return ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY")
+    if gate_provider == "openai_compatible" and gate_base_url:
+        return (gate_base_url, "OPENAI_API_KEY")
+    return None
+
+
 def resolve_mapper_settings(
     *,
     gate_provider: str,
@@ -177,6 +193,14 @@ def resolve_mapper_settings(
 ) -> tuple[str, str, str]:
     supported = {"mock", "ollama", "local", "anthropic", "openai_compatible"}
     provider = mapper_provider.strip() if mapper_provider else ""
+    if not provider and gate_provider == "openrouter":
+        # The mapper has no OpenRouter row, but OpenRouter speaks the OpenAI
+        # chat API: route it there on the gate's model and key (the app sets
+        # OPENAI_API_KEY alongside OPENROUTER_API_KEY for this reason).
+        # Without this, a cloud gate silently sent scene mapping back to a
+        # local Ollama that a CPU-only server cannot run.
+        return ("openai_compatible", mapper_model or gate_model,
+                mapper_base_url or "https://openrouter.ai/api/v1")
     if not provider:
         provider = gate_provider if gate_provider in supported else "ollama"
     model = mapper_model or (gate_model if provider == gate_provider else "")
@@ -1528,7 +1552,9 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
     ).start()
     custom_scanner = None
     watch_runner = None      # defined here: teardown references it on every path
-    if gate_provider in ("ollama", "local"):
+    scanner_endpoint = scanner_endpoint_for(gate_provider, gate_base_url)
+    if scanner_endpoint is not None:
+        scanner_base_url, scanner_key_env = scanner_endpoint
         # Watches: plain-English subjects to FOLLOW. Binds a description to a
         # tracked person (via numbered boxes) and keeps a case open for them.
         if any(c.get("watches") for c in cams_cfg):
@@ -1546,7 +1572,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
             watch_runner = WatchRunner(
                 cams_cfg, states, sink, model=gate_model or LOCAL_VLM_MODEL,
-                base_url=gate_base_url or "http://localhost:11434/v1",
+                base_url=scanner_base_url, api_key_env=scanner_key_env,
                 frame_source=_latest_frame).start()
 
         # Customer-written English rules run as a slow VLM scan — the VLM IS the
@@ -1564,7 +1590,7 @@ def run_site(site_config_path: str, *, weights: str = "models/yolov8n.pt",
 
         custom_scanner = CustomRuleScanner(
             cams_cfg, sink, model=gate_model or LOCAL_VLM_MODEL,
-            base_url=gate_base_url or "http://localhost:11434/v1",
+            base_url=scanner_base_url, api_key_env=scanner_key_env,
             site_config_path=site_config_path,
             frame_source=_scanner_frame,
             # The tracker's person boxes ground a person claim's evidence box
